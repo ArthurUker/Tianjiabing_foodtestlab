@@ -1,0 +1,22 @@
+/* 基础样式 */
+.nav-btn.active { background-color: #1d4ed8; color: white; } /* Tailwind blue-700 */
+.hidden { display: none; }
+.pdf-capture-mode { background-color: #ffffff !important; }
+
+/* 页面加载防抖动 */
+body { opacity: 0; transition: opacity 0.3s; }
+body.loaded { opacity: 1; }
+
+/* 表格样式微调 */
+td, th { vertical-align: middle; }
+
+/* 加载遮罩层 */
+.loading-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(255,255,255,0.8);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+}
