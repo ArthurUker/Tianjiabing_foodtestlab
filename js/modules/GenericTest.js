@@ -19,7 +19,7 @@ export class GenericTestModule {
             form.removeAttribute('onsubmit');
             form.addEventListener('submit', (e) => this.handleSubmit(e));
             
-            // 添加检测点位信息抬头和增加检测点位按钮
+            // 添加检测点位信息抬头、增加检测点位按钮以及分页控件
             this.updateFormStructure();
             
             // 🔥 如果是油品检测模块，初始化油品质量自动判断
@@ -58,7 +58,96 @@ export class GenericTestModule {
             this.addTestPoint();
         });
 
+        // 🔥 初始化分页监听器
+        this.setupPaginationListeners();
+
         this.render();
+    }
+
+    // 🔥 设置分页监听器 (带防重复绑定)
+    setupPaginationListeners() {
+        const container = document.getElementById(`${this.moduleName}_pagination`);
+        
+        // 检查是否已绑定，防止重复触发
+        if (!container || container.dataset.listenersAttached === 'true') return;
+
+        // 1. 分页点击 (上一页/下一页/数字)
+        container.addEventListener('click', (e) => {
+            const pageBtn = e.target.closest('.page-btn');
+            if (pageBtn) {
+                this.currentPage = parseInt(pageBtn.dataset.page);
+                this.render();
+            }
+            if (e.target.closest(`#${this.moduleName}_prevPage`) && this.currentPage > 1) {
+                this.currentPage--;
+                this.render();
+            }
+            if (e.target.closest(`#${this.moduleName}_nextPage`)) {
+                const records = this.storage.getAll();
+                const totalPages = Math.ceil(records.length / this.recordsPerPage);
+                if (this.currentPage < totalPages) {
+                    this.currentPage++;
+                    this.render();
+                }
+            }
+        });
+
+        // 2. 每页数量改变
+        document.getElementById(`${this.moduleName}_recordsPerPage`)?.addEventListener('change', (e) => {
+            this.recordsPerPage = parseInt(e.target.value);
+            this.currentPage = 1;
+            this.render();
+        });
+
+        // 3. 排序按钮
+        document.getElementById(`${this.moduleName}_sortBtn`)?.addEventListener('click', (e) => {
+            const btn = e.currentTarget;
+            this.sortOrder = this.sortOrder === 'desc' ? 'asc' : 'desc';
+            
+            const textSpan = btn.querySelector('.sort-text');
+            const icon = btn.querySelector('i');
+            if (textSpan) textSpan.textContent = this.sortOrder === 'desc' ? '最新' : '最早';
+            if (icon) icon.className = this.sortOrder === 'desc' ? 'fas fa-sort-amount-down mr-1' : 'fas fa-sort-amount-up mr-1';
+            
+            this.render();
+        });
+
+        // 4. 跳转表单
+        document.getElementById(`${this.moduleName}_jumpForm`)?.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const input = document.getElementById(`${this.moduleName}_jumpInput`);
+            if (input) {
+                const pageNum = parseInt(input.value);
+                const records = this.storage.getAll();
+                const totalPages = Math.ceil(records.length / this.recordsPerPage);
+                if (pageNum >= 1 && pageNum <= totalPages) {
+                    this.currentPage = pageNum;
+                    this.render();
+                }
+            }
+        });
+
+        // 标记已绑定
+        container.dataset.listenersAttached = 'true';
+    }
+
+    // 🔥 更新分页UI显示 (页码按钮)
+    updatePaginationUI(start, end, total, pages) {
+        const info = document.getElementById(`${this.moduleName}_paginationInfo`);
+        if (info) info.textContent = total > 0 ? `显示 ${start + 1}-${end} 条，共 ${total} 条` : '暂无记录';
+
+        const btnContainer = document.getElementById(`${this.moduleName}_pageButtons`);
+        if (btnContainer) {
+            let html = '';
+            let startPage = Math.max(1, this.currentPage - 2);
+            let endPage = Math.min(pages, startPage + 4);
+            if (endPage - startPage < 4 && pages > 4) startPage = Math.max(1, endPage - 4);
+
+            for (let i = startPage; i <= endPage; i++) {
+                html += `<button class="page-btn px-3 py-1 ${i === this.currentPage ? 'bg-blue-500 text-white' : 'bg-gray-100 hover:bg-gray-200'} rounded" data-page="${i}">${i}</button>`;
+            }
+            btnContainer.innerHTML = html;
+        }
     }
     
     // 🔥 删除记录
@@ -429,12 +518,12 @@ export class GenericTestModule {
         }
     }
     
-    // 更新表单结构，添加检测点位信息抬头
+    // 更新表单结构，添加检测点位信息抬头 + 分页控件
     updateFormStructure() {
         const form = document.getElementById(this.formId);
         if (!form) return;
         
-        // 查找数据输入区域（通常是第二行的网格）
+        // --- 1. 处理表单输入区域 (保持原有逻辑) ---
         const dataSection = form.querySelector('.grid-cols-2') || 
                            form.querySelector('.grid:nth-child(2)');
                            
@@ -443,53 +532,37 @@ export class GenericTestModule {
             const sectionTitle = document.createElement('div');
             sectionTitle.className = 'flex justify-between items-center mt-6 mb-3 test-info-header';
             
-            // 不同模块显示不同的标题
             let titleText = '检测点位信息';
-            if (this.moduleName === 'pesticide') {
-                titleText = '果蔬农残检测信息';
-            } else if (this.moduleName === 'oil') {
-                titleText = '食用油品质检测信息';
-            } else if (this.moduleName === 'leanMeat') {
-                titleText = '肉蛋农残检测信息';
-            }
+            if (this.moduleName === 'pesticide') titleText = '果蔬农残检测信息';
+            else if (this.moduleName === 'oil') titleText = '食用油品质检测信息';
+            else if (this.moduleName === 'leanMeat') titleText = '肉蛋农残检测信息';
             
             sectionTitle.innerHTML = `<h3 class="font-medium text-gray-800">${titleText}</h3>`;
-            
-            // 插入标题到数据区域前面
             dataSection.parentNode.insertBefore(sectionTitle, dataSection);
             
-            // 给数据输入区域添加ID，以便后续能找到它
             dataSection.id = `${this.moduleName}DataSection`;
             
-            // 创建数据点位容器，将现有数据输入区域包装进去
             const pointsContainer = document.createElement('div');
             pointsContainer.id = `${this.moduleName}PointsContainer`;
             pointsContainer.className = 'space-y-4';
             
-            // 将数据区域移动到点位容器中
             dataSection.parentNode.insertBefore(pointsContainer, dataSection);
             pointsContainer.appendChild(dataSection);
             
-            // 添加备注文本框
             this.addRemarkField(dataSection);
             
-            // 查找保存按钮容器
             const submitBtnContainer = form.querySelector('button[type="submit"]').closest('div');
             if (submitBtnContainer) {
-                // 确保容器有适当的样式
                 submitBtnContainer.className = 'flex gap-3 mt-6 justify-end';
                 
-                // 添加"增加检测点位"按钮
                 const addPointBtn = document.createElement('button');
                 addPointBtn.id = `btnAdd${this.moduleName}Point`;
                 addPointBtn.type = 'button';
                 addPointBtn.className = 'px-4 py-2 bg-green-600 text-white rounded-md shadow hover:bg-green-700 transition flex items-center';
                 addPointBtn.innerHTML = '<i class="fas fa-plus mr-2"></i>添加检测点位';
                 
-                // 插入按钮
                 submitBtnContainer.insertBefore(addPointBtn, submitBtnContainer.firstChild);
                 
-                // 确保保存按钮样式一致
                 const submitBtn = submitBtnContainer.querySelector('button[type="submit"]');
                 if (submitBtn) {
                     submitBtn.className = 'px-6 py-2 bg-blue-600 text-white rounded-md shadow hover:bg-blue-700 transition flex items-center';
@@ -499,7 +572,65 @@ export class GenericTestModule {
                 }
             }
         }
+
+        // --- 2. [核心修复] 分页控件插入位置修正 ---
+        const tbody = document.getElementById(this.tableId);
+        if (tbody) {
+            // 🔥 关键点：找到 tbody 外层的 table 元素
+            const tableElement = tbody.closest('table');
+            
+            if (tableElement) {
+                // 2.1 插入头部控件 (每页数量 + 排序) -> 放在 table 标签之前
+                if (!document.getElementById(`${this.moduleName}_header_controls`)) {
+                    const headerControls = document.createElement('div');
+                    headerControls.id = `${this.moduleName}_header_controls`;
+                    headerControls.className = 'flex flex-col md:flex-row justify-between items-start md:items-center mt-8 mb-3';
+                    headerControls.innerHTML = `
+                        <h3 class="font-medium text-gray-800 flex items-center mb-2 md:mb-0">
+                            <i class="fas fa-table text-blue-600 mr-2"></i>历史检测记录
+                        </h3>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <div class="flex items-center">
+                                <label class="text-sm text-gray-600 mr-2">每页:</label>
+                                <select id="${this.moduleName}_recordsPerPage" class="border border-gray-300 rounded px-2 py-1 text-sm">
+                                    <option value="5">5</option>
+                                    <option value="10" selected>10</option>
+                                    <option value="20">20</option>
+                                </select>
+                            </div>
+                            <button id="${this.moduleName}_sortBtn" class="flex items-center bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1 rounded text-sm">
+                                <i class="fas fa-sort-amount-down mr-1"></i><span class="sort-text">最新</span>
+                            </button>
+                        </div>
+                    `;
+                    // 插入到 table 元素的前面
+                    tableElement.parentNode.insertBefore(headerControls, tableElement);
+                }
+
+                // 2.2 插入底部控件 (分页条 + 跳转) -> 放在 table 标签之后
+                if (!document.getElementById(`${this.moduleName}_pagination`)) {
+                    const paginationContainer = document.createElement('div');
+                    paginationContainer.id = `${this.moduleName}_pagination`;
+                    paginationContainer.className = 'flex flex-wrap justify-between items-center mt-4 mb-8';
+                    paginationContainer.innerHTML = `
+                        <div class="flex items-center text-sm text-gray-600"><span id="${this.moduleName}_paginationInfo">...</span></div>
+                        <div class="flex items-center space-x-1">
+                            <button id="${this.moduleName}_prevPage" class="px-3 py-1 bg-gray-100 rounded hover:bg-gray-200"><i class="fas fa-chevron-left"></i></button>
+                            <div id="${this.moduleName}_pageButtons" class="flex items-center space-x-1"></div>
+                            <button id="${this.moduleName}_nextPage" class="px-3 py-1 bg-gray-100 rounded hover:bg-gray-200"><i class="fas fa-chevron-right"></i></button>
+                        </div>
+                        <form id="${this.moduleName}_jumpForm" class="flex items-center ml-2">
+                            <input type="number" id="${this.moduleName}_jumpInput" min="1" class="border border-gray-300 rounded w-16 px-2 py-1 text-sm" placeholder="页">
+                            <button type="submit" class="ml-1 px-2 py-1 bg-blue-500 text-white rounded text-sm"><i class="fas fa-arrow-right"></i></button>
+                        </form>
+                    `;
+                    // 插入到 table 元素的后面
+                    tableElement.parentNode.insertBefore(paginationContainer, tableElement.nextSibling);
+                }
+            }
+        }
     }
+
     
     // 添加备注字段
     addRemarkField(container) {
@@ -612,14 +743,14 @@ export class GenericTestModule {
         e.preventDefault();
         const formData = new FormData(e.target);
         
-        // 🔥 【新增】区分基本信息和检测点位数据
+        // 🔥 区分基本信息和检测点位数据
         const baseInfo = {
             testDate: formData.get('testDate'),
             canteen: formData.get('canteen'),
             inspector: formData.get('inspector')
         };
         
-        // 🔥 【新增】获取所有检测点位的容器
+        // 🔥 获取所有检测点位的容器
         const pointsContainer = document.getElementById(`${this.moduleName}PointsContainer`);
         if (!pointsContainer) {
             alert('未找到检测点位容器');
@@ -635,11 +766,11 @@ export class GenericTestModule {
         
         let savedCount = 0;
         
-        // 🔥 【新增】遍历每个检测点位，生成独立的记录
+        // 🔥 遍历每个检测点位，生成独立的记录
         allPoints.forEach((point, index) => {
             const pointData = { ...baseInfo }; // 复制基本信息
             
-            // 🔥 【新增】根据不同模块提取点位特定数据
+            // 🔥 根据不同模块提取点位特定数据
             if (this.moduleName === 'pesticide') {
                 const vegetableType = point.querySelector('input[name="vegetableType"], input[name="vegetableType[]"]')?.value;
                 const batchNo = point.querySelector('select[name="batchNo"], select[name="batchNo[]"]')?.value;
@@ -689,14 +820,14 @@ export class GenericTestModule {
                 pointData.remark = remark || '';
             }
             
-            // 🔥 【新增】保存单条记录
+            // 🔥 保存单条记录
             const success = this.storage.save(pointData);
             if (success) {
                 savedCount++;
             }
         });
         
-        // 🔥 【修改】根据保存结果显示不同的提示
+        // 🔥 根据保存结果显示不同的提示
         if (savedCount > 0) {
             alert(`成功保存 ${savedCount} 条检测记录`);
             e.target.reset();
@@ -706,7 +837,7 @@ export class GenericTestModule {
             pointsContainer.innerHTML = '';
             pointsContainer.appendChild(firstPoint);
             
-            // 🔥 【新增】如果是油品检测，重新初始化第一个点位的自动判断
+            // 🔥 如果是油品检测，重新初始化第一个点位的自动判断
             if (this.moduleName === 'oil') {
                 const colorSelect = firstPoint.querySelector('select[name="tpmValue"]');
                 if (colorSelect) {
@@ -721,18 +852,37 @@ export class GenericTestModule {
         }
     }
 
-
     render() {
-        const records = this.storage.getAll();
         const tbody = document.getElementById(this.tableId);
         if (!tbody) return;
 
-        if (records.length === 0) {
+        // 1. 获取并排序数据
+        const allRecords = this.storage.getAll();
+        const sortedRecords = [...allRecords].sort((a, b) => {
+            const dateA = new Date(a.testDate || '1970-01-01');
+            const dateB = new Date(b.testDate || '1970-01-01');
+            return this.sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
+        });
+
+        // 2. 计算分页
+        const totalRecords = sortedRecords.length;
+        const totalPages = Math.max(1, Math.ceil(totalRecords / this.recordsPerPage));
+        this.currentPage = Math.max(1, Math.min(this.currentPage, totalPages));
+
+        const startIndex = (this.currentPage - 1) * this.recordsPerPage;
+        // 切片获取当前页数据
+        const currentRecords = sortedRecords.slice(startIndex, startIndex + this.recordsPerPage);
+
+        // 3. 更新分页控件
+        this.updatePaginationUI(startIndex, Math.min(startIndex + this.recordsPerPage, totalRecords), totalRecords, totalPages);
+
+        // 4. 渲染表格
+        if (currentRecords.length === 0) {
             tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-gray-500">暂无数据</td></tr>`;
             return;
         }
 
-        tbody.innerHTML = records.map(r => {
+        tbody.innerHTML = currentRecords.map(r => {
             const result = r.result || r.colorLevel || '未知';
             const isPass = '合格' === result || result.includes('合格');
             

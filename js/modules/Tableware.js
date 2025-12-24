@@ -497,13 +497,19 @@ function updateFormStructure() {
             const tableHeaderContainer = document.createElement('div');
             tableHeaderContainer.className = 'table-header-container flex flex-col md:flex-row justify-between items-start md:items-center mt-8 mb-3';
             
+            // 表格头部和分页部分的代码
             tableHeaderContainer.innerHTML = `
                 <h3 class="font-medium text-gray-800 flex items-center mb-2 md:mb-0"><i class="fas fa-table text-blue-600 mr-2"></i>历史检测记录</h3>
                 <div class="flex flex-wrap items-center gap-2">
                     <div class="flex items-center">
                         <label class="text-sm text-gray-600 mr-2">每页:</label>
                         <select id="recordsPerPageSelect" class="border border-gray-300 rounded px-2 py-1 text-sm">
-                            <option value="5">5</option><option value="10" selected>10</option><option value="20">20</option>
+                            <option value="5">5</option>
+                            <option value="10" selected>10</option>
+                            <option value="20">20</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                            <option value="200">200</option>
                         </select>
                     </div>
                     <button id="sortOrderBtn" class="flex items-center bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1 rounded text-sm">
@@ -704,59 +710,91 @@ function renderTable() {
 }
 
 function setupPaginationListeners() {
-    document.getElementById('tablePaginationContainer')?.addEventListener('click', (e) => {
-        const pageBtn = e.target.closest('.page-btn');
-        if (pageBtn) {
-            currentPage = parseInt(pageBtn.dataset.page);
-            renderTable();
-        }
-        if (e.target.closest('#prevPageBtn') && currentPage > 1) {
-            currentPage--;
-            renderTable();
-        }
-        if (e.target.closest('#nextPageBtn')) {
-            const records = storage.getAll();
-            const totalPages = Math.ceil(records.length / recordsPerPage);
-            if (currentPage < totalPages) {
-                currentPage++;
+    // 1. 获取所有需要绑定事件的元素
+    const paginationContainer = document.getElementById('tablePaginationContainer');
+    const perPageSelect = document.getElementById('recordsPerPageSelect');
+    const sortBtn = document.getElementById('sortOrderBtn');
+    const jumpForm = document.getElementById('pageJumpForm');
+
+    // 2. [核心修复] 检查是否已经绑定过
+    // 我们利用 paginationContainer 上的自定义属性作为标记
+    // 只要主容器绑定过，就认为所有相关控件都已绑定
+    if (paginationContainer && paginationContainer.dataset.listenersAttached === 'true') {
+        console.log('分页事件监听器已存在，跳过绑定');
+        return; 
+    }
+
+    // 3. 绑定分页点击事件 (上一页/下一页/数字页码)
+    if (paginationContainer) {
+        paginationContainer.addEventListener('click', (e) => {
+            const pageBtn = e.target.closest('.page-btn');
+            if (pageBtn) {
+                currentPage = parseInt(pageBtn.dataset.page);
                 renderTable();
             }
-        }
-    });
-    
-    document.getElementById('recordsPerPageSelect')?.addEventListener('change', (e) => {
-        recordsPerPage = parseInt(e.target.value);
-        currentPage = 1;
-        renderTable();
-    });
-    
-    // 排序按钮监听
-    document.getElementById('sortOrderBtn')?.addEventListener('click', function() {
-        sortOrder = sortOrder === 'desc' ? 'asc' : 'desc';
-        
-        const sortText = document.getElementById('sortOrderText');
-        const sortIcon = this.querySelector('i');
-        
-        if (sortText) sortText.textContent = sortOrder === 'desc' ? '最新' : '最早';
-        if (sortIcon) sortIcon.className = sortOrder === 'desc' ? 'fas fa-sort-amount-down mr-1' : 'fas fa-sort-amount-up mr-1';
-        
-        renderTable();
-    });
-    
-    document.getElementById('pageJumpForm')?.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const input = document.getElementById('pageJumpInput');
-        if (input) {
-            const pageNum = parseInt(input.value);
-            const records = storage.getAll();
-            const totalPages = Math.ceil(records.length / recordsPerPage);
-            if (pageNum >= 1 && pageNum <= totalPages) {
-                currentPage = pageNum;
+            if (e.target.closest('#prevPageBtn') && currentPage > 1) {
+                currentPage--;
                 renderTable();
             }
-        }
-    });
+            if (e.target.closest('#nextPageBtn')) {
+                const records = storage.getAll();
+                const totalPages = Math.ceil(records.length / recordsPerPage);
+                if (currentPage < totalPages) {
+                    currentPage++;
+                    renderTable();
+                }
+            }
+        });
+        // 标记主容器已绑定
+        paginationContainer.dataset.listenersAttached = 'true';
+    }
+    
+    // 4. 绑定每页显示数量更改事件
+    // 注意：这里也要加个小检查，防止 select 元素被重新创建后丢失事件（虽然在这个特定逻辑里不太可能，但为了稳健）
+    if (perPageSelect && !perPageSelect.dataset.listenerAttached) {
+        perPageSelect.addEventListener('change', (e) => {
+            recordsPerPage = parseInt(e.target.value);
+            currentPage = 1;
+            renderTable();
+        });
+        perPageSelect.dataset.listenerAttached = 'true';
+    }
+    
+    // 5. 绑定排序按钮事件
+    if (sortBtn && !sortBtn.dataset.listenerAttached) {
+        sortBtn.addEventListener('click', function() {
+            sortOrder = sortOrder === 'desc' ? 'asc' : 'desc';
+            
+            const sortText = document.getElementById('sortOrderText');
+            const sortIcon = this.querySelector('i');
+            
+            if (sortText) sortText.textContent = sortOrder === 'desc' ? '最新' : '最早';
+            if (sortIcon) sortIcon.className = sortOrder === 'desc' ? 'fas fa-sort-amount-down mr-1' : 'fas fa-sort-amount-up mr-1';
+            
+            renderTable();
+        });
+        sortBtn.dataset.listenerAttached = 'true';
+    }
+    
+    // 6. 绑定页面跳转表单事件
+    if (jumpForm && !jumpForm.dataset.listenerAttached) {
+        jumpForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const input = document.getElementById('pageJumpInput');
+            if (input) {
+                const pageNum = parseInt(input.value);
+                const records = storage.getAll();
+                const totalPages = Math.ceil(records.length / recordsPerPage);
+                if (pageNum >= 1 && pageNum <= totalPages) {
+                    currentPage = pageNum;
+                    renderTable();
+                }
+            }
+        });
+        jumpForm.dataset.listenerAttached = 'true';
+    }
 }
+
 
 function updatePagination(start, end, total, pages) {
     const info = document.getElementById('paginationInfo');

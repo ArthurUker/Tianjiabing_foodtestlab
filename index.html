@@ -64,6 +64,10 @@
                 <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="export-data">
                     <i class="fas fa-file-export mr-3 w-5"></i>数据导出
                 </button>
+                <!-- ✨ 新增：数据备份与恢复 (风格完全统一) -->
+                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="backup-restore">
+                    <i class="fas fa-history mr-3 w-5"></i>数据备份与恢复
+                </button>
             </nav>
         </div>
 
@@ -384,6 +388,11 @@
             <!-- 7. 数据导出 - 新增 -->
             <div id="export-data" class="content-section hidden">
                 <!-- ExportService.js 会动态填充完整的导出界面 -->
+            </div>
+
+            <!-- 8. 数据备份与恢复 -->
+            <div id="backup-restore" class="content-section hidden">
+                <!-- BackupRestore.js 会把界面渲染到这里 -->
             </div>
 
         </div>
