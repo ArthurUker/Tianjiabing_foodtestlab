@@ -1074,12 +1074,67 @@ function renderTable() {
     const tbody = document.getElementById('pathogenRecords');
     if (!tbody) return;
 
+    // 1. 插入表头和分页控件（如果不存在）
+    // 使用 pathogen- 前缀的 ID，避免与餐具模块冲突
+    const tableContainer = tbody.closest('table');
+    if (tableContainer) {
+        if (!document.getElementById('pathogen-header-controls')) {
+            const headerControls = document.createElement('div');
+            headerControls.id = 'pathogen-header-controls';
+            headerControls.className = 'flex flex-col md:flex-row justify-between items-start md:items-center mt-4 mb-3';
+            headerControls.innerHTML = `
+                <h3 class="font-medium text-gray-800 flex items-center mb-2 md:mb-0">
+                    <i class="fas fa-list text-blue-600 mr-2"></i>检测记录列表
+                </h3>
+                <div class="flex flex-wrap items-center gap-2">
+                    <div class="flex items-center">
+                        <label class="text-sm text-gray-600 mr-2">每页:</label>
+                        <select id="pathogen-recordsPerPageSelect" class="border border-gray-300 rounded px-2 py-1 text-sm">
+                            <option value="5">5</option>
+                            <option value="10" selected>10</option>
+                            <option value="20">20</option>
+                            <option value="50">50</option>
+                        </select>
+                    </div>
+                    <button id="pathogen-sortOrderBtn" class="flex items-center bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1 rounded text-sm">
+                        <i class="fas fa-sort-amount-down mr-1"></i><span id="pathogen-sortOrderText">最新</span>
+                    </button>
+                </div>
+            `;
+            tableContainer.parentNode.insertBefore(headerControls, tableContainer);
+        }
+
+        if (!document.getElementById('pathogen-paginationContainer')) {
+            const paginationContainer = document.createElement('div');
+            paginationContainer.id = 'pathogen-paginationContainer';
+            paginationContainer.className = 'flex flex-wrap justify-between items-center mt-4 mb-8';
+            paginationContainer.innerHTML = `
+                <div class="flex items-center text-sm text-gray-600"><span id="pathogen-paginationInfo">...</span></div>
+                <div class="flex items-center space-x-1">
+                    <button id="pathogen-prevPageBtn" class="px-3 py-1 bg-gray-100 rounded hover:bg-gray-200"><i class="fas fa-chevron-left"></i></button>
+                    <div id="pathogen-pageButtonsContainer" class="flex items-center space-x-1"></div>
+                    <button id="pathogen-nextPageBtn" class="px-3 py-1 bg-gray-100 rounded hover:bg-gray-200"><i class="fas fa-chevron-right"></i></button>
+                </div>
+                <form id="pathogen-pageJumpForm" class="flex items-center ml-2">
+                    <input type="number" id="pathogen-pageJumpInput" min="1" class="border border-gray-300 rounded w-16 px-2 py-1 text-sm" placeholder="页">
+                    <button type="submit" class="ml-1 px-2 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600"><i class="fas fa-arrow-right"></i></button>
+                </form>
+            `;
+            tableContainer.parentNode.insertBefore(paginationContainer, tableContainer.nextSibling);
+            
+            // 重新绑定事件监听器，因为新元素刚被创建
+            setupPaginationListeners();
+        }
+    }
+
+    // 2. 排序逻辑
     const sortedRecords = [...allRecords].sort((a, b) => {
         const dateA = new Date(a.testDate || '1970-01-01');
         const dateB = new Date(b.testDate || '1970-01-01');
         return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
     });
 
+    // 3. 分页计算
     const totalRecords = sortedRecords.length;
     const totalPages = Math.max(1, Math.ceil(totalRecords / recordsPerPage));
     currentPage = Math.max(1, Math.min(currentPage, totalPages));
@@ -1089,6 +1144,7 @@ function renderTable() {
 
     updatePagination(startIndex, Math.min(startIndex + recordsPerPage, totalRecords), totalRecords, totalPages);
 
+    // 4. 渲染表格内容
     if (currentRecords.length === 0) {
         tbody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-gray-500">暂无数据，请导入检测报告</td></tr>`;
         return;
@@ -1147,77 +1203,92 @@ function renderTable() {
 }
 
 function setupPaginationListeners() {
-    const container = document.getElementById('pathogenRecords')?.parentElement.parentElement;
-    if (!container || container.querySelector('#paginationContainer')) return;
-    
-    container.insertAdjacentHTML('beforeend', `
-        <div class="flex flex-col md:flex-row justify-between items-center mt-4 mb-4">
-            <div class="flex items-center gap-2 mb-2 md:mb-0">
-                <label class="text-sm text-gray-600">每页:</label>
-                <select id="recordsPerPageSelect" class="border rounded px-2 py-1 text-sm">
-                    <option value="5">5</option>
-                    <option value="10" selected>10</option>
-                    <option value="20">20</option>
-                </select>
-                <button id="sortOrderBtn" class="bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded text-sm">
-                    <i class="fas fa-sort-amount-down mr-1"></i><span id="sortOrderText">最新</span>
-                </button>
-            </div>
-            <div id="paginationContainer" class="flex items-center gap-2">
-                <span id="paginationInfo" class="text-sm text-gray-600"></span>
-                <button id="prevPageBtn" class="px-3 py-1 bg-gray-100 rounded"><i class="fas fa-chevron-left"></i></button>
-                <div id="pageButtonsContainer" class="flex gap-1"></div>
-                <button id="nextPageBtn" class="px-3 py-1 bg-gray-100 rounded"><i class="fas fa-chevron-right"></i></button>
-            </div>
-        </div>
-    `);
+    // 使用命名空间后的 ID
+    const paginationContainer = document.getElementById('pathogen-paginationContainer');
+    const perPageSelect = document.getElementById('pathogen-recordsPerPageSelect');
+    const sortBtn = document.getElementById('pathogen-sortOrderBtn');
+    const jumpForm = document.getElementById('pathogen-pageJumpForm');
 
-    document.getElementById('recordsPerPageSelect')?.addEventListener('change', (e) => {
-        recordsPerPage = parseInt(e.target.value);
-        currentPage = 1;
-        renderTable();
-    });
+    // 防止重复绑定
+    if (paginationContainer && paginationContainer.dataset.listenersAttached === 'true') {
+        return;
+    }
 
-    document.getElementById('sortOrderBtn')?.addEventListener('click', function() {
-        sortOrder = sortOrder === 'desc' ? 'asc' : 'desc';
-        document.getElementById('sortOrderText').textContent = sortOrder === 'desc' ? '最新' : '最早';
-        this.querySelector('i').className = sortOrder === 'desc' ? 'fas fa-sort-amount-down mr-1' : 'fas fa-sort-amount-up mr-1';
-        renderTable();
-    });
-
-    document.getElementById('paginationContainer')?.addEventListener('click', (e) => {
-        const pageBtn = e.target.closest('.page-btn');
-        if (pageBtn) {
-            currentPage = parseInt(pageBtn.dataset.page);
-            renderTable();
-        }
-        if (e.target.closest('#prevPageBtn') && currentPage > 1) {
-            currentPage--;
-            renderTable();
-        }
-        if (e.target.closest('#nextPageBtn')) {
-            const records = storage.getAll();
-            if (currentPage < Math.ceil(records.length / recordsPerPage)) {
-                currentPage++;
+    if (paginationContainer) {
+        paginationContainer.addEventListener('click', (e) => {
+            const pageBtn = e.target.closest('.page-btn');
+            if (pageBtn) {
+                currentPage = parseInt(pageBtn.dataset.page);
                 renderTable();
             }
-        }
-    });
+            if (e.target.closest('#pathogen-prevPageBtn') && currentPage > 1) {
+                currentPage--;
+                renderTable();
+            }
+            if (e.target.closest('#pathogen-nextPageBtn')) {
+                const records = storage.getAll();
+                const totalPages = Math.ceil(records.length / recordsPerPage);
+                if (currentPage < totalPages) {
+                    currentPage++;
+                    renderTable();
+                }
+            }
+        });
+        paginationContainer.dataset.listenersAttached = 'true';
+    }
+    
+    if (perPageSelect) {
+        perPageSelect.addEventListener('change', (e) => {
+            recordsPerPage = parseInt(e.target.value);
+            currentPage = 1;
+            renderTable();
+        });
+    }
+    
+    if (sortBtn) {
+        sortBtn.addEventListener('click', function() {
+            sortOrder = sortOrder === 'desc' ? 'asc' : 'desc';
+            
+            const sortText = document.getElementById('pathogen-sortOrderText');
+            const sortIcon = this.querySelector('i');
+            
+            if (sortText) sortText.textContent = sortOrder === 'desc' ? '最新' : '最早';
+            if (sortIcon) sortIcon.className = sortOrder === 'desc' ? 'fas fa-sort-amount-down mr-1' : 'fas fa-sort-amount-up mr-1';
+            
+            renderTable();
+        });
+    }
+    
+    if (jumpForm) {
+        jumpForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const input = document.getElementById('pathogen-pageJumpInput');
+            if (input) {
+                const pageNum = parseInt(input.value);
+                const records = storage.getAll();
+                const totalPages = Math.ceil(records.length / recordsPerPage);
+                if (pageNum >= 1 && pageNum <= totalPages) {
+                    currentPage = pageNum;
+                    renderTable();
+                }
+            }
+        });
+    }
 }
 
 function updatePagination(start, end, total, pages) {
-    const info = document.getElementById('paginationInfo');
-    if (info) info.textContent = total > 0 ? `显示 ${start + 1}-${end} 条，共 ${total} 条` : '暂无记录';
+    const info = document.getElementById('pathogen-paginationInfo');
+    if(info) info.textContent = total > 0 ? `显示 ${start+1}-${end} 条，共 ${total} 条` : '暂无记录';
     
-    const container = document.getElementById('pageButtonsContainer');
-    if (container) {
+    const container = document.getElementById('pathogen-pageButtonsContainer');
+    if(container) {
         let html = '';
         let startPage = Math.max(1, currentPage - 2);
         let endPage = Math.min(pages, startPage + 4);
         if (endPage - startPage < 4 && pages > 4) startPage = Math.max(1, endPage - 4);
         
         for (let i = startPage; i <= endPage; i++) {
-            html += `<button class="page-btn px-3 py-1 ${i === currentPage ? 'bg-blue-500 text-white' : 'bg-gray-100 hover:bg-gray-200'} rounded" data-page="${i}">${i}</button>`;
+            html += `<button class="page-btn px-3 py-1 ${i===currentPage?'bg-blue-500 text-white':'bg-gray-100 hover:bg-gray-200'} rounded" data-page="${i}">${i}</button>`;
         }
         container.innerHTML = html;
     }
