@@ -1,51 +1,26 @@
+import { StorageService } from '../core/Storage.js';  // ✅ 添加导入
+
 export class ExportService {
     constructor() {
         console.log('🔧 ExportService 初始化');
         
-        // 智能检测 localStorage 中的数据
+        // ✅ 创建 StorageService 实例（与其他模块保持一致）
         this.storage = {
-            getAll: (type) => {
-                console.log(`\n📊 正在读取 ${type} 数据...`);
-                
-                // 尝试多种可能的 key 格式
-                const possibleKeys = [
-                    type,                           // 直接使用类型名
-                    `foodSafety_${type}`,          // 带前缀
-                    `test_${type}`,                // 另一种前缀
-                    `${type}Data`,                 // 带后缀
-                    `${type}Records`               // 记录后缀
-                ];
-                
-                for (const key of possibleKeys) {
-                    try {
-                        const data = localStorage.getItem(key);
-                        if (data) {
-                            const parsed = JSON.parse(data);
-                            if (Array.isArray(parsed) && parsed.length > 0) {
-                                console.log(`  ✅ 找到数据! Key: ${key}, 数量: ${parsed.length}`);
-                                console.log(`  📄 第一条数据:`, parsed[0]);
-                                return parsed;
-                            }
-                        }
-                    } catch (error) {
-                        console.error(`  ❌ 读取 ${key} 失败:`, error);
-                    }
-                }
-                
-                console.log(`  ⚠️ 未找到 ${type} 的数据`);
-                return [];
-            }
+            tableware: new StorageService('tableware'),
+            pesticide: new StorageService('pesticide'),
+            oil: new StorageService('oil'),
+            leanMeat: new StorageService('leanMeat'),
+            pathogen: new StorageService('pathogen')
         };
         
         // 初始化时检查所有数据
         console.log('\n=== 数据检查 ===');
         const types = ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'];
         types.forEach(type => {
-            const data = this.storage.getAll(type);
+            const data = this.storage[type].getAll();
             console.log(`${type}: ${data.length} 条记录`);
         });
     }
-
 
     init() {
         console.log('🔧 ExportService init 开始');
@@ -221,13 +196,15 @@ export class ExportService {
         const quickDateBtns = document.querySelectorAll('.quick-date-btn');
         quickDateBtns.forEach(btn => {
             btn.addEventListener('click', (e) => {
-                const days = parseInt(e.target.dataset.days);
+                const days = parseInt(e.currentTarget.dataset.days, 10);
                 const endDate = new Date();
                 const startDate = new Date();
                 startDate.setDate(startDate.getDate() - days);
                 
                 document.getElementById('exportStartDate').valueAsDate = startDate;
                 document.getElementById('exportEndDate').valueAsDate = endDate;
+                
+                console.log(`📅 快速选择: ${days}天, ${startDate.toLocaleDateString()} - ${endDate.toLocaleDateString()}`);
             });
         });
 
@@ -255,12 +232,15 @@ export class ExportService {
             });
         }
 
-        // 初始化日期为今天
+        // ✅ 初始化日期为近30天（避免第一次为空）
         const today = new Date();
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(today.getDate() - 30);
+        
         const startInput = document.getElementById('exportStartDate');
         const endInput = document.getElementById('exportEndDate');
         
-        if (startInput) startInput.valueAsDate = today;
+        if (startInput) startInput.valueAsDate = thirtyDaysAgo;
         if (endInput) endInput.valueAsDate = today;
     }
 
@@ -281,19 +261,67 @@ export class ExportService {
         return { startDate, endDate, canteens, testTypes, title, notes };
     }
 
+    // ✅ 修改：使用 StorageService 的 getAll() 方法
     collectData(config) {
         const data = {};
-        
-        config.testTypes.forEach(type => {
-            const records = this.storage.getAll(type);
-            data[type] = records.filter(record => {
-                const recordDate = record.testDate;
-                const inDateRange = recordDate >= config.startDate && recordDate <= config.endDate;
-                const inCanteen = config.canteens.length === 0 || config.canteens.includes(record.canteen);
-                return inDateRange && inCanteen;
-            });
+
+        const hasStart = !!config.startDate;
+        const hasEnd = !!config.endDate;
+
+        const start = hasStart ? new Date(config.startDate + 'T00:00:00') : null;
+        const end = hasEnd ? new Date(config.endDate + 'T23:59:59.999') : null;
+
+        const startMs = start ? start.getTime() : null;
+        const endMs = end ? end.getTime() : null;
+
+        console.log('🔍 筛选条件:', {
+            start: start ? start.toString() : '(无限制)',
+            end: end ? end.toString() : '(无限制)',
+            canteens: config.canteens.length ? config.canteens : '(全部)'
         });
-        
+
+        config.testTypes.forEach(type => {
+            // ✅ 使用 StorageService 的 getAll() 方法
+            const records = this.storage[type].getAll();
+
+            let matchedLogCount = 0;
+
+            data[type] = records.filter(record => {
+                const raw = record?.testDate;
+                if (!raw) return false;
+
+                const t = new Date(raw).getTime();
+                if (Number.isNaN(t)) {
+                    if (matchedLogCount < 3) {
+                        console.warn(`⚠️ 无法解析的日期:`, raw, record);
+                    }
+                    return false;
+                }
+
+                const inDateRange =
+                    (!startMs || t >= startMs) &&
+                    (!endMs || t <= endMs);
+
+                const inCanteen =
+                    config.canteens.length === 0 ||
+                    config.canteens.includes(record.canteen);
+
+                const ok = inDateRange && inCanteen;
+
+                if (ok && matchedLogCount < 3) {
+                    console.log(`  ✓ 命中样例(${type}):`, {
+                        testDate: record.testDate,
+                        canteen: record.canteen
+                    });
+                    matchedLogCount++;
+                }
+
+                return ok;
+            });
+
+            console.log(`  📊 ${type}: 原始 ${records.length} 条 -> 筛选后 ${data[type].length} 条`);
+        });
+
         return data;
     }
 
@@ -311,7 +339,6 @@ export class ExportService {
         Object.keys(data).forEach(type => {
             const count = data[type].length;
             totalCount += count;
-            console.log(`  ${type}: ${count} 条`);
         });
         console.log(`总计: ${totalCount} 条记录`);
         
@@ -326,8 +353,7 @@ export class ExportService {
         const html = this.generateReportHTML(data, config);
         document.getElementById('reportPreview').innerHTML = html;
     }
-
-
+    
     generateReportHTML(data, config) {
         let html = `
             <div class="report-content" id="pdfContent">
@@ -342,9 +368,7 @@ export class ExportService {
                 </div>
         `;
         
-        // ========== 新增：检测统计数据总结 ==========
         html += this.generateStatisticsSummary(data, config);
-        // ==========================================
         
         const typeNames = {
             tableware: '餐具洁净度检测',
@@ -378,7 +402,6 @@ export class ExportService {
             html += '</div>';
         });
         
-        // 汇总统计
         html += `
             <div class="mt-6 p-4 bg-blue-50 border border-blue-200 rounded">
                 <h4 class="font-bold mb-2">📊 数据汇总</h4>
@@ -418,7 +441,7 @@ export class ExportService {
         html += '</tbody></table></div>';
         return html;
     }
-    // ========== 新增：生成统计总结 ==========
+
     generateStatisticsSummary(data, config) {
         const typeNames = {
             tableware: '餐具洁净度',
@@ -436,7 +459,6 @@ export class ExportService {
                 <div class="space-y-2">
         `;
         
-        // 计算每种检测类型的统计
         config.testTypes.forEach(type => {
             const records = data[type] || [];
             const total = records.length;
@@ -444,7 +466,6 @@ export class ExportService {
             let displayText = '';
             
             if (type === 'pathogen') {
-                // 病原体检测：统计阳性次数
                 const positiveCount = records.filter(r => {
                     const items = r.positiveItems;
                     if (Array.isArray(items) && items.length > 0) return true;
@@ -453,7 +474,6 @@ export class ExportService {
                 }).length;
                 displayText = `检测 <strong>${total}</strong> 次，阳性 <strong class="${positiveCount > 0 ? 'text-red-600' : 'text-green-600'}">${positiveCount}</strong> 次`;
             } else {
-                // 其他检测：统计合格率
                 const passCount = records.filter(r => {
                     const result = (r.result || '').toString().toLowerCase();
                     return result.includes('合格') || result.includes('通过') || result.includes('正常') || result.includes('良好');
@@ -477,7 +497,6 @@ export class ExportService {
             </div>
         `;
         
-        // 风险提示
         const risks = this.analyzeRisks(data);
         html += `
             <div class="mb-6 p-4 ${risks.length > 0 ? 'bg-yellow-50 border-yellow-300' : 'bg-green-50 border-green-300'} rounded-lg border-2">
@@ -494,7 +513,6 @@ export class ExportService {
             </div>
         `;
         
-        // 备注
         html += `
             <div class="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-300">
                 <h3 class="font-bold mb-2 text-gray-800 text-base">📝 备注</h3>
@@ -507,11 +525,9 @@ export class ExportService {
         return html;
     }
 
-    // 风险分析方法
     analyzeRisks(data) {
         const risks = [];
         
-        // 检查餐具洁净度
         if (data.tableware && data.tableware.length > 0) {
             const highRLU = data.tableware.filter(r => {
                 const rlu = parseInt(r.rluValue);
@@ -522,7 +538,6 @@ export class ExportService {
             }
         }
         
-        // 检查农残不合格
         if (data.pesticide && data.pesticide.length > 0) {
             const failed = data.pesticide.filter(r => {
                 const result = (r.result || '').toString().toLowerCase();
@@ -533,7 +548,6 @@ export class ExportService {
             }
         }
         
-        // 检查食用油品质
         if (data.oil && data.oil.length > 0) {
             const poorQuality = data.oil.filter(r => {
                 const tpm = parseFloat(r.tpmValue);
@@ -544,7 +558,6 @@ export class ExportService {
             }
         }
         
-        // 检查瘦肉精
         if (data.leanMeat && data.leanMeat.length > 0) {
             const positive = data.leanMeat.filter(r => {
                 const result = (r.result || '').toString().toLowerCase();
@@ -555,7 +568,6 @@ export class ExportService {
             }
         }
         
-        // 检查病原体
         if (data.pathogen && data.pathogen.length > 0) {
             const positive = data.pathogen.filter(r => {
                 const items = r.positiveItems;
@@ -570,8 +582,6 @@ export class ExportService {
         
         return risks;
     }
-    // ========================================
-
 
     getTableHeaders(type) {
         const headers = {
@@ -585,7 +595,6 @@ export class ExportService {
     }
 
     getTableValues(type, record) {
-        // 安全处理 positiveItems
         const formatPositiveItems = (items) => {
             if (!items) return '无';
             if (Array.isArray(items)) return items.join(', ') || '无';
@@ -640,9 +649,7 @@ export class ExportService {
         return values[type] || [];
     }
 
-
     async exportToPDF() {
-        // 检查库是否加载
         if (typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined') {
             alert('PDF库加载中，请稍后再试...');
             return;
@@ -656,7 +663,6 @@ export class ExportService {
             return;
         }
 
-        // 显示加载提示
         const loadingDiv = document.createElement('div');
         loadingDiv.id = 'pdfLoadingOverlay';
         loadingDiv.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999;';
@@ -673,24 +679,20 @@ export class ExportService {
             const { jsPDF } = window.jspdf;
             const pdf = new jsPDF('p', 'mm', 'a4');
             
-            // A4 尺寸（毫米）
             const pageWidth = 210;
             const pageHeight = 297;
-            const margin = 10; // 页边距
+            const margin = 10;
             const contentWidth = pageWidth - (margin * 2);
             const contentHeight = pageHeight - (margin * 2);
             
-            // 获取所有需要分页的区块
             const sections = content.querySelectorAll('.mb-6, .report-content > div');
             
-            let currentY = margin; // 当前Y位置
+            let currentY = margin;
             let pageNumber = 1;
             
-            // 遍历每个区块
             for (let i = 0; i < sections.length; i++) {
                 const section = sections[i];
                 
-                // 为当前区块创建临时容器
                 const tempContainer = document.createElement('div');
                 tempContainer.style.cssText = `
                     position: absolute;
@@ -704,12 +706,10 @@ export class ExportService {
                 tempContainer.innerHTML = section.outerHTML;
                 document.body.appendChild(tempContainer);
                 
-                // 等待渲染
                 await new Promise(resolve => setTimeout(resolve, 50));
                 
-                // 截图当前区块（高分辨率）
                 const canvas = await html2canvas(tempContainer, {
-                    scale: 3, // 提高到3倍分辨率，确保清晰
+                    scale: 3,
                     useCORS: true,
                     allowTaint: true,
                     logging: false,
@@ -718,33 +718,24 @@ export class ExportService {
                     windowHeight: tempContainer.scrollHeight
                 });
                 
-                // 移除临时容器
                 document.body.removeChild(tempContainer);
                 
-                // 计算图片在PDF中的尺寸
-                const imgData = canvas.toDataURL('image/png', 1.0); // 最高质量
+                const imgData = canvas.toDataURL('image/png', 1.0);
                 const imgWidth = contentWidth;
                 const imgHeight = (canvas.height * imgWidth) / canvas.width;
                 
-                // 检查是否需要换页
                 if (currentY + imgHeight > pageHeight - margin) {
-                    // 如果当前区块太大，无法放入当前页
                     if (currentY > margin + 10) {
-                        // 如果当前页已经有内容，新开一页
                         pdf.addPage();
                         pageNumber++;
                         currentY = margin;
                     } else {
-                        // 如果当前页是空的，但区块太大，需要分割
-                        // 计算可以放入当前页的高度
                         const availableHeight = pageHeight - currentY - margin;
                         
-                        if (availableHeight > 50) { // 至少要有50mm的空间才分割
-                            // 添加部分内容到当前页
+                        if (availableHeight > 50) {
                             const ratio = availableHeight / imgHeight;
                             const cropHeight = canvas.height * ratio;
                             
-                            // 创建裁剪后的canvas
                             const croppedCanvas = document.createElement('canvas');
                             croppedCanvas.width = canvas.width;
                             croppedCanvas.height = cropHeight;
@@ -754,12 +745,10 @@ export class ExportService {
                             const croppedImgData = croppedCanvas.toDataURL('image/png', 1.0);
                             pdf.addImage(croppedImgData, 'PNG', margin, currentY, imgWidth, availableHeight);
                             
-                            // 新开一页，添加剩余内容
                             pdf.addPage();
                             pageNumber++;
                             currentY = margin;
                             
-                            // 创建剩余部分的canvas
                             const remainingCanvas = document.createElement('canvas');
                             remainingCanvas.width = canvas.width;
                             remainingCanvas.height = canvas.height - cropHeight;
@@ -771,7 +760,6 @@ export class ExportService {
                             pdf.addImage(remainingImgData, 'PNG', margin, currentY, imgWidth, remainingHeight);
                             currentY += remainingHeight;
                         } else {
-                            // 空间太小，直接新开一页
                             pdf.addPage();
                             pageNumber++;
                             currentY = margin;
@@ -782,34 +770,27 @@ export class ExportService {
                     }
                 }
                 
-                // 添加图片到PDF
                 pdf.addImage(imgData, 'PNG', margin, currentY, imgWidth, imgHeight);
-                currentY += imgHeight + 5; // 区块之间留5mm间距
+                currentY += imgHeight + 5;
                 
-                // 更新加载提示
                 const progressText = loadingDiv.querySelector('p:last-child');
                 if (progressText) {
                     progressText.textContent = `正在处理第 ${i + 1}/${sections.length} 个区块...`;
                 }
             }
             
-            // 生成文件名
             const config = this.getExportConfig();
             const filename = `${config.title}_${config.startDate}_${config.endDate}.pdf`;
             
-            // 下载PDF
             pdf.save(filename);
             
-            // 移除加载提示
             document.body.removeChild(loadingDiv);
             
-            // 显示成功消息
             this.showToast('✅ 高清PDF导出成功！', 'success');
 
         } catch (error) {
             console.error('PDF导出失败:', error);
             
-            // 移除加载提示
             const overlay = document.getElementById('pdfLoadingOverlay');
             if (overlay && overlay.parentNode) {
                 document.body.removeChild(overlay);
@@ -819,7 +800,6 @@ export class ExportService {
         }
     }
 
-    // 添加一个 Toast 提示方法
     showToast(message, type = 'info') {
         const toast = document.createElement('div');
         toast.className = `fixed top-4 right-4 px-6 py-3 rounded-lg shadow-lg z-50 ${
@@ -836,8 +816,6 @@ export class ExportService {
         }, 3000);
     }
 
-
-    // 看板快速导出功能
     static async generatePDF(elementId, filename) {
         if (typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined') {
             alert('PDF库加载中，请稍后再试...');
