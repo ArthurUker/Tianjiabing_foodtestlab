@@ -466,6 +466,7 @@ export class ExportService {
             let displayText = '';
             
             if (type === 'pathogen') {
+                // ✅ 病原体检测：统计阳性数量
                 const positiveCount = records.filter(r => {
                     const items = r.positiveItems;
                     if (Array.isArray(items) && items.length > 0) return true;
@@ -473,10 +474,12 @@ export class ExportService {
                     return false;
                 }).length;
                 displayText = `检测 <strong>${total}</strong> 次，阳性 <strong class="${positiveCount > 0 ? 'text-red-600' : 'text-green-600'}">${positiveCount}</strong> 次`;
+            
             } else {
+                // ✅ 其他类型：统一使用与数据看板相同的判断逻辑
                 const passCount = records.filter(r => {
-                    const result = (r.result || '').toString().toLowerCase();
-                    return result.includes('合格') || result.includes('通过') || result.includes('正常') || result.includes('良好');
+                    // 与 Dashboard.js 第 193 行保持一致
+                    return r.result?.includes('合格') || r.colorLevel === '合格';
                 }).length;
                 
                 const passRate = total > 0 ? ((passCount / total) * 100).toFixed(0) + '%' : '100%';
