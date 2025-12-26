@@ -25,6 +25,10 @@ export function initDashboard() {
     document.getElementById('dayFilter').valueAsDate = now;
     document.getElementById('monthFilter').value = now.toISOString().substring(0, 7);
     
+    // ✅ 初始化周选择器默认值
+    const weekValue = getWeekString(now);
+    document.getElementById('weekFilter').value = weekValue;
+    
     // 绑定事件处理器
     document.getElementById('dateFilterType').addEventListener('change', updateDateFilterOptions);
     document.getElementById('btnFilterDashboard').addEventListener('click', loadDashboardData);
@@ -51,6 +55,15 @@ export function initDashboard() {
     if (btnExportDashboard) {
         btnExportDashboard.onclick = exportDashboardToPDF;
     }
+}
+
+// ✅ 辅助函数：获取日期的周字符串（格式：2024-W52）
+function getWeekString(date) {
+    const year = date.getFullYear();
+    const oneJan = new Date(year, 0, 1);
+    const numberOfDays = Math.floor((date - oneJan) / (24 * 60 * 60 * 1000));
+    const weekNumber = Math.ceil((numberOfDays + oneJan.getDay() + 1) / 7);
+    return `${year}-W${String(weekNumber).padStart(2, '0')}`;
 }
 
 // 导出看板为PDF
@@ -106,11 +119,15 @@ function createDashboardStructure() {
                     <select id="dateFilterType" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
                         <option value="all">全部数据</option>
                         <option value="day">按日</option>
+                        <option value="week">按周</option>
                         <option value="month">按月</option>
                         <option value="range">时间段</option>
                     </select>
                     <div id="dayFilterContainer" class="hidden filter-option">
                         <input type="date" id="dayFilter" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                    </div>
+                    <div id="weekFilterContainer" class="hidden filter-option">
+                        <input type="week" id="weekFilter" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
                     </div>
                     <div id="monthFilterContainer" class="hidden filter-option">
                         <input type="month" id="monthFilter" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
@@ -129,7 +146,7 @@ function createDashboardStructure() {
                     </button>
                 </div>
             </div>
-            <!-- 1. 统计卡片区域 (保持原样) -->
+            <!-- 1. 统计卡片区域 -->
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-6 mb-6">
                 <!-- 餐具 -->
                 <div class="bg-gradient-to-br from-blue-400 to-blue-600 rounded-lg p-4 text-white shadow">
@@ -264,6 +281,9 @@ function updateDateFilterOptions() {
         case 'day':
             document.getElementById('dayFilterContainer').classList.remove('hidden');
             break;
+        case 'week':
+            document.getElementById('weekFilterContainer').classList.remove('hidden');
+            break;
         case 'month':
             document.getElementById('monthFilterContainer').classList.remove('hidden');
             break;
@@ -289,6 +309,16 @@ function loadDashboardData() {
             endDate.setHours(23, 59, 59, 999);
             document.getElementById('date_range_text').textContent = `${day} 当日`;
             break;
+            
+        case 'week':
+            // ✅ 按周筛选逻辑
+            const weekValue = document.getElementById('weekFilter').value || getWeekString(now);
+            const weekRange = getWeekRange(weekValue);
+            startDate = weekRange.start;
+            endDate = weekRange.end;
+            document.getElementById('date_range_text').textContent = `${weekRange.text}`;
+            break;
+            
         case 'month':
             const month = document.getElementById('monthFilter').value || now.toISOString().substring(0, 7);
             startDate = new Date(month + '-01');
@@ -298,6 +328,7 @@ function loadDashboardData() {
             endDate.setHours(23, 59, 59, 999);
             document.getElementById('date_range_text').textContent = `${month} 月`;
             break;
+            
         case 'range':
             const start = document.getElementById('startDateFilter').value;
             const end = document.getElementById('endDateFilter').value;
@@ -312,6 +343,7 @@ function loadDashboardData() {
                 endDate = new Date(2099, 11, 31);
             }
             break;
+            
         default: // all
             startDate = new Date(0);
             endDate = new Date(2099, 11, 31);
@@ -357,6 +389,38 @@ function loadDashboardData() {
     updateCharts(startDate, endDate);
 }
 
+// ✅ 辅助函数：根据周字符串计算起止日期
+function getWeekRange(weekString) {
+    // weekString 格式：2024-W52
+    const [yearStr, weekStr] = weekString.split('-W');
+    const year = parseInt(yearStr);
+    const week = parseInt(weekStr);
+    
+    // 计算该年第一周的周一
+    const jan1 = new Date(year, 0, 1);
+    const jan1Day = jan1.getDay() || 7; // 周日=7
+    const firstMonday = new Date(year, 0, 1 + (8 - jan1Day) % 7);
+    
+    // 计算目标周的周一
+    const targetMonday = new Date(firstMonday);
+    targetMonday.setDate(firstMonday.getDate() + (week - 1) * 7);
+    
+    // 计算周日
+    const targetSunday = new Date(targetMonday);
+    targetSunday.setDate(targetMonday.getDate() + 6);
+    targetSunday.setHours(23, 59, 59, 999);
+    
+    // 格式化显示文本
+    const startStr = `${targetMonday.getMonth() + 1}-${targetMonday.getDate()}`;
+    const endStr = `${targetSunday.getMonth() + 1}-${targetSunday.getDate()}`;
+    
+    return {
+        start: targetMonday,
+        end: targetSunday,
+        text: `第${week}周 (${startStr} 至 ${endStr})`
+    };
+}
+
 // 通用统计函数 - 支持按日期过滤
 function getStats(type, startDate, endDate) {
     const records = services[type].getAll();
@@ -373,27 +437,45 @@ function getStats(type, startDate, endDate) {
     let positiveCount = 0;
 
     if (type === 'tableware') {
+        // ✅ 餐具洁净度：逐个点位统计
         filtered.forEach(r => {
-            if (r.atpPoints) {
-                count += r.atpPoints.length;
-                passCount += r.atpPoints.filter(p => {
-                    const result = p.result || p.res;
-                    return result === '合格';
-                }).length;
+            if (r.atpPoints && Array.isArray(r.atpPoints)) {
+                r.atpPoints.forEach(point => {
+                    count++;
+                    // ✅ 兼容多种字段名和格式
+                    const result = (point.result || point.res || '').toString().trim();
+                    if (result === '合格' || result.includes('合格')) {
+                        passCount++;
+                    }
+                });
             }
         });
     } else if (type === 'pathogen') {
+        // ✅ 病原体检测：统计阳性数量
         count = filtered.length;
-        positiveCount = filtered.filter(r => r.positiveItems && r.positiveItems !== '无').length;
+        positiveCount = filtered.filter(r => {
+            const items = r.positiveItems;
+            if (!items) return false;
+            if (Array.isArray(items) && items.length > 0) return true;
+            if (typeof items === 'string' && items !== '无' && items.trim() !== '') return true;
+            return false;
+        }).length;
     } else {
+        // ✅ 其他类型：统一判断逻辑
         count = filtered.length;
-        passCount = filtered.filter(r => r.result?.includes('合格') || r.colorLevel === '合格').length;
+        passCount = filtered.filter(r => {
+            // 与导出模块保持一致
+            const result = (r.result || '').toString().trim();
+            const colorLevel = (r.colorLevel || '').toString().trim();
+            return result.includes('合格') || colorLevel === '合格';
+        }).length;
     }
 
     const passRate = count > 0 ? Math.round((passCount / count) * 100) : 100;
 
     return { count, passCount, positiveCount, passRate, records: filtered };
 }
+
 
 function updateCard(type, stats) {
     const countEl = document.getElementById(`card_${type}_count`);
@@ -528,7 +610,7 @@ function initCharts() {
             options: { 
                 responsive: true, 
                 maintainAspectRatio: false,
-                plugins: { legend: { display: 'false' } },
+                plugins: { legend: { display: false } },
                 scales: { 
                     y: { 
                         beginAtZero: true, 
@@ -609,8 +691,8 @@ function updateCharts(startDate, endDate) {
         trendChart.update();
     }
 
-    // 基于真实数据更新食堂合格率对比
-    const canteenResult = calculateCanteenPassRate();
+    // ✅ 修改：传入日期参数，让图表受日期筛选影响
+    const canteenResult = calculateCanteenPassRate(startDate, endDate);
     if(canteenChart) {
         // 更新标签与数据
         canteenChart.data.labels = canteenResult.labels;
@@ -621,6 +703,7 @@ function updateCharts(startDate, endDate) {
         canteenChart.update();
     }
 }
+
 
 // 计算各食堂趋势数据（支持智能空窗压缩）
 function calculateCanteenTrends(startDate, endDate) {
@@ -635,7 +718,7 @@ function calculateCanteenTrends(startDate, endDate) {
         '三食堂': {}
     };
 
-    // 2. 收集并统计所有原始数据（这一步逻辑不变，先拿到全量数据）
+    // 2. 收集并统计所有原始数据
     const types = ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'];
     
     types.forEach(type => {
@@ -647,26 +730,35 @@ function calculateCanteenTrends(startDate, endDate) {
             const testDate = new Date(recordDate);
             if (testDate < startDate || testDate > endDate) return;
             
-            // 不排除周末，包含所有有数据的时间点
-            
             const canteen = record.canteen || '未知食堂';
             if (!canteenData[canteen]) canteenData[canteen] = {};
             if (!canteenData[canteen][recordDate]) {
                 canteenData[canteen][recordDate] = { passed: 0, total: 0 };
             }
             
-            // 统计合格数
+            // ✅ 统一的合格率判断逻辑
             if (type === 'tableware' && record.atpPoints) {
                 record.atpPoints.forEach(point => {
                     canteenData[canteen][recordDate].total++;
-                    if ((point.result === '合格') || (point.res === '合格')) canteenData[canteen][recordDate].passed++;
+                    // ✅ 兼容多种字段名和格式
+                    const result = (point.result || point.res || '').toString().trim();
+                    if (result === '合格' || result.includes('合格')) {
+                        canteenData[canteen][recordDate].passed++;
+                    }
                 });
             } else if (type === 'pathogen') {
                 canteenData[canteen][recordDate].total++;
-                if (!record.positiveItems || record.positiveItems === '无') canteenData[canteen][recordDate].passed++;
+                if (!record.positiveItems || record.positiveItems === '无') {
+                    canteenData[canteen][recordDate].passed++;
+                }
             } else {
                 canteenData[canteen][recordDate].total++;
-                if (record.result?.includes('合格') || record.colorLevel === '合格') canteenData[canteen][recordDate].passed++;
+                // ✅ 统一判断逻辑
+                const result = (record.result || '').toString().trim();
+                const colorLevel = (record.colorLevel || '').toString().trim();
+                if (result.includes('合格') || colorLevel === '合格') {
+                    canteenData[canteen][recordDate].passed++;
+                }
             }
         });
     });
@@ -698,7 +790,7 @@ function calculateCanteenTrends(startDate, endDate) {
         });
     });
 
-    // 记录每个食堂在每个工作日是否为“缺失”（即当天没有任何检测）
+    // 记录每个食堂在每个工作日是否为"缺失"
     const rawMissing = {};
     canteens.forEach(canteen => {
         rawMissing[canteen] = rawDates.map(dateStr => {
@@ -727,12 +819,10 @@ function calculateCanteenTrends(startDate, endDate) {
     // 统计总数据点数
     const dataPointCount = hasDataFlags.filter(Boolean).length;
 
-    // 只有当数据点至少有3个时，才启用压缩逻辑，否则保持原样以免图表太窄
+    // 只有当数据点至少有3个时，才启用压缩逻辑
     const enableCompression = dataPointCount >= 3;
 
     let emptyCounter = 0;
-    // 允许的最大连续空天数。设置为1意味着：数据-空-空-空-数据 -> 数据-空-数据
-    // 这样能极大压缩空窗期，接近你想要的8:2效果
     const MAX_CONSECUTIVE_EMPTY = 1; 
 
     for (let i = 0; i < rawDates.length; i++) {
@@ -745,29 +835,24 @@ function calculateCanteenTrends(startDate, endDate) {
                 finalDatasets[c].push(rawDatasets[c][i]);
                 finalMissing[c].push(rawMissing[c][i]);
             });
-            emptyCounter = 0; // 重置空窗计数器
+            emptyCounter = 0;
         } else {
             // 情况B：这一天没数据
             if (!enableCompression) {
-                // 不压缩：照常添加空点
                 finalLabels.push(rawLabels[i]);
-                    canteens.forEach(c => {
-                    finalDatasets[c].push(100); // 缺失点显示为100
+                canteens.forEach(c => {
+                    finalDatasets[c].push(100);
                     finalMissing[c].push(true);
                 });
             } else {
-                // 启用压缩：检查是否超过了允许的空窗长度
                 if (emptyCounter < MAX_CONSECUTIVE_EMPTY) {
-                    // 还没超过限制，保留这个空位作为分隔符
                     finalLabels.push(rawLabels[i]);
                     canteens.forEach(c => {
-                        finalDatasets[c].push(100); // 缺失点显示为100
+                        finalDatasets[c].push(100);
                         finalMissing[c].push(true);
                     });
                     emptyCounter++;
                 } else {
-                    // 超过限制（例如已经是第2个空天了），直接丢弃该点
-                    // 从而实现视觉上的“折叠”
                     continue;
                 }
             }
@@ -778,15 +863,23 @@ function calculateCanteenTrends(startDate, endDate) {
 }
 
 
-// 计算食堂合格率
-function calculateCanteenPassRate() {
-    // 收集所有出现过的食堂名称
+// ✅ 计算食堂合格率（支持日期筛选）
+function calculateCanteenPassRate(startDate, endDate) {
+    // 收集所有出现过的食堂名称（带日期过滤）
     const canteenSet = new Set();
     const types = ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'];
     
     types.forEach(type => {
         const records = services[type].getAll();
         records.forEach(r => {
+            // ✅ 添加日期过滤
+            if (startDate && endDate) {
+                const testDate = r.testDate || (r.timestamp ? r.timestamp.split('T')[0] : null);
+                if (!testDate) return;
+                const d = new Date(testDate);
+                if (d < startDate || d > endDate) return;
+            }
+            
             if (r && r.canteen) canteenSet.add(r.canteen);
         });
     });
@@ -800,26 +893,43 @@ function calculateCanteenPassRate() {
         stats[canteen] = { passed: 0, total: 0 };
     });
 
-    // 计算每个食堂的合格率
+    // ✅ 计算每个食堂的合格率（带日期过滤）
     types.forEach(type => {
         const records = services[type].getAll();
         records.forEach(record => {
+            // ✅ 添加日期过滤
+            if (startDate && endDate) {
+                const testDate = record.testDate || (record.timestamp ? record.timestamp.split('T')[0] : null);
+                if (!testDate) return;
+                const d = new Date(testDate);
+                if (d < startDate || d > endDate) return;
+            }
+            
             const canteen = record.canteen;
             if (!canteen || !stats[canteen]) return;
 
             if (type === 'tableware') {
-                if (record.atpPoints && record.atpPoints.length) {
+                if (record.atpPoints && Array.isArray(record.atpPoints)) {
                     record.atpPoints.forEach(point => {
                         stats[canteen].total++;
-                        if ((point.result === '合格') || (point.res === '合格')) stats[canteen].passed++;
+                        // ✅ 兼容多种字段名和格式
+                        const result = (point.result || point.res || '').toString().trim();
+                        if (result === '合格' || result.includes('合格')) {
+                            stats[canteen].passed++;
+                        }
                     });
                 }
             } else if (type === 'pathogen') {
                 stats[canteen].total++;
-                if (!record.positiveItems || record.positiveItems === '无') stats[canteen].passed++;
+                if (!record.positiveItems || record.positiveItems === '无') {
+                    stats[canteen].passed++;
+                }
             } else {
                 stats[canteen].total++;
-                if (record.result?.includes('合格') || record.colorLevel === '合格') {
+                // ✅ 统一判断逻辑
+                const result = (record.result || '').toString().trim();
+                const colorLevel = (record.colorLevel || '').toString().trim();
+                if (result.includes('合格') || colorLevel === '合格') {
                     stats[canteen].passed++;
                 }
             }
@@ -837,3 +947,4 @@ function calculateCanteenPassRate() {
 
     return { labels, data };
 }
+
