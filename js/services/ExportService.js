@@ -141,6 +141,45 @@ export class ExportService {
                             
                         </div>
 
+                        <!-- ✅ 新增：肉类品种筛选（仅在勾选肉蛋农残时显示） -->
+                        <div id="meatTypeFilterContainer" class="border rounded-lg p-4 bg-gradient-to-br from-orange-50 to-yellow-50 border-orange-200" style="display: none;">
+                            <h3 class="font-semibold mb-3 text-gray-700 text-sm">
+                                <i class="fas fa-drumstick-bite mr-2 text-orange-600"></i>肉类品种筛选（肉、蛋农残）
+                            </h3>
+                            <div class="space-y-2">
+                                <label class="flex items-center text-sm">
+                                    <input type="checkbox" class="meat-type-checkbox mr-2" value="all" checked>
+                                    <span class="font-medium">全部品种</span>
+                                </label>
+                                <div class="grid grid-cols-2 gap-2">
+                                    <label class="flex items-center text-sm">
+                                        <input type="checkbox" class="meat-type-checkbox mr-2" value="猪肉">
+                                        <span>猪肉</span>
+                                    </label>
+                                    <label class="flex items-center text-sm">
+                                        <input type="checkbox" class="meat-type-checkbox mr-2" value="牛肉">
+                                        <span>牛肉</span>
+                                    </label>
+                                    <label class="flex items-center text-sm">
+                                        <input type="checkbox" class="meat-type-checkbox mr-2" value="羊肉">
+                                        <span>羊肉</span>
+                                    </label>
+                                    <label class="flex items-center text-sm">
+                                        <input type="checkbox" class="meat-type-checkbox mr-2" value="禽肉">
+                                        <span>禽肉</span>
+                                    </label>
+                                    <label class="flex items-center text-sm">
+                                        <input type="checkbox" class="meat-type-checkbox mr-2" value="鱼肉">
+                                        <span>鱼肉</span>
+                                    </label>
+                                    <label class="flex items-center text-sm">
+                                        <input type="checkbox" class="meat-type-checkbox mr-2" value="禽蛋">
+                                        <span>禽蛋</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- 报告配置 -->
                         <div class="border rounded-lg p-4 bg-gray-50">
                             <h3 class="font-semibold mb-3 text-gray-700">
@@ -216,6 +255,28 @@ export class ExportService {
             canteenCheckboxes.forEach(cb => cb.checked = e.target.checked);
         });
 
+        // ✅ 新增：检测类型变化时显示/隐藏肉类品种筛选
+        const leanMeatCheckbox = document.querySelector('.test-type-checkbox[value="leanMeat"]');
+        const meatTypeContainer = document.getElementById('meatTypeFilterContainer');
+        
+        if (leanMeatCheckbox && meatTypeContainer) {
+            // 初始状态检查
+            meatTypeContainer.style.display = leanMeatCheckbox.checked ? 'block' : 'none';
+            
+            // 监听变化
+            leanMeatCheckbox.addEventListener('change', (e) => {
+                meatTypeContainer.style.display = e.target.checked ? 'block' : 'none';
+            });
+        }
+
+        // ✅ 新增：全选肉类品种逻辑
+        const allMeatTypeCheckbox = document.querySelector('.meat-type-checkbox[value="all"]');
+        const meatTypeCheckboxes = document.querySelectorAll('.meat-type-checkbox:not([value="all"])');
+        
+        allMeatTypeCheckbox?.addEventListener('change', (e) => {
+            meatTypeCheckboxes.forEach(cb => cb.checked = e.target.checked);
+        });
+
         // 预览报告
         const btnPreview = document.getElementById('btnPreviewReport');
         if (btnPreview) {
@@ -244,6 +305,7 @@ export class ExportService {
         if (endInput) endInput.valueAsDate = today;
     }
 
+    // ✅ 修改：获取导出配置，包含肉类品种筛选
     getExportConfig() {
         const startDate = document.getElementById('exportStartDate').value;
         const endDate = document.getElementById('exportEndDate').value;
@@ -255,13 +317,18 @@ export class ExportService {
         const testTypes = Array.from(document.querySelectorAll('.test-type-checkbox:checked'))
             .map(cb => cb.value);
         
+        // ✅ 新增：获取肉类品种筛选
+        const meatTypes = Array.from(document.querySelectorAll('.meat-type-checkbox:checked'))
+            .map(cb => cb.value)
+            .filter(v => v !== 'all');
+        
         const title = document.getElementById('reportTitle').value || '食品安全检测报告';
         const notes = document.getElementById('reportNotes').value;
         
-        return { startDate, endDate, canteens, testTypes, title, notes };
+        return { startDate, endDate, canteens, testTypes, meatTypes, title, notes };
     }
 
-    // ✅ 修改：使用 StorageService 的 getAll() 方法
+    // ✅ 修改：收集数据时增加肉类品种筛选
     collectData(config) {
         const data = {};
 
@@ -277,11 +344,11 @@ export class ExportService {
         console.log('🔍 筛选条件:', {
             start: start ? start.toString() : '(无限制)',
             end: end ? end.toString() : '(无限制)',
-            canteens: config.canteens.length ? config.canteens : '(全部)'
+            canteens: config.canteens.length ? config.canteens : '(全部)',
+            meatTypes: config.meatTypes.length ? config.meatTypes : '(全部品种)' // ✅ 新增日志
         });
 
         config.testTypes.forEach(type => {
-            // ✅ 使用 StorageService 的 getAll() 方法
             const records = this.storage[type].getAll();
 
             let matchedLogCount = 0;
@@ -306,12 +373,19 @@ export class ExportService {
                     config.canteens.length === 0 ||
                     config.canteens.includes(record.canteen);
 
-                const ok = inDateRange && inCanteen;
+                // ✅ 新增：肉类品种筛选（仅对 leanMeat 模块生效）
+                let inMeatType = true;
+                if (type === 'leanMeat' && config.meatTypes.length > 0) {
+                    inMeatType = config.meatTypes.includes(record.meatType);
+                }
+
+                const ok = inDateRange && inCanteen && inMeatType;
 
                 if (ok && matchedLogCount < 3) {
                     console.log(`  ✓ 命中样例(${type}):`, {
                         testDate: record.testDate,
-                        canteen: record.canteen
+                        canteen: record.canteen,
+                        meatType: record.meatType || 'N/A'
                     });
                     matchedLogCount++;
                 }
@@ -354,6 +428,7 @@ export class ExportService {
         document.getElementById('reportPreview').innerHTML = html;
     }
     
+    // ✅ 修改：生成报告HTML时显示肉类品种筛选信息
     generateReportHTML(data, config) {
         let html = `
             <div class="report-content" id="pdfContent">
@@ -365,6 +440,19 @@ export class ExportService {
                     <p class="text-xs text-gray-500 mt-1">
                         生成时间：${new Date().toLocaleString('zh-CN')}
                     </p>
+        `;
+        
+        // ✅ 新增：显示肉类品种筛选信息
+        if (config.testTypes.includes('leanMeat') && config.meatTypes.length > 0) {
+            html += `
+                    <p class="text-xs text-orange-600 mt-2 bg-orange-50 inline-block px-3 py-1 rounded">
+                        <i class="fas fa-drumstick-bite mr-1"></i>
+                        肉类品种筛选：${config.meatTypes.join('、')}
+                    </p>
+            `;
+        }
+        
+        html += `
                 </div>
         `;
         
@@ -390,6 +478,24 @@ export class ExportService {
                     </h3>
                     <p class="text-sm text-gray-600 mb-3 px-2">
                         检测记录数：<span class="font-semibold text-blue-600">${records.length}</span> 条
+            `;
+            
+            // ✅ 新增：显示肉类品种分布统计
+            if (type === 'leanMeat' && records.length > 0) {
+                const meatTypeStats = {};
+                records.forEach(r => {
+                    const meatType = r.meatType || '未知';
+                    meatTypeStats[meatType] = (meatTypeStats[meatType] || 0) + 1;
+                });
+                
+                html += `
+                        <span class="text-xs text-gray-500 ml-2">
+                            (${Object.entries(meatTypeStats).map(([type, count]) => `${type}:${count}`).join(', ')})
+                        </span>
+                `;
+            }
+            
+            html += `
                     </p>
             `;
             
@@ -408,6 +514,16 @@ export class ExportService {
                 <p class="text-sm">总检测记录数：<span class="font-bold text-blue-600">${totalRecords}</span> 条</p>
                 <p class="text-sm">检测类型数：<span class="font-bold text-blue-600">${config.testTypes.length}</span> 类</p>
                 <p class="text-sm">涉及食堂：<span class="font-bold text-blue-600">${config.canteens.length || '全部'}</span></p>
+        `;
+        
+        // ✅ 新增：显示肉类品种筛选汇总
+        if (config.testTypes.includes('leanMeat') && config.meatTypes.length > 0) {
+            html += `
+                <p class="text-sm">肉类品种：<span class="font-bold text-orange-600">${config.meatTypes.join('、')}</span></p>
+            `;
+        }
+        
+        html += `
             </div>
         `;
         
@@ -478,7 +594,6 @@ export class ExportService {
             } else {
                 // ✅ 其他类型：统一使用与数据看板相同的判断逻辑
                 const passCount = records.filter(r => {
-                    // 与 Dashboard.js 第 193 行保持一致
                     return r.result?.includes('合格') || r.colorLevel === '合格';
                 }).length;
                 

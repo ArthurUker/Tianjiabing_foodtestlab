@@ -29,6 +29,9 @@ export function initDashboard() {
     const weekValue = getWeekString(now);
     document.getElementById('weekFilter').value = weekValue;
     
+    // ✅ 初始化食堂选择器
+    initCanteenFilter();
+    
     // 绑定事件处理器
     document.getElementById('dateFilterType').addEventListener('change', updateDateFilterOptions);
     document.getElementById('btnFilterDashboard').addEventListener('click', loadDashboardData);
@@ -54,6 +57,34 @@ export function initDashboard() {
     const btnExportDashboard = document.getElementById('btnExportDashboardPDF');
     if (btnExportDashboard) {
         btnExportDashboard.onclick = exportDashboardToPDF;
+    }
+}
+
+// ✅ 新增：初始化食堂筛选器
+function initCanteenFilter() {
+    const canteenSet = new Set();
+    const types = ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'];
+    
+    // 收集所有出现过的食堂
+    types.forEach(type => {
+        const records = services[type].getAll();
+        records.forEach(r => {
+            if (r && r.canteen) canteenSet.add(r.canteen);
+        });
+    });
+    
+    const canteenFilter = document.getElementById('canteenFilter');
+    if (canteenFilter) {
+        // 添加"全部食堂"选项
+        canteenFilter.innerHTML = '<option value="all">全部食堂</option>';
+        
+        // 添加实际存在的食堂
+        Array.from(canteenSet).sort().forEach(canteen => {
+            const option = document.createElement('option');
+            option.value = canteen;
+            option.textContent = canteen;
+            canteenFilter.appendChild(option);
+        });
     }
 }
 
@@ -116,6 +147,11 @@ function createDashboardStructure() {
                 </h2>
                 <!-- 筛选控制区 -->
                 <div class="flex flex-wrap items-center gap-2" data-html2canvas-ignore="true">
+                    <!-- ✅ 食堂筛选 -->
+                    <select id="canteenFilter" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                        <option value="all">全部食堂</option>
+                    </select>
+                    
                     <select id="dateFilterType" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
                         <option value="all">全部数据</option>
                         <option value="day">按日</option>
@@ -181,40 +217,94 @@ function createDashboardStructure() {
                         <i class="fas fa-oil-can text-4xl opacity-50"></i>
                     </div>
                 </div>
-                <!-- 瘦肉精 -->
-                <div class="bg-gradient-to-br from-red-400 to-red-600 rounded-lg p-4 text-white shadow">
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <p class="text-sm opacity-90">瘦肉精快检</p>
-                            <p class="text-3xl font-bold" id="card_lean_count">0</p>
-                            <p class="text-xs mt-1">合格率: <span id="card_lean_pass">0%</span></p>
-                        </div>
-                        <i class="fas fa-drumstick-bite text-4xl opacity-50"></i>
-                    </div>
-                </div>
                 <!-- 病原体 -->
                 <div class="bg-gradient-to-br from-purple-400 to-purple-600 rounded-lg p-4 text-white shadow">
                     <div class="flex items-center justify-between">
                         <div>
                             <p class="text-sm opacity-90">食源性细菌/病毒</p>
                             <p class="text-3xl font-bold" id="card_pathogen_count">0</p>
-                            <p class="text-xs mt-1">阳性数: <span id="card_pathogen_positive">0</span></p>
+                            <p class="text-xs mt-1">
+                                阳性数: <span id="card_pathogen_positive">0</span>
+                                <span class="text-xs opacity-75 ml-2" title="Ct≥35通常为环境残留核酸，无需特殊处置">
+                                    <i class="fas fa-info-circle"></i>
+                                </span>
+                            </p>
                         </div>
                         <i class="fas fa-virus text-4xl opacity-50"></i>
                     </div>
                 </div>
-                <!-- 总数 -->
+                <!-- ✅ 总数卡片 - 增加总合格率显示 -->
                 <div class="bg-gradient-to-br from-orange-400 to-orange-600 rounded-lg p-4 text-white shadow">
                     <div class="flex items-center justify-between">
                         <div>
                             <p class="text-sm opacity-90">总检测数</p>
                             <p class="text-3xl font-bold" id="card_total_count">0</p>
-                            <p class="text-xs mt-1" id="date_range_text">全部数据</p>
+                            <p class="text-xs mt-1">
+                                <span id="date_range_text">全部数据</span>
+                                <br>
+                                总合格率: <span id="card_total_pass">0%</span>
+                            </p>
                         </div>
                         <i class="fas fa-clipboard-list text-4xl opacity-50"></i>
                     </div>
                 </div>
             </div>
+            
+            <!-- 瘦肉精分类统计卡片 -->
+            <div class="mb-6">
+                <h3 class="font-semibold text-gray-800 mb-3">肉、蛋农残检测</h3>
+                <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                    <!-- 猪肉 -->
+                    <div class="bg-gradient-to-br from-red-400 to-red-600 rounded-lg p-3 text-white shadow">
+                        <div class="text-center">
+                            <p class="text-xs opacity-90">猪肉</p>
+                            <p class="text-2xl font-bold" id="card_lean_pork_count">0</p>
+                            <p class="text-xs mt-1">合格率: <span id="card_lean_pork_pass">0%</span></p>
+                        </div>
+                    </div>
+                    <!-- 羊肉 -->
+                    <div class="bg-gradient-to-br from-red-400 to-red-600 rounded-lg p-3 text-white shadow">
+                        <div class="text-center">
+                            <p class="text-xs opacity-90">羊肉</p>
+                            <p class="text-2xl font-bold" id="card_lean_mutton_count">0</p>
+                            <p class="text-xs mt-1">合格率: <span id="card_lean_mutton_pass">0%</span></p>
+                        </div>
+                    </div>
+                    <!-- 牛肉 -->
+                    <div class="bg-gradient-to-br from-red-400 to-red-600 rounded-lg p-3 text-white shadow">
+                        <div class="text-center">
+                            <p class="text-xs opacity-90">牛肉</p>
+                            <p class="text-2xl font-bold" id="card_lean_beef_count">0</p>
+                            <p class="text-xs mt-1">合格率: <span id="card_lean_beef_pass">0%</span></p>
+                        </div>
+                    </div>
+                    <!-- 禽肉 -->
+                    <div class="bg-gradient-to-br from-red-400 to-red-600 rounded-lg p-3 text-white shadow">
+                        <div class="text-center">
+                            <p class="text-xs opacity-90">禽肉</p>
+                            <p class="text-2xl font-bold" id="card_lean_poultry_count">0</p>
+                            <p class="text-xs mt-1">合格率: <span id="card_lean_poultry_pass">0%</span></p>
+                        </div>
+                    </div>
+                    <!-- 鱼肉 -->
+                    <div class="bg-gradient-to-br from-red-400 to-red-600 rounded-lg p-3 text-white shadow">
+                        <div class="text-center">
+                            <p class="text-xs opacity-90">鱼肉</p>
+                            <p class="text-2xl font-bold" id="card_lean_fish_count">0</p>
+                            <p class="text-xs mt-1">合格率: <span id="card_lean_fish_pass">0%</span></p>
+                        </div>
+                    </div>
+                    <!-- 禽蛋 -->
+                    <div class="bg-gradient-to-br from-red-400 to-red-600 rounded-lg p-3 text-white shadow">
+                        <div class="text-center">
+                            <p class="text-xs opacity-90">禽蛋</p>
+                            <p class="text-2xl font-bold" id="card_lean_egg_count">0</p>
+                            <p class="text-xs mt-1">合格率: <span id="card_lean_egg_pass">0%</span></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
             <!-- 2. 概览列表区域 -->
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                 <div class="bg-white border rounded-lg p-4">
@@ -229,13 +319,38 @@ function createDashboardStructure() {
                     <h3 class="font-semibold text-gray-800 mb-3">食用油品质概览 (最新5条)</h3>
                     <ul id="list_oil_overview" class="text-sm text-gray-700 space-y-2"></ul>
                 </div>
+                <!-- ✅ 病原体检测概览移到右边 -->
                 <div class="bg-white border rounded-lg p-4">
-                    <h3 class="font-semibold text-gray-800 mb-3">瘦肉精概览 (最新5条)</h3>
-                    <ul id="list_lean_overview" class="text-sm text-gray-700 space-y-2"></ul>
-                </div>
-                <div class="bg-white border rounded-lg p-4 col-span-1 md:col-span-2">
-                    <h3 class="font-semibold text-gray-800 mb-3">病原体检测概览</h3>
+                    <h3 class="font-semibold text-gray-800 mb-3">病原体检测概览 (最新5条)</h3>
                     <ul id="list_pathogen_overview" class="text-sm text-gray-700 space-y-2"></ul>
+                </div>
+            </div>
+            
+            <!-- 瘦肉精分类概览 -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+                <div class="bg-white border rounded-lg p-4">
+                    <h3 class="font-semibold text-gray-800 mb-3">猪肉检测概览 (最新5条)</h3>
+                    <ul id="list_lean_pork_overview" class="text-sm text-gray-700 space-y-2"></ul>
+                </div>
+                <div class="bg-white border rounded-lg p-4">
+                    <h3 class="font-semibold text-gray-800 mb-3">羊肉检测概览 (最新5条)</h3>
+                    <ul id="list_lean_mutton_overview" class="text-sm text-gray-700 space-y-2"></ul>
+                </div>
+                <div class="bg-white border rounded-lg p-4">
+                    <h3 class="font-semibold text-gray-800 mb-3">牛肉检测概览 (最新5条)</h3>
+                    <ul id="list_lean_beef_overview" class="text-sm text-gray-700 space-y-2"></ul>
+                </div>
+                <div class="bg-white border rounded-lg p-4">
+                    <h3 class="font-semibold text-gray-800 mb-3">禽肉检测概览 (最新5条)</h3>
+                    <ul id="list_lean_poultry_overview" class="text-sm text-gray-700 space-y-2"></ul>
+                </div>
+                <div class="bg-white border rounded-lg p-4">
+                    <h3 class="font-semibold text-gray-800 mb-3">鱼肉检测概览 (最新5条)</h3>
+                    <ul id="list_lean_fish_overview" class="text-sm text-gray-700 space-y-2"></ul>
+                </div>
+                <div class="bg-white border rounded-lg p-4">
+                    <h3 class="font-semibold text-gray-800 mb-3">禽蛋检测概览 (最新5条)</h3>
+                    <ul id="list_lean_egg_overview" class="text-sm text-gray-700 space-y-2"></ul>
                 </div>
             </div>
             
@@ -293,7 +408,7 @@ function updateDateFilterOptions() {
     }
 }
 
-// 加载看板数据
+// ✅ 修改：加载看板数据（增加食堂筛选）
 function loadDashboardData() {
     // 获取筛选日期范围
     const filterType = document.getElementById('dateFilterType').value;
@@ -311,7 +426,6 @@ function loadDashboardData() {
             break;
             
         case 'week':
-            // ✅ 按周筛选逻辑
             const weekValue = document.getElementById('weekFilter').value || getWeekString(now);
             const weekRange = getWeekRange(weekValue);
             startDate = weekRange.start;
@@ -338,7 +452,6 @@ function loadDashboardData() {
                 endDate.setHours(23, 59, 59, 999);
                 document.getElementById('date_range_text').textContent = `${start} 至 ${end}`;
             } else {
-                // 默认全部
                 startDate = new Date(0);
                 endDate = new Date(2099, 11, 31);
             }
@@ -350,20 +463,22 @@ function loadDashboardData() {
             document.getElementById('date_range_text').textContent = `全部数据`;
     }
 
-    // 统计各模块数据
+    // ✅ 获取食堂筛选条件
+    const selectedCanteen = document.getElementById('canteenFilter')?.value || 'all';
+
+    // 统计各模块数据（传入食堂筛选参数）
     const stats = {
-        tableware: getStats('tableware', startDate, endDate),
-        pesticide: getStats('pesticide', startDate, endDate),
-        oil: getStats('oil', startDate, endDate),
-        leanMeat: getStats('leanMeat', startDate, endDate),
-        pathogen: getStats('pathogen', startDate, endDate)
+        tableware: getStats('tableware', startDate, endDate, selectedCanteen),
+        pesticide: getStats('pesticide', startDate, endDate, selectedCanteen),
+        oil: getStats('oil', startDate, endDate, selectedCanteen),
+        leanMeat: getStats('leanMeat', startDate, endDate, selectedCanteen),
+        pathogen: getStats('pathogen', startDate, endDate, selectedCanteen)
     };
 
     // 更新卡片显示
     updateCard('tableware', stats.tableware);
     updateCard('pesticide', stats.pesticide);
     updateCard('oil', stats.oil);
-    updateCard('lean', stats.leanMeat);
     
     // 病原体特殊处理
     const pathogenCountEl = document.getElementById('card_pathogen_count');
@@ -371,46 +486,185 @@ function loadDashboardData() {
     if(pathogenCountEl) pathogenCountEl.textContent = stats.pathogen.count;
     if(pathogenPositiveEl) pathogenPositiveEl.textContent = stats.pathogen.positiveCount;
 
-    // 更新总数
-    const total = stats.tableware.count + stats.pesticide.count + stats.oil.count + stats.leanMeat.count + stats.pathogen.count;
-    document.getElementById('card_total_count').textContent = total;
+    // 获取瘦肉精分类统计
+    const leanMeatByType = getLeanMeatStatsByType(startDate, endDate, selectedCanteen);
+    
+    // 更新瘦肉精分类卡片
+    updateLeanMeatCards(leanMeatByType);
+    
+    // 更新瘦肉精分类概览列表
+    updateLeanMeatOverviewLists(leanMeatByType);
+
+    // ✅ 计算总检测数和总合格率
+    let totalCount = 0;
+    let totalPassed = 0;
+    
+    // 餐具：按点位计数
+    totalCount += stats.tableware.count;
+    totalPassed += stats.tableware.passCount;
+    
+    // 其他模块：按记录计数
+    totalCount += stats.pesticide.count;
+    totalPassed += stats.pesticide.passCount;
+    
+    totalCount += stats.oil.count;
+    totalPassed += stats.oil.passCount;
+    
+    totalCount += stats.leanMeat.count;
+    totalPassed += stats.leanMeat.passCount;
+    
+    totalCount += stats.pathogen.count;
+    totalPassed += stats.pathogen.passCount;
+    
+    const totalPassRate = totalCount > 0 ? Math.round((totalPassed / totalCount) * 100) : 100;
+    
+    document.getElementById('card_total_count').textContent = totalCount;
+    document.getElementById('card_total_pass').textContent = `${totalPassRate}%`;
 
     // 更新概览列表
     updateOverviewList('tableware', stats.tableware.records);
     updateOverviewList('pesticide', stats.pesticide.records);
     updateOverviewList('oil', stats.oil.records);
-    updateOverviewList('lean', stats.leanMeat.records);
     updateOverviewList('pathogen', stats.pathogen.records);
 
     // 更新风险提示
-    updateRiskAlerts(stats);
+    updateRiskAlerts(stats, leanMeatByType);
 
     // 更新图表
-    updateCharts(startDate, endDate);
+    updateCharts(startDate, endDate, selectedCanteen);
+}
+
+// ✅ 修改：获取瘦肉精分类统计（增加食堂筛选）
+function getLeanMeatStatsByType(startDate, endDate, selectedCanteen = 'all') {
+    const records = services.leanMeat.getAll();
+    const filtered = records.filter(r => {
+        const testDate = r.testDate || (r.timestamp ? r.timestamp.split('T')[0] : null);
+        if (!testDate) return false;
+        
+        const d = new Date(testDate);
+        if (d < startDate || d > endDate) return false;
+        
+        // ✅ 食堂筛选
+        if (selectedCanteen !== 'all' && r.canteen !== selectedCanteen) return false;
+        
+        return true;
+    });
+    
+    // 定义肉类类型
+    const meatTypes = {
+        '猪肉': { count: 0, passCount: 0, records: [] },
+        '羊肉': { count: 0, passCount: 0, records: [] },
+        '牛肉': { count: 0, passCount: 0, records: [] },
+        '禽肉': { count: 0, passCount: 0, records: [] },
+        '鱼肉': { count: 0, passCount: 0, records: [] },
+        '禽蛋': { count: 0, passCount: 0, records: [] }
+    };
+    
+    filtered.forEach(r => {
+        const meatType = r.meatType;
+        if (meatTypes[meatType]) {
+            meatTypes[meatType].count++;
+            meatTypes[meatType].records.push(r);
+            
+            const result = (r.result || '').toString().trim();
+            if (result.includes('合格')) {
+                meatTypes[meatType].passCount++;
+            }
+        }
+    });
+    
+    // 计算合格率，数据为0时返回 null
+    Object.keys(meatTypes).forEach(type => {
+        const stats = meatTypes[type];
+        if (stats.count === 0) {
+            stats.passRate = null;
+        } else {
+            stats.passRate = Math.round((stats.passCount / stats.count) * 100);
+        }
+    });
+    
+    return meatTypes;
+}
+
+// 修改：更新瘦肉精分类卡片，数据为0时显示"无"
+function updateLeanMeatCards(leanMeatByType) {
+    const typeMapping = {
+        '猪肉': 'pork',
+        '羊肉': 'mutton',
+        '牛肉': 'beef',
+        '禽肉': 'poultry',
+        '鱼肉': 'fish',
+        '禽蛋': 'egg'
+    };
+    
+    Object.keys(typeMapping).forEach(cnType => {
+        const enType = typeMapping[cnType];
+        const stats = leanMeatByType[cnType];
+        
+        const countEl = document.getElementById(`card_lean_${enType}_count`);
+        const passEl = document.getElementById(`card_lean_${enType}_pass`);
+        
+        if(countEl) countEl.textContent = stats.count;
+        if(passEl) {
+            if (stats.passRate === null) {
+                passEl.textContent = '无';
+            } else {
+                passEl.textContent = `${stats.passRate}%`;
+            }
+        }
+    });
+}
+
+// 新增：更新瘦肉精分类概览列表
+function updateLeanMeatOverviewLists(leanMeatByType) {
+    const typeMapping = {
+        '猪肉': 'pork',
+        '羊肉': 'mutton',
+        '牛肉': 'beef',
+        '禽肉': 'poultry',
+        '鱼肉': 'fish',
+        '禽蛋': 'egg'
+    };
+    
+    Object.keys(typeMapping).forEach(cnType => {
+        const enType = typeMapping[cnType];
+        const records = leanMeatByType[cnType].records;
+        
+        const listEl = document.getElementById(`list_lean_${enType}_overview`);
+        if(!listEl) return;
+        
+        if (!records.length) {
+            listEl.innerHTML = '<li>暂无数据</li>';
+            return;
+        }
+        
+        listEl.innerHTML = '';
+        const recent = records.slice(0, 5);
+        recent.forEach(r => {
+            const li = document.createElement('li');
+            li.textContent = `${r.testDate} ${r.canteen} ${r.result}`;
+            listEl.appendChild(li);
+        });
+    });
 }
 
 // ✅ 辅助函数：根据周字符串计算起止日期
 function getWeekRange(weekString) {
-    // weekString 格式：2024-W52
     const [yearStr, weekStr] = weekString.split('-W');
     const year = parseInt(yearStr);
     const week = parseInt(weekStr);
     
-    // 计算该年第一周的周一
     const jan1 = new Date(year, 0, 1);
-    const jan1Day = jan1.getDay() || 7; // 周日=7
+    const jan1Day = jan1.getDay() || 7;
     const firstMonday = new Date(year, 0, 1 + (8 - jan1Day) % 7);
     
-    // 计算目标周的周一
     const targetMonday = new Date(firstMonday);
     targetMonday.setDate(firstMonday.getDate() + (week - 1) * 7);
     
-    // 计算周日
     const targetSunday = new Date(targetMonday);
     targetSunday.setDate(targetMonday.getDate() + 6);
     targetSunday.setHours(23, 59, 59, 999);
     
-    // 格式化显示文本
     const startStr = `${targetMonday.getMonth() + 1}-${targetMonday.getDate()}`;
     const endStr = `${targetSunday.getMonth() + 1}-${targetSunday.getDate()}`;
     
@@ -421,59 +675,95 @@ function getWeekRange(weekString) {
     };
 }
 
-// 通用统计函数 - 支持按日期过滤
-function getStats(type, startDate, endDate) {
-    const records = services[type].getAll();
-    const filtered = records.filter(r => {
-        const testDate = r.testDate || (r.timestamp ? r.timestamp.split('T')[0] : null);
-        if (!testDate) return false;
-        
-        const d = new Date(testDate);
-        return d >= startDate && d <= endDate;
-    });
+// ✅ 修改：通用统计函数 - 增加食堂筛选参数
+function getStats(type, startDate, endDate, selectedCanteen = 'all') {
+  const records = services[type].getAll();
+  const filtered = records.filter(r => {
+      const testDate = r.testDate || (r.timestamp ? r.timestamp.split('T')[0] : null);
+      if (!testDate) return false;
+      
+      const d = new Date(testDate);
+      if (d < startDate || d > endDate) return false;
+      
+      // ✅ 食堂筛选
+      if (selectedCanteen !== 'all' && r.canteen !== selectedCanteen) return false;
+      
+      return true;
+  });
 
-    let count = 0;
-    let passCount = 0;
-    let positiveCount = 0;
+  let count = 0;
+  let passCount = 0;
+  let positiveCount = 0;
 
-    if (type === 'tableware') {
-        // ✅ 餐具洁净度：逐个点位统计
-        filtered.forEach(r => {
-            if (r.atpPoints && Array.isArray(r.atpPoints)) {
-                r.atpPoints.forEach(point => {
-                    count++;
-                    // ✅ 兼容多种字段名和格式
-                    const result = (point.result || point.res || '').toString().trim();
-                    if (result === '合格' || result.includes('合格')) {
-                        passCount++;
-                    }
-                });
-            }
-        });
-    } else if (type === 'pathogen') {
-        // ✅ 病原体检测：统计阳性数量
-        count = filtered.length;
-        positiveCount = filtered.filter(r => {
-            const items = r.positiveItems;
-            if (!items) return false;
-            if (Array.isArray(items) && items.length > 0) return true;
-            if (typeof items === 'string' && items !== '无' && items.trim() !== '') return true;
-            return false;
-        }).length;
-    } else {
-        // ✅ 其他类型：统一判断逻辑
-        count = filtered.length;
-        passCount = filtered.filter(r => {
-            // 与导出模块保持一致
-            const result = (r.result || '').toString().trim();
-            const colorLevel = (r.colorLevel || '').toString().trim();
-            return result.includes('合格') || colorLevel === '合格';
-        }).length;
-    }
+  if (type === 'tableware') {
+      filtered.forEach(r => {
+          if (r.atpPoints && Array.isArray(r.atpPoints)) {
+              r.atpPoints.forEach(point => {
+                  count++;
+                  const result = (point.result || point.res || '').toString().trim();
+                  if (result === '合格' || result.includes('合格')) {
+                      passCount++;
+                  }
+              });
+          }
+      });
+  } else if (type === 'pathogen') {
+      count = filtered.length;
+      
+      const riskLevels = {
+          '高风险': 0,
+          '中风险': 0,
+          '低风险': 0,
+          '极低风险': 0
+      };
+      
+      filtered.forEach(r => {
+          const items = r.positiveItems;
+          if (!items || items === '无' || (typeof items === 'string' && items.trim() === '')) {
+              r.positiveDetails = [];
+              return;
+          }
+          
+          positiveCount++;
+          
+          if (r.riskLevel && riskLevels[r.riskLevel] !== undefined) {
+              riskLevels[r.riskLevel]++;
+          }
+          
+          if (r.allTestItems && Array.isArray(r.allTestItems)) {
+              r.positiveDetails = r.allTestItems
+                  .filter(item => item.result && item.result.includes('阳性') && !item.isInternalControl)
+                  .map(item => ({
+                      pathogen: item.pathogen,
+                      ct: parseFloat(item.ct) || 40,
+                      ctRaw: item.ct
+                  }));
+          } else {
+              r.positiveDetails = [];
+          }
+      });
+      
+      passCount = count - positiveCount;
+      
+      return { 
+          count, 
+          passCount,
+          positiveCount, 
+          passRate: count > 0 ? Math.round((passCount / count) * 100) : 100,
+          records: filtered,
+          riskLevels
+      };
+  } else {
+      count = filtered.length;
+      passCount = filtered.filter(r => {
+          const result = (r.result || '').toString().trim();
+          const colorLevel = (r.colorLevel || '').toString().trim();
+          return result.includes('合格') || colorLevel === '合格';
+      }).length;
+  }
 
-    const passRate = count > 0 ? Math.round((passCount / count) * 100) : 100;
-
-    return { count, passCount, positiveCount, passRate, records: filtered };
+  const passRate = count > 0 ? Math.round((passCount / count) * 100) : 100;
+  return { count, passCount, positiveCount, passRate, records: filtered };
 }
 
 
@@ -494,7 +784,7 @@ function updateOverviewList(type, records) {
     }
 
     listEl.innerHTML = '';
-    const recent = records.slice(0, 5);  // 显示最新5条
+    const recent = records.slice(0, 5);
     recent.forEach(r => {
         const li = document.createElement('li');
         let text = '';
@@ -502,34 +792,192 @@ function updateOverviewList(type, records) {
         else if(type === 'pesticide') text = `${r.testDate} ${r.vegetableType} ${r.result}`;
         else if(type === 'oil') text = `${r.testDate} ${r.canteen} TPM:${r.tpmValue}%`;
         else if(type === 'lean' || type === 'leanMeat') text = `${r.testDate} ${r.meatType} ${r.result}`;
-        else if(type === 'pathogen') text = `${r.testDate} ${r.sampleId} ${r.positiveItems || '无'}`;
+        // ✅ 修改：病原体显示增加食堂信息
+        else if(type === 'pathogen') {
+            const canteenInfo = r.canteen || '混样检测';
+            const positiveInfo = r.positiveItems || '无';
+            text = `${r.testDate} ${canteenInfo} ${r.sampleId} ${positiveInfo}`;
+        }
         
         li.textContent = text;
         listEl.appendChild(li);
     });
 }
 
-function updateRiskAlerts(stats) {
+
+// ✅ 修改：更新风险提示函数（增加食堂信息显示）
+function updateRiskAlerts(stats, leanMeatByType) {
     const alerts = [];
-    if (stats.tableware.passRate < 90 && stats.tableware.count > 0) alerts.push(`餐具洁净度合格率偏低(${stats.tableware.passRate}%)`);
-    if (stats.pesticide.passRate < 100 && stats.pesticide.count > 0) alerts.push(`存在农药残留超标蔬果`);
-    if (stats.oil.passRate < 95 && stats.oil.count > 0) alerts.push(`食用油品质不合格率较高`);
-    if (stats.leanMeat.passRate < 100 && stats.leanMeat.count > 0) alerts.push(`警告：检出瘦肉精阳性样本`);
-    if (stats.pathogen.positiveCount > 0) alerts.push(`警告：检出食源性病原体`);
+    
+    if (stats.tableware.passRate < 90 && stats.tableware.count > 0) {
+        alerts.push(`餐具洁净度合格率偏低(${stats.tableware.passRate}%)`);
+    }
+    
+    if (stats.pesticide.passRate < 100 && stats.pesticide.count > 0) {
+        alerts.push(`存在农药残留超标蔬果`);
+    }
+    
+    if (stats.oil.passRate < 95 && stats.oil.count > 0) {
+        alerts.push(`食用油品质不合格率较高`);
+    }
+    
+    Object.keys(leanMeatByType).forEach(meatType => {
+        const typeStats = leanMeatByType[meatType];
+        if (typeStats.passRate !== null && typeStats.passRate < 100 && typeStats.count > 0) {
+            alerts.push(`警告：${meatType}检出瘦肉精阳性样本`);
+        }
+    });
+    
+    // ✅ 修改：病原体风险提示 - 增加食堂信息显示
+    if (stats.pathogen.positiveCount > 0) {
+        const pathogenRecords = stats.pathogen.records || [];
+        const pathogenDetails = [];
+        
+        pathogenRecords.forEach(record => {
+            if (record.riskLevel === '无风险') return;
+            const positiveDetails = record.positiveDetails || [];
+            
+            positiveDetails.forEach(detail => {
+                pathogenDetails.push({
+                    pathogen: detail.pathogen,
+                    ct: detail.ct,
+                    ctRaw: detail.ctRaw,
+                    riskLevel: record.riskLevel,
+                    sampleId: record.sampleId,
+                    canteen: record.canteen || '混样检测', // ✅ 默认为混样检测
+                    testDate: record.testDate
+                });
+            });
+        });
+        
+        pathogenDetails.sort((a, b) => a.ct - b.ct);
+        
+        const riskGroups = {
+            '高风险': [],
+            '中风险': [],
+            '低风险': [],
+            '极低风险': []
+        };
+        
+        pathogenDetails.forEach(detail => {
+            if (riskGroups.hasOwnProperty(detail.riskLevel)) {
+                riskGroups[detail.riskLevel].push(detail);
+            }
+        });
+        
+        // ✅ 修改：高风险提示格式
+        if (riskGroups['高风险'].length > 0) {
+            const items = riskGroups['高风险']
+                .map(d => `${d.pathogen}(Ct=${d.ctRaw}, ${d.canteen}, ${d.testDate})`)
+                .join('；');
+            alerts.push(`🔴 高风险警告：${items} - 需立即处置`);
+        }
+        
+        // ✅ 修改：中风险提示格式
+        if (riskGroups['中风险'].length > 0) {
+            const items = riskGroups['中风险']
+                .map(d => `${d.pathogen}(Ct=${d.ctRaw}, ${d.canteen}, ${d.testDate})`)
+                .join('；');
+            alerts.push(`🟠 中风险提示：${items} - 建议加强消毒`);
+        }
+        
+        // ✅ 修改：低风险提示格式
+        if (riskGroups['低风险'].length > 0) {
+            const items = riskGroups['低风险']
+                .map(d => `${d.pathogen}(Ct=${d.ctRaw}, ${d.canteen})`)
+                .join('；');
+            alerts.push(`🟡 低风险提示：${items} - 常规消毒即可`);
+        }
+        
+        // ✅ 修改：极低风险提示格式
+        if (riskGroups['极低风险'].length > 0) {
+            const count = riskGroups['极低风险'].length;
+            
+            // 按食堂分组统计
+            const canteenGroups = {};
+            riskGroups['极低风险'].forEach(d => {
+                if (!canteenGroups[d.canteen]) {
+                    canteenGroups[d.canteen] = [];
+                }
+                canteenGroups[d.canteen].push(d);
+            });
+            
+            // 生成分食堂的提示信息
+            const canteenSummaries = Object.keys(canteenGroups).map(canteen => {
+                const items = canteenGroups[canteen];
+                const pathogenList = items.slice(0, 2).map(d => `${d.pathogen}(Ct=${d.ctRaw})`).join('、');
+                const suffix = items.length > 2 ? ` 等${items.length}项` : '';
+                return `${canteen}: ${pathogenList}${suffix}`;
+            }).join('；');
+            
+            alerts.push(`ℹ️ 监测信息：检出微量核酸片段 ${canteenSummaries} - 通常为环境残留，无需特殊处置`);
+        }
+    }
 
     const el = document.getElementById('riskAlerts');
     if (alerts.length) {
-        el.innerHTML = alerts.map(a => `<li class="text-red-700 font-bold">• ${a}</li>`).join('');
+        el.innerHTML = alerts.map(a => {
+            const colorClass = a.includes('🔴') ? 'text-red-700' : 
+                              a.includes('🟠') ? 'text-orange-600' : 
+                              a.includes('🟡') ? 'text-yellow-600' : 
+                              a.includes('ℹ️') ? 'text-blue-600' : 'text-red-700';
+            return `<li class="${colorClass} font-bold">• ${a}</li>`;
+        }).join('');
     } else {
-        el.innerHTML = '<li>• 暂无风险提示</li>';
+        el.innerHTML = '<li class="text-green-600">• 暂无风险提示</li>';
     }
 }
+
+
+function calculateRiskLevel(positiveList) {
+    if (positiveList.length === 0) {
+        return {
+            riskLevel: '无风险',
+            riskReason: '所有检测项均为阴性',
+            positiveItemsDisplay: '无'
+        };
+    }
+
+    const minCt = Math.min(...positiveList.map(p => p.ct));
+    
+    let riskLevel = '未知';
+    let riskInterpretation = '';
+    
+    if (minCt < 20) {
+        riskLevel = '高风险';
+        riskInterpretation = '病原体载量高，提示可能存在活性感染源，需立即处置';
+    } else if (minCt >= 20 && minCt < 30) {
+        riskLevel = '中风险';
+        riskInterpretation = '检出中等载量病原体核酸，建议加强清洁消毒';
+    } else if (minCt >= 30 && minCt < 35) {
+        riskLevel = '低风险';
+        riskInterpretation = '检出低载量病原体核酸，可能为环境残留，建议常规消毒';
+    } else if (minCt >= 35) {
+        riskLevel = '极低风险';
+        riskInterpretation = '仅检出微量核酸片段，通常为环境残留或非活性核酸，无需特殊处置（参考：Kitajima et al., 2012）';
+    }
+
+    const positiveItemsDisplay = positiveList
+        .map(p => `${p.pathogen}(Ct:${p.ctRaw})`)
+        .join(', ');
+
+    const criticalPathogen = positiveList.find(p => p.ct === minCt);
+    const riskReason = `${criticalPathogen.pathogen}，Ct=${criticalPathogen.ctRaw}。${riskInterpretation}`;
+
+    return {
+        riskLevel: riskLevel,
+        riskReason: riskReason,
+        riskInterpretation: riskInterpretation,
+        positiveItemsDisplay: positiveItemsDisplay
+    };
+}
+
+
 
 // ================= 图表逻辑 =================
 
 function initCharts() {
     const trendCtx = document.getElementById('trendChart')?.getContext('2d');
-    // 注册用于绘制虚线圆点的插件（只注册一次）
     if (window.Chart && !window._dashedPointPluginRegistered) {
         const dashedPointPlugin = {
             id: 'dashedPointPlugin',
@@ -561,7 +1009,6 @@ function initCharts() {
         window._dashedPointPluginRegistered = true;
     }
     if (trendCtx) {
-        // 动态数据集：初始化为空，后续根据实际食堂生成数据集
         trendChart = new Chart(trendCtx, {
             type: 'line',
             data: {
@@ -600,7 +1047,6 @@ function initCharts() {
 
     const canteenCtx = document.getElementById('canteenChart')?.getContext('2d');
     if (canteenCtx) {
-        // 初始化为空，后续由 updateCharts 动态填充标签、数据与配色
         canteenChart = new Chart(canteenCtx, {
             type: 'bar',
             data: {
@@ -627,8 +1073,8 @@ function initCharts() {
     }
 }
 
-function updateCharts(startDate, endDate) {
-    // 如果未传入范围，默认使用当前月份
+// ✅ 修改：更新图表（增加食堂筛选参数）
+function updateCharts(startDate, endDate, selectedCanteen = 'all') {
     if (!startDate || !endDate) {
         const now = new Date();
         const currentYear = now.getFullYear();
@@ -638,19 +1084,14 @@ function updateCharts(startDate, endDate) {
         endDate.setHours(23, 59, 59, 999);
     }
 
-    const trendData = calculateCanteenTrends(startDate, endDate);
+    const trendData = calculateCanteenTrends(startDate, endDate, selectedCanteen);
     if (trendChart) {
         trendChart.data.labels = trendData.labels;
 
-        // 根据返回的食堂名称动态生成/更新数据集
-        // 使用模块常量的统一配色
         const palette = CAN_COLOR_PALETTE;
         const canteenNames = Object.keys(trendData.datasets || {}).filter(name => {
-            // 使用 missing 标记判断该食堂是否有真实数据（非缺失）的点
             const missing = (trendData.missing && trendData.missing[name]) || [];
-            // 如果 missing 数组为空，则保守包含该食堂
             if (!missing.length) return true;
-            // 包含当且仅当存在至少一个非缺失点
             return missing.some(m => m === false);
         });
         trendChart.data.datasets = canteenNames.map((name, idx) => {
@@ -665,7 +1106,6 @@ function updateCharts(startDate, endDate) {
                 tension: 0.4,
                 fill: false,
                 spanGaps: true,
-                // 当与缺失点相连的线段使用虚线样式
                 segment: {
                     borderDash: ctx => {
                         try {
@@ -678,12 +1118,9 @@ function updateCharts(startDate, endDate) {
                         return undefined;
                     }
                 },
-                // 隐藏缺失点的默认圆点，由插件绘制虚线圆圈
                 pointRadius: missingFlags.map(m => (m ? 0 : 4)),
-                // 增强缺失点的可交互区域（即使 radius 为 0 也可 hover），hover 显示 tooltip
                 pointHoverRadius: missingFlags.map(m => 6),
                 pointHitRadius: missingFlags.map(m => (m ? 10 : 6)),
-                // 将缺失标记附在 dataset 上，供 plugin 和 tooltip 使用
                 _missing: missingFlags
             };
         });
@@ -691,13 +1128,10 @@ function updateCharts(startDate, endDate) {
         trendChart.update();
     }
 
-    // ✅ 修改：传入日期参数，让图表受日期筛选影响
-    const canteenResult = calculateCanteenPassRate(startDate, endDate);
+    const canteenResult = calculateCanteenPassRate(startDate, endDate, selectedCanteen);
     if(canteenChart) {
-        // 更新标签与数据
         canteenChart.data.labels = canteenResult.labels;
         canteenChart.data.datasets[0].data = canteenResult.data;
-        // 为每个食堂分配统一配色（洋红/绿/蓝）循环使用
         canteenChart.data.datasets[0].backgroundColor = canteenResult.labels.map((_, i) => CAN_COLOR_PALETTE[i % CAN_COLOR_PALETTE.length]);
         canteenChart.data.datasets[0].borderColor = canteenChart.data.datasets[0].backgroundColor;
         canteenChart.update();
@@ -705,174 +1139,155 @@ function updateCharts(startDate, endDate) {
 }
 
 
-// 计算各食堂趋势数据（支持智能空窗压缩）
-function calculateCanteenTrends(startDate, endDate) {
-    // 1. 准备基础数据容器
-    const rawDates = []; // 原始日期字符串
-    const rawLabels = []; // 原始X轴标签
-    
-    // 准备食堂数据结构
-    const canteenData = {
-        '一食堂': {},
-        '二食堂': {},
-        '三食堂': {}
-    };
+// ✅ 修改：计算食堂趋势（增加食堂筛选）
+function calculateCanteenTrends(startDate, endDate, selectedCanteen = 'all') {
+  const rawDates = [];
+  const rawLabels = [];
+  
+  const canteenData = {
+      '一食堂': {},
+      '二食堂': {},
+      '三食堂': {}
+  };
 
-    // 2. 收集并统计所有原始数据
-    const types = ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'];
-    
-    types.forEach(type => {
-        const records = services[type].getAll();
-        records.forEach(record => {
-            const recordDate = record.testDate || (record.timestamp ? record.timestamp.split('T')[0] : null);
-            if (!recordDate) return;
-            
-            const testDate = new Date(recordDate);
-            if (testDate < startDate || testDate > endDate) return;
-            
-            const canteen = record.canteen || '未知食堂';
-            if (!canteenData[canteen]) canteenData[canteen] = {};
-            if (!canteenData[canteen][recordDate]) {
-                canteenData[canteen][recordDate] = { passed: 0, total: 0 };
-            }
-            
-            // ✅ 统一的合格率判断逻辑
-            if (type === 'tableware' && record.atpPoints) {
-                record.atpPoints.forEach(point => {
-                    canteenData[canteen][recordDate].total++;
-                    // ✅ 兼容多种字段名和格式
-                    const result = (point.result || point.res || '').toString().trim();
-                    if (result === '合格' || result.includes('合格')) {
-                        canteenData[canteen][recordDate].passed++;
-                    }
-                });
-            } else if (type === 'pathogen') {
-                canteenData[canteen][recordDate].total++;
-                if (!record.positiveItems || record.positiveItems === '无') {
-                    canteenData[canteen][recordDate].passed++;
-                }
-            } else {
-                canteenData[canteen][recordDate].total++;
-                // ✅ 统一判断逻辑
-                const result = (record.result || '').toString().trim();
-                const colorLevel = (record.colorLevel || '').toString().trim();
-                if (result.includes('合格') || colorLevel === '合格') {
-                    canteenData[canteen][recordDate].passed++;
-                }
-            }
-        });
-    });
+  const types = ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'];
+  
+  types.forEach(type => {
+      const records = services[type].getAll();
+      records.forEach(record => {
+          const recordDate = record.testDate || (record.timestamp ? record.timestamp.split('T')[0] : null);
+          if (!recordDate) return;
+          
+          const testDate = new Date(recordDate);
+          if (testDate < startDate || testDate > endDate) return;
+          
+          // ✅ 食堂筛选
+          const canteen = record.canteen || '未知食堂';
+          if (selectedCanteen !== 'all' && canteen !== selectedCanteen) return;
+          
+          if (!canteenData[canteen]) canteenData[canteen] = {};
+          if (!canteenData[canteen][recordDate]) {
+              canteenData[canteen][recordDate] = { passed: 0, total: 0 };
+          }
+          
+          if (type === 'tableware' && record.atpPoints) {
+              record.atpPoints.forEach(point => {
+                  canteenData[canteen][recordDate].total++;
+                  const result = (point.result || point.res || '').toString().trim();
+                  if (result === '合格' || result.includes('合格')) {
+                      canteenData[canteen][recordDate].passed++;
+                  }
+              });
+          } else if (type === 'pathogen') {
+              canteenData[canteen][recordDate].total++;
+              if (!record.positiveItems || record.positiveItems === '无') {
+                  canteenData[canteen][recordDate].passed++;
+              }
+          } else {
+              canteenData[canteen][recordDate].total++;
+              const result = (record.result || '').toString().trim();
+              const colorLevel = (record.colorLevel || '').toString().trim();
+              if (result.includes('合格') || colorLevel === '合格') {
+                  canteenData[canteen][recordDate].passed++;
+              }
+          }
+      });
+  });
 
-    // 3. 生成完整的自然日历序列（仅工作日：周一~周五）
-    let currentDate = new Date(startDate);
-    while (currentDate <= endDate) {
-        const dayOfWeek = currentDate.getDay();
-        if (dayOfWeek > 0 && dayOfWeek < 6) {
-            const dateStr = currentDate.toISOString().split('T')[0];
-            const day = currentDate.getDate();
-            const month = currentDate.getMonth() + 1;
-            rawDates.push(dateStr);
-            rawLabels.push(`${month}-${day}`);
-        }
-        currentDate.setDate(currentDate.getDate() + 1);
-    }
+  let currentDate = new Date(startDate);
+  while (currentDate <= endDate) {
+      const dayOfWeek = currentDate.getDay();
+      if (dayOfWeek > 0 && dayOfWeek < 6) {
+          const dateStr = currentDate.toISOString().split('T')[0];
+          const day = currentDate.getDate();
+          const month = currentDate.getMonth() + 1;
+          rawDates.push(dateStr);
+          rawLabels.push(`${month}-${day}`);
+      }
+      currentDate.setDate(currentDate.getDate() + 1);
+  }
 
-    // 4. 构建原始数据集（用于判断是否有数据）
-    const rawDatasets = {};
-    const canteens = Object.keys(canteenData);
-    canteens.forEach(canteen => {
-        rawDatasets[canteen] = rawDates.map(dateStr => {
-            const daily = canteenData[canteen][dateStr];
-            if (daily && daily.total > 0) {
-                return Math.round((daily.passed / daily.total) * 100);
-            }
-            return null;
-        });
-    });
+  const rawDatasets = {};
+  const canteens = Object.keys(canteenData);
+  canteens.forEach(canteen => {
+      rawDatasets[canteen] = rawDates.map(dateStr => {
+          const daily = canteenData[canteen][dateStr];
+          if (daily && daily.total > 0) {
+              return Math.round((daily.passed / daily.total) * 100);
+          }
+          return null;
+      });
+  });
 
-    // 记录每个食堂在每个工作日是否为"缺失"
-    const rawMissing = {};
-    canteens.forEach(canteen => {
-        rawMissing[canteen] = rawDates.map(dateStr => {
-            const daily = canteenData[canteen][dateStr];
-            return !(daily && daily.total > 0);
-        });
-    });
+  const rawMissing = {};
+  canteens.forEach(canteen => {
+      rawMissing[canteen] = rawDates.map(dateStr => {
+          const daily = canteenData[canteen][dateStr];
+          return !(daily && daily.total > 0);
+      });
+  });
 
-    // ==========================================
-    // 核心算法：智能空窗压缩 (Smart Gap Compression)
-    // ==========================================
-    
-    const finalLabels = [];
-    const finalDatasets = {};
-    const finalMissing = {};
-    canteens.forEach(c => {
-        finalDatasets[c] = [];
-        finalMissing[c] = [];
-    });
+  const finalLabels = [];
+  const finalDatasets = {};
+  const finalMissing = {};
+  canteens.forEach(c => {
+      finalDatasets[c] = [];
+      finalMissing[c] = [];
+  });
 
-    // 标记每一天是否有任意食堂有数据
-    const hasDataFlags = rawDates.map((_, index) => {
-        return canteens.some(c => rawDatasets[c][index] !== null);
-    });
+  const hasDataFlags = rawDates.map((_, index) => {
+      return canteens.some(c => rawDatasets[c][index] !== null);
+  });
 
-    // 统计总数据点数
-    const dataPointCount = hasDataFlags.filter(Boolean).length;
+  const dataPointCount = hasDataFlags.filter(Boolean).length;
+  const enableCompression = dataPointCount >= 3;
 
-    // 只有当数据点至少有3个时，才启用压缩逻辑
-    const enableCompression = dataPointCount >= 3;
+  let emptyCounter = 0;
+  const MAX_CONSECUTIVE_EMPTY = 1; 
 
-    let emptyCounter = 0;
-    const MAX_CONSECUTIVE_EMPTY = 1; 
+  for (let i = 0; i < rawDates.length; i++) {
+      const hasData = hasDataFlags[i];
 
-    for (let i = 0; i < rawDates.length; i++) {
-        const hasData = hasDataFlags[i];
-
-        if (hasData) {
-            // 情况A：这一天有数据 -> 必须保留
-            finalLabels.push(rawLabels[i]);
-            canteens.forEach(c => {
-                finalDatasets[c].push(rawDatasets[c][i]);
-                finalMissing[c].push(rawMissing[c][i]);
-            });
-            emptyCounter = 0;
-        } else {
-            // 情况B：这一天没数据
-            if (!enableCompression) {
-                finalLabels.push(rawLabels[i]);
-                canteens.forEach(c => {
-                    finalDatasets[c].push(100);
-                    finalMissing[c].push(true);
-                });
-            } else {
-                if (emptyCounter < MAX_CONSECUTIVE_EMPTY) {
-                    finalLabels.push(rawLabels[i]);
-                    canteens.forEach(c => {
-                        finalDatasets[c].push(100);
-                        finalMissing[c].push(true);
-                    });
-                    emptyCounter++;
-                } else {
-                    continue;
-                }
-            }
-        }
-    }
-
-    return { labels: finalLabels, datasets: finalDatasets, missing: finalMissing };
+      if (hasData) {
+          finalLabels.push(rawLabels[i]);
+          canteens.forEach(c => {
+              finalDatasets[c].push(rawDatasets[c][i]);
+              finalMissing[c].push(rawMissing[c][i]);
+          });
+          emptyCounter = 0;
+      } else {
+          if (!enableCompression) {
+              finalLabels.push(rawLabels[i]);
+              canteens.forEach(c => {
+                  finalDatasets[c].push(100);
+                  finalMissing[c].push(true);
+              });
+          } else {
+              if (emptyCounter < MAX_CONSECUTIVE_EMPTY) {
+                  finalLabels.push(rawLabels[i]);
+                  canteens.forEach(c => {
+                      finalDatasets[c].push(100);
+                      finalMissing[c].push(true);
+                  });
+                  emptyCounter++;
+              } else {
+                  continue;
+              }
+          }
+      }
+  }
+  return { labels: finalLabels, datasets: finalDatasets, missing: finalMissing };
 }
 
 
-// ✅ 计算食堂合格率（支持日期筛选）
-function calculateCanteenPassRate(startDate, endDate) {
-    // 收集所有出现过的食堂名称（带日期过滤）
+// ✅ 修改：计算食堂合格率（增加食堂筛选）
+function calculateCanteenPassRate(startDate, endDate, selectedCanteen = 'all') {
     const canteenSet = new Set();
     const types = ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'];
     
     types.forEach(type => {
         const records = services[type].getAll();
         records.forEach(r => {
-            // ✅ 添加日期过滤
             if (startDate && endDate) {
                 const testDate = r.testDate || (r.timestamp ? r.timestamp.split('T')[0] : null);
                 if (!testDate) return;
@@ -880,11 +1295,13 @@ function calculateCanteenPassRate(startDate, endDate) {
                 if (d < startDate || d > endDate) return;
             }
             
+            // ✅ 食堂筛选
+            if (selectedCanteen !== 'all' && r.canteen !== selectedCanteen) return;
+            
             if (r && r.canteen) canteenSet.add(r.canteen);
         });
     });
 
-    // 如果没有任何食堂记录，使用默认食堂
     const defaultCanteens = ['一食堂', '二食堂', '三食堂'];
     const canteens = canteenSet.size ? Array.from(canteenSet) : defaultCanteens;
 
@@ -893,17 +1310,18 @@ function calculateCanteenPassRate(startDate, endDate) {
         stats[canteen] = { passed: 0, total: 0 };
     });
 
-    // ✅ 计算每个食堂的合格率（带日期过滤）
     types.forEach(type => {
         const records = services[type].getAll();
         records.forEach(record => {
-            // ✅ 添加日期过滤
             if (startDate && endDate) {
                 const testDate = record.testDate || (record.timestamp ? record.timestamp.split('T')[0] : null);
                 if (!testDate) return;
                 const d = new Date(testDate);
                 if (d < startDate || d > endDate) return;
             }
+            
+            // ✅ 食堂筛选
+            if (selectedCanteen !== 'all' && record.canteen !== selectedCanteen) return;
             
             const canteen = record.canteen;
             if (!canteen || !stats[canteen]) return;
@@ -912,7 +1330,6 @@ function calculateCanteenPassRate(startDate, endDate) {
                 if (record.atpPoints && Array.isArray(record.atpPoints)) {
                     record.atpPoints.forEach(point => {
                         stats[canteen].total++;
-                        // ✅ 兼容多种字段名和格式
                         const result = (point.result || point.res || '').toString().trim();
                         if (result === '合格' || result.includes('合格')) {
                             stats[canteen].passed++;
@@ -926,7 +1343,6 @@ function calculateCanteenPassRate(startDate, endDate) {
                 }
             } else {
                 stats[canteen].total++;
-                // ✅ 统一判断逻辑
                 const result = (record.result || '').toString().trim();
                 const colorLevel = (record.colorLevel || '').toString().trim();
                 if (result.includes('合格') || colorLevel === '合格') {
@@ -936,7 +1352,6 @@ function calculateCanteenPassRate(startDate, endDate) {
         });
     });
 
-    // 计算合格率
     const labels = [];
     const data = [];
     canteens.forEach(canteen => {
@@ -947,4 +1362,3 @@ function calculateCanteenPassRate(startDate, endDate) {
 
     return { labels, data };
 }
-

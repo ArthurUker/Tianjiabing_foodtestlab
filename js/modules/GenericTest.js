@@ -10,6 +10,8 @@ export class GenericTestModule {
         this.currentPage = 1;
         this.recordsPerPage = 10;
         this.sortOrder = 'desc';
+        this.selectedCanteenFilter = 'all'; // ✅ 食堂筛选状态
+        this.selectedMeatTypes = []; // ✅ 新增：肉类品种筛选状态（仅用于肉蛋农残模块）
         this.init();
     }
 
@@ -64,7 +66,7 @@ export class GenericTestModule {
         this.render();
     }
 
-    // 🔥 设置分页监听器 (带防重复绑定)
+    // ✅ 修改：设置分页监听器（增加食堂筛选和肉类品种筛选）
     setupPaginationListeners() {
         const container = document.getElementById(`${this.moduleName}_pagination`);
         
@@ -83,8 +85,8 @@ export class GenericTestModule {
                 this.render();
             }
             if (e.target.closest(`#${this.moduleName}_nextPage`)) {
-                const records = this.storage.getAll();
-                const totalPages = Math.ceil(records.length / this.recordsPerPage);
+                const filteredRecords = this.getFilteredRecords();
+                const totalPages = Math.ceil(filteredRecords.length / this.recordsPerPage);
                 if (this.currentPage < totalPages) {
                     this.currentPage++;
                     this.render();
@@ -92,43 +94,105 @@ export class GenericTestModule {
             }
         });
 
+        // ✅ 新增：肉类品种筛选事件（仅用于肉蛋农残模块）
+        if (this.moduleName === 'leanMeat') {
+            const meatTypeCheckboxes = document.querySelectorAll(`input[name="${this.moduleName}_meatTypeFilter"]`);
+            meatTypeCheckboxes.forEach(checkbox => {
+                if (!checkbox.dataset.listenerAttached) {
+                    checkbox.addEventListener('change', () => {
+                        // 收集所有选中的肉类品种
+                        this.selectedMeatTypes = Array.from(meatTypeCheckboxes)
+                            .filter(cb => cb.checked)
+                            .map(cb => cb.value);
+                        
+                        this.currentPage = 1; // 重置到第一页
+                        this.render();
+                    });
+                    checkbox.dataset.listenerAttached = 'true';
+                }
+            });
+        }
+
+        // ✅ 食堂筛选事件
+        const canteenFilterSelect = document.getElementById(`${this.moduleName}_canteenFilter`);
+        if (canteenFilterSelect && !canteenFilterSelect.dataset.listenerAttached) {
+            canteenFilterSelect.addEventListener('change', (e) => {
+                this.selectedCanteenFilter = e.target.value;
+                this.currentPage = 1; // 重置到第一页
+                this.render();
+            });
+            canteenFilterSelect.dataset.listenerAttached = 'true';
+        }
+
         // 2. 每页数量改变
-        document.getElementById(`${this.moduleName}_recordsPerPage`)?.addEventListener('change', (e) => {
-            this.recordsPerPage = parseInt(e.target.value);
-            this.currentPage = 1;
-            this.render();
-        });
+        const perPageSelect = document.getElementById(`${this.moduleName}_recordsPerPage`);
+        if (perPageSelect && !perPageSelect.dataset.listenerAttached) {
+            perPageSelect.addEventListener('change', (e) => {
+                this.recordsPerPage = parseInt(e.target.value);
+                this.currentPage = 1;
+                this.render();
+            });
+            perPageSelect.dataset.listenerAttached = 'true';
+        }
 
         // 3. 排序按钮
-        document.getElementById(`${this.moduleName}_sortBtn`)?.addEventListener('click', (e) => {
-            const btn = e.currentTarget;
-            this.sortOrder = this.sortOrder === 'desc' ? 'asc' : 'desc';
-            
-            const textSpan = btn.querySelector('.sort-text');
-            const icon = btn.querySelector('i');
-            if (textSpan) textSpan.textContent = this.sortOrder === 'desc' ? '最新' : '最早';
-            if (icon) icon.className = this.sortOrder === 'desc' ? 'fas fa-sort-amount-down mr-1' : 'fas fa-sort-amount-up mr-1';
-            
-            this.render();
-        });
+        const sortBtn = document.getElementById(`${this.moduleName}_sortBtn`);
+        if (sortBtn && !sortBtn.dataset.listenerAttached) {
+            sortBtn.addEventListener('click', (e) => {
+                const btn = e.currentTarget;
+                this.sortOrder = this.sortOrder === 'desc' ? 'asc' : 'desc';
+                
+                const textSpan = btn.querySelector('.sort-text');
+                const icon = btn.querySelector('i');
+                if (textSpan) textSpan.textContent = this.sortOrder === 'desc' ? '最新' : '最早';
+                if (icon) icon.className = this.sortOrder === 'desc' ? 'fas fa-sort-amount-down mr-1' : 'fas fa-sort-amount-up mr-1';
+                
+                this.render();
+            });
+            sortBtn.dataset.listenerAttached = 'true';
+        }
 
         // 4. 跳转表单
-        document.getElementById(`${this.moduleName}_jumpForm`)?.addEventListener('submit', (e) => {
-            e.preventDefault();
-            const input = document.getElementById(`${this.moduleName}_jumpInput`);
-            if (input) {
-                const pageNum = parseInt(input.value);
-                const records = this.storage.getAll();
-                const totalPages = Math.ceil(records.length / this.recordsPerPage);
-                if (pageNum >= 1 && pageNum <= totalPages) {
-                    this.currentPage = pageNum;
-                    this.render();
+        const jumpForm = document.getElementById(`${this.moduleName}_jumpForm`);
+        if (jumpForm && !jumpForm.dataset.listenerAttached) {
+            jumpForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const input = document.getElementById(`${this.moduleName}_jumpInput`);
+                if (input) {
+                    const pageNum = parseInt(input.value);
+                    const filteredRecords = this.getFilteredRecords();
+                    const totalPages = Math.ceil(filteredRecords.length / this.recordsPerPage);
+                    if (pageNum >= 1 && pageNum <= totalPages) {
+                        this.currentPage = pageNum;
+                        this.render();
+                    }
                 }
-            }
-        });
+            });
+            jumpForm.dataset.listenerAttached = 'true';
+        }
 
         // 标记已绑定
         container.dataset.listenersAttached = 'true';
+    }
+
+    // ✅ 新增：统一的筛选逻辑
+    getFilteredRecords() {
+        const allRecords = this.storage.getAll();
+        let filteredRecords = allRecords;
+
+        // 食堂筛选
+        if (this.selectedCanteenFilter !== 'all') {
+            filteredRecords = filteredRecords.filter(record => record.canteen === this.selectedCanteenFilter);
+        }
+
+        // 肉类品种筛选（仅用于肉蛋农残模块）
+        if (this.moduleName === 'leanMeat' && this.selectedMeatTypes.length > 0) {
+            filteredRecords = filteredRecords.filter(record => 
+                this.selectedMeatTypes.includes(record.meatType)
+            );
+        }
+
+        return filteredRecords;
     }
 
     // 🔥 更新分页UI显示 (页码按钮)
@@ -518,7 +582,7 @@ export class GenericTestModule {
         }
     }
     
-    // 更新表单结构，添加检测点位信息抬头 + 分页控件
+    // ✅ 修改：更新表单结构，添加食堂筛选和肉类品种筛选
     updateFormStructure() {
         const form = document.getElementById(this.formId);
         if (!form) return;
@@ -573,23 +637,86 @@ export class GenericTestModule {
             }
         }
 
-        // --- 2. [核心修复] 分页控件插入位置修正 ---
+        // --- 2. [核心修复] 分页控件插入位置修正 + 增加筛选器 ---
         const tbody = document.getElementById(this.tableId);
         if (tbody) {
-            // 🔥 关键点：找到 tbody 外层的 table 元素
             const tableElement = tbody.closest('table');
             
             if (tableElement) {
-                // 2.1 插入头部控件 (每页数量 + 排序) -> 放在 table 标签之前
+                // 2.1 插入头部控件 -> 放在 table 标签之前
                 if (!document.getElementById(`${this.moduleName}_header_controls`)) {
                     const headerControls = document.createElement('div');
                     headerControls.id = `${this.moduleName}_header_controls`;
                     headerControls.className = 'flex flex-col md:flex-row justify-between items-start md:items-center mt-8 mb-3';
+                    
+                    // ✅ 修改：根据模块类型生成不同的筛选器
+                    let filterHTML = '';
+                    
+                    if (this.moduleName === 'leanMeat') {
+                        // ✅ 肉蛋农残模块：肉类品种多选 + 食堂筛选
+                        filterHTML = `
+                            <!-- ✅ 新增：肉类品种多选筛选 -->
+                            <div class="flex items-center">
+                                <label class="text-sm text-gray-600 mr-2">品种:</label>
+                                <div class="flex flex-wrap gap-2 bg-gray-50 border border-gray-300 rounded px-3 py-2">
+                                    <label class="flex items-center text-sm cursor-pointer hover:bg-gray-100 px-2 py-1 rounded">
+                                        <input type="checkbox" name="${this.moduleName}_meatTypeFilter" value="猪肉" class="mr-1">
+                                        猪肉
+                                    </label>
+                                    <label class="flex items-center text-sm cursor-pointer hover:bg-gray-100 px-2 py-1 rounded">
+                                        <input type="checkbox" name="${this.moduleName}_meatTypeFilter" value="牛肉" class="mr-1">
+                                        牛肉
+                                    </label>
+                                    <label class="flex items-center text-sm cursor-pointer hover:bg-gray-100 px-2 py-1 rounded">
+                                        <input type="checkbox" name="${this.moduleName}_meatTypeFilter" value="羊肉" class="mr-1">
+                                        羊肉
+                                    </label>
+                                    <label class="flex items-center text-sm cursor-pointer hover:bg-gray-100 px-2 py-1 rounded">
+                                        <input type="checkbox" name="${this.moduleName}_meatTypeFilter" value="禽肉" class="mr-1">
+                                        禽肉
+                                    </label>
+                                    <label class="flex items-center text-sm cursor-pointer hover:bg-gray-100 px-2 py-1 rounded">
+                                        <input type="checkbox" name="${this.moduleName}_meatTypeFilter" value="鱼肉" class="mr-1">
+                                        鱼肉
+                                    </label>
+                                    <label class="flex items-center text-sm cursor-pointer hover:bg-gray-100 px-2 py-1 rounded">
+                                        <input type="checkbox" name="${this.moduleName}_meatTypeFilter" value="禽蛋" class="mr-1">
+                                        禽蛋
+                                    </label>
+                                </div>
+                            </div>
+                            <!-- 食堂筛选 -->
+                            <div class="flex items-center">
+                                <label class="text-sm text-gray-600 mr-2">食堂:</label>
+                                <select id="${this.moduleName}_canteenFilter" class="border border-gray-300 rounded px-3 py-1 text-sm">
+                                    <option value="all">全部</option>
+                                    <option value="一食堂">一食堂</option>
+                                    <option value="二食堂">二食堂</option>
+                                    <option value="三食堂">三食堂</option>
+                                </select>
+                            </div>
+                        `;
+                    } else {
+                        // 其他模块：只有食堂筛选
+                        filterHTML = `
+                            <div class="flex items-center">
+                                <label class="text-sm text-gray-600 mr-2">食堂:</label>
+                                <select id="${this.moduleName}_canteenFilter" class="border border-gray-300 rounded px-3 py-1 text-sm">
+                                    <option value="all">全部</option>
+                                    <option value="一食堂">一食堂</option>
+                                    <option value="二食堂">二食堂</option>
+                                    <option value="三食堂">三食堂</option>
+                                </select>
+                            </div>
+                        `;
+                    }
+                    
                     headerControls.innerHTML = `
                         <h3 class="font-medium text-gray-800 flex items-center mb-2 md:mb-0">
                             <i class="fas fa-table text-blue-600 mr-2"></i>历史检测记录
                         </h3>
                         <div class="flex flex-wrap items-center gap-2">
+                            ${filterHTML}
                             <div class="flex items-center">
                                 <label class="text-sm text-gray-600 mr-2">每页:</label>
                                 <select id="${this.moduleName}_recordsPerPage" class="border border-gray-300 rounded px-2 py-1 text-sm">
@@ -852,19 +979,22 @@ export class GenericTestModule {
         }
     }
 
+    // ✅ 修改：render 函数使用统一的筛选逻辑
     render() {
         const tbody = document.getElementById(this.tableId);
         if (!tbody) return;
 
-        // 1. 获取并排序数据
-        const allRecords = this.storage.getAll();
-        const sortedRecords = [...allRecords].sort((a, b) => {
+        // 1. 使用统一的筛选方法获取数据
+        const filteredRecords = this.getFilteredRecords();
+        
+        // 2. 排序
+        const sortedRecords = [...filteredRecords].sort((a, b) => {
             const dateA = new Date(a.testDate || '1970-01-01');
             const dateB = new Date(b.testDate || '1970-01-01');
             return this.sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
         });
 
-        // 2. 计算分页
+        // 3. 计算分页
         const totalRecords = sortedRecords.length;
         const totalPages = Math.max(1, Math.ceil(totalRecords / this.recordsPerPage));
         this.currentPage = Math.max(1, Math.min(this.currentPage, totalPages));
@@ -873,10 +1003,10 @@ export class GenericTestModule {
         // 切片获取当前页数据
         const currentRecords = sortedRecords.slice(startIndex, startIndex + this.recordsPerPage);
 
-        // 3. 更新分页控件
+        // 4. 更新分页控件
         this.updatePaginationUI(startIndex, Math.min(startIndex + this.recordsPerPage, totalRecords), totalRecords, totalPages);
 
-        // 4. 渲染表格
+        // 5. 渲染表格
         if (currentRecords.length === 0) {
             tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-gray-500">暂无数据</td></tr>`;
             return;

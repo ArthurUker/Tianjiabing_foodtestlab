@@ -5,6 +5,7 @@ const storage = new StorageService('tableware');
 let currentPage = 1;
 let recordsPerPage = 10;
 let sortOrder = 'desc'; 
+let selectedCanteenFilter = 'all'; // ✅ 新增：食堂筛选状态
 
 export function initTableware() {
     const form = document.getElementById('tablewareTestForm');
@@ -356,7 +357,7 @@ function determineResult(rluValue) {
     return '不合格 (>500)';
 }
 
-// 修复：调整判断顺序，先判断“不合格”
+// 修复：调整判断顺序，先判断"不合格"
 function getResultIcon(result) {
     if (!result) return '';
     if (result.includes('不合格')) return 'fas fa-times-circle'; // 红色叉号
@@ -365,7 +366,7 @@ function getResultIcon(result) {
     return '';
 }
 
-// 修复：调整判断顺序，先判断“不合格”
+// 修复：调整判断顺序，先判断"不合格"
 function updateResultFieldStyle(resultField) {
     const value = resultField.value;
     resultField.className = 'w-full border border-gray-300 p-2 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500';
@@ -489,7 +490,7 @@ function updateFormStructure() {
         }
     }
     
-    // 表格头部和分页
+    // ✅ 修改：表格头部和分页
     const tableContainer = form.parentNode.querySelector('table');
     if (tableContainer) {
         // 确保不重复添加头部
@@ -497,10 +498,20 @@ function updateFormStructure() {
             const tableHeaderContainer = document.createElement('div');
             tableHeaderContainer.className = 'table-header-container flex flex-col md:flex-row justify-between items-start md:items-center mt-8 mb-3';
             
-            // 表格头部和分页部分的代码
+            // ✅ 修改：表格头部增加食堂筛选
             tableHeaderContainer.innerHTML = `
                 <h3 class="font-medium text-gray-800 flex items-center mb-2 md:mb-0"><i class="fas fa-table text-blue-600 mr-2"></i>历史检测记录</h3>
                 <div class="flex flex-wrap items-center gap-2">
+                    <!-- ✅ 新增：食堂筛选 -->
+                    <div class="flex items-center">
+                        <label class="text-sm text-gray-600 mr-2">食堂:</label>
+                        <select id="canteenFilterSelect" class="border border-gray-300 rounded px-3 py-1 text-sm">
+                            <option value="all">全部</option>
+                            <option value="一食堂">一食堂</option>
+                            <option value="二食堂">二食堂</option>
+                            <option value="三食堂">三食堂</option>
+                        </select>
+                    </div>
                     <div class="flex items-center">
                         <label class="text-sm text-gray-600 mr-2">每页:</label>
                         <select id="recordsPerPageSelect" class="border border-gray-300 rounded px-2 py-1 text-sm">
@@ -602,6 +613,7 @@ function handleFormSubmit(e) {
     document.dispatchEvent(new Event('dataChanged'));
 }
 
+// ✅ 修改：renderTable 函数增加食堂筛选逻辑
 function renderTable() {
     const allRecords = storage.getAll();
     const tbody = document.getElementById('tablewareRecords');
@@ -623,8 +635,14 @@ function renderTable() {
         `;
     }
 
+    // ✅ 新增：食堂筛选逻辑
+    let filteredRecords = allRecords;
+    if (selectedCanteenFilter !== 'all') {
+        filteredRecords = allRecords.filter(record => record.canteen === selectedCanteenFilter);
+    }
+
     // 排序
-    const sortedRecords = [...allRecords].sort((a, b) => {
+    const sortedRecords = [...filteredRecords].sort((a, b) => {
         const dateA = new Date(a.testDate || '1970-01-01');
         const dateB = new Date(b.testDate || '1970-01-01');
         return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
@@ -709,22 +727,20 @@ function renderTable() {
     tbody.innerHTML = tableContent;
 }
 
+// ✅ 修改：setupPaginationListeners 函数增加食堂筛选事件
 function setupPaginationListeners() {
-    // 1. 获取所有需要绑定事件的元素
     const paginationContainer = document.getElementById('tablePaginationContainer');
     const perPageSelect = document.getElementById('recordsPerPageSelect');
     const sortBtn = document.getElementById('sortOrderBtn');
     const jumpForm = document.getElementById('pageJumpForm');
+    const canteenFilterSelect = document.getElementById('canteenFilterSelect'); // ✅ 新增
 
-    // 2. [核心修复] 检查是否已经绑定过
-    // 我们利用 paginationContainer 上的自定义属性作为标记
-    // 只要主容器绑定过，就认为所有相关控件都已绑定
     if (paginationContainer && paginationContainer.dataset.listenersAttached === 'true') {
         console.log('分页事件监听器已存在，跳过绑定');
         return; 
     }
 
-    // 3. 绑定分页点击事件 (上一页/下一页/数字页码)
+    // 绑定分页点击事件
     if (paginationContainer) {
         paginationContainer.addEventListener('click', (e) => {
             const pageBtn = e.target.closest('.page-btn');
@@ -738,19 +754,29 @@ function setupPaginationListeners() {
             }
             if (e.target.closest('#nextPageBtn')) {
                 const records = storage.getAll();
-                const totalPages = Math.ceil(records.length / recordsPerPage);
+                // ✅ 修改：考虑筛选后的总页数
+                const filteredRecords = selectedCanteenFilter === 'all' ? records : records.filter(r => r.canteen === selectedCanteenFilter);
+                const totalPages = Math.ceil(filteredRecords.length / recordsPerPage);
                 if (currentPage < totalPages) {
                     currentPage++;
                     renderTable();
                 }
             }
         });
-        // 标记主容器已绑定
         paginationContainer.dataset.listenersAttached = 'true';
     }
     
-    // 4. 绑定每页显示数量更改事件
-    // 注意：这里也要加个小检查，防止 select 元素被重新创建后丢失事件（虽然在这个特定逻辑里不太可能，但为了稳健）
+    // ✅ 新增：绑定食堂筛选事件
+    if (canteenFilterSelect && !canteenFilterSelect.dataset.listenerAttached) {
+        canteenFilterSelect.addEventListener('change', (e) => {
+            selectedCanteenFilter = e.target.value;
+            currentPage = 1; // 重置到第一页
+            renderTable();
+        });
+        canteenFilterSelect.dataset.listenerAttached = 'true';
+    }
+    
+    // 绑定每页显示数量更改事件
     if (perPageSelect && !perPageSelect.dataset.listenerAttached) {
         perPageSelect.addEventListener('change', (e) => {
             recordsPerPage = parseInt(e.target.value);
@@ -760,7 +786,7 @@ function setupPaginationListeners() {
         perPageSelect.dataset.listenerAttached = 'true';
     }
     
-    // 5. 绑定排序按钮事件
+    // 绑定排序按钮事件
     if (sortBtn && !sortBtn.dataset.listenerAttached) {
         sortBtn.addEventListener('click', function() {
             sortOrder = sortOrder === 'desc' ? 'asc' : 'desc';
@@ -776,7 +802,7 @@ function setupPaginationListeners() {
         sortBtn.dataset.listenerAttached = 'true';
     }
     
-    // 6. 绑定页面跳转表单事件
+    // 绑定页面跳转表单事件
     if (jumpForm && !jumpForm.dataset.listenerAttached) {
         jumpForm.addEventListener('submit', (e) => {
             e.preventDefault();
@@ -784,7 +810,9 @@ function setupPaginationListeners() {
             if (input) {
                 const pageNum = parseInt(input.value);
                 const records = storage.getAll();
-                const totalPages = Math.ceil(records.length / recordsPerPage);
+                // ✅ 修改：考虑筛选后的总页数
+                const filteredRecords = selectedCanteenFilter === 'all' ? records : records.filter(r => r.canteen === selectedCanteenFilter);
+                const totalPages = Math.ceil(filteredRecords.length / recordsPerPage);
                 if (pageNum >= 1 && pageNum <= totalPages) {
                     currentPage = pageNum;
                     renderTable();
@@ -814,7 +842,7 @@ function updatePagination(start, end, total, pages) {
     }
 }
 
-// 修复：调整判断顺序，先判断“不合格”
+// 修复：调整判断顺序，先判断"不合格"
 function getResultClass(result) {
     if (!result) return 'bg-gray-100 text-gray-800';
     if (result.includes('不合格')) return 'bg-red-100 text-red-800'; // 红色

@@ -5,6 +5,7 @@ const storage = new StorageService('pathogen');
 let currentPage = 1;
 let recordsPerPage = 10;
 let sortOrder = 'desc';
+let selectedCanteenFilter = 'all'; // ✅ 新增：食堂筛选状态
 
 export function initPathogen() {
     const btnImport = document.getElementById('btnImportPathogen');
@@ -346,6 +347,7 @@ function handleEditRecord(recordId, currentUser) {
 
     showEditModal(record, currentUser);
 }
+
 function showEditModal(record, currentUser) {
     document.getElementById('editModal')?.remove();
 
@@ -1069,24 +1071,36 @@ function showDetailModal(recordId) {
     });
 }
 
+// ✅ 修改：renderTable 函数增加食堂筛选逻辑
 function renderTable() {
     const allRecords = storage.getAll();
     const tbody = document.getElementById('pathogenRecords');
     if (!tbody) return;
 
     // 1. 插入表头和分页控件（如果不存在）
-    // 使用 pathogen- 前缀的 ID，避免与餐具模块冲突
     const tableContainer = tbody.closest('table');
     if (tableContainer) {
         if (!document.getElementById('pathogen-header-controls')) {
             const headerControls = document.createElement('div');
             headerControls.id = 'pathogen-header-controls';
             headerControls.className = 'flex flex-col md:flex-row justify-between items-start md:items-center mt-4 mb-3';
+            // ✅ 修改：增加食堂筛选
             headerControls.innerHTML = `
                 <h3 class="font-medium text-gray-800 flex items-center mb-2 md:mb-0">
                     <i class="fas fa-list text-blue-600 mr-2"></i>检测记录列表
                 </h3>
                 <div class="flex flex-wrap items-center gap-2">
+                    <!-- ✅ 新增：食堂筛选 -->
+                    <div class="flex items-center">
+                        <label class="text-sm text-gray-600 mr-2">食堂:</label>
+                        <select id="pathogen-canteenFilterSelect" class="border border-gray-300 rounded px-3 py-1 text-sm">
+                            <option value="all">全部</option>
+                            <option value="一食堂">一食堂</option>
+                            <option value="二食堂">二食堂</option>
+                            <option value="三食堂">三食堂</option>
+                            <option value="混样检测">混样检测</option>
+                        </select>
+                    </div>
                     <div class="flex items-center">
                         <label class="text-sm text-gray-600 mr-2">每页:</label>
                         <select id="pathogen-recordsPerPageSelect" class="border border-gray-300 rounded px-2 py-1 text-sm">
@@ -1127,8 +1141,14 @@ function renderTable() {
         }
     }
 
+    // ✅ 新增：食堂筛选逻辑
+    let filteredRecords = allRecords;
+    if (selectedCanteenFilter !== 'all') {
+        filteredRecords = allRecords.filter(record => record.canteen === selectedCanteenFilter);
+    }
+
     // 2. 排序逻辑
-    const sortedRecords = [...allRecords].sort((a, b) => {
+    const sortedRecords = [...filteredRecords].sort((a, b) => {
         const dateA = new Date(a.testDate || '1970-01-01');
         const dateB = new Date(b.testDate || '1970-01-01');
         return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
@@ -1202,12 +1222,13 @@ function renderTable() {
     }).join('');
 }
 
+// ✅ 修改：setupPaginationListeners 函数增加食堂筛选事件
 function setupPaginationListeners() {
-    // 使用命名空间后的 ID
     const paginationContainer = document.getElementById('pathogen-paginationContainer');
     const perPageSelect = document.getElementById('pathogen-recordsPerPageSelect');
     const sortBtn = document.getElementById('pathogen-sortOrderBtn');
     const jumpForm = document.getElementById('pathogen-pageJumpForm');
+    const canteenFilterSelect = document.getElementById('pathogen-canteenFilterSelect'); // ✅ 新增
 
     // 防止重复绑定
     if (paginationContainer && paginationContainer.dataset.listenersAttached === 'true') {
@@ -1227,7 +1248,9 @@ function setupPaginationListeners() {
             }
             if (e.target.closest('#pathogen-nextPageBtn')) {
                 const records = storage.getAll();
-                const totalPages = Math.ceil(records.length / recordsPerPage);
+                // ✅ 修改：考虑筛选后的总页数
+                const filteredRecords = selectedCanteenFilter === 'all' ? records : records.filter(r => r.canteen === selectedCanteenFilter);
+                const totalPages = Math.ceil(filteredRecords.length / recordsPerPage);
                 if (currentPage < totalPages) {
                     currentPage++;
                     renderTable();
@@ -1237,15 +1260,26 @@ function setupPaginationListeners() {
         paginationContainer.dataset.listenersAttached = 'true';
     }
     
-    if (perPageSelect) {
+    // ✅ 新增：绑定食堂筛选事件
+    if (canteenFilterSelect && !canteenFilterSelect.dataset.listenerAttached) {
+        canteenFilterSelect.addEventListener('change', (e) => {
+            selectedCanteenFilter = e.target.value;
+            currentPage = 1; // 重置到第一页
+            renderTable();
+        });
+        canteenFilterSelect.dataset.listenerAttached = 'true';
+    }
+    
+    if (perPageSelect && !perPageSelect.dataset.listenerAttached) {
         perPageSelect.addEventListener('change', (e) => {
             recordsPerPage = parseInt(e.target.value);
             currentPage = 1;
             renderTable();
         });
+        perPageSelect.dataset.listenerAttached = 'true';
     }
     
-    if (sortBtn) {
+    if (sortBtn && !sortBtn.dataset.listenerAttached) {
         sortBtn.addEventListener('click', function() {
             sortOrder = sortOrder === 'desc' ? 'asc' : 'desc';
             
@@ -1257,22 +1291,26 @@ function setupPaginationListeners() {
             
             renderTable();
         });
+        sortBtn.dataset.listenerAttached = 'true';
     }
     
-    if (jumpForm) {
+    if (jumpForm && !jumpForm.dataset.listenerAttached) {
         jumpForm.addEventListener('submit', (e) => {
             e.preventDefault();
             const input = document.getElementById('pathogen-pageJumpInput');
             if (input) {
                 const pageNum = parseInt(input.value);
                 const records = storage.getAll();
-                const totalPages = Math.ceil(records.length / recordsPerPage);
+                // ✅ 修改：考虑筛选后的总页数
+                const filteredRecords = selectedCanteenFilter === 'all' ? records : records.filter(r => r.canteen === selectedCanteenFilter);
+                const totalPages = Math.ceil(filteredRecords.length / recordsPerPage);
                 if (pageNum >= 1 && pageNum <= totalPages) {
                     currentPage = pageNum;
                     renderTable();
                 }
             }
         });
+        jumpForm.dataset.listenerAttached = 'true';
     }
 }
 
@@ -1293,3 +1331,6 @@ function updatePagination(start, end, total, pages) {
         container.innerHTML = html;
     }
 }
+
+// 导出初始化函数
+window.initPathogen = initPathogen;
