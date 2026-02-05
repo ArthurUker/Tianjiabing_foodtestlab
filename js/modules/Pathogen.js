@@ -188,75 +188,125 @@ function handleRecheckImport(file, originalRecord, currentUser, callback) {
 }
 
 function parseDetectionReport(text) {
-    if (!text.includes('检测报告') && !text.includes('检测数据')) {
-        return null;
-    }
+    if (!text.includes('检测报告') && !text.includes('检测数据')) return null;
 
+    // --- 1. 基础信息提取 ---
     const dateMatch = text.match(/检测开始时间[：:]\s*(\d{4}[-年/]\d{1,2}[-月/]\d{1,2})/);
     const idMatch = text.match(/样本编号\s*([A-Za-z0-9-]+)/);
     const inspectorMatch = text.match(/检测人员\s*(\S+)/);
     const infoMatch = text.match(/样本信息\s*([^\n]+)/);
+    const projectMatch = text.match(/检测项目\s*([^\n]+)/);
+    const projectName = projectMatch ? projectMatch[1].trim() : '未知项目';
 
+    // --- 2. 文本清洗与预处理 ---
+    // 移除空行，确保索引连续有效
     const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
 
-    const positiveList = [];
-    const allTestItems = [];
-    let isDataSection = false;
-    let i = 0;
-
-    while (i < lines.length) {
-        const line = lines[i];
-
-        if (line.includes('[检测数据]') || line === '序号') {
-            isDataSection = true;
-            i++;
-            continue;
-        }
-
-        if (isDataSection) {
-            if (/^\d+$/.test(line)) {
-                const pathogen = lines[i + 1] || '';
-                const channel = lines[i + 2] || '';
-                const ct = lines[i + 3] || '';
-                const result = lines[i + 4] || '';
-
-                const isInternalControl = pathogen.includes('内标') || 
-                                         pathogen.toLowerCase().includes('control') ||
-                                         pathogen.toLowerCase().includes('ic');
-
-                allTestItems.push({
-                    no: line,
-                    pathogen: pathogen,
-                    channel: channel,
-                    ct: ct,
-                    result: result,
-                    isInternalControl: isInternalControl
-                });
-
-                if (result.includes('阳性') && !isInternalControl) {
-                    const ctValue = parseFloat(ct);
-                    positiveList.push({
-                        pathogen: pathogen,
-                        ct: isNaN(ctValue) ? 999 : ctValue,
-                        ctRaw: ct
-                    });
-                }
-
-                i += 5;
-            } else {
-                i++;
-            }
-        } else {
-            i++;
+    // --- 3. 动态计算列偏移量 (Header Mapping) ---
+    // 默认偏移量 (兜底策略：25项的结构)
+    let offsetCt = 1;      // 通道下一行是Ct
+    let offsetResult = 2;  // 通道下两行是结果
+    
+    // 寻找数据区的起始位置
+    let dataStartIndex = -1;
+    for (let i = 0; i < lines.length; i++) {
+        if (lines[i].includes('[检测数据]')) {
+            dataStartIndex = i;
+            break;
         }
     }
 
+    if (dataStartIndex !== -1) {
+        // 在数据区开始后的前20行内扫描表头关键字
+        // 我们寻找 "通道" 和 "Ct" 在 lines 数组中的相对距离
+        let headerChannelIndex = -1;
+        let headerCtIndex = -1;
+        let headerResultIndex = -1;
+
+        // 扫描范围：数据区标题后，直到遇到第一个具体数据(FAM/HEX)之前
+        for (let i = dataStartIndex; i < Math.min(lines.length, dataStartIndex + 20); i++) {
+            const line = lines[i];
+            
+            // 如果遇到了具体数据，停止表头扫描
+            if (/^(FAM|HEX|ROX|CY5|Cy5)-/i.test(line)) break;
+
+            if (line === '通道' || line.includes('通道')) headerChannelIndex = i;
+            // 兼容 "Ct"、"Ct值"、"CT"
+            if (/^Ct/i.test(line) || line === 'Ct值') headerCtIndex = i;
+            if (line === '结果' || line.includes('结果')) headerResultIndex = i;
+        }
+
+        // 如果成功找到了表头，计算动态偏移量
+        if (headerChannelIndex !== -1 && headerCtIndex !== -1) {
+            offsetCt = headerCtIndex - headerChannelIndex;
+            console.log(`[系统自适应] 识别到表格结构: Ct列偏移量 = ${offsetCt}`);
+        }
+        if (headerChannelIndex !== -1 && headerResultIndex !== -1) {
+            offsetResult = headerResultIndex - headerChannelIndex;
+            console.log(`[系统自适应] 识别到表格结构: 结果列偏移量 = ${offsetResult}`);
+        }
+    }
+
+    // --- 4. 数据解析循环 ---
+    const allTestItems = [];
+    const positiveList = [];
+    const channelRegex = /^(FAM|HEX|ROX|CY5|Cy5)-[\d\w]+$/i;
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+
+        // 锚点：找到荧光通道 (如 FAM-1)
+        if (channelRegex.test(line)) {
+            const channel = line;
+            
+            // 1. 获取病原体名称 (通常在通道的前一行)
+            // 防御性检查：如果前一行是数字(序号)，则取前两行
+            let pathogen = lines[i - 1];
+            if (/^\d+$/.test(pathogen)) {
+                pathogen = lines[i - 2] || '未知靶标';
+            }
+
+            // 2. 利用计算出的偏移量获取 Ct 和 结果
+            // 必须进行边界检查，防止数组越界
+            const ctRaw = (i + offsetCt < lines.length) ? lines[i + offsetCt] : '-';
+            const result = (i + offsetResult < lines.length) ? lines[i + offsetResult] : '未知';
+
+            // 3. 数据清洗与存储
+            const isInternalControl = /内标|内参|control|ic/i.test(pathogen);
+            
+            allTestItems.push({
+                no: allTestItems.length + 1,
+                pathogen: pathogen,
+                channel: channel,
+                ct: ctRaw,
+                result: result,
+                isInternalControl: isInternalControl
+            });
+
+            // 4. 阳性判定
+            if (result.includes('阳性') && !isInternalControl) {
+                const ctValue = parseFloat(ctRaw);
+                positiveList.push({
+                    pathogen: pathogen,
+                    ct: isNaN(ctValue) ? 999 : ctValue,
+                    ctRaw: ctRaw
+                });
+            }
+        }
+    }
+
+    // --- 5. 后续逻辑 (风险计算、食堂判定等) ---
+    // ... (保持原有的食堂判定逻辑)
     let canteen = '未知';
     const rawInfo = infoMatch ? infoMatch[1].trim() : '';
-    if (rawInfo.includes('一食堂')) canteen = '一食堂';
-    else if (rawInfo.includes('二食堂')) canteen = '二食堂';
-    else if (rawInfo.includes('三食堂')) canteen = '三食堂';
-    else if (rawInfo) canteen = rawInfo.split(/\s+/)[0];
+    const canteenList = ['一食堂', '二食堂', '三食堂', '四食堂', '教工食堂', '混样检测'];
+    for (const c of canteenList) {
+        if (rawInfo.includes(c)) {
+            canteen = c;
+            break;
+        }
+    }
+    if (canteen === '未知' && rawInfo) canteen = rawInfo.split(/\s+/)[0];
 
     const internalControlStatus = allTestItems
         .filter(item => item.isInternalControl)
@@ -269,7 +319,7 @@ function parseDetectionReport(text) {
         testDate: dateMatch ? formatDateStandard(dateMatch[1]) : new Date().toISOString().split('T')[0],
         sampleId: idMatch ? idMatch[1] : `Unknown-${Date.now()}`,
         canteen: canteen,
-        sampleType: '环境样本',
+        sampleType: projectName.includes('水') ? '水样' : '食品/环境样本',
         sampleInfo: rawInfo || '未知',
         positiveItems: riskAssessment.positiveItemsDisplay,
         positiveDetails: positiveList,
@@ -283,6 +333,8 @@ function parseDetectionReport(text) {
         recheckReports: []
     };
 }
+
+
 
 function calculateRiskLevel(positiveList) {
     if (positiveList.length === 0) {
