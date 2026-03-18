@@ -563,7 +563,7 @@ export class ExportService {
             tableware: '餐具洁净度',
             pesticide: '果蔬农残',
             oil: '食用油品质',
-            leanMeat: '瘦肉精检测',
+            leanMeat: '肉、蛋农残检测',
             pathogen: '病原体检测'
         };
         
@@ -682,7 +682,7 @@ export class ExportService {
                 return result.includes('阳性') || result.includes('不合格') || result.includes('检出');
             });
             if (positive.length > 0) {
-                risks.push(`瘦肉精检测发现 ${positive.length} 次阳性结果`);
+                risks.push(`肉、蛋农残检测发现 ${positive.length} 次阳性结果`);
             }
         }
         
