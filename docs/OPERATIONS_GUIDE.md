@@ -204,13 +204,195 @@ npm audit fix
 
 ## 👁️ 监控和告警
 
+### 系统架构
+
+监控系统基于以下组件：
+
+```
+应用层 (Express/React)
+    ↓
+Instrumentation (OpenTelemetry)
+    ↓
+Data Collection (Metrics/Traces/Logs)
+    ↓
+Collection Agent
+    ├─ Prometheus (指标)
+    ├─ Jaeger (追踪)
+    └─ ELK Stack (日志)
+    ↓
+Storage & Analysis
+    ├─ Time-series DB
+    ├─ Log Storage
+    └─ Trace Storage
+    ↓
+Visualization & Alerting
+    ├─ Grafana (仪表板)
+    ├─ Prometheus Alert Manager
+    └─ 通知系统 (钉钉/邮件/短信)
+```
+
+### 安装和配置
+
+#### Step 1: 安装监控依赖
+
+**Backend Instrumentation**:
+```bash
+npm install @opentelemetry/api
+npm install @opentelemetry/sdk-node
+npm install @opentelemetry/auto
+npm install @opentelemetry/exporter-prometheus
+npm install @opentelemetry/exporter-trace-jaeger
+npm install @opentelemetry/sdk-trace-node
+npm install pino pino-http
+npm install express-prometheus-middleware
+```
+
+**Frontend Monitoring**:
+```bash
+npm install @opentelemetry/sdk-web
+npm install @opentelemetry/exporter-trace-jaeger-web
+npm install @sentry/react
+npm install performance-observer-polyfill
+```
+
+#### Step 2: 配置 OpenTelemetry (Backend)
+
+**文件: backend/config/telemetry.js**
+
+```javascript
+const { NodeSDK } = require('@opentelemetry/sdk-node');
+const { getNodeAutoInstrumentations } = require('@opentelemetry/auto-instrumentations-node');
+const { PeriodicExportingMetricReader } = require('@opentelemetry/sdk-metrics');
+const { PrometheusExporter } = require('@opentelemetry/exporter-prometheus');
+const { BatchSpanProcessor } = require('@opentelemetry/sdk-trace-node');
+const { JaegerExporter } = require('@opentelemetry/exporter-trace-jaeger');
+
+const sdk = new NodeSDK({
+  traceExporter: new JaegerExporter({
+    endpoint: process.env.JAEGER_ENDPOINT || 'http://localhost:14268/api/traces',
+  }),
+  metricExporter: new PrometheusExporter(
+    { port: 9464, endpoint: '/metrics' },
+  ),
+  instrumentations: [getNodeAutoInstrumentations()],
+});
+
+sdk.start();
+
+process.on('SIGTERM', () => {
+  sdk.shutdown()
+    .then(() => console.log('Telemetry shut down'))
+    .catch(log => console.log('Error shutting down telemetry', log))
+    .finally(() => process.exit(0));
+});
+
+module.exports = sdk;
+```
+
+#### Step 3: 配置 Prometheus
+
+**文件: prometheus/prometheus.yml**
+
+```yaml
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'foodtestlab-monitor'
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['localhost:9093']
+
+rule_files:
+  - 'rules/alert_rules.yml'
+  - 'rules/recording_rules.yml'
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'foodtestlab-app'
+    static_configs:
+      - targets: ['localhost:9464']
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['localhost:9100']
+
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['localhost:9187']
+```
+
+#### Step 4: 配置告警规则
+
+**文件: prometheus/rules/alert_rules.yml**
+
+```yaml
+groups:
+  - name: foodtestlab_alerts
+    interval: 30s
+    rules:
+      # 应用可用性
+      - alert: InstanceDown
+        expr: up{job="foodtestlab-app"} == 0
+        for: 5m
+        annotations:
+          summary: "实例宕机"
+          description: "foodtestlab 实例已离线"
+
+      # 高错误率
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.05
+        for: 5m
+        annotations:
+          summary: "错误率过高"
+          description: "5 分钟内错误率 > 5%"
+
+      # CPU 使用过高
+      - alert: HighCPUUsage
+        expr: node_cpu_seconds_total{mode="system"} > 0.9
+        for: 5m
+        annotations:
+          summary: "CPU 使用过高"
+          description: "CPU 使用率 > 90%"
+
+      # 内存使用过高
+      - alert: HighMemoryUsage
+        expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.15
+        for: 5m
+        annotations:
+          summary: "内存不足"
+          description: "可用内存 < 15%"
+
+      # 磁盘空间
+      - alert: DiskSpaceLow
+        expr: node_filesystem_avail_bytes / node_filesystem_size_bytes < 0.1
+        for: 5m
+        annotations:
+          summary: "磁盘空间不足"
+          description: "可用磁盘 < 10%"
+
+      # 响应时间过长
+      - alert: SlowResponse
+        expr: histogram_quantile(0.99, http_request_duration_seconds_bucket) > 1
+        for: 5m
+        annotations:
+          summary: "响应时间过长"
+          description: "P99 延迟 > 1 秒"
+```
+
 ### Grafana 仪表板
 
 **应用性能仪表板**:
 - 访问: http://localhost:3000
 - 用户名: admin
 - 密码: admin123
-- 仪表板位置: Home > Dashboards > Application
 
 **关键指标**:
 - 请求速率 (req/s)
@@ -218,19 +400,27 @@ npm audit fix
 - 错误率 (%)
 - P95/P99 延迟 (ms)
 - 缓存命中率 (%)
+- CPU 使用率
+- 内存使用率
+- 磁盘 I/O
+
+**仪表板位置**:
+- Home > Dashboards > Application Performance
+- Home > Dashboards > Infrastructure
 
 ### 告警规则
 
 **严重告警** (Slack/PagerDuty):
-- 实例宕机
-- 错误率 > 5%
-- CPU 使用 > 90%
-- 磁盘满
+- 实例宕机 (1 分钟内恢复)
+- 错误率 > 5% (持续 5 分钟)
+- CPU 使用 > 90% (持续 5 分钟)
+- 磁盘满 (< 1GB 可用)
 
 **警告告警** (Slack/Email):
-- 错误率 > 1%
-- 响应时间 > 1s
-- 内存使用 > 85%
+- 错误率 > 1% (持续 5 分钟)
+- 响应时间 > 1s (持续 5 分钟)
+- 内存使用 > 85% (持续 5 分钟)
+- 磁盘 < 10% (持续 5 分钟)
 
 ### 告警响应流程
 
@@ -247,6 +437,36 @@ npm audit fix
   ↓
 解决并记录
 ```
+
+### 日志查询
+
+**Kibana 访问**: http://localhost:5601
+
+**常用查询**:
+
+```sql
+-- 错误日志
+level: ERROR AND timestamp > now-1h
+
+-- 缓慢请求
+response_time > 1000 AND timestamp > now-1h
+
+-- 特定用户活动
+user_id: "12345" AND timestamp > now-24h
+
+-- API 端点性能
+endpoint: "/api/records" AND timestamp > now-6h
+```
+
+### Jaeger 分布式追踪
+
+**Jaeger UI**: http://localhost:16686
+
+**调查步骤**:
+1. 选择服务 (foodtestlab)
+2. 选择操作 (HTTP GET, POST 等)
+3. 设置查询条件 (时间范围、错误等)
+4. 查看追踪结果和延迟分析
 
 ### 禁用告警 (临时维护)
 

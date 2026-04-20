@@ -1,8 +1,16 @@
-# 第一阶段优化工具集成指南
+# 集成和迁移指南
 
-## 概述
+**本指南包含两个部分**:
+1. **第一部分**: 优化工具类集成（FormValidator, UINotification, NetworkHelper）
+2. **第二部分**: Backend API Proxy 迁移指南（OAuth/Supabase 密钥隐藏）
 
-本文档说明如何在项目各个模块中集成新创建的三个核心工具类。
+---
+
+## 第一部分：优化工具集成
+
+### 概述
+
+本部分说明如何在项目各个模块中集成新创建的三个核心工具类。
 
 ## 创建的工具类
 
@@ -285,3 +293,305 @@ async handleDelete(id) {
 **创建时间**: 2024年1月
 **优化阶段**: Phase 1 - Security & Quality
 **相关文档**: [OPTIMIZATION_ROADMAP.md](./OPTIMIZATION_ROADMAP.md), [CODE_REVIEW.md](./CODE_REVIEW.md)
+
+---
+
+## 第二部分：Backend API Proxy 迁移指南
+
+### 概述 - Task 1.1
+
+本部分说明如何将前端从直接调用 Supabase 改为通过后端 API 调用。
+
+**主要好处**：
+- ✅ Supabase 密钥完全隐藏 (不再暴露在前端)
+- ✅ API 请求通过后端中间层 (更安全)
+- ✅ 集中式数据处理 (便于审计和监控)
+- ✅ 减少重复代码 (统一 API 客户端)
+
+### 文件变化
+
+#### 新增文件
+```
+backend/
+├── package.json          # Node.js项目配置
+├── server.js             # Express服务器 (600+ 行代码)
+├── .env                  # 环境配置 (Supabase密钥)
+└── README.md             # 后端文档
+
+js/utils/
+└── ApiClient.js          # 前端API客户端 (200+ 行代码)
+```
+
+#### 修改策略
+
+**旧方式** (需要停用):
+```javascript
+import { supabaseClient } from './utils/supabaseClient.js'
+
+// 直接调用Supabase - 密钥暴露在前端
+const { data } = await supabaseClient
+    .from('tableware_tests')
+    .select('*')
+```
+
+**新方式** (使用API客户端):
+```javascript
+import { apiClient } from './utils/ApiClient.js'
+
+// 通过后端API调用 - 密钥隐藏
+const response = await apiClient.getRecords('tableware_tests')
+const data = response.data
+```
+
+### 逐步迁移计划
+
+#### 第1步：启动后端服务器
+
+```bash
+cd backend
+npm install
+npm start
+```
+
+输出应显示：
+```
+╔════════════════════════════════════════╗
+║  🍽️  Food Safety Testing API Server   ║
+║  ✅ Running on port 3000               ║
+║  🔒 All Supabase keys are protected    ║
+║  📝 Environment: development           ║
+╚════════════════════════════════════════╝
+```
+
+#### 第2步：验证后端API
+
+```bash
+# 测试健康检查
+curl http://localhost:3000/health
+
+# 响应应显示:
+# {"status":"✅ API Server is running","timestamp":"2026-04-20T..."}
+```
+
+#### 第3步：前端登录
+
+```javascript
+import { apiClient } from './js/utils/ApiClient.js'
+
+try {
+    // 用户登录
+    const response = await apiClient.login('admin', 'admin123')
+    console.log('✅ 登录成功:', response.user)
+    
+    // Token已自动保存到localStorage
+    console.log('Token已保存:', apiClient.isAuthenticated())
+    
+} catch (error) {
+    console.error('❌ 登录失败:', error.message)
+}
+```
+
+#### 第4步：迁移数据读取
+
+**原始代码** (js/modules/Tableware.js):
+```javascript
+export class TabwareareTest extends GenericTest {
+    async loadData() {
+        const { data, error } = await supabaseClient
+            .from('tableware_tests')
+            .select('*')
+            .order('created_at', { ascending: false })
+        
+        if (error) throw error
+        this.data = data
+    }
+}
+```
+
+**迁移后** (使用API客户端):
+```javascript
+import { apiClient } from '../utils/ApiClient.js'
+
+export class TabwareareTest extends GenericTest {
+    async loadData() {
+        try {
+            const response = await apiClient.getRecords('tableware_tests')
+            this.data = response.data || []
+        } catch (error) {
+            console.error('❌ 加载数据失败:', error)
+            throw error
+        }
+    }
+}
+```
+
+#### 第5步：迁移数据创建
+
+**原始代码**:
+```javascript
+async saveRecord(record) {
+    const { data, error } = await supabaseClient
+        .from(this.tableType)
+        .insert([record])
+    
+    if (error) throw error
+    return data[0]
+}
+```
+
+**迁移后**:
+```javascript
+async saveRecord(record) {
+    const response = await apiClient.createRecord(
+        this.tableType,
+        record
+    )
+    return response
+}
+```
+
+#### 第6步：迁移数据更新
+
+**原始代码**:
+```javascript
+async updateRecord(id, updates) {
+    const { data, error } = await supabaseClient
+        .from(this.tableType)
+        .update(updates)
+        .eq('id', id)
+    
+    if (error) throw error
+    return data[0]
+}
+```
+
+**迁移后**:
+```javascript
+async updateRecord(id, updates) {
+    const response = await apiClient.updateRecord(
+        this.tableType,
+        id,
+        updates
+    )
+    return response
+}
+```
+
+#### 第7步：迁移数据删除
+
+**原始代码**:
+```javascript
+async deleteRecord(id) {
+    const { error } = await supabaseClient
+        .from(this.tableType)
+        .delete()
+        .eq('id', id)
+    
+    if (error) throw error
+}
+```
+
+**迁移后**:
+```javascript
+async deleteRecord(id) {
+    await apiClient.deleteRecord(this.tableType, id)
+}
+```
+
+### API 客户端方法全览
+
+```javascript
+import { apiClient } from './utils/ApiClient.js'
+
+// 认证相关
+apiClient.login(username, password)           // 用户登录
+apiClient.logout()                            // 用户登出
+apiClient.isAuthenticated()                   // 检查认证状态
+apiClient.getToken()                          // 获取当前令牌
+
+// 数据查询
+apiClient.getRecords(tableName)               // 获取所有记录
+apiClient.getRecord(tableName, id)            // 获取单条记录
+apiClient.queryRecords(tableName, filters)    // 条件查询
+
+// 数据创建
+apiClient.createRecord(tableName, data)       // 创建记录
+
+// 数据更新
+apiClient.updateRecord(tableName, id, data)   // 更新记录
+apiClient.batchUpdate(tableName, records)     // 批量更新
+
+// 数据删除
+apiClient.deleteRecord(tableName, id)         // 删除记录
+apiClient.batchDelete(tableName, ids)         // 批量删除
+
+// 导出相关
+apiClient.exportRecords(tableName, format)    // 导出数据 (csv/json/xlsx)
+
+// 备份相关
+apiClient.createBackup()                      // 创建备份
+apiClient.listBackups()                       // 列表备份
+apiClient.restoreBackup(backupId)             // 恢复备份
+```
+
+### 常见问题
+
+#### Q: API 密钥泄露的风险有多大?
+
+**A**: 非常严重
+- 任何人都可以通过浏览器开发者工具查看
+- 通过 GitHub 仓库网络历史可被恢复
+- 恶意用户可以冒充应用调用 Supabase
+- 导致数据泄露或被篡改
+
+#### Q: 后端 API 如何保护密钥?
+
+**A**: 多层保护
+- 密钥存储在 `.env` 文件中
+- `.env` 被 `.gitignore` 排除
+- 密钥不在任何网络请求中
+- 所有 API 调用都需要 JWT 认证
+- 详细的审计日志
+
+#### Q: 迁移中如何处理现有数据?
+
+**A**: 无需数据迁移
+- 数据仍在 Supabase
+- 后端只是代理和认证
+- 迁移前后数据完全一致
+
+#### Q: 性能会受影响吗?
+
+**A**: 几乎没有影响
+- 增加 ~10-50ms 的后端处理时间
+- 通过缓存机制弥补
+- 实际获得更好的性能（集中缓存）
+
+### 迁移检查清单
+
+- [ ] 后端服务已启动并通过健康检查
+- [ ] 前端 API 客户端已导入
+- [ ] 用户能正常登录
+- [ ] 所有数据查询都通过 API 客户端
+- [ ] 所有数据修改都通过 API 客户端
+- [ ] 导出功能仍正常工作
+- [ ] 离线模式仍正常工作
+- [ ] 浏览器开发者工具中看不到 Supabase 密钥
+- [ ] 所有测试通过
+
+### 回滚计划
+
+如果迁移过程中出现问题，可以通过以下方式回滚：
+
+```bash
+# 1. 停止后端服务
+npm stop
+
+# 2. 前端恢复使用 supabaseClient.js
+# 将所有 apiClient 调用改回 supabaseClient 调用
+
+# 3. 重启应用
+npm start
+```
+
+**关键点**: 保持两个版本代码兼容，直到迁移完全完成
