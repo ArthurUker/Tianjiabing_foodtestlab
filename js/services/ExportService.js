@@ -1,4 +1,5 @@
 import { StorageService } from '../core/Storage.js';  // ✅ 添加导入
+import { UINotification } from '../utils/UINotification.js';
 
 export class ExportService {
     constructor() {
@@ -769,7 +770,7 @@ export class ExportService {
 
     async exportToPDF() {
         if (typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined') {
-            alert('PDF库加载中，请稍后再试...');
+            UINotification.warning('⚠️ PDF库正在加载中，请稍后再试');
             return;
         }
 
@@ -777,7 +778,7 @@ export class ExportService {
         const content = preview.querySelector('#pdfContent');
         
         if (!content) {
-            alert('请先点击"预览报告"生成报告内容');
+            UINotification.warning('⚠️ 请先点击"预览报告"生成报告内容');
             return;
         }
 
