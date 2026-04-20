@@ -148,20 +148,6 @@ function handleFileImport(file) {
         importButton.disabled = false;
     }
 }
-                }
-            })
-            .catch(function(error) {
-                console.error('Word解析错误:', error);
-                alert('文档解析失败：' + error.message);
-            })
-            .finally(function() {
-                importButton.innerHTML = originalText;
-                importButton.disabled = false;
-            });
-    };
-    
-    reader.readAsArrayBuffer(file);
-}
 
 function handleRecheckImport(file, originalRecord, currentUser, callback) {
     if (!file.name.endsWith('.docx')) {
