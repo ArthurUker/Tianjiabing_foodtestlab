@@ -1,5 +1,7 @@
 // 文件路径: js/modules/BackupRestore.js
 import { supabase } from '../utils/supabaseClient.js';
+import { UINotification } from '../utils/UINotification.js';
+import { NetworkHelper } from '../utils/NetworkHelper.js';
 
 export class BackupRestoreService {
     constructor() {
@@ -223,12 +225,21 @@ export class BackupRestoreService {
         document.getElementById('btn-force-sync')?.addEventListener('click', () => this.forceSync());
         document.getElementById('btn-pause-sync')?.addEventListener('click', () => this.pauseSync());
 
-        document.getElementById('btn-clear-local')?.addEventListener('click', () => {
-            if(confirm('⚠️ 严重警告\n\n确定要清空本地所有缓存吗？\n此操作不可逆，所有未同步到服务器的数据将永久丢失！')) {
-                this.targetTables.forEach(table => localStorage.removeItem(`cache_${table}`));
-                localStorage.removeItem(`pending_requests`);
-                alert('🗑️ 本地缓存已清空，页面将刷新。');
-                location.reload();
+        document.getElementById('btn-clear-local')?.addEventListener('click', async () => {
+            const confirmed = await UINotification.confirm(
+                '⚠️ 严重警告\n确定要清空本地所有缓存吗？此操作不可逆，所有未同步到服务器的数据将永久丢失！',
+                '确认清空'
+            );
+            
+            if (confirmed) {
+                try {
+                    this.targetTables.forEach(table => localStorage.removeItem(`cache_${table}`));
+                    localStorage.removeItem(`pending_requests`);
+                    UINotification.success('🗑️ 本地缓存已清空，页面将刷新');
+                    setTimeout(() => location.reload(), 1500);
+                } catch (error) {
+                    UINotification.error('❌ 清空缓存失败: ' + error.message);
+                }
             }
         });
 
@@ -344,46 +355,62 @@ export class BackupRestoreService {
         });
     }
 
-    pauseSync() {
-        if (confirm('确定要暂停数据同步吗？')) {
-            localStorage.setItem('block_data_sync', 'true');
-            localStorage.removeItem('force_data_sync');
-            this.updateSyncStatusIndicator();
-            alert('⏸️ 数据同步已暂停');
+    async pauseSync() {
+        const confirmed = await UINotification.confirm(
+            '确定要暂停数据同步吗？',
+            '确认暂停'
+        );
+        
+        if (confirmed) {
+            try {
+                localStorage.setItem('block_data_sync', 'true');
+                localStorage.removeItem('force_data_sync');
+                this.updateSyncStatusIndicator();
+                UINotification.success('⏸️ 数据同步已暂停');
+            } catch (error) {
+                UINotification.error('❌ 暂停同步失败: ' + error.message);
+            }
         }
     }
 
     handleBackup() {
-        const backupData = {
-            version: '2.0',
-            timestamp: new Date().toISOString(),
-            tables: {}
-        };
+        try {
+            const backupData = {
+                version: '2.0',
+                timestamp: new Date().toISOString(),
+                tables: {}
+            };
 
-        let count = 0;
-        this.targetTables.forEach(tableName => {
-            const key = `cache_${tableName}`;
-            const rawData = localStorage.getItem(key);
-            if (rawData) {
-                try {
-                    const parsed = JSON.parse(rawData);
-                    backupData.tables[tableName] = parsed;
-                    count += (parsed.data || []).length;
-                } catch (e) {}
-            }
-        });
+            let count = 0;
+            this.targetTables.forEach(tableName => {
+                const key = `cache_${tableName}`;
+                const rawData = localStorage.getItem(key);
+                if (rawData) {
+                    try {
+                        const parsed = JSON.parse(rawData);
+                        backupData.tables[tableName] = parsed;
+                        count += (parsed.data || []).length;
+                    } catch (e) {
+                        console.warn(`解析 ${tableName} 缓存失败:`, e);
+                    }
+                }
+            });
 
-        const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `lab_backup_${new Date().toISOString().slice(0, 10)}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+            const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `lab_backup_${new Date().toISOString().slice(0, 10)}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
 
-        alert(`✅ 备份成功！\n共导出 ${count} 条记录。`);
+            UINotification.success(`✅ 备份成功！共导出 ${count} 条记录`);
+        } catch (error) {
+            console.error('备份失败:', error);
+            UINotification.error('❌ 备份失败: ' + error.message);
+        }
     }
 
     handleFileRestore(file) {
@@ -406,7 +433,12 @@ export class BackupRestoreService {
     // 解决了 406 Not Acceptable (system_backups 表不存在) 的问题
     // ============================================================
     async handleCloudRestore() {
-        if (!confirm('确定要从服务器重新加载所有数据吗？\n\n⚠️ 注意：这将覆盖本地当前的缓存数据。')) return;
+        const confirmed = await UINotification.confirm(
+            '确定要从服务器重新加载所有数据吗？⚠️ 注意：这将覆盖本地当前的缓存数据',
+            '确认恢复'
+        );
+        
+        if (!confirmed) return;
 
         this.showStatus('⏳ 正在连接服务器获取最新数据...', 'purple');
         const btn = document.getElementById('btn-cloud-restore');
@@ -440,13 +472,13 @@ export class BackupRestoreService {
             await Promise.all(promises);
 
             this.showStatus('✅ 云端同步成功！页面即将刷新...', 'green');
-            alert('同步成功！本地数据已更新为服务器最新状态。');
-            window.location.reload();
+            UINotification.success('✅ 同步成功！本地数据已更新为服务器最新状态');
+            setTimeout(() => window.location.reload(), 1500);
 
         } catch (err) {
             console.error(err);
             this.showStatus(`❌ 云端同步失败: ${err.message}`, 'red');
-            alert('无法从服务器下载数据，请检查网络或联系管理员。');
+            UINotification.error('❌ 无法从服务器下载数据，请检查网络或联系管理员');
             if(btn) btn.disabled = false;
         }
     }
