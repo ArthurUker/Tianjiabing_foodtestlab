@@ -1,4 +1,6 @@
 import { StorageService } from '../core/Storage.js';
+import { UINotification } from '../utils/UINotification.js';
+import { NetworkHelper } from '../utils/NetworkHelper.js';
 
 const services = {
     tableware: new StorageService('tableware'),
@@ -100,17 +102,19 @@ function getWeekString(date) {
 // 导出看板为PDF
 async function exportDashboardToPDF() {
     if (typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined') {
-        alert('PDF库加载中，请稍后再试...');
+        UINotification.warning('⚠️ PDF库正在加载中，请稍后再试');
         return;
     }
 
     const element = document.getElementById('dashboard-capture-area');
     if (!element) {
-        alert('未找到要导出的内容');
+        UINotification.error('❌ 未找到要导出的内容');
         return;
     }
 
     try {
+        UINotification.info('ℹ️ 正在生成 PDF，请稍候...');
+        
         const canvas = await html2canvas(element, {
             scale: 2,
             useCORS: true,
@@ -127,10 +131,10 @@ async function exportDashboardToPDF() {
         pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
         pdf.save(`数据看板_${new Date().toISOString().split('T')[0]}.pdf`);
         
-        alert('✅ PDF导出成功！');
+        UINotification.success('✅ PDF 导出成功！');
     } catch (error) {
         console.error('PDF导出失败:', error);
-        alert('❌ PDF导出失败');
+        UINotification.error('❌ PDF 导出失败: ' + error.message);
     }
 }
 
