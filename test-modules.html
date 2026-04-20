@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>模块诊断</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: monospace; }
+        .log-item { padding: 10px; margin: 5px; border-left: 3px solid #007bff; background: #f8f9fa; }
+        .log-item.success { border-left-color: #28a745; color: #28a745; }
+        .log-item.error { border-left-color: #dc3545; color: #dc3545; background: #fff5f5; }
+    </style>
+</head>
+<body class="p-8 bg-gray-100">
+    <h1 class="text-3xl font-bold mb-4">🔍 模块诊断报告</h1>
+    <div id="logs" class="bg-white p-6 rounded-lg shadow"></div>
+
+    <script>
+        const logs = document.getElementById('logs');
+        let testsPassed = 0;
+        let testsFailed = 0;
+
+        function log(message, type = 'info') {
+            const div = document.createElement('div');
+            div.className = `log-item ${type}`;
+            div.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logs.appendChild(div);
+            console.log(message);
+        }
+
+        async function testModule(name, importPath) {
+            try {
+                log(`📦 测试导入: ${name}...`, 'info');
+                const module = await import(importPath);
+                log(`✅ ${name} 导入成功`, 'success');
+                testsPassed++;
+                return module;
+            } catch (error) {
+                log(`❌ ${name} 导入失败: ${error.message}`, 'error');
+                testsFailed++;
+                return null;
+            }
+        }
+
+        async function runTests() {
+            log('🚀 开始测试所有模块', 'info');
+            log('');
+
+            // 测试工具模块
+            await testModule('FormValidator', './js/utils/FormValidator.js');
+            await testModule('UINotification', './js/utils/UINotification.js');
+            await testModule('NetworkHelper', './js/utils/NetworkHelper.js');
+            await testModule('UIHelper', './js/utils/UIHelper.js');
+
+            log('');
+
+            // 测试核心模块
+            await testModule('Auth', './js/core/Auth.js');
+            await testModule('Storage', './js/core/Storage.js');
+
+            log('');
+
+            // 测试业务模块
+            await testModule('Tableware', './js/modules/Tableware.js');
+            await testModule('GenericTest', './js/modules/GenericTest.js');
+            await testModule('Pathogen', './js/modules/Pathogen.js');
+            await testModule('Dashboard', './js/modules/Dashboard.js');
+
+            log('');
+
+            // 测试服务模块
+            await testModule('ExportService', './js/services/ExportService.js');
+            await testModule('BackupRestore', './js/modules/BackupRestore.js');
+
+            log('');
+            log(`📊 测试结果: ${testsPassed} 成功, ${testsFailed} 失败`, testsFailed === 0 ? 'success' : 'error');
+
+            if (testsFailed === 0) {
+                log('🎉 所有模块导入成功! 可以尝试加载 index.html', 'success');
+            } else {
+                log('⚠️ 有模块导入失败，请检查错误信息', 'error');
+            }
+        }
+
+        window.addEventListener('error', (e) => {
+            log(`❌ 运行时错误: ${e.message} at ${e.filename}:${e.lineno}`, 'error');
+        });
+
+        window.addEventListener('unhandledrejection', (e) => {
+            log(`❌ 未处理的 Promise 拒绝: ${e.reason}`, 'error');
+        });
+
+        // 开始测试
+        runTests();
+    </script>
+</body>
+</html>
