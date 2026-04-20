@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>食品安全检验管理系统 - 登录</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        
+        .login-container {
+            animation: slideIn 0.5s ease-out;
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .logo-animation {
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.8;
+            }
+        }
+        
+        .input-focus {
+            transition: all 0.3s ease;
+        }
+        
+        .input-focus:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .btn-loading {
+            pointer-events: none;
+        }
+        
+        .error-shake {
+            animation: shake 0.3s ease-in-out;
+        }
+        
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container w-full max-w-md">
+        <!-- 登录卡片 -->
+        <div class="bg-white rounded-lg shadow-2xl p-8 backdrop-blur-sm">
+            <!-- Logo 和标题 -->
+            <div class="text-center mb-8">
+                <div class="logo-animation mb-4">
+                    <i class="fas fa-shield-alt text-4xl text-blue-600"></i>
+                </div>
+                <h1 class="text-2xl font-bold text-gray-800 mb-2">食品安全检验系统</h1>
+                <p class="text-gray-500 text-sm">田家炳中学食堂管理平台</p>
+            </div>
+
+            <!-- 登录表单 -->
+            <form id="loginForm" class="space-y-5">
+                <!-- 用户名输入 -->
+                <div>
+                    <label for="username" class="block text-sm font-medium text-gray-700 mb-2">
+                        <i class="fas fa-user mr-2 text-blue-600"></i>用户名
+                    </label>
+                    <input 
+                        type="text" 
+                        id="username" 
+                        name="username"
+                        class="input-focus w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="请输入用户名"
+                        required
+                        autocomplete="username"
+                    >
+                </div>
+
+                <!-- 密码输入 -->
+                <div>
+                    <label for="password" class="block text-sm font-medium text-gray-700 mb-2">
+                        <i class="fas fa-lock mr-2 text-blue-600"></i>密码
+                    </label>
+                    <div class="relative">
+                        <input 
+                            type="password" 
+                            id="password" 
+                            name="password"
+                            class="input-focus w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            placeholder="请输入密码"
+                            required
+                            autocomplete="current-password"
+                        >
+                        <button 
+                            type="button" 
+                            id="togglePassword"
+                            class="absolute right-3 top-2.5 text-gray-500 hover:text-gray-700"
+                        >
+                            <i class="fas fa-eye"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 记住我 & 忘记密码 -->
+                <div class="flex items-center justify-between text-sm">
+                    <label class="flex items-center text-gray-700">
+                        <input 
+                            type="checkbox" 
+                            id="rememberMe" 
+                            name="rememberMe"
+                            class="mr-2 w-4 h-4 rounded border-gray-300"
+                        >
+                        记住我
+                    </label>
+                    <a href="#" class="text-blue-600 hover:text-blue-700 font-medium">忘记密码？</a>
+                </div>
+
+                <!-- 错误提示 -->
+                <div id="errorMessage" class="hidden p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg text-sm flex items-center">
+                    <i class="fas fa-exclamation-circle mr-2"></i>
+                    <span id="errorText"></span>
+                </div>
+
+                <!-- 登录按钮 -->
+                <button 
+                    type="submit" 
+                    id="loginBtn"
+                    class="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-semibold py-2.5 rounded-lg transition duration-300 shadow-lg hover:shadow-xl flex items-center justify-center"
+                >
+                    <i class="fas fa-sign-in-alt mr-2"></i>
+                    <span id="loginBtnText">登 录</span>
+                </button>
+            </form>
+
+            <!-- 分隔线 -->
+            <div class="relative my-6">
+                <div class="absolute inset-0 flex items-center">
+                    <div class="w-full border-t border-gray-300"></div>
+                </div>
+                <div class="relative flex justify-center text-sm">
+                    <span class="px-2 bg-white text-gray-500">或</span>
+                </div>
+            </div>
+
+            <!-- 其他登录选项 (预留) -->
+            <button type="button" class="w-full py-2 px-4 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition flex items-center justify-center">
+                <i class="fas fa-question-circle mr-2"></i>
+                需要帮助？
+            </button>
+
+            <!-- 底部提示 -->
+            <div class="text-center mt-6 text-sm text-gray-600">
+                <p>系统版本: 3.0 Pro</p>
+                <p class="text-xs text-gray-400 mt-2">© 2026 田家炳中学. 版权所有</p>
+            </div>
+        </div>
+
+        <!-- 底部说明 -->
+        <div class="text-center mt-6 text-white text-sm opacity-75">
+            <p><i class="fas fa-info-circle mr-2"></i>演示账号：admin / 密码：8888</p>
+        </div>
+    </div>
+
+    <script type="module">
+        import { authService } from './js/services/AuthService.js';
+
+        const form = document.getElementById('loginForm');
+        const usernameInput = document.getElementById('username');
+        const passwordInput = document.getElementById('password');
+        const togglePasswordBtn = document.getElementById('togglePassword');
+        const rememberMeCheckbox = document.getElementById('rememberMe');
+        const loginBtn = document.getElementById('loginBtn');
+        const loginBtnText = document.getElementById('loginBtnText');
+        const errorMessage = document.getElementById('errorMessage');
+        const errorText = document.getElementById('errorText');
+
+        // 密码显示/隐藏切换
+        togglePasswordBtn.addEventListener('click', function() {
+            const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+            passwordInput.setAttribute('type', type);
+            this.innerHTML = type === 'password' 
+                ? '<i class="fas fa-eye"></i>' 
+                : '<i class="fas fa-eye-slash"></i>';
+        });
+
+        // 恢复记住的用户名
+        window.addEventListener('load', function() {
+            const savedUsername = localStorage.getItem('saved_username');
+            if (savedUsername) {
+                usernameInput.value = savedUsername;
+                rememberMeCheckbox.checked = true;
+                passwordInput.focus();
+            }
+        });
+
+        // 表单提交
+        form.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const username = usernameInput.value.trim();
+            const password = passwordInput.value;
+            const rememberMe = rememberMeCheckbox.checked;
+
+            // 清除错误提示
+            errorMessage.classList.add('hidden');
+
+            // 表单验证
+            if (!username || !password) {
+                showError('用户名和密码不能为空');
+                return;
+            }
+
+            // 禁用登录按钮并显示加载状态
+            loginBtn.disabled = true;
+            loginBtn.classList.add('btn-loading', 'opacity-70');
+            loginBtnText.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>登录中...';
+
+            try {
+                // 调用 AuthService 登录
+                const result = await authService.login(username, password);
+
+                if (result.success) {
+                    // 保存用户名（如果勾选记住我）
+                    if (rememberMe) {
+                        localStorage.setItem('saved_username', username);
+                    } else {
+                        localStorage.removeItem('saved_username');
+                    }
+
+                    console.log('✅ 登录成功，跳转到主界面...');
+                    
+                    // 重定向到主应用
+                    setTimeout(() => {
+                        window.location.href = './index.html';
+                    }, 500);
+                } else {
+                    // 登录失败
+                    showError(result.message || '登录失败，请检查用户名和密码');
+                    form.classList.add('error-shake');
+                    setTimeout(() => {
+                        form.classList.remove('error-shake');
+                    }, 300);
+                    
+                    // 清空密码
+                    passwordInput.value = '';
+                }
+            } catch (error) {
+                console.error('❌ 登录错误:', error);
+                showError('网络连接失败，请稍后重试');
+            } finally {
+                // 恢复登录按钮
+                loginBtn.disabled = false;
+                loginBtn.classList.remove('btn-loading', 'opacity-70');
+                loginBtnText.innerHTML = '<i class="fas fa-sign-in-alt mr-2"></i>登 录';
+            }
+        });
+
+        // 显示错误信息
+        function showError(message) {
+            errorText.textContent = message;
+            errorMessage.classList.remove('hidden');
+        }
+
+        // 按 Enter 提交表单
+        form.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                form.dispatchEvent(new Event('submit'));
+            }
+        });
+    </script>
+</body>
+</html>

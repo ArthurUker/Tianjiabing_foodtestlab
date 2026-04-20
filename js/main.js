@@ -6,14 +6,24 @@ import { initDashboard } from './modules/Dashboard.js';
 import { ExportService } from './services/ExportService.js';
 // 1. ✨ 引入新模块
 import { BackupRestoreService } from './modules/BackupRestore.js';
+// 2. ✨ 引入认证与路由
+import { router } from './core/Router.js';
+// 3. ✨ 引入用户管理模块
+import { initUserManagement } from './modules/UserManagement.js';
 
 console.log('✅ main.js 模块加载开始');
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     console.log('✅ DOMContentLoaded 事件触发');
     
     try {
         document.body.classList.add('loaded');
+        
+        // 0. 🔐 初始化路由与认证系统 (必须最先执行)
+        console.log('🔧 Router 初始化中...');
+        await router.init();
+        router.setupAll();
+        console.log('✅ Router 初始化完成');
         
         // 1. UI 初始化 (它会自动处理侧边栏点击切换)
         console.log('🔧 UIHelper.setupNavigation 调用中...');
@@ -57,14 +67,17 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error('❌ ExportService 初始化失败:', error);
         }
 
-        // 6. ✨ 初始化数据备份模块
-        console.log('🔧 BackupRestoreService 初始化中...');
+        // 6. ✨ 初始化用户管理模块 (仅管理员可访问)
+        console.log('🔧 UserManagement 初始化中...');
         try {
-            const backupService = new BackupRestoreService();
-            backupService.init();
-            console.log('✅ BackupRestoreService 初始化成功');
+            if (router.isAdmin()) {
+                initUserManagement();
+                console.log('✅ UserManagement 初始化成功');
+            } else {
+                console.log('⚠️ 当前用户无权访问用户管理模块');
+            }
         } catch (error) {
-            console.error('❌ BackupRestoreService 初始化失败:', error);
+            console.error('❌ UserManagement 初始化失败:', error);
         }
         
         console.log('✅✅✅ 所有模块初始化完成！');

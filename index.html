@@ -42,7 +42,16 @@
                 <i class="fas fa-shield-alt text-2xl"></i>
                 <h1 class="text-xl font-bold">田家炳中学食品安全检验管理系统</h1>
             </div>
-            <div class="text-sm"><i class="far fa-user"></i> 李丹 (管理员)</div>
+            <div class="text-sm flex items-center space-x-4">
+                <div>
+                    <i class="far fa-user mr-2"></i>
+                    <span data-user-name>用户</span>
+                    <span class="text-xs ml-2 px-2 py-1 bg-blue-700 rounded" data-user-role>角色</span>
+                </div>
+                <button id="btnLogout" class="ml-4 px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm transition">
+                    <i class="fas fa-sign-out-alt mr-1"></i>登出
+                </button>
+            </div>
         </div>
     </nav>
 
@@ -82,6 +91,24 @@
                 <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="backup-restore">
                     <i class="fas fa-history mr-3 w-5"></i>数据备份与恢复
                 </button>
+                
+                <!-- ✨ 管理菜单 (仅管理员可见) -->
+                <div class="border-t border-gray-700 my-2"></div>
+                <div class="px-4 py-2 text-xs text-gray-400 font-semibold">管理</div>
+                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="user-management" data-admin-only>
+                    <i class="fas fa-users mr-3 w-5"></i>用户管理
+                </button>
+                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="audit-log" data-admin-only>
+                    <i class="fas fa-history mr-3 w-5"></i>审计日志
+                </button>
+            </nav>
+            
+            <!-- 用户菜单 (顶部右侧) -->
+            <div class="border-t border-gray-700 mt-auto pt-4">
+                <button class="w-full text-left px-4 py-2 rounded hover:bg-gray-700 flex items-center text-sm" id="btnLogout">
+                    <i class="fas fa-sign-out-alt mr-3 w-5"></i>退出登录
+                </button>
+            </div>
             </nav>
         </div>
 
@@ -408,6 +435,22 @@
             <!-- 8. 数据备份与恢复 -->
             <div id="backup-restore" class="content-section hidden">
                 <!-- BackupRestore.js 会把界面渲染到这里 -->
+            </div>
+
+            <!-- 9. ✨ 用户管理 (仅管理员) -->
+            <div id="user-management" class="content-section hidden">
+                <!-- UserManagement.js 会把界面渲染到这里 -->
+            </div>
+
+            <!-- 10. ✨ 审计日志 (仅管理员) -->
+            <div id="audit-log" class="content-section hidden">
+                <!-- AuditLog.js 会把界面渲染到这里 (暂未实现) -->
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <h2 class="text-2xl font-bold text-gray-800 mb-4">
+                        <i class="fas fa-history mr-3 text-blue-600"></i>审计日志
+                    </h2>
+                    <p class="text-gray-600">审计日志功能正在开发中...</p>
+                </div>
             </div>
 
         </div>
