@@ -1,5 +1,8 @@
 import { StorageService } from '../core/Storage.js';
 import { auth } from '../core/Auth.js';
+import { FormValidator } from '../utils/FormValidator.js';
+import { UINotification } from '../utils/UINotification.js';
+import { NetworkHelper } from '../utils/NetworkHelper.js';
 
 const storage = new StorageService('pathogen');
 let currentPage = 1;
@@ -65,7 +68,8 @@ function loadMammothJS() {
 
 function handleFileImport(file) {
     if (!file.name.endsWith('.docx')) {
-        return alert('请选择Word文档(.docx格式)');
+        UINotification.error('❌ 请选择 Word 文档(.docx 格式)');
+        return;
     }
     
     const importButton = document.getElementById('btnImportPathogen');
@@ -76,27 +80,74 @@ function handleFileImport(file) {
     if (!window.mammoth) {
         importButton.innerHTML = originalText;
         importButton.disabled = false;
-        return alert('解析库尚未加载，请稍后重试');
+        UINotification.error('❌ 解析库尚未加载，请稍后重试');
+        return;
     }
     
-    const reader = new FileReader();
-    reader.onload = function(event) {
-        const arrayBuffer = event.target.result;
+    try {
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            try {
+                const arrayBuffer = event.target.result;
+                
+                window.mammoth.extractRawText({arrayBuffer: arrayBuffer})
+                    .then(function(result) {
+                        try {
+                            const text = result.value;
+                            console.log('提取的原始文本:', text);
+                            
+                            const record = parseDetectionReport(text);
+                            
+                            if (!record) {
+                                UINotification.error('❌ 未能识别报告格式，请确保上传的是标准的检测报告');
+                            } else {
+                                storage.save(record);
+                                UINotification.success(
+                                    `✅ 导入成功！\n` +
+                                    `样本：${record.sampleId}\n` +
+                                    `阳性项：${record.positiveItems}\n` +
+                                    `风险等级：${record.riskLevel}`
+                                );
+                                renderTable();
+                                document.dispatchEvent(new Event('dataChanged'));
+                            }
+                        } catch (parseError) {
+                            console.error('报告解析错误:', parseError);
+                            UINotification.error('❌ 报告解析失败: ' + parseError.message);
+                        } finally {
+                            importButton.innerHTML = originalText;
+                            importButton.disabled = false;
+                        }
+                    })
+                    .catch(function(error) {
+                        console.error('文档提取失败:', error);
+                        UINotification.error('❌ 文档提取失败: ' + error.message);
+                        importButton.innerHTML = originalText;
+                        importButton.disabled = false;
+                    });
+            } catch (error) {
+                console.error('文件读取错误:', error);
+                UINotification.error('❌ 文件读取失败: ' + error.message);
+                importButton.innerHTML = originalText;
+                importButton.disabled = false;
+            }
+        };
         
-        window.mammoth.extractRawText({arrayBuffer: arrayBuffer})
-            .then(function(result) {
-                const text = result.value;
-                console.log('提取的原始文本:', text);
-                
-                const record = parseDetectionReport(text);
-                
-                if (!record) {
-                    alert('未能识别报告格式，请确保上传的是标准的检测报告。');
-                } else {
-                    storage.save(record);
-                    alert(`导入成功！\n样本：${record.sampleId}\n阳性项：${record.positiveItems}\n风险等级：${record.riskLevel}`);
-                    renderTable();
-                    document.dispatchEvent(new Event('dataChanged'));
+        reader.onerror = function(error) {
+            console.error('FileReader 错误:', error);
+            UINotification.error('❌ 文件读取错误');
+            importButton.innerHTML = originalText;
+            importButton.disabled = false;
+        };
+        
+        reader.readAsArrayBuffer(file);
+    } catch (error) {
+        console.error('导入流程错误:', error);
+        UINotification.error('❌ 导入失败: ' + error.message);
+        importButton.innerHTML = originalText;
+        importButton.disabled = false;
+    }
+}
                 }
             })
             .catch(function(error) {
@@ -379,11 +430,25 @@ function formatDateStandard(dateStr) {
     return date.toISOString().split('T')[0];
 }
 
-function handleDeleteRecord(recordId) {
-    if (confirm('权限认证通过。确定要永久删除此记录吗？')) {
-        storage.delete(recordId);
-        renderTable();
-        document.dispatchEvent(new Event('dataChanged'));
+async function handleDeleteRecord(recordId) {
+    const confirmed = await UINotification.confirm(
+        '权限认证通过。确定要永久删除此记录吗？',
+        '确认删除'
+    );
+    
+    if (!confirmed) return;
+
+    try {
+        const success = storage.delete(recordId);
+        if (success) {
+            UINotification.success('✅ 删除成功');
+            renderTable();
+            document.dispatchEvent(new Event('dataChanged'));
+        } else {
+            UINotification.error('❌ 删除失败，请重试');
+        }
+    } catch (error) {
+        UINotification.error('❌ 删除出错: ' + error.message);
     }
 }
 
@@ -392,7 +457,7 @@ function handleEditRecord(recordId, currentUser) {
     const record = records.find(r => r.id === parseInt(recordId));
     
     if (!record) {
-        alert('错误：未找到该记录');
+        UINotification.error('❌ 未找到该记录');
         renderTable();
         return;
     }
