@@ -14,6 +14,10 @@ import { initUserManagement } from './modules/UserManagement.js';
 import { permissionService } from './services/PermissionService.js';
 // 5. ✨ 引入审计日志模块
 import { initAuditLog } from './modules/AuditLog.js';
+// 6. ✨ 引入访客管理模块
+import { initGuestManagement } from './modules/GuestManagement.js';
+// 7. ✨ 引入会话管理服务
+import { sessionManager } from './services/SessionManager.js';
 
 console.log('✅ main.js 模块加载开始');
 
@@ -95,6 +99,28 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         } catch (error) {
             console.error('❌ AuditLog 初始化失败:', error);
+        }
+
+        // 8. ✨ 初始化访客管理模块 (仅管理员可访问)
+        console.log('🔧 GuestManagement 初始化中...');
+        try {
+            if (router.isAdmin()) {
+                initGuestManagement();
+                console.log('✅ GuestManagement 初始化成功');
+            } else {
+                console.log('⚠️ 当前用户无权访问访客管理模块');
+            }
+        } catch (error) {
+            console.error('❌ GuestManagement 初始化失败:', error);
+        }
+
+        // 9. ✨ 初始化会话管理 (针对所有用户)
+        console.log('🔧 SessionManager 初始化中...');
+        try {
+            sessionManager.init();
+            console.log('✅ SessionManager 初始化成功');
+        } catch (error) {
+            console.error('❌ SessionManager 初始化失败:', error);
         }
         
         console.log('✅✅✅ 所有模块初始化完成！');
