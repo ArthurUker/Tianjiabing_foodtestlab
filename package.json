@@ -1,0 +1,79 @@
+{
+  "name": "tianjiabing-foodtestlab",
+  "version": "3.1.0",
+  "description": "食品安全检验管理系统 - Pro版本",
+  "main": "backend/server.js",
+  "scripts": {
+    "test": "jest --coverage",
+    "test:watch": "jest --watch",
+    "test:debug": "node --inspect-brk node_modules/.bin/jest --runInBand",
+    "test:unit": "jest tests/*.test.js --coverage",
+    "test:backend": "jest backend/**/*.test.js",
+    "test:frontend": "jest tests/**/*.test.js",
+    "test:coverage": "jest --coverage --coverageDirectory=coverage",
+    "test:e2e": "cypress run",
+    "test:e2e:open": "cypress open",
+    "test:e2e:headless": "cypress run --headless --browser chrome",
+    "test:e2e:report": "cypress run --reporter mochawesome",
+    "test:all": "jest --coverage && cypress run",
+    "start": "node backend/server.js",
+    "dev": "nodemon backend/server.js",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "build": "webpack",
+    "build:dev": "webpack --mode development",
+    "build:prod": "webpack --mode production"
+  },
+  "keywords": [
+    "food-safety",
+    "testing",
+    "management",
+    "system"
+  ],
+  "author": "Tianjiabing Team",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "jsonwebtoken": "^9.0.0",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.0.3",
+    "supabase": "^1.0.0"
+  },
+  "devDependencies": {
+    "jest": "^29.5.0",
+    "babel-jest": "^29.5.0",
+    "@babel/preset-env": "^7.21.0",
+    "@babel/core": "^7.21.0",
+    "jest-environment-jsdom": "^29.5.0",
+    "cypress": "^12.11.0",
+    "eslint": "^8.40.0",
+    "prettier": "^2.8.8",
+    "nodemon": "^2.0.22",
+    "webpack": "^5.83.0",
+    "webpack-cli": "^5.1.0",
+    "supertest": "^6.3.3"
+  },
+  "engines": {
+    "node": ">=14.0.0",
+    "npm": ">=6.0.0"
+  },
+  "jest": {
+    "testEnvironment": "jsdom",
+    "collectCoverageFrom": [
+      "js/**/*.js",
+      "backend/**/*.js",
+      "!**/node_modules/**",
+      "!**/tests/**",
+      "!**/dist/**"
+    ],
+    "coverageThreshold": {
+      "global": {
+        "branches": 75,
+        "functions": 80,
+        "lines": 85,
+        "statements": 85
+      }
+    }
+  }
+}

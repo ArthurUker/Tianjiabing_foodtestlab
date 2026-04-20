@@ -1,0 +1,295 @@
+name: 单元测试 & E2E 测试 & 代码覆盖
+
+on:
+  push:
+    branches: [ main, develop, feature/* ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # 每天UTC时间上午8点运行
+    - cron: '0 8 * * *'
+
+jobs:
+  test:
+    name: 运行测试套件
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        node-version: [16.x, 18.x, 20.x]
+
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: foodtestlab
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+    - name: 检出代码
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+
+    - name: 设置 Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+
+    - name: 安装依赖
+      run: npm ci
+
+    - name: 代码检查 (ESLint)
+      run: npm run lint
+      continue-on-error: true
+
+    - name: 代码格式检查 (Prettier)
+      run: npm run format -- --check
+      continue-on-error: true
+
+    - name: 运行单元测试
+      run: npm run test:unit
+      env:
+        NODE_ENV: test
+
+    - name: 后端测试
+      run: npm run test:backend
+      env:
+        NODE_ENV: test
+        DATABASE_URL: postgres://postgres:postgres@localhost:5432/foodtestlab
+
+    - name: 前端测试
+      run: npm run test:frontend
+      env:
+        NODE_ENV: test
+
+    - name: 生成覆盖率报告
+      run: npm run test:coverage
+      continue-on-error: true
+
+    - name: 上报代码覆盖到 Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        files: ./coverage/lcov.info
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+        verbose: true
+
+    - name: 启动开发服务器用于E2E测试
+      run: |
+        npm run dev &
+        npx wait-on http://localhost:8080 --timeout 60000
+      timeout-minutes: 2
+
+    - name: 运行 E2E 测试
+      run: npm run test:e2e:headless
+      timeout-minutes: 15
+      env:
+        CYPRESS_baseUrl: http://localhost:8080
+
+    - name: 上传 E2E 测试结果
+      if: failure()
+      uses: actions/upload-artifact@v3
+      with:
+        name: cypress-screenshots-node${{ matrix.node-version }}
+        path: cypress/screenshots
+        retention-days: 30
+
+    - name: 上传 E2E 测试视频
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: cypress-videos-node${{ matrix.node-version }}
+        path: cypress/videos
+        retention-days: 7
+
+    - name: 生成 E2E 测试报告
+      if: always()
+      run: npm run test:e2e:report
+      continue-on-error: true
+
+    - name: 上传测试报告
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: test-reports-node${{ matrix.node-version }}
+        path: |
+          coverage/
+          cypress/reports/
+          mochawesome-report/
+        retention-days: 30
+
+    - name: 评论 PR 中的测试结果
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const fs = require('fs');
+          let comment = '## 测试结果\n\n';
+          
+          // 检查单元测试覆盖
+          try {
+            const coverage = JSON.parse(fs.readFileSync('coverage/coverage-summary.json', 'utf8'));
+            const total = coverage.total;
+            comment += `### 代码覆盖率\n`;
+            comment += `- 语句覆盖率: ${total.statements.pct}%\n`;
+            comment += `- 分支覆盖率: ${total.branches.pct}%\n`;
+            comment += `- 函数覆盖率: ${total.functions.pct}%\n`;
+            comment += `- 行覆盖率: ${total.lines.pct}%\n\n`;
+          } catch (e) {
+            console.log('无法读取覆盖率信息');
+          }
+          
+          comment += `### 测试执行\n`;
+          comment += `- ✅ Node.js ${{ matrix.node-version }} 完成\n`;
+          comment += `- 🧪 单元测试: 已运行\n`;
+          comment += `- 🔄 E2E 测试: 已运行\n`;
+          comment += `- 📊 测试报告: [查看详情](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})\n`;
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: comment
+          });
+
+  security:
+    name: 安全检查
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+    - name: 检出代码
+      uses: actions/checkout@v3
+
+    - name: 设置 Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18.x'
+        cache: 'npm'
+
+    - name: 依赖安全检查 (npm audit)
+      run: npm audit --audit-level=moderate
+      continue-on-error: true
+
+    - name: 代码安全检查 (Snyk)
+      uses: snyk/actions/node@master
+      env:
+        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      continue-on-error: true
+
+    - name: SAST 代码扫描 (CodeQL)
+      uses: github/codeql-action/init@v2
+      with:
+        languages: 'javascript'
+
+    - name: CodeQL 分析
+      uses: github/codeql-action/analyze@v2
+
+  build:
+    name: 构建应用
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+    - name: 检出代码
+      uses: actions/checkout@v3
+
+    - name: 设置 Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18.x'
+        cache: 'npm'
+
+    - name: 安装依赖
+      run: npm ci
+
+    - name: 生产环境构建
+      run: npm run build:prod
+      env:
+        NODE_ENV: production
+
+    - name: 上传构建产物
+      uses: actions/upload-artifact@v3
+      with:
+        name: build-output
+        path: dist/
+        retention-days: 30
+
+  deploy-dev:
+    name: 部署到开发环境
+    runs-on: ubuntu-latest
+    needs: [test, build]
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+
+    steps:
+    - name: 检出代码
+      uses: actions/checkout@v3
+
+    - name: 下载构建产物
+      uses: actions/download-artifact@v3
+      with:
+        name: build-output
+        path: dist/
+
+    - name: 部署到开发环境
+      env:
+        DEPLOY_KEY: ${{ secrets.DEV_DEPLOY_KEY }}
+        DEPLOY_HOST: ${{ secrets.DEV_HOST }}
+        DEPLOY_USER: ${{ secrets.DEV_USER }}
+      run: |
+        mkdir -p ~/.ssh
+        echo "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+        chmod 600 ~/.ssh/id_ed25519
+        ssh-keyscan -H $DEPLOY_HOST >> ~/.ssh/known_hosts
+        rsync -av dist/ $DEPLOY_USER@$DEPLOY_HOST:/app/foodtestlab-dev/
+
+    - name: 验证部署
+      env:
+        DEPLOY_HOST: ${{ secrets.DEV_HOST }}
+      run: |
+        curl -f http://$DEPLOY_HOST/api/health || exit 1
+
+  notify:
+    name: 通知构建结果
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [test, security, build]
+
+    steps:
+    - name: 发送钉钉通知
+      if: failure()
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const message = `
+          🚨 构建失败通知
+          仓库: ${{ github.repository }}
+          分支: ${{ github.ref }}
+          提交: ${{ github.sha }}
+          构建链接: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          `;
+          console.log(message);
+
+    - name: 发送成功通知
+      if: success()
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const message = `
+          ✅ 构建成功
+          仓库: ${{ github.repository }}
+          分支: ${{ github.ref }}
+          提交: ${{ github.sha }}
+          构建链接: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          `;
+          console.log(message);

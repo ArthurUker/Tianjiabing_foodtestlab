@@ -1,0 +1,160 @@
+global:
+  resolve_timeout: 5m
+  smtp_smarthost: '{{ .Env.SMTP_HOST | default "smtp.example.com:587" }}'
+  smtp_auth_username: '{{ .Env.SMTP_USER }}'
+  smtp_auth_password: '{{ .Env.SMTP_PASSWORD }}'
+  smtp_from: '{{ .Env.SMTP_FROM | default "alerts@example.com" }}'
+  slack_api_url: '{{ .Env.SLACK_WEBHOOK }}'
+  pagerduty_url: 'https://events.pagerduty.com/v2/enqueue'
+
+# 告警模板
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# 告警分组和路由
+route:
+  receiver: 'default'
+  group_by: ['alertname', 'cluster', 'service', 'severity']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 4h
+
+  routes:
+    # 严重告警立即转发
+    - match:
+        severity: critical
+      receiver: 'critical'
+      continue: true
+      group_wait: 0s
+      group_interval: 1m
+      repeat_interval: 30m
+      routes:
+        - match:
+            component: database
+          receiver: 'critical-database'
+        - match:
+            component: application
+          receiver: 'critical-app'
+
+    # 警告告警延迟转发
+    - match:
+        severity: warning
+      receiver: 'warning'
+      group_wait: 30s
+      repeat_interval: 2h
+      routes:
+        - match:
+            component: performance
+          receiver: 'performance-team'
+        - match:
+            component: system
+          receiver: 'ops-team'
+
+    # 信息告警
+    - match:
+        severity: info
+      receiver: 'info'
+      group_wait: 5m
+      repeat_interval: 12h
+
+inhibit_rules:
+  # 实例宕机时，禁止该实例的其他告警
+  - source_match:
+      severity: 'critical'
+      alertname: 'InstanceDown'
+    target_match_re:
+      severity: 'warning|info'
+    equal: ['instance']
+
+  # 严重错误率时，禁止显示警告级错误率
+  - source_match:
+      severity: 'critical'
+      alertname: 'CriticalLatency'
+    target_match:
+      alertname: 'HighLatency'
+    equal: ['instance', 'job']
+
+receivers:
+  # 默认接收器
+  - name: 'default'
+    webhook_configs:
+      - url: 'http://webhook-receiver:5001/alerts'
+        send_resolved: true
+
+  # 严重告警接收器
+  - name: 'critical'
+    pagerduty_configs:
+      - service_key: '{{ .Env.PAGERDUTY_SERVICE_KEY }}'
+        description: '{{ .GroupLabels.alertname }}'
+        client: 'Prometheus'
+        client_url: '{{ .ExternalURL }}'
+    slack_configs:
+      - api_url: '{{ .Env.SLACK_WEBHOOK }}'
+        channel: '#critical-alerts'
+        title: '🚨 严重告警'
+        text: '{{ .GroupLabels.alertname }} - {{ .CommonAnnotations.summary }}'
+        send_resolved: false
+        color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
+        actions:
+          - type: button
+            text: '查看 Grafana'
+            url: '{{ .CommonAnnotations.dashboard }}'
+    email_configs:
+      - to: '{{ .Env.ALERT_EMAIL_CRITICAL }}'
+        from: 'alertmanager@example.com'
+        smarthost: '{{ .Env.SMTP_HOST | default "smtp.example.com:587" }}'
+        auth_username: '{{ .Env.SMTP_USER }}'
+        auth_password: '{{ .Env.SMTP_PASSWORD }}'
+        headers:
+          Subject: '🚨 严重告警: {{ .GroupLabels.alertname }}'
+
+  # 严重数据库告警
+  - name: 'critical-database'
+    slack_configs:
+      - api_url: '{{ .Env.SLACK_WEBHOOK }}'
+        channel: '#database-team'
+        title: '🚨 数据库严重告警'
+    email_configs:
+      - to: '{{ .Env.ALERT_EMAIL_DBA }}'
+
+  # 严重应用告警
+  - name: 'critical-app'
+    slack_configs:
+      - api_url: '{{ .Env.SLACK_WEBHOOK }}'
+        channel: '#dev-team'
+        title: '🚨 应用严重告警'
+    email_configs:
+      - to: '{{ .Env.ALERT_EMAIL_DEV }}'
+
+  # 警告告警接收器
+  - name: 'warning'
+    slack_configs:
+      - api_url: '{{ .Env.SLACK_WEBHOOK }}'
+        channel: '#warnings'
+        title: '⚠️ 警告告警'
+        text: '{{ .GroupLabels.alertname }}'
+    email_configs:
+      - to: '{{ .Env.ALERT_EMAIL_WARNING }}'
+        headers:
+          Subject: '⚠️ 告警: {{ .GroupLabels.alertname }}'
+
+  # 性能告警
+  - name: 'performance-team'
+    slack_configs:
+      - api_url: '{{ .Env.SLACK_WEBHOOK }}'
+        channel: '#performance'
+        title: '⏱️ 性能告警'
+
+  # 运维告警
+  - name: 'ops-team'
+    slack_configs:
+      - api_url: '{{ .Env.SLACK_WEBHOOK }}'
+        channel: '#operations'
+        title: '🔧 运维告警'
+
+  # 信息级告警
+  - name: 'info'
+    slack_configs:
+      - api_url: '{{ .Env.SLACK_WEBHOOK }}'
+        channel: '#monitoring'
+        title: 'ℹ️ 监控信息'

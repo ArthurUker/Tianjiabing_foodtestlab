@@ -1,0 +1,250 @@
+groups:
+  - name: application
+    interval: 30s
+    for: 5m
+    rules:
+      # ==================== 应用可用性告警 ====================
+      - alert: InstanceDown
+        expr: up{job="foodtestlab-app"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: application
+        annotations:
+          summary: "🚨 应用实例宕机"
+          description: "应用实例已离线超过 2 分钟"
+          dashboard: "http://grafana:3000/d/app-overview"
+
+      # ==================== 错误率告警 ====================
+      - alert: HighErrorRate
+        expr: |
+          (sum(rate(http_requests_total{status=~"5.."}[5m])) by (job) 
+           / sum(rate(http_requests_total[5m])) by (job)) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          component: http
+        annotations:
+          summary: "⚠️ API 错误率过高"
+          description: "错误率为 {{ $value | humanizePercentage }}"
+          remediation: "检查应用日志，查看最近的错误信息"
+
+      # ==================== 响应时间告警 ====================
+      - alert: HighLatency
+        expr: histogram_quantile(0.95, http_request_duration_seconds_bucket) > 1.0
+        for: 5m
+        labels:
+          severity: warning
+          component: performance
+        annotations:
+          summary: "⚠️ API 响应时间过长"
+          description: "P95 延迟为 {{ $value | humanizeDuration }}"
+          
+      - alert: CriticalLatency
+        expr: histogram_quantile(0.99, http_request_duration_seconds_bucket) > 3.0
+        for: 2m
+        labels:
+          severity: critical
+          component: performance
+        annotations:
+          summary: "🚨 API 响应时间严重过长"
+          description: "P99 延迟为 {{ $value | humanizeDuration }}"
+
+      # ==================== 系统资源告警 ====================
+      - alert: HighCPUUsage
+        expr: |
+          (1 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])))) > 0.8
+        for: 10m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "⚠️ CPU 使用率过高"
+          description: "CPU 使用率为 {{ $value | humanizePercentage }}"
+
+      - alert: HighMemoryUsage
+        expr: |
+          (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) > 0.85
+        for: 10m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "⚠️ 内存使用率过高"
+          description: "内存使用率为 {{ $value | humanizePercentage }}"
+
+      - alert: CriticalMemoryUsage
+        expr: |
+          (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) > 0.95
+        for: 2m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "🚨 内存使用率严重过高"
+          description: "内存使用率为 {{ $value | humanizePercentage }}"
+
+      # ==================== 磁盘空间告警 ====================
+      - alert: LowDiskSpace
+        expr: |
+          (node_filesystem_avail_bytes{fstype!~"tmpfs|fuse.lxcfs|squashfs|vfat"} 
+           / node_filesystem_size_bytes) < 0.2
+        for: 10m
+        labels:
+          severity: warning
+          component: storage
+        annotations:
+          summary: "⚠️ 磁盘空间不足 20%"
+          description: "磁盘 {{ $labels.device }} 剩余空间为 {{ $value | humanizePercentage }}"
+
+      - alert: CriticalDiskSpace
+        expr: |
+          (node_filesystem_avail_bytes{fstype!~"tmpfs|fuse.lxcfs|squashfs|vfat"} 
+           / node_filesystem_size_bytes) < 0.1
+        for: 5m
+        labels:
+          severity: critical
+          component: storage
+        annotations:
+          summary: "🚨 磁盘空间严重不足 10%"
+          description: "磁盘 {{ $labels.device }} 剩余空间仅为 {{ $value | humanizePercentage }}"
+
+      # ==================== 磁盘 I/O 告警 ====================
+      - alert: HighDiskIO
+        expr: rate(node_disk_io_time_seconds_total[5m]) > 0.7
+        for: 10m
+        labels:
+          severity: warning
+          component: storage
+        annotations:
+          summary: "⚠️ 磁盘 I/O 使用率过高"
+          description: "磁盘 {{ $labels.device }} I/O 使用率为 {{ $value | humanizePercentage }}"
+
+      # ==================== 网络告警 ====================
+      - alert: HighNetworkError
+        expr: rate(node_network_transmit_errs_total[5m]) > 100
+        for: 5m
+        labels:
+          severity: warning
+          component: network
+        annotations:
+          summary: "⚠️ 网络传输错误率高"
+          description: "网络错误率为每秒 {{ $value }} 个"
+
+      # ==================== 数据库连接告警 ====================
+      - alert: HighDatabaseConnections
+        expr: pg_stat_activity_count > 80
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "⚠️ 数据库连接数过多"
+          description: "当前连接数为 {{ $value }}/100"
+
+      - alert: CriticalDatabaseConnections
+        expr: pg_stat_activity_count > 95
+        for: 2m
+        labels:
+          severity: critical
+          component: database
+        annotations:
+          summary: "🚨 数据库连接数严重过多"
+          description: "当前连接数为 {{ $value }}/100，即将达到上限"
+
+      # ==================== 数据库性能告警 ====================
+      - alert: SlowDatabaseQueries
+        expr: pg_slow_queries > 100
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "⚠️ 数据库慢查询过多"
+          description: "过去 5 分钟内有 {{ $value }} 条慢查询"
+
+      # ==================== 缓存告警 ====================
+      - alert: LowCacheHitRate
+        expr: |
+          (sum(rate(cache_hits_total[5m])) 
+           / (sum(rate(cache_hits_total[5m])) + sum(rate(cache_misses_total[5m])))) < 0.5
+        for: 10m
+        labels:
+          severity: info
+          component: cache
+        annotations:
+          summary: "ℹ️ 缓存命中率低"
+          description: "缓存命中率为 {{ $value | humanizePercentage }}"
+
+      # ==================== 消息队列告警 ====================
+      - alert: HighQueueDepth
+        expr: rabbitmq_queue_messages_ready > 10000
+        for: 5m
+        labels:
+          severity: warning
+          component: queue
+        annotations:
+          summary: "⚠️ 消息队列堆积过多"
+          description: "队列 {{ $labels.queue }} 中有 {{ $value }} 条未处理消息"
+
+      # ==================== 容器告警 ====================
+      - alert: ContainerRestartFrequent
+        expr: rate(container_last_seen[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          component: container
+        annotations:
+          summary: "⚠️ 容器重启频繁"
+          description: "容器 {{ $labels.name }} 频繁重启"
+
+  # ==================== 系统资源告警 ====================
+  - name: system
+    interval: 30s
+    rules:
+      - alert: SystemLoadHigh
+        expr: node_load15 > on(instance) count(count(node_cpu_seconds_total) by (cpu)) by (instance) * 0.8
+        for: 15m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "⚠️ 系统负载过高"
+          description: "15分钟平均负载为 {{ $value }}"
+
+      - alert: ProcessFileDescriptorsLow
+        expr: |
+          process_open_fds / process_max_fds < 0.2
+        for: 10m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "⚠️ 文件描述符即将用尽"
+          description: "已使用 {{ $value | humanizePercentage }}"
+
+  # ==================== 业务指标告警 ====================
+  - name: business
+    interval: 1m
+    rules:
+      - alert: NoDataProcessed
+        expr: rate(processed_records_total[5m]) == 0
+        for: 10m
+        labels:
+          severity: warning
+          component: business
+        annotations:
+          summary: "⚠️ 数据处理中断"
+          description: "过去 5 分钟内没有处理任何数据"
+
+      - alert: HighFailureRate
+        expr: |
+          rate(failed_operations_total[5m]) / 
+          (rate(failed_operations_total[5m]) + rate(successful_operations_total[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          component: business
+        annotations:
+          summary: "⚠️ 业务操作失败率高"
+          description: "操作失败率为 {{ $value | humanizePercentage }}"

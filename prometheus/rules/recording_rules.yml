@@ -1,0 +1,88 @@
+groups:
+  - name: recording_rules
+    interval: 30s
+    
+    # ==================== HTTP 指标 ====================
+    rules:
+      - record: http:requests:rate5m
+        expr: rate(http_requests_total[5m])
+
+      - record: http:errors:rate5m
+        expr: rate(http_requests_total{status=~"5.."}[5m])
+
+      - record: http:error_rate:5m
+        expr: |
+          (sum(rate(http_requests_total{status=~"5.."}[5m])) by (job)
+           / sum(rate(http_requests_total[5m])) by (job))
+
+      - record: http:latency:p95
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))
+
+      - record: http:latency:p99
+        expr: histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))
+
+      # ==================== CPU 指标 ====================
+      - record: node:cpu:usage
+        expr: |
+          (1 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m]))) * 100
+
+      - record: node:cpu:cores
+        expr: count by (instance) (node_cpu_seconds_total{mode="idle"})
+
+      # ==================== 内存指标 ====================
+      - record: node:memory:usage_percent
+        expr: |
+          (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100
+
+      - record: node:memory:available_mb
+        expr: node_memory_MemAvailable_bytes / 1024 / 1024
+
+      - record: node:memory:total_mb
+        expr: node_memory_MemTotal_bytes / 1024 / 1024
+
+      # ==================== 磁盘指标 ====================
+      - record: node:disk:usage_percent
+        expr: |
+          (1 - (node_filesystem_avail_bytes / node_filesystem_size_bytes)) * 100
+
+      - record: node:disk:available_gb
+        expr: node_filesystem_avail_bytes / 1024 / 1024 / 1024
+
+      # ==================== I/O 指标 ====================
+      - record: node:disk:read_bytes_per_sec
+        expr: rate(node_disk_read_bytes_total[5m])
+
+      - record: node:disk:write_bytes_per_sec
+        expr: rate(node_disk_written_bytes_total[5m])
+
+      # ==================== 网络指标 ====================
+      - record: node:network:in_bytes_per_sec
+        expr: rate(node_network_receive_bytes_total[5m])
+
+      - record: node:network:out_bytes_per_sec
+        expr: rate(node_network_transmit_bytes_total[5m])
+
+      # ==================== 数据库指标 ====================
+      - record: pg:connections:ratio
+        expr: pg_stat_activity_count / 100
+
+      - record: pg:transactions:per_sec
+        expr: rate(pg_stat_database_xact_commit[5m])
+
+      - record: pg:tuples:returned_per_sec
+        expr: rate(pg_stat_database_tup_returned[5m])
+
+      # ==================== 缓存指标 ====================
+      - record: cache:hit_rate
+        expr: |
+          sum(rate(cache_hits_total[5m])) 
+          / (sum(rate(cache_hits_total[5m])) + sum(rate(cache_misses_total[5m])))
+
+      # ==================== 业务指标 ====================
+      - record: business:operations:success_rate
+        expr: |
+          sum(rate(successful_operations_total[5m]))
+          / (sum(rate(successful_operations_total[5m])) + sum(rate(failed_operations_total[5m])))
+
+      - record: business:processing:records_per_sec
+        expr: rate(processed_records_total[5m])
