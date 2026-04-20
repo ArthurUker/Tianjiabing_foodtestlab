@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>页面可见性测试</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50">
+    <div class="bg-blue-600 text-white p-4">
+        <h1 class="text-2xl font-bold">✅ 页面可见性测试通过</h1>
+    </div>
+    <div class="max-w-4xl mx-auto p-4">
+        <div class="bg-green-100 border-2 border-green-500 text-green-800 p-4 rounded-lg">
+            <p class="text-lg font-bold">✓ HTML 和 CSS 正常加载</p>
+            <p class="text-sm mt-2">如果您能看到这条消息，说明基础页面结构没有问题。</p>
+        </div>
+        
+        <div class="mt-6 bg-white p-6 rounded-lg shadow">
+            <h2 class="text-xl font-bold mb-4">现在请做以下步骤：</h2>
+            <ol class="list-decimal list-inside space-y-2">
+                <li>强制刷新原始页面: <kbd class="bg-gray-300 px-2 py-1">Ctrl+F5</kbd> (Windows) 或 <kbd class="bg-gray-300 px-2 py-1">Cmd+Shift+R</kbd> (Mac)</li>
+                <li>打开 <code>http://127.0.0.1:5500/index.html</code> (或你的本地服务器地址)</li>
+                <li>检查是否能看到页面内容</li>
+                <li>如果仍然空白，打开 F12 Console 查看错误</li>
+            </ol>
+        </div>
+
+        <div class="mt-6 bg-blue-50 border-l-4 border-blue-500 p-4 rounded">
+            <h3 class="font-bold mb-2">📝 已进行的修复：</h3>
+            <ul class="text-sm space-y-1">
+                <li>✅ 删除了 Pathogen.js 中重复的代码块</li>
+                <li>✅ 修改了 CSS 默认 opacity 值 (从 0 改为 1)</li>
+                <li>✅ 添加了详细的诊断日志</li>
+                <li>✅ 创建了测试工具帮助诊断</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>
