@@ -1,5 +1,8 @@
 import { StorageService } from '../core/Storage.js';
 import { auth } from '../core/Auth.js';
+import { FormValidator } from '../utils/FormValidator.js';
+import { UINotification } from '../utils/UINotification.js';
+import { NetworkHelper } from '../utils/NetworkHelper.js';
 
 export class GenericTestModule {
     constructor(config) {
@@ -189,16 +192,25 @@ export class GenericTestModule {
         }
     }
 
-    handleDeleteRecord(recordId) {
-        if (!confirm('确定删除该记录吗？此操作不可恢复！')) return;
+    async handleDeleteRecord(recordId) {
+        const confirmed = await UINotification.confirm(
+            '删除该记录吗？此操作不可恢复！',
+            '确认删除'
+        );
+        
+        if (!confirmed) return;
 
-        const success = this.storage.delete(recordId);
-        if (success) {
-            alert('删除成功');
-            this.render();
-            document.dispatchEvent(new Event('dataChanged'));
-        } else {
-            alert('删除失败');
+        try {
+            const success = this.storage.delete(recordId);
+            if (success) {
+                UINotification.success('✅ 删除成功');
+                this.render();
+                document.dispatchEvent(new Event('dataChanged'));
+            } else {
+                UINotification.error('❌ 删除失败，请重试');
+            }
+        } catch (error) {
+            UINotification.error('❌ 删除出错: ' + error.message);
         }
     }
 
@@ -207,7 +219,7 @@ export class GenericTestModule {
         const record = records.find(r => r.id === parseInt(recordId));
 
         if (!record) {
-            alert('错误：未找到该记录，可能已被删除。');
+            UINotification.error('❌ 未找到该记录，可能已被删除');
             this.render();
             return;
         }
@@ -882,79 +894,109 @@ export class GenericTestModule {
             inspector: formData.get('inspector')
         };
 
+        // 验证基础信息
+        const baseValidationSchema = {
+            testDate: ['required', 'dateNotFuture'],
+            canteen: ['required'],
+            inspector: ['required']
+        };
+
+        const baseErrors = FormValidator.validate(baseInfo, baseValidationSchema);
+        if (baseErrors) {
+            FormValidator.showErrors(e.target, baseErrors);
+            UINotification.warning('⚠️ 请填写完整的基础信息');
+            return;
+        }
+
         const pointsContainer = document.getElementById(`${this.moduleName}PointsContainer`);
         if (!pointsContainer) {
-            alert('未找到检测点位容器');
+            UINotification.error('❌ 未找到检测点位容器');
             return;
         }
 
         const allPoints = pointsContainer.querySelectorAll('.grid');
         if (allPoints.length === 0) {
-            alert('没有检测点位数据');
+            UINotification.warning('⚠️ 请至少添加一个检测点位');
             return;
         }
 
         let savedCount = 0;
+        let skippedCount = 0;
 
         allPoints.forEach((point, index) => {
             const pointData = { ...baseInfo };
 
-            if (this.moduleName === 'pesticide') {
-                const vegetableType = point.querySelector('input[name="vegetableType"], input[name="vegetableType[]"]')?.value;
-                const batchNo = point.querySelector('select[name="batchNo"], select[name="batchNo[]"]')?.value;
-                const result = point.querySelector('select[name="result"], select[name="result[]"]')?.value;
-                const remark = point.querySelector('textarea[name="remark"], textarea[name="remark[]"]')?.value;
+            try {
+                if (this.moduleName === 'pesticide') {
+                    const vegetableType = point.querySelector('input[name="vegetableType"], input[name="vegetableType[]"]')?.value;
+                    const batchNo = point.querySelector('select[name="batchNo"], select[name="batchNo[]"]')?.value;
+                    const result = point.querySelector('select[name="result"], select[name="result[]"]')?.value;
+                    const remark = point.querySelector('textarea[name="remark"], textarea[name="remark[]"]')?.value;
 
-                if (!vegetableType || !batchNo || !result) {
-                    console.warn(`检测点位 ${index + 1} 数据不完整，跳过`);
-                    return;
+                    if (!vegetableType || !batchNo || !result) {
+                        console.warn(`检测点位 ${index + 1} 数据不完整，跳过`);
+                        skippedCount++;
+                        return;
+                    }
+
+                    pointData.vegetableType = vegetableType;
+                    pointData.batchNo = batchNo;
+                    pointData.result = result;
+                    pointData.remark = remark || '';
+                } else if (this.moduleName === 'oil') {
+                    const oilTemp = point.querySelector('input[name="oilTemp"], input[name="oilTemp[]"]')?.value;
+                    const tpmValue = point.querySelector('select[name="tpmValue"], select[name="tpmValue[]"]')?.value;
+                    const acidValue = point.querySelector('select[name="acidValue"], select[name="acidValue[]"]')?.value;
+                    const colorLevel = point.querySelector('input[name="colorLevel"], input[name="colorLevel[]"]')?.value;
+                    const remark = point.querySelector('textarea[name="remark"], textarea[name="remark[]"]')?.value;
+
+                    if (!oilTemp || !tpmValue || !acidValue || !colorLevel) {
+                        console.warn(`检测点位 ${index + 1} 数据不完整，跳过`);
+                        skippedCount++;
+                        return;
+                    }
+
+                    pointData.oilTemp = oilTemp;
+                    pointData.tpmValue = tpmValue;
+                    pointData.acidValue = acidValue;
+                    pointData.colorLevel = colorLevel;
+                    pointData.remark = remark || '';
+                } else if (this.moduleName === 'leanMeat') {
+                    const meatType = point.querySelector('select[name="meatType"], select[name="meatType[]"]')?.value;
+                    const batchNo = point.querySelector('select[name="batchNo"], select[name="batchNo[]"]')?.value;
+                    const result = point.querySelector('select[name="result"], select[name="result[]"]')?.value;
+                    const remark = point.querySelector('textarea[name="remark"], textarea[name="remark[]"]')?.value;
+
+                    if (!meatType || !batchNo || !result) {
+                        console.warn(`检测点位 ${index + 1} 数据不完整，跳过`);
+                        skippedCount++;
+                        return;
+                    }
+
+                    pointData.meatType = meatType;
+                    pointData.batchNo = batchNo;
+                    pointData.result = result;
+                    pointData.remark = remark || '';
                 }
 
-                pointData.vegetableType = vegetableType;
-                pointData.batchNo = batchNo;
-                pointData.result = result;
-                pointData.remark = remark || '';
-            } else if (this.moduleName === 'oil') {
-                const oilTemp = point.querySelector('input[name="oilTemp"], input[name="oilTemp[]"]')?.value;
-                const tpmValue = point.querySelector('select[name="tpmValue"], select[name="tpmValue[]"]')?.value;
-                const acidValue = point.querySelector('select[name="acidValue"], select[name="acidValue[]"]')?.value;
-                const colorLevel = point.querySelector('input[name="colorLevel"], input[name="colorLevel[]"]')?.value;
-                const remark = point.querySelector('textarea[name="remark"], textarea[name="remark[]"]')?.value;
-
-                if (!oilTemp || !tpmValue || !acidValue || !colorLevel) {
-                    console.warn(`检测点位 ${index + 1} 数据不完整，跳过`);
-                    return;
-                }
-
-                pointData.oilTemp = oilTemp;
-                pointData.tpmValue = tpmValue;
-                pointData.acidValue = acidValue;
-                pointData.colorLevel = colorLevel;
-                pointData.remark = remark || '';
-            } else if (this.moduleName === 'leanMeat') {
-                const meatType = point.querySelector('select[name="meatType"], select[name="meatType[]"]')?.value;
-                const batchNo = point.querySelector('select[name="batchNo"], select[name="batchNo[]"]')?.value;
-                const result = point.querySelector('select[name="result"], select[name="result[]"]')?.value;
-                const remark = point.querySelector('textarea[name="remark"], textarea[name="remark[]"]')?.value;
-
-                if (!meatType || !batchNo || !result) {
-                    console.warn(`检测点位 ${index + 1} 数据不完整，跳过`);
-                    return;
-                }
-
-                pointData.meatType = meatType;
-                pointData.batchNo = batchNo;
-                pointData.result = result;
-                pointData.remark = remark || '';
+                const success = this.storage.save(pointData);
+                if (success) savedCount++;
+            } catch (error) {
+                console.error(`保存点位 ${index + 1} 出错:`, error);
+                skippedCount++;
             }
-
-            const success = this.storage.save(pointData);
-            if (success) savedCount++;
         });
 
+        // 结果提示
         if (savedCount > 0) {
-            alert(`成功保存 ${savedCount} 条检测记录`);
+            let message = `✅ 成功保存 ${savedCount} 条检测记录`;
+            if (skippedCount > 0) {
+                message += `，${skippedCount} 条数据不完整被跳过`;
+            }
+            UINotification.success(message);
+            
             e.target.reset();
+            FormValidator.clearErrors(e.target);
 
             const firstPoint = pointsContainer.children[0];
             pointsContainer.innerHTML = '';
@@ -971,7 +1013,7 @@ export class GenericTestModule {
             this.render();
             document.dispatchEvent(new Event('dataChanged'));
         } else {
-            alert('保存失败，请检查数据完整性');
+            UINotification.error('❌ 保存失败，请检查数据完整性');
         }
     }
 
