@@ -10,6 +10,10 @@ import { BackupRestoreService } from './modules/BackupRestore.js';
 import { router } from './core/Router.js';
 // 3. ✨ 引入用户管理模块
 import { initUserManagement } from './modules/UserManagement.js';
+// 4. ✨ 引入权限服务
+import { permissionService } from './services/PermissionService.js';
+// 5. ✨ 引入审计日志模块
+import { initAuditLog } from './modules/AuditLog.js';
 
 console.log('✅ main.js 模块加载开始');
 
@@ -78,6 +82,19 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         } catch (error) {
             console.error('❌ UserManagement 初始化失败:', error);
+        }
+
+        // 7. ✨ 初始化审计日志模块 (仅管理员可访问)
+        console.log('🔧 AuditLog 初始化中...');
+        try {
+            if (router.isAdmin()) {
+                initAuditLog();
+                console.log('✅ AuditLog 初始化成功');
+            } else {
+                console.log('⚠️ 当前用户无权访问审计日志模块');
+            }
+        } catch (error) {
+            console.error('❌ AuditLog 初始化失败:', error);
         }
         
         console.log('✅✅✅ 所有模块初始化完成！');

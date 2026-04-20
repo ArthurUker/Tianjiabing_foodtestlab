@@ -3,7 +3,8 @@
  * 处理页面导航、登录状态检查、权限验证
  */
 
-import { authService } from './services/AuthService.js';
+import { authService } from '../services/AuthService.js';
+import { permissionService } from '../services/PermissionService.js';
 
 export class Router {
     constructor() {
@@ -63,8 +64,7 @@ export class Router {
      * @returns {boolean}
      */
     isAdmin() {
-        const user = authService.getUser();
-        return user && (user.role === 'admin' || user.role === 'manager');
+        return permissionService.hasRole('admin');
     }
 
     /**
@@ -73,15 +73,25 @@ export class Router {
      * @returns {boolean}
      */
     hasPermission(permission) {
-        const user = authService.getUser();
-        if (!user) return false;
+        return permissionService.hasPermission(permission);
+    }
 
-        // 管理员有所有权限
-        if (user.role === 'admin') return true;
+    /**
+     * 检查用户是否有任意一个权限 (OR 逻辑)
+     * @param {array} permissions - 权限数组
+     * @returns {boolean}
+     */
+    hasAnyPermission(permissions) {
+        return permissionService.hasAnyPermission(permissions);
+    }
 
-        // 检查用户的权限列表
-        const permissions = user.permissions || [];
-        return permissions.includes(permission);
+    /**
+     * 检查用户是否有所有权限 (AND 逻辑)
+     * @param {array} permissions - 权限数组
+     * @returns {boolean}
+     */
+    hasAllPermissions(permissions) {
+        return permissionService.hasAllPermissions(permissions);
     }
 
     /**
@@ -290,6 +300,12 @@ export class Router {
 
         // 设置用户空闲超时
         this.setupIdleTimeout(30 * 60 * 1000); // 30分钟
+
+        // 监听权限变化，清除缓存
+        window.addEventListener('permissionChanged', () => {
+            permissionService.clearCache();
+            this.updateNavigationByPermission();
+        });
 
         console.log('✅ 路由与权限检查已就位');
     }
