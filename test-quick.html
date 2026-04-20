@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🧪 快速测试工具 - 食品安全系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <style>
+        .test-case { transition: all 0.3s ease; }
+        .test-case:hover { transform: translateX(4px); }
+        .success { background-color: #d1fae5; border-left: 4px solid #10b981; }
+        .error { background-color: #fee2e2; border-left: 4px solid #ef4444; }
+        .pending { background-color: #fef3c7; border-left: 4px solid #f59e0b; }
+        .code-block { 
+            background: #1f2937; 
+            color: #10b981;
+            padding: 12px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            overflow-x: auto;
+            max-height: 200px;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+
+    <!-- 顶部 -->
+    <nav class="bg-blue-600 text-white shadow-lg">
+        <div class="container mx-auto px-4 py-4 flex justify-between items-center">
+            <h1 class="text-2xl font-bold">🧪 前端功能快速测试工具</h1>
+            <div class="text-sm">食品安全系统 | Phase 1-3</div>
+        </div>
+    </nav>
+
+    <!-- 主容器 -->
+    <div class="container mx-auto px-4 py-6">
+        
+        <!-- 控制面板 -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2 class="text-xl font-bold mb-4">⚙️ 测试配置</h2>
+            
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">后端服务地址</label>
+                    <input 
+                        type="text" 
+                        id="apiUrl" 
+                        value="http://localhost:3000"
+                        placeholder="http://localhost:3000"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">测试用户名</label>
+                    <input 
+                        type="text" 
+                        id="testUsername" 
+                        value="admin"
+                        placeholder="admin"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">测试密码</label>
+                    <input 
+                        type="password" 
+                        id="testPassword" 
+                        value="8888"
+                        placeholder="8888"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                </div>
+            </div>
+
+            <div class="flex gap-2">
+                <button id="btnRunAllTests" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+                    <i class="fas fa-play mr-2"></i>运行所有测试
+                </button>
+                <button id="btnClearResults" class="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400">
+                    <i class="fas fa-trash mr-2"></i>清除结果
+                </button>
+                <button id="btnCheckConsole" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                    <i class="fas fa-bug mr-2"></i>检查控制台
+                </button>
+            </div>
+        </div>
+
+        <!-- 测试结果 -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+            <!-- 统计卡 -->
+            <div class="bg-white rounded-lg shadow-md p-4">
+                <div class="text-sm text-gray-600 mb-2">总测试数</div>
+                <div class="text-3xl font-bold" id="totalTests">0</div>
+            </div>
+            <div class="bg-white rounded-lg shadow-md p-4">
+                <div class="text-sm text-gray-600 mb-2">✅ 通过</div>
+                <div class="text-3xl font-bold text-green-600" id="passTests">0</div>
+            </div>
+            <div class="bg-white rounded-lg shadow-md p-4">
+                <div class="text-sm text-gray-600 mb-2">❌ 失败</div>
+                <div class="text-3xl font-bold text-red-600" id="failTests">0</div>
+            </div>
+        </div>
+
+        <!-- Tab 导航 -->
+        <div class="bg-white rounded-lg shadow-md overflow-hidden mb-6">
+            <div class="border-b flex">
+                <button class="tab-btn px-4 py-3 font-medium text-gray-700 border-b-2 border-blue-600 active" data-tab="phase1">
+                    Phase 1: 认证
+                </button>
+                <button class="tab-btn px-4 py-3 font-medium text-gray-700 border-b-2 border-transparent hover:border-gray-300" data-tab="phase2">
+                    Phase 2: 权限
+                </button>
+                <button class="tab-btn px-4 py-3 font-medium text-gray-700 border-b-2 border-transparent hover:border-gray-300" data-tab="phase3">
+                    Phase 3: 访客
+                </button>
+                <button class="tab-btn px-4 py-3 font-medium text-gray-700 border-b-2 border-transparent hover:border-gray-300" data-tab="debug">
+                    🐛 调试信息
+                </button>
+            </div>
+
+            <!-- Phase 1 -->
+            <div id="phase1" class="tab-content p-6 space-y-3">
+                <div class="test-case pending p-4 rounded-lg">
+                    <h4 class="font-bold mb-2">✋ 测试 1.1: 登录功能</h4>
+                    <button class="px-3 py-1 bg-blue-500 text-white rounded text-sm" onclick="testLogin()">
+                        <i class="fas fa-play mr-1"></i>运行
+                    </button>
+                    <div id="result-1.1" class="text-sm mt-2 text-gray-600"></div>
+                </div>
+
+                <div class="test-case pending p-4 rounded-lg">
+                    <h4 class="font-bold mb-2">✋ 测试 1.2: Token 验证</h4>
+                    <button class="px-3 py-1 bg-blue-500 text-white rounded text-sm" onclick="testTokenVerify()">
+                        <i class="fas fa-play mr-1"></i>运行
+                    </button>
+                    <div id="result-1.2" class="text-sm mt-2 text-gray-600"></div>
+                </div>
+
+                <div class="test-case pending p-4 rounded-lg">
+                    <h4 class="font-bold mb-2">✋ 测试 1.3: 获取用户列表</h4>
+                    <button class="px-3 py-1 bg-blue-500 text-white rounded text-sm" onclick="testGetUsers()">
+                        <i class="fas fa-play mr-1"></i>运行
+                    </button>
+                    <div id="result-1.3" class="text-sm mt-2 text-gray-600"></div>
+                </div>
+
+                <div class="test-case pending p-4 rounded-lg">
+                    <h4 class="font-bold mb-2">✋ 测试 1.4: localStorage 检查</h4>
+                    <button class="px-3 py-1 bg-blue-500 text-white rounded text-sm" onclick="testLocalStorage()">
+                        <i class="fas fa-play mr-1"></i>运行
+                    </button>
+                    <div id="result-1.4" class="text-sm mt-2 text-gray-600"></div>
+                </div>
+            </div>
+
+            <!-- Phase 2 -->
+            <div id="phase2" class="tab-content p-6 space-y-3 hidden">
+                <div class="test-case pending p-4 rounded-lg">
+                    <h4 class="font-bold mb-2">✋ 测试 2.1: 权限检查</h4>
+                    <button class="px-3 py-1 bg-blue-500 text-white rounded text-sm" onclick="testPermissions()">
+                        <i class="fas fa-play mr-1"></i>运行
+                    </button>
+                    <div id="result-2.1" class="text-sm mt-2 text-gray-600"></div>
+                </div>
+
+                <div class="test-case pending p-4 rounded-lg">
+                    <h4 class="font-bold mb-2">✋ 测试 2.2: 审计日志 UI</h4>
+                    <button class="px-3 py-1 bg-blue-500 text-white rounded text-sm" onclick="testAuditLogUI()">
+                        <i class="fas fa-play mr-1"></i>运行
+                    </button>
+                    <div id="result-2.2" class="text-sm mt-2 text-gray-600"></div>
+                </div>
+            </div>
+
+            <!-- Phase 3 -->
+            <div id="phase3" class="tab-content p-6 space-y-3 hidden">
+                <div class="test-case pending p-4 rounded-lg">
+                    <h4 class="font-bold mb-2">✋ 测试 3.1: 访客管理 UI</h4>
+                    <button class="px-3 py-1 bg-blue-500 text-white rounded text-sm" onclick="testGuestManagementUI()">
+                        <i class="fas fa-play mr-1"></i>运行
+                    </button>
+                    <div id="result-3.1" class="text-sm mt-2 text-gray-600"></div>
+                </div>
+
+                <div class="test-case pending p-4 rounded-lg">
+                    <h4 class="font-bold mb-2">✋ 测试 3.2: 会话管理</h4>
+                    <button class="px-3 py-1 bg-blue-500 text-white rounded text-sm" onclick="testSessionManager()">
+                        <i class="fas fa-play mr-1"></i>运行
+                    </button>
+                    <div id="result-3.2" class="text-sm mt-2 text-gray-600"></div>
+                </div>
+            </div>
+
+            <!-- 调试信息 -->
+            <div id="debug" class="tab-content p-6 hidden">
+                <h3 class="font-bold mb-3">🐛 调试信息面板</h3>
+                
+                <div class="mb-4">
+                    <h4 class="font-semibold mb-2">localStorage 内容</h4>
+                    <div class="code-block" id="debugLocalStorage">暂无数据</div>
+                </div>
+
+                <div class="mb-4">
+                    <h4 class="font-semibold mb-2">前端模块加载情况</h4>
+                    <div class="code-block" id="debugModules">暂无数据</div>
+                </div>
+
+                <div class="mb-4">
+                    <h4 class="font-semibold mb-2">错误日志</h4>
+                    <div class="code-block" id="debugErrors">暂无错误</div>
+                </div>
+
+                <button class="px-4 py-2 bg-blue-600 text-white rounded" onclick="updateDebugInfo()">
+                    <i class="fas fa-sync mr-2"></i>刷新调试信息
+                </button>
+            </div>
+        </div>
+
+        <!-- 测试报告 -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h3 class="text-lg font-bold mb-4">📊 测试日志</h3>
+            <div id="testLog" class="space-y-2 bg-gray-50 p-4 rounded-lg" style="max-height: 300px; overflow-y: auto;">
+                <p class="text-gray-500">测试日志将显示在这里...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 全局测试状态
+        let testResults = [];
+        let authToken = localStorage.getItem('auth_token');
+
+        // Tab 切换
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const tabName = e.target.getAttribute('data-tab');
+                
+                document.querySelectorAll('.tab-content').forEach(tab => tab.classList.add('hidden'));
+                document.getElementById(tabName).classList.remove('hidden');
+                
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('border-blue-600'));
+                e.target.classList.add('border-blue-600');
+            });
+        });
+
+        // 日志工具函数
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('testLog');
+            const time = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.className = `text-sm font-mono ${type === 'success' ? 'text-green-600' : type === 'error' ? 'text-red-600' : 'text-gray-700'}`;
+            logEntry.textContent = `[${time}] ${message}`;
+            logDiv.appendChild(logEntry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        // 测试：登录功能
+        async function testLogin() {
+            log('🔄 测试 1.1: 开始登录测试...');
+            try {
+                const apiUrl = document.getElementById('apiUrl').value;
+                const username = document.getElementById('testUsername').value;
+                const password = document.getElementById('testPassword').value;
+
+                const response = await fetch(`${apiUrl}/api/user/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    authToken = data.token;
+                    localStorage.setItem('auth_token', authToken);
+                    
+                    document.getElementById('result-1.1').innerHTML = `
+                        <span class="text-green-600 font-semibold">✅ 登录成功</span><br>
+                        <span class="text-xs">Token: ${authToken.slice(0, 20)}...</span>
+                    `;
+                    log('✅ 登录成功，Token 已保存', 'success');
+                    recordTest('1.1', true);
+                } else {
+                    const error = await response.json();
+                    document.getElementById('result-1.1').innerHTML = `<span class="text-red-600">❌ ${error.error || '登录失败'}</span>`;
+                    log(`❌ 登录失败: ${error.error}`, 'error');
+                    recordTest('1.1', false);
+                }
+            } catch (error) {
+                document.getElementById('result-1.1').innerHTML = `<span class="text-red-600">❌ ${error.message}</span>`;
+                log(`❌ 错误: ${error.message}`, 'error');
+                recordTest('1.1', false);
+            }
+        }
+
+        // 测试：Token 验证
+        async function testTokenVerify() {
+            log('🔄 测试 1.2: 开始 Token 验证...');
+            try {
+                const apiUrl = document.getElementById('apiUrl').value;
+                const token = localStorage.getItem('auth_token');
+
+                if (!token) {
+                    document.getElementById('result-1.2').innerHTML = `<span class="text-orange-600">⚠️ 请先登录</span>`;
+                    log('⚠️ 无有效 Token，请先登录', 'error');
+                    return;
+                }
+
+                const response = await fetch(`${apiUrl}/api/user/verify-token`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    document.getElementById('result-1.2').innerHTML = `
+                        <span class="text-green-600 font-semibold">✅ Token 有效</span><br>
+                        <span class="text-xs">用户: ${data.user?.username || 'N/A'}</span>
+                    `;
+                    log('✅ Token 验证成功', 'success');
+                    recordTest('1.2', true);
+                } else {
+                    document.getElementById('result-1.2').innerHTML = `<span class="text-red-600">❌ Token 无效或过期</span>`;
+                    log('❌ Token 无效或过期', 'error');
+                    recordTest('1.2', false);
+                }
+            } catch (error) {
+                document.getElementById('result-1.2').innerHTML = `<span class="text-red-600">❌ ${error.message}</span>`;
+                log(`❌ 错误: ${error.message}`, 'error');
+                recordTest('1.2', false);
+            }
+        }
+
+        // 测试：获取用户列表
+        async function testGetUsers() {
+            log('🔄 测试 1.3: 获取用户列表...');
+            try {
+                const apiUrl = document.getElementById('apiUrl').value;
+                const token = localStorage.getItem('auth_token');
+
+                if (!token) {
+                    document.getElementById('result-1.3').innerHTML = `<span class="text-orange-600">⚠️ 请先登录</span>`;
+                    return;
+                }
+
+                const response = await fetch(`${apiUrl}/api/user/list?page=1&limit=10`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    document.getElementById('result-1.3').innerHTML = `
+                        <span class="text-green-600 font-semibold">✅ 获取成功</span><br>
+                        <span class="text-xs">用户总数: ${data.total || 0}</span>
+                    `;
+                    log(`✅ 获取用户列表成功，共 ${data.total} 个用户`, 'success');
+                    recordTest('1.3', true);
+                } else {
+                    document.getElementById('result-1.3').innerHTML = `<span class="text-red-600">❌ 获取失败</span>`;
+                    log('❌ 获取用户列表失败', 'error');
+                    recordTest('1.3', false);
+                }
+            } catch (error) {
+                document.getElementById('result-1.3').innerHTML = `<span class="text-red-600">❌ ${error.message}</span>`;
+                log(`❌ 错误: ${error.message}`, 'error');
+                recordTest('1.3', false);
+            }
+        }
+
+        // 测试：localStorage 检查
+        function testLocalStorage() {
+            log('🔄 测试 1.4: 检查 localStorage...');
+            const token = localStorage.getItem('auth_token');
+            const user = localStorage.getItem('current_user');
+
+            if (token && user) {
+                document.getElementById('result-1.4').innerHTML = `
+                    <span class="text-green-600 font-semibold">✅ localStorage 完整</span><br>
+                    <span class="text-xs">Token: ${token.slice(0, 20)}...</span>
+                `;
+                log('✅ localStorage 数据完整', 'success');
+                recordTest('1.4', true);
+            } else {
+                document.getElementById('result-1.4').innerHTML = `<span class="text-red-600">❌ localStorage 数据不完整</span>`;
+                log('❌ localStorage 缺失关键数据', 'error');
+                recordTest('1.4', false);
+            }
+        }
+
+        // 测试：权限检查
+        function testPermissions() {
+            log('🔄 测试 2.1: 检查权限模块...');
+            try {
+                if (typeof permissionService !== 'undefined') {
+                    const user = JSON.parse(localStorage.getItem('current_user') || '{}');
+                    const perms = permissionService.getCurrentUserPermissions();
+                    document.getElementById('result-2.1').innerHTML = `
+                        <span class="text-green-600 font-semibold">✅ 权限检查成功</span><br>
+                        <span class="text-xs">角色: ${user.role} | 权限数: ${perms.length}</span>
+                    `;
+                    log(`✅ 权限模块正常，用户有 ${perms.length} 个权限`, 'success');
+                    recordTest('2.1', true);
+                } else {
+                    throw new Error('permissionService 未加载');
+                }
+            } catch (error) {
+                document.getElementById('result-2.1').innerHTML = `<span class="text-red-600">❌ ${error.message}</span>`;
+                log(`❌ 错误: ${error.message}`, 'error');
+                recordTest('2.1', false);
+            }
+        }
+
+        // 测试：审计日志 UI
+        function testAuditLogUI() {
+            log('🔄 测试 2.2: 检查审计日志模块...');
+            try {
+                if (document.getElementById('audit-log')) {
+                    document.getElementById('result-2.2').innerHTML = `
+                        <span class="text-green-600 font-semibold">✅ 审计日志容器存在</span>
+                    `;
+                    log('✅ 审计日志 UI 容器已加载', 'success');
+                    recordTest('2.2', true);
+                } else {
+                    throw new Error('审计日志容器不存在');
+                }
+            } catch (error) {
+                document.getElementById('result-2.2').innerHTML = `<span class="text-red-600">❌ ${error.message}</span>`;
+                log(`❌ 错误: ${error.message}`, 'error');
+                recordTest('2.2', false);
+            }
+        }
+
+        // 测试：访客管理 UI
+        function testGuestManagementUI() {
+            log('🔄 测试 3.1: 检查访客管理模块...');
+            try {
+                if (document.getElementById('guest-management')) {
+                    document.getElementById('result-3.1').innerHTML = `
+                        <span class="text-green-600 font-semibold">✅ 访客管理容器存在</span>
+                    `;
+                    log('✅ 访客管理 UI 容器已加载', 'success');
+                    recordTest('3.1', true);
+                } else {
+                    throw new Error('访客管理容器不存在');
+                }
+            } catch (error) {
+                document.getElementById('result-3.1').innerHTML = `<span class="text-red-600">❌ ${error.message}</span>`;
+                log(`❌ 错误: ${error.message}`, 'error');
+                recordTest('3.1', false);
+            }
+        }
+
+        // 测试：会话管理
+        function testSessionManager() {
+            log('🔄 测试 3.2: 检查会话管理模块...');
+            try {
+                if (typeof sessionManager !== 'undefined') {
+                    const stats = sessionManager.getSessionStats();
+                    document.getElementById('result-3.2').innerHTML = `
+                        <span class="text-green-600 font-semibold">✅ 会话管理模块正常</span><br>
+                        <span class="text-xs">活跃会话: ${stats.activeSessions}</span>
+                    `;
+                    log(`✅ 会话管理模块正常，当前活跃会话: ${stats.activeSessions}`, 'success');
+                    recordTest('3.2', true);
+                } else {
+                    throw new Error('sessionManager 未加载');
+                }
+            } catch (error) {
+                document.getElementById('result-3.2').innerHTML = `<span class="text-red-600">❌ ${error.message}</span>`;
+                log(`❌ 错误: ${error.message}`, 'error');
+                recordTest('3.2', false);
+            }
+        }
+
+        // 记录测试结果
+        function recordTest(testId, passed) {
+            testResults.push({ testId, passed });
+            updateStats();
+        }
+
+        // 更新统计信息
+        function updateStats() {
+            const total = testResults.length;
+            const passed = testResults.filter(r => r.passed).length;
+            const failed = total - passed;
+
+            document.getElementById('totalTests').textContent = total;
+            document.getElementById('passTests').textContent = passed;
+            document.getElementById('failTests').textContent = failed;
+        }
+
+        // 更新调试信息
+        function updateDebugInfo() {
+            const lsContent = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                const value = localStorage.getItem(key);
+                lsContent.push(`${key}: ${value.slice(0, 50)}...`);
+            }
+            document.getElementById('debugLocalStorage').textContent = lsContent.length ? lsContent.join('\n') : '(空)';
+
+            // 模块加载检查
+            const modules = [];
+            modules.push(`AuthService: ${typeof authService !== 'undefined' ? '✅' : '❌'}`);
+            modules.push(`Router: ${typeof router !== 'undefined' ? '✅' : '❌'}`);
+            modules.push(`PermissionService: ${typeof permissionService !== 'undefined' ? '✅' : '❌'}`);
+            modules.push(`SessionManager: ${typeof sessionManager !== 'undefined' ? '✅' : '❌'}`);
+            document.getElementById('debugModules').textContent = modules.join('\n');
+
+            log('✅ 调试信息已刷新', 'success');
+        }
+
+        // 运行所有测试
+        document.getElementById('btnRunAllTests').addEventListener('click', async () => {
+            testResults = [];
+            log('🚀 开始运行所有测试...');
+            
+            await testLogin();
+            await new Promise(r => setTimeout(r, 500));
+            await testTokenVerify();
+            await new Promise(r => setTimeout(r, 500));
+            await testGetUsers();
+            await new Promise(r => setTimeout(r, 500));
+            testLocalStorage();
+            testPermissions();
+            testAuditLogUI();
+            testGuestManagementUI();
+            testSessionManager();
+            
+            log('✅ 所有测试完成', 'success');
+        });
+
+        // 清除结果
+        document.getElementById('btnClearResults').addEventListener('click', () => {
+            testResults = [];
+            document.getElementById('testLog').innerHTML = '<p class="text-gray-500">测试日志将显示在这里...</p>';
+            document.querySelectorAll('[id^="result-"]').forEach(el => el.textContent = '');
+            updateStats();
+            log('🧹 已清除所有结果', 'info');
+        });
+
+        // 检查控制台
+        document.getElementById('btnCheckConsole').addEventListener('click', () => {
+            updateDebugInfo();
+            document.querySelectorAll('.tab-btn')[3].click(); // 切换到 debug 标签页
+        });
+
+        // 初始化
+        log('✨ 测试工具已加载，准备就绪！', 'success');
+    </script>
+
+</body>
+</html>
