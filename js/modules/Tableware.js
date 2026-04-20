@@ -1,5 +1,8 @@
 import { StorageService } from '../core/Storage.js';
 import { auth } from '../core/Auth.js';
+import { FormValidator } from '../utils/FormValidator.js';
+import { UINotification } from '../utils/UINotification.js';
+import { NetworkHelper } from '../utils/NetworkHelper.js';
 
 const storage = new StorageService('tableware');
 let currentPage = 1;
@@ -70,7 +73,7 @@ function handleEditRecord(recordId, currentUser) {
     const record = records.find(r => r.id === parseInt(recordId));
     
     if (!record) {
-        alert('错误：未找到该记录，可能已被删除。');
+        UINotification.error('❌ 未找到该记录，可能已被删除');
         renderTable();
         return;
     }
@@ -555,11 +558,25 @@ function updateFormStructure() {
     }
 }
 
-function handleDeleteRecord(recordId) {
-    if (confirm('权限认证通过。确定要永久删除此记录吗？')) {
-        storage.delete(recordId);
-        renderTable();
-        document.dispatchEvent(new Event('dataChanged'));
+async function handleDeleteRecord(recordId) {
+    const confirmed = await UINotification.confirm(
+        '权限认证通过。确定要永久删除此记录吗？',
+        '确认删除'
+    );
+    
+    if (!confirmed) return;
+
+    try {
+        const success = storage.delete(recordId);
+        if (success) {
+            UINotification.success('✅ 删除成功');
+            renderTable();
+            document.dispatchEvent(new Event('dataChanged'));
+        } else {
+            UINotification.error('❌ 删除失败，请重试');
+        }
+    } catch (error) {
+        UINotification.error('❌ 删除出错: ' + error.message);
     }
 }
 
@@ -568,49 +585,78 @@ function handleFormSubmit(e) {
     const formData = new FormData(e.target);
     const data = Object.fromEntries(formData.entries());
 
-    if (!data.testDate || !data.canteen || !data.inspector) {
-        alert('请填写必填字段');
+    // 验证基础信息
+    const baseValidationSchema = {
+        testDate: ['required', 'dateNotFuture'],
+        canteen: ['required'],
+        inspector: ['required']
+    };
+
+    const baseErrors = FormValidator.validate(data, baseValidationSchema);
+    if (baseErrors) {
+        FormValidator.showErrors(e.target, baseErrors);
+        UINotification.warning('⚠️ 请填写完整的基础信息');
         return;
     }
 
     const points = [];
     const pointElements = document.querySelectorAll('.atp-point');
+    let skippedCount = 0;
     
     for (let i = 0; i < pointElements.length; i++) {
-        const div = pointElements[i];
-        const locationEl = div.querySelector('[name="location"]');
-        const rluEl = div.querySelector('[name="rluValue"]');
-        
-        if (locationEl?.value && rluEl?.value) {
-            points.push({
-                loc: locationEl.value,
-                rlu: rluEl.value,
-                res: div.querySelector('[name="result"]').value || determineResult(parseInt(rluEl.value) || 0)
-            });
+        try {
+            const div = pointElements[i];
+            const locationEl = div.querySelector('[name="location"]');
+            const rluEl = div.querySelector('[name="rluValue"]');
+            
+            if (locationEl?.value && rluEl?.value) {
+                points.push({
+                    loc: locationEl.value,
+                    rlu: rluEl.value,
+                    res: div.querySelector('[name="result"]').value || determineResult(parseInt(rluEl.value) || 0)
+                });
+            } else {
+                skippedCount++;
+            }
+        } catch (error) {
+            console.error(`处理点位 ${i + 1} 出错:`, error);
+            skippedCount++;
         }
     }
     
     if (points.length === 0) {
-        alert('请至少添加一个有效的检测点位');
+        UINotification.warning('⚠️ 请至少添加一个有效的检测点位');
         return;
     }
     
-    data.atpPoints = points;
-    data.modificationLogs = []; 
-    data.recheckRecords = [];
+    try {
+        data.atpPoints = points;
+        data.modificationLogs = []; 
+        data.recheckRecords = [];
 
-    storage.save(data);
-    alert('保存成功');
-    e.target.reset();
-    
-    // 重置点位
-    const pointsContainer = document.getElementById('atpPointsContainer');
-    if (pointsContainer) {
-        pointsContainer.innerHTML = '';
-        addAtpPoint();
+        storage.save(data);
+        
+        let message = `✅ 成功保存 ${points.length} 个 ATP 检测点位`;
+        if (skippedCount > 0) {
+            message += `，${skippedCount} 条数据不完整被跳过`;
+        }
+        UINotification.success(message);
+        
+        e.target.reset();
+        FormValidator.clearErrors(e.target);
+        
+        // 重置点位
+        const pointsContainer = document.getElementById('atpPointsContainer');
+        if (pointsContainer) {
+            pointsContainer.innerHTML = '';
+            addAtpPoint();
+        }
+        renderTable();
+        document.dispatchEvent(new Event('dataChanged'));
+    } catch (error) {
+        console.error('保存失败:', error);
+        UINotification.error('❌ 保存失败: ' + error.message);
     }
-    renderTable();
-    document.dispatchEvent(new Event('dataChanged'));
 }
 
 // ✅ 修改：renderTable 函数增加食堂筛选逻辑
