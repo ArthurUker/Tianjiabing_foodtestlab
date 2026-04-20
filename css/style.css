@@ -4,7 +4,7 @@
 .pdf-capture-mode { background-color: #ffffff !important; }
 
 /* 页面加载防抖动 */
-body { opacity: 0; transition: opacity 0.3s; }
+body { opacity: 1; transition: opacity 0.3s; }
 body.loaded { opacity: 1; }
 
 /* 表格样式微调 */
