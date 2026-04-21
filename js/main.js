@@ -18,8 +18,8 @@ import { initAuditLog } from './modules/AuditLog.js';
 import { initGuestManagement } from './modules/GuestManagement.js';
 // 7. ✨ 引入会话管理服务
 import { sessionManager } from './services/SessionManager.js';
-// 8. ✨ 引入访客认证服务
-import { GuestAuthService } from './services/GuestAuthService.js';
+// 8. ✨ 引入访客认证服务 (使用单例实例)
+import guestAuthService from './services/GuestAuthService.js';
 // 9. ✨ 引入访客中心模块
 import { GuestDashboard } from './modules/GuestDashboard.js';
 // 10. ✨ 引入导出申请审批模块
@@ -37,14 +37,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         const urlParams = new URLSearchParams(window.location.search);
         const isQuickAccessParam = urlParams.get('quickAccess') === 'true';
         
-        // 也检查 localStorage (备选方案)
-        const guestAuthService = new GuestAuthService();
+        // 也检查 localStorage (备选方案) - 使用单例实例
         const isQuickAccessStorage = guestAuthService.isQuickAccessMode();
         
         const isQuickAccessMode = isQuickAccessParam || isQuickAccessStorage;
         console.log('🔍 URL参数quickAccess:', isQuickAccessParam);
         console.log('🔍 localStorage is_quick_access:', isQuickAccessStorage);
         console.log('🔍 最终快速访问模式:', isQuickAccessMode);
+        
+        // ✨ 如果是快速访问模式但还没有访客信息，则自动创建临时访客
+        if (isQuickAccessMode && !guestAuthService.isLoggedIn()) {
+            console.log('⚡ 快速访问模式已激活 - 自动创建临时访客信息');
+            guestAuthService.quickAccessAsViewer();
+        }
         
         // 0. 🔐 初始化路由与认证系统 (必须最先执行)
         console.log('🔧 Router 初始化中...');
@@ -175,7 +180,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         // 10. ✨ 初始化访客中心 (仅访客登录用户可访问)
         console.log('🔧 GuestDashboard 初始化中...');
         try {
-            const guestAuthService = new GuestAuthService();
             if (guestAuthService.isLoggedIn()) {
                 console.log('✅ 检测到访客登录，初始化访客仪表板...');
                 

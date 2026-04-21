@@ -3,7 +3,7 @@
  * 为访客提供只读的数据查看和导出申请功能
  */
 
-import { guestAuthService } from '../services/GuestAuthService.js';
+import guestAuthService from '../services/GuestAuthService.js';
 import { UINotification } from '../utils/UINotification.js';
 
 export class GuestDashboard {
