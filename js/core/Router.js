@@ -5,6 +5,7 @@
 
 import { authService } from '../services/AuthService.js';
 import { permissionService } from '../services/PermissionService.js';
+import { GuestAuthService } from '../services/GuestAuthService.js';
 
 export class Router {
     constructor() {
@@ -16,15 +17,32 @@ export class Router {
      * 初始化路由
      */
     async init() {
-        if (this.isInitialized) return;
+        // 注意: 移除了 isInitialized 检查,以便每次都重新检查身份验证
+        // 如果需要缓存,会在第一次完全初始化后设置标志
         
-        console.log('🔧 Router 初始化中...');
+        const shouldFullyInit = !this.isInitialized;
+        
+        console.log('🔧 Router 初始化中... (完全初始化:', shouldFullyInit, ')');
 
-        // 检查用户是否已登录
-        const isAuthenticated = authService.isAuthenticated();
+        // 检查用户或访客是否已登录
+        const guestAuthService = new GuestAuthService();
+        const isUserAuthenticated = authService.isAuthenticated();
+        const isGuestAuthenticated = guestAuthService.isLoggedIn();
+        const isQuickAccess = guestAuthService.isQuickAccessMode();  // ✨ 检查快速访问模式
+        const isAuthenticated = isUserAuthenticated || isGuestAuthenticated || isQuickAccess;
+        
+        // 🔍 调试日志
+        console.log('🔍 Auth Check:');
+        console.log('  - isUserAuthenticated:', isUserAuthenticated);
+        console.log('  - isGuestAuthenticated:', isGuestAuthenticated);
+        console.log('  - isQuickAccess:', isQuickAccess);
+        console.log('  - guestAuthService.getToken():', guestAuthService.getToken());
+        console.log('  - guestAuthService.getCurrentGuest():', guestAuthService.getCurrentGuest());
+        console.log('  - Final isAuthenticated:', isAuthenticated);
+        
         const currentUrl = window.location.pathname;
 
-        // 如果用户未登录，重定向到登录页
+        // 如果用户未登录且不在快速访问模式，重定向到登录页
         if (!isAuthenticated && !this.isLoginPage(currentUrl)) {
             console.log('⚠️ 用户未登录，重定向到登录页...');
             window.location.href = './login.html';
@@ -38,16 +56,25 @@ export class Router {
             return;
         }
 
-        // 监听存储变化（用于跨标签页登出同步）
-        window.addEventListener('storage', (e) => {
-            if (e.key === 'auth_token' && !authService.getToken()) {
-                console.log('🔔 用户在其他标签页登出，本页面也进行登出');
-                this.handleLogout();
-            }
-        });
+        // 仅在第一次完全初始化时设置事件监听器
+        if (shouldFullyInit) {
+            // 监听存储变化（用于跨标签页登出同步）
+            window.addEventListener('storage', (e) => {
+                if (e.key === 'auth_token' && !authService.getToken()) {
+                    console.log('🔔 用户在其他标签页登出，本页面也进行登出');
+                    this.handleLogout();
+                }
+                if (e.key === 'guest_token' && !guestAuthService.getToken()) {
+                    console.log('🔔 访客在其他标签页登出，本页面也进行登出');
+                    this.handleLogout();
+                }
+            });
 
-        console.log('✅ Router 初始化完成');
-        this.isInitialized = true;
+            console.log('✅ Router 完全初始化完成');
+            this.isInitialized = true;
+        } else {
+            console.log('✅ Router 身份验证检查完成');
+        }
     }
 
     /**
@@ -57,6 +84,15 @@ export class Router {
      */
     isLoginPage(url) {
         return url.includes('login.html') || url === '/login';
+    }
+
+    /**
+     * 检查是否为访客登录
+     * @returns {boolean}
+     */
+    isGuest() {
+        const guestAuthService = new GuestAuthService();
+        return guestAuthService.isLoggedIn();
     }
 
     /**
@@ -134,20 +170,38 @@ export class Router {
      */
     updateNavigationByPermission() {
         const user = authService.getUser();
+        const guestAuthService = new GuestAuthService();
+        const isGuest = guestAuthService.isLoggedIn();
         
-        if (!user) return;
+        if (!user && !isGuest) return;
 
         // 管理员菜单项
-        if (user.role !== 'admin') {
+        if (!user || user.role !== 'admin') {
             // 隐藏管理员才能访问的菜单项
             this.toggleElementByPermission('[data-admin-only]', false);
+        } else {
+            // 管理员显示所有菜单项
+            this.toggleElementByPermission('[data-admin-only]', true);
+        }
+
+        // 访客菜单项
+        if (isGuest) {
+            // 显示访客菜单
+            document.querySelectorAll('.guest-menu-section').forEach(el => {
+                el.classList.remove('hidden');
+            });
+        } else {
+            // 隐藏访客菜单
+            document.querySelectorAll('.guest-menu-section').forEach(el => {
+                el.classList.add('hidden');
+            });
         }
 
         // 根据角色显示不同的菜单
         const navItems = document.querySelectorAll('.nav-btn');
         navItems.forEach(item => {
             const requiredRole = item.getAttribute('data-required-role');
-            if (requiredRole && user.role !== requiredRole) {
+            if (requiredRole && user?.role !== requiredRole) {
                 item.classList.add('hidden');
             }
         });
@@ -157,7 +211,16 @@ export class Router {
      * 处理登出
      */
     async handleLogout() {
-        await authService.logout();
+        const guestAuthService = new GuestAuthService();
+        
+        // 如果是访客，清除访客认证
+        if (guestAuthService.isLoggedIn()) {
+            guestAuthService.logout();
+        } else {
+            // 否则清除用户认证
+            await authService.logout();
+        }
+        
         window.location.href = './login.html';
     }
 
@@ -182,25 +245,31 @@ export class Router {
      */
     updateUserDisplay() {
         const user = authService.getUser();
+        const guestAuthService = new GuestAuthService();
+        const guest = guestAuthService.getCurrentGuest();
         
-        if (!user) return;
+        if (!user && !guest) return;
+
+        // 确定显示的是用户还是访客信息
+        const displayName = user?.username || guest?.username || '用户';
+        const displayRole = user?.role ? this.getRoleLabel(user.role) : (guest ? '访客 (' + (guest.guest_type === 'viewer' ? '只读' : '申请导出') + ')' : '');
 
         // 更新导航栏中的用户名
         const userNameElements = document.querySelectorAll('[data-user-name]');
         userNameElements.forEach(el => {
-            el.textContent = user.username;
+            el.textContent = displayName;
         });
 
         // 更新用户角色标签
         const roleElements = document.querySelectorAll('[data-user-role]');
         roleElements.forEach(el => {
-            el.textContent = this.getRoleLabel(user.role);
+            el.textContent = displayRole;
         });
 
         // 更新用户邮箱
         const emailElements = document.querySelectorAll('[data-user-email]');
         emailElements.forEach(el => {
-            el.textContent = user.email || 'N/A';
+            el.textContent = user?.email || guest?.email || 'N/A';
         });
     }
 

@@ -184,12 +184,15 @@ $$ LANGUAGE plpgsql;
 
 -- ====== Create Seed Data ======
 
--- Insert demo users (passwords should be hashed properly in production)
+-- Insert demo users (passwords are hashed with bcryptjs)
+-- Admin password: 8888
+-- Manager & User passwords: (as per system default)
 INSERT INTO users (username, email, password_hash, full_name, role, status) VALUES
-    ('admin', 'admin@foodlab.com', '$2a$10$YIX7p0yubRH8IqKvK3r.WOYchZbnGUVJvwsqLOSZvZQy7KfVXQcOK', '系统管理员', 'admin', 'active'),
+    ('admin', 'admin@foodlab.com', '$2a$10$mgqlRFCdDMgNIkLi/3Slqe.TiUbAX8AjLg2OR0eBO.KNnLp0V7i2m', '系统管理员', 'admin', 'active'),
     ('manager', 'manager@foodlab.com', '$2a$10$YIX7p0yubRH8IqKvK3r.WOYchZbnGUVJvwsqLOSZvZQy7KfVXQcOK', '部门经理', 'manager', 'active'),
     ('user', 'user@foodlab.com', '$2a$10$YIX7p0yubRH8IqKvK3r.WOYchZbnGUVJvwsqLOSZvZQy7KfVXQcOK', '普通员工', 'user', 'active')
-ON CONFLICT (username) DO NOTHING;
+ON CONFLICT (username) DO UPDATE SET 
+    password_hash = EXCLUDED.password_hash;
 
 -- ====== SQL Validation ======
 -- Run these SELECT queries to verify setup:

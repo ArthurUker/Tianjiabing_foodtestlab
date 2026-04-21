@@ -371,7 +371,20 @@ export class AuthService {
                 throw new Error(data.message || '获取用户列表失败');
             }
 
-            return { success: true, users: data.users, total: data.total };
+            // 转换 API 返回的数据格式
+            const users = (data.data || []).map(user => ({
+                id: user.id,
+                username: user.username,
+                email: user.email,
+                fullName: user.full_name,
+                role: user.role,
+                is_active: user.status === 'active',
+                status: user.status,
+                created_at: user.created_at,
+                last_login: user.last_login
+            }));
+
+            return { success: true, users: users, total: data.total };
         } catch (error) {
             console.error('❌ 获取用户列表错误:', error.message);
             return { success: false, message: error.message };
@@ -407,5 +420,21 @@ export class AuthService {
     }
 }
 
+// 自动检测 API 基础 URL
+// 如果在本地开发环境（任何端口），使用 localhost:3000
+// 如果在生产环境，使用相同的域名
+function getApiBaseUrl() {
+    const hostname = window.location.hostname;
+    const protocol = window.location.protocol;
+    
+    // 本地开发环境
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+        return `${protocol}//localhost:3000`;
+    }
+    
+    // 生产环境 - 使用相同的域名和协议
+    return `${protocol}//${window.location.host}`;
+}
+
 // 导出单例
-export const authService = new AuthService();
+export const authService = new AuthService(getApiBaseUrl());

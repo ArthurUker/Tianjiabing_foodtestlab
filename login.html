@@ -85,8 +85,18 @@
                 <p class="text-gray-500 text-sm">田家炳中学食堂管理平台</p>
             </div>
 
-            <!-- 登录表单 -->
-            <form id="loginForm" class="space-y-5">
+            <!-- Tab 选项卡 -->
+            <div class="flex mb-6 border-b border-gray-200">
+                <button type="button" id="adminTabBtn" class="tab-btn flex-1 py-3 px-4 font-medium text-gray-700 border-b-2 border-blue-600 text-blue-600 transition" data-tab="admin">
+                    <i class="fas fa-user-shield mr-2"></i>管理员登录
+                </button>
+                <button type="button" id="guestTabBtn" class="tab-btn flex-1 py-3 px-4 font-medium text-gray-500 border-b-2 border-transparent hover:text-gray-700 transition" data-tab="guest">
+                    <i class="fas fa-user-check mr-2"></i>访客登录/注册
+                </button>
+            </div>
+
+            <!-- 管理员登录表单 -->
+            <form id="loginForm" class="form-tab space-y-5" data-tab="admin">
                 <!-- 用户名输入 -->
                 <div>
                     <label for="username" class="block text-sm font-medium text-gray-700 mb-2">
@@ -159,6 +169,143 @@
                 </button>
             </form>
 
+            <!-- 访客登录/注册表单 -->
+            <form id="guestForm" class="form-tab hidden space-y-5" data-tab="guest">
+                <!-- 访客类型选择 -->
+                <div>
+                    <label for="guestType" class="block text-sm font-medium text-gray-700 mb-2">
+                        <i class="fas fa-id-card mr-2 text-green-600"></i>选择访客类型
+                    </label>
+                    <select id="guestType" class="input-focus w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500">
+                        <option value="">-- 请选择 --</option>
+                        <option value="viewer">👁️ 数据查看访客 (只读访问)</option>
+                        <option value="export_applicant">📊 导出申请访客 (可申请数据导出)</option>
+                    </select>
+                </div>
+
+                <!-- 已有账户提示 -->
+                <div class="text-center">
+                    <label class="text-sm text-gray-600 mb-3 block">
+                        <input type="radio" id="guestLoginMode" name="guestMode" value="login" checked class="mr-2">
+                        已有账户？登录
+                    </label>
+                    <label class="text-sm text-gray-600 mb-3 block">
+                        <input type="radio" id="guestRegisterMode" name="guestMode" value="register" class="mr-2">
+                        没有账户？注册
+                    </label>
+                </div>
+
+                <!-- 访客用户名 -->
+                <div>
+                    <label for="guestUsername" class="block text-sm font-medium text-gray-700 mb-2">
+                        <i class="fas fa-user mr-2"></i>用户名
+                    </label>
+                    <input 
+                        type="text" 
+                        id="guestUsername" 
+                        name="guestUsername"
+                        class="input-focus w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                        placeholder="请输入用户名"
+                        required
+                    >
+                </div>
+
+                <!-- 注册时显示：访客邮箱 -->
+                <div id="guestEmailDiv" class="hidden">
+                    <label for="guestEmail" class="block text-sm font-medium text-gray-700 mb-2">
+                        <i class="fas fa-envelope mr-2"></i>邮箱
+                    </label>
+                    <input 
+                        type="email" 
+                        id="guestEmail" 
+                        name="guestEmail"
+                        class="input-focus w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                        placeholder="请输入邮箱地址"
+                    >
+                </div>
+
+                <!-- 注册时显示：访客姓名 -->
+                <div id="guestFullNameDiv" class="hidden">
+                    <label for="guestFullName" class="block text-sm font-medium text-gray-700 mb-2">
+                        <i class="fas fa-id-card mr-2"></i>姓名
+                    </label>
+                    <input 
+                        type="text" 
+                        id="guestFullName" 
+                        name="guestFullName"
+                        class="input-focus w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                        placeholder="请输入姓名"
+                    >
+                </div>
+
+                <!-- 访客密码 -->
+                <div>
+                    <label for="guestPassword" class="block text-sm font-medium text-gray-700 mb-2">
+                        <i class="fas fa-lock mr-2"></i>密码
+                    </label>
+                    <div class="relative">
+                        <input 
+                            type="password" 
+                            id="guestPassword" 
+                            name="guestPassword"
+                            class="input-focus w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                            placeholder="请输入密码"
+                            required
+                        >
+                        <button 
+                            type="button" 
+                            class="toggle-guest-password absolute right-3 top-2.5 text-gray-500 hover:text-gray-700"
+                        >
+                            <i class="fas fa-eye"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 注册时显示：确认密码 -->
+                <div id="guestConfirmPasswordDiv" class="hidden">
+                    <label for="guestConfirmPassword" class="block text-sm font-medium text-gray-700 mb-2">
+                        <i class="fas fa-lock mr-2"></i>确认密码
+                    </label>
+                    <div class="relative">
+                        <input 
+                            type="password" 
+                            id="guestConfirmPassword" 
+                            name="guestConfirmPassword"
+                            class="input-focus w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                            placeholder="请再次输入密码"
+                        >
+                        <button 
+                            type="button" 
+                            class="toggle-guest-confirm-password absolute right-3 top-2.5 text-gray-500 hover:text-gray-700"
+                        >
+                            <i class="fas fa-eye"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 错误提示 -->
+                <div id="guestErrorMessage" class="hidden p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg text-sm flex items-center">
+                    <i class="fas fa-exclamation-circle mr-2"></i>
+                    <span id="guestErrorText"></span>
+                </div>
+
+                <!-- 提示信息 -->
+                <div id="guestRegisterNotice" class="hidden p-3 bg-blue-50 border border-blue-200 text-blue-700 rounded-lg text-sm flex items-start">
+                    <i class="fas fa-info-circle mr-2 mt-0.5 flex-shrink-0"></i>
+                    <span><strong>注意：</strong>注册完成后，访客账户需要管理员审核通过才能使用。请等待审核邮件。</span>
+                </div>
+
+                <!-- 按钮 -->
+                <button 
+                    type="submit" 
+                    id="guestSubmitBtn"
+                    class="w-full bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white font-semibold py-2.5 rounded-lg transition duration-300 shadow-lg hover:shadow-xl flex items-center justify-center"
+                >
+                    <i class="fas fa-sign-in-alt mr-2"></i>
+                    <span id="guestSubmitBtnText">登 录</span>
+                </button>
+            </form>
+
             <!-- 分隔线 -->
             <div class="relative my-6">
                 <div class="absolute inset-0 flex items-center">
@@ -168,6 +315,16 @@
                     <span class="px-2 bg-white text-gray-500">或</span>
                 </div>
             </div>
+
+            <!-- 快速查看数据 - 无需登录 -->
+            <button 
+                type="button" 
+                id="quickViewBtn"
+                class="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-semibold py-2.5 rounded-lg transition duration-300 shadow-lg hover:shadow-xl flex items-center justify-center mb-3"
+            >
+                <i class="fas fa-chart-bar mr-2"></i>
+                <span>📊 快速查看数据</span>
+            </button>
 
             <!-- 其他登录选项 (预留) -->
             <button type="button" class="w-full py-2 px-4 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition flex items-center justify-center">
@@ -184,31 +341,127 @@
 
         <!-- 底部说明 -->
         <div class="text-center mt-6 text-white text-sm opacity-75">
-            <p><i class="fas fa-info-circle mr-2"></i>演示账号：admin / 密码：8888</p>
+            <p><i class="fas fa-info-circle mr-2"></i>演示账号：</p>
+            <p class="text-xs mt-1 font-semibold">👤 admin / 密码: 8888</p>
+            <p class="text-xs text-gray-300 mt-1">或</p>
+            <p class="text-xs mt-1">🧪 testuser@example.com / TestPass123!</p>
+            <details class="mt-3 text-left inline-block bg-white bg-opacity-10 p-2 rounded">
+                <summary class="cursor-pointer text-xs font-semibold hover:text-opacity-100">📋 查看所有测试账号</summary>
+                <div class="text-xs mt-2 space-y-1">
+                    <div class="font-semibold">👤 管理员:</div>
+                    <div class="ml-2">• admin / 8888</div>
+                    <div class="font-semibold mt-2">🧪 测试账号:</div>
+                    <div class="ml-2">• testuser@example.com / TestPass123!</div>
+                    <div class="ml-2">• qa@example.com / TestPass123!</div>
+                </div>
+            </details>
         </div>
     </div>
 
     <script type="module">
         import { authService } from './js/services/AuthService.js';
+        import { GuestAuthService } from './js/services/GuestAuthService.js';
 
+        const guestAuthService = new GuestAuthService();
+        
+        // ===== 管理员登录表单元素 =====
         const form = document.getElementById('loginForm');
-        const usernameInput = document.getElementById('username');
-        const passwordInput = document.getElementById('password');
-        const togglePasswordBtn = document.getElementById('togglePassword');
+        const usernameInput = document.getElementById('adminUsername');
+        const passwordInput = document.getElementById('adminPassword');
         const rememberMeCheckbox = document.getElementById('rememberMe');
         const loginBtn = document.getElementById('loginBtn');
         const loginBtnText = document.getElementById('loginBtnText');
         const errorMessage = document.getElementById('errorMessage');
-        const errorText = document.getElementById('errorText');
-
-        // 密码显示/隐藏切换
-        togglePasswordBtn.addEventListener('click', function() {
-            const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
-            passwordInput.setAttribute('type', type);
-            this.innerHTML = type === 'password' 
-                ? '<i class="fas fa-eye"></i>' 
-                : '<i class="fas fa-eye-slash"></i>';
+        
+        // ===== Tab 切换逻辑 =====
+        const adminTabBtn = document.getElementById('adminTabBtn');
+        const guestTabBtn = document.getElementById('guestTabBtn');
+        const adminForm = document.getElementById('loginForm');
+        const guestForm = document.getElementById('guestForm');
+        
+        adminTabBtn.addEventListener('click', () => {
+            adminTabBtn.classList.add('border-b-2', 'border-blue-600', 'text-blue-600');
+            adminTabBtn.classList.remove('border-transparent', 'text-gray-500');
+            
+            guestTabBtn.classList.remove('border-b-2', 'border-blue-600', 'text-blue-600');
+            guestTabBtn.classList.add('border-transparent', 'text-gray-500');
+            
+            adminForm.classList.remove('hidden');
+            guestForm.classList.add('hidden');
         });
+        
+        guestTabBtn.addEventListener('click', () => {
+            guestTabBtn.classList.add('border-b-2', 'border-blue-600', 'text-blue-600');
+            guestTabBtn.classList.remove('border-transparent', 'text-gray-500');
+            
+            adminTabBtn.classList.remove('border-b-2', 'border-blue-600', 'text-blue-600');
+            adminTabBtn.classList.add('border-transparent', 'text-gray-500');
+            
+            guestForm.classList.remove('hidden');
+            adminForm.classList.add('hidden');
+        });
+
+        // ===== 访客登录/注册的显示/隐藏逻辑 =====
+        const guestLoginMode = document.getElementById('guestLoginMode');
+        const guestRegisterMode = document.getElementById('guestRegisterMode');
+        const guestEmailDiv = document.getElementById('guestEmailDiv');
+        const guestFullNameDiv = document.getElementById('guestFullNameDiv');
+        const guestConfirmPasswordDiv = document.getElementById('guestConfirmPasswordDiv');
+        const guestRegisterNotice = document.getElementById('guestRegisterNotice');
+        const guestSubmitBtnText = document.getElementById('guestSubmitBtnText');
+        
+        function updateGuestFormMode() {
+            const isRegister = guestRegisterMode.checked;
+            if (isRegister) {
+                guestEmailDiv.classList.remove('hidden');
+                guestFullNameDiv.classList.remove('hidden');
+                guestConfirmPasswordDiv.classList.remove('hidden');
+                guestRegisterNotice.classList.remove('hidden');
+                guestSubmitBtnText.innerHTML = '<i class="fas fa-user-plus mr-2"></i>注 册';
+                document.getElementById('guestType').required = true;
+            } else {
+                guestEmailDiv.classList.add('hidden');
+                guestFullNameDiv.classList.add('hidden');
+                guestConfirmPasswordDiv.classList.add('hidden');
+                guestRegisterNotice.classList.add('hidden');
+                guestSubmitBtnText.innerHTML = '<i class="fas fa-sign-in-alt mr-2"></i>登 录';
+            }
+        }
+
+        // ===== 快速查看按钮事件 =====
+        const quickViewBtn = document.getElementById('quickViewBtn');
+        if (quickViewBtn) {
+            quickViewBtn.addEventListener('click', async () => {
+                console.log('🚀 用户点击快速查看数据按钮');
+                
+                // 激活快速访问模式
+                guestAuthService.quickAccessAsViewer();
+                
+                // 显示成功消息
+                const message = document.createElement('div');
+                message.className = 'fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 animate-bounce';
+                message.innerHTML = '<i class="fas fa-check mr-2"></i>已进入数据查看模式';
+                document.body.appendChild(message);
+                
+                // 等待一秒后跳转到主页 (使用 URL 参数标记快速访问)
+                await new Promise(r => setTimeout(r, 1000));
+                
+                // 导航到 index.html（使用 URL 参数）
+                window.location.href = './index.html?quickAccess=true';
+            });
+        }
+
+        // 密码可见性切换 (管理员登录)
+        const passwordToggleBtnAdmin = document.getElementById('togglePassword');
+        if (passwordToggleBtnAdmin) {
+            passwordToggleBtnAdmin.addEventListener('click', function() {
+                const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+                passwordInput.setAttribute('type', type);
+                this.innerHTML = type === 'password' 
+                    ? '<i class="fas fa-eye"></i>' 
+                    : '<i class="fas fa-eye-slash"></i>';
+            });
+        }
 
         // 恢复记住的用户名
         window.addEventListener('load', function() {
@@ -220,7 +473,7 @@
             }
         });
 
-        // 表单提交
+        // 管理员表单提交
         form.addEventListener('submit', async function(e) {
             e.preventDefault();
             
@@ -255,6 +508,7 @@
                     }
 
                     console.log('✅ 登录成功，跳转到主界面...');
+                    showError('✅ 登录成功，跳转到主界面...');
                     
                     // 重定向到主应用
                     setTimeout(() => {
@@ -262,7 +516,10 @@
                     }, 500);
                 } else {
                     // 登录失败
-                    showError(result.message || '登录失败，请检查用户名和密码');
+                    const errorMsg = result.message || '登录失败，请检查用户名和密码';
+                    console.error('❌ 登录失败:', errorMsg);
+                    showError(errorMsg);
+                    
                     form.classList.add('error-shake');
                     setTimeout(() => {
                         form.classList.remove('error-shake');
@@ -270,10 +527,12 @@
                     
                     // 清空密码
                     passwordInput.value = '';
+                    passwordInput.focus();
                 }
             } catch (error) {
                 console.error('❌ 登录错误:', error);
-                showError('网络连接失败，请稍后重试');
+                const errorMsg = error.message || '网络连接失败，请稍后重试';
+                showError(errorMsg);
             } finally {
                 // 恢复登录按钮
                 loginBtn.disabled = false;
@@ -286,12 +545,170 @@
         function showError(message) {
             errorText.textContent = message;
             errorMessage.classList.remove('hidden');
+            // 自动隐藏错误提示（5秒后）
+            setTimeout(() => {
+                errorMessage.classList.add('hidden');
+            }, 5000);
         }
 
         // 按 Enter 提交表单
         form.addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
                 form.dispatchEvent(new Event('submit'));
+            }
+        });
+
+        // ===== 访客登录/注册表单 =====
+        const guestFormElement = document.getElementById('guestForm');
+        const guestTypeSelect = document.getElementById('guestType');
+        const guestUsernameInput = document.getElementById('guestUsername');
+        const guestEmailInput = document.getElementById('guestEmail');
+        const guestFullNameInput = document.getElementById('guestFullName');
+        const guestPasswordInput = document.getElementById('guestPassword');
+        const guestConfirmPasswordInput = document.getElementById('guestConfirmPassword');
+        const guestSubmitBtn = document.getElementById('guestSubmitBtn');
+        const guestErrorMessage = document.getElementById('guestErrorMessage');
+        const guestErrorText = document.getElementById('guestErrorText');
+
+        // 访客密码显示/隐藏
+        document.querySelectorAll('.toggle-guest-password').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const type = guestPasswordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+                guestPasswordInput.setAttribute('type', type);
+                this.innerHTML = type === 'password' 
+                    ? '<i class="fas fa-eye"></i>' 
+                    : '<i class="fas fa-eye-slash"></i>';
+            });
+        });
+
+        document.querySelectorAll('.toggle-guest-confirm-password').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const type = guestConfirmPasswordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+                guestConfirmPasswordInput.setAttribute('type', type);
+                this.innerHTML = type === 'password' 
+                    ? '<i class="fas fa-eye"></i>' 
+                    : '<i class="fas fa-eye-slash"></i>';
+            });
+        });
+
+        // 访客表单提交
+        guestFormElement.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const isRegister = guestRegisterMode.checked;
+            const guestType = guestTypeSelect.value;
+            const username = guestUsernameInput.value.trim();
+            const password = guestPasswordInput.value;
+            
+            // 清除错误提示
+            guestErrorMessage.classList.add('hidden');
+
+            // 基础验证
+            if (!username || !password) {
+                showGuestError('用户名和密码不能为空');
+                return;
+            }
+
+            // 注册模式下的额外验证（需要选择访客类型）
+            if (isRegister) {
+                if (!guestType) {
+                    showGuestError('请选择访客类型');
+                    return;
+                }
+
+                const email = guestEmailInput.value.trim();
+                const fullName = guestFullNameInput.value.trim();
+                const confirmPassword = guestConfirmPasswordInput.value;
+
+                if (!email || !fullName || !confirmPassword) {
+                    showGuestError('请填写所有必填字段');
+                    return;
+                }
+
+                if (password !== confirmPassword) {
+                    showGuestError('两次输入的密码不一致');
+                    return;
+                }
+
+                if (password.length < 6) {
+                    showGuestError('密码长度不能少于6位');
+                    return;
+                }
+            }
+
+            // 禁用提交按钮
+            guestSubmitBtn.disabled = true;
+            guestSubmitBtn.classList.add('btn-loading', 'opacity-70');
+            guestSubmitBtnText.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>' + (isRegister ? '注册中...' : '登录中...');
+
+            try {
+                let result;
+                
+                if (isRegister) {
+                    // 注册
+                    const email = guestEmailInput.value.trim();
+                    const fullName = guestFullNameInput.value.trim();
+                    
+                    result = await guestAuthService.register(username, email, password, fullName, guestType);
+                } else {
+                    // 登录
+                    result = await guestAuthService.login(username, password);
+                }
+
+                if (result.success) {
+                    if (isRegister) {
+                        showGuestSuccess('注册成功！请等待管理员审核');
+                        // 5秒后跳转到登录页面
+                        setTimeout(() => {
+                            guestRegisterMode.checked = false;
+                            guestLoginMode.checked = true;
+                            updateGuestFormMode();
+                            guestUsernameInput.value = username;
+                            guestPasswordInput.value = '';
+                            guestPasswordInput.focus();
+                        }, 2000);
+                    } else {
+                        showGuestSuccess('登录成功！');
+                        // 重定向到主应用
+                        setTimeout(() => {
+                            window.location.href = './index.html';
+                        }, 500);
+                    }
+                } else {
+                    showGuestError(result.error || (isRegister ? '注册失败' : '登录失败'));
+                }
+            } catch (error) {
+                console.error('❌ 访客操作错误:', error);
+                showGuestError(error.message || '操作失败，请稍后重试');
+            } finally {
+                // 恢复提交按钮
+                guestSubmitBtn.disabled = false;
+                guestSubmitBtn.classList.remove('btn-loading', 'opacity-70');
+                guestSubmitBtnText.innerHTML = '<i class="fas fa-' + (isRegister ? 'user-plus' : 'sign-in-alt') + ' mr-2"></i>' + (isRegister ? '注 册' : '登 录');
+            }
+        });
+
+        // 显示访客错误
+        function showGuestError(message) {
+            guestErrorText.textContent = message;
+            guestErrorMessage.classList.remove('hidden');
+            setTimeout(() => {
+                guestErrorMessage.classList.add('hidden');
+            }, 5000);
+        }
+
+        // 显示访客成功
+        function showGuestSuccess(message) {
+            guestErrorText.textContent = message;
+            guestErrorMessage.classList.remove('hidden');
+            guestErrorMessage.classList.add('bg-green-100', 'border-green-400', 'text-green-700');
+            guestErrorMessage.classList.remove('bg-red-100', 'border-red-400', 'text-red-700');
+        }
+
+        // 访客表单按 Enter 提交
+        guestFormElement.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                guestFormElement.dispatchEvent(new Event('submit'));
             }
         });
     </script>

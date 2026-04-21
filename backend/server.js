@@ -4,7 +4,10 @@ import dotenv from 'dotenv'
 import { createClient } from '@supabase/supabase-js'
 import jwt from 'jsonwebtoken'
 import { createUserRoutes } from './routes/userRoutes.js'
+import guestRoutes from './routes/guestRoutes.js'
+import guestExportRoutes from './routes/guestExportRoutes.js'
 import { createValidationMiddleware, rateLimit, sanitizeText } from './middleware/validationMiddleware.js'
+import { initializeTestUsers } from './config/testDataInitializer.js'
 
 dotenv.config()
 
@@ -33,6 +36,10 @@ app.get('/health', (req, res) => {
 // ====== User Authentication Routes ======
 const userRoutes = createUserRoutes(supabase, process.env.JWT_SECRET)
 app.use('/api/user', userRoutes)
+
+// ====== Guest Authentication Routes ======
+app.use('/api/guest', guestRoutes)
+app.use('/api/guest-export-request', guestExportRoutes)
 
 // ====== API Routes ======
 
@@ -368,7 +375,7 @@ app.use((err, req, res, next) => {
 
 // ====== Start Server ======
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
     console.log(`
 ╔════════════════════════════════════════╗
 ║  🍽️  Food Safety Testing API Server   ║
@@ -377,6 +384,15 @@ app.listen(PORT, () => {
 ║  📝 Environment: ${process.env.NODE_ENV}            ║
 ╚════════════════════════════════════════╝
     `)
+    
+    // 在开发和测试环境中初始化测试用户
+    if (process.env.NODE_ENV !== 'production') {
+        try {
+            await initializeTestUsers(supabase)
+        } catch (error) {
+            console.error('❌ 初始化测试用户失败:', error.message)
+        }
+    }
 })
 
 export default app

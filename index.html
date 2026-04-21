@@ -26,7 +26,37 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-    <script type="module" src="js/main.js"></script>
+    <!-- 🎯 快速访问模式样式 - 隐藏管理菜单 -->
+    <style id="quickAccessStyles" display="none">
+        /* 这个样式块仅在 quickAccess 参数存在时激活 */
+    </style>
+    
+    <!-- 🎯 立即检查 URL 参数并隐藏菜单 -->
+    <script>
+        // 检查是否是快速访问模式
+        const isQuickAccess = new URLSearchParams(window.location.search).get('quickAccess') === 'true';
+        console.log('===== 页面加载调试信息 =====');
+        console.log('当前 URL:', window.location.href);
+        console.log('快速访问模式:', isQuickAccess);
+        
+        if (isQuickAccess) {
+            console.log('✅ 激活快速访问模式 - 添加隐藏 CSS');
+            // 直接在 head 中添加 CSS 来隐藏菜单
+            const style = document.createElement('style');
+            style.textContent = `
+                /* 快速访问模式下隐藏管理菜单 */
+                button[data-target="export-data"],
+                button[data-target="backup-restore"],
+                button[data-admin-only],
+                #btnExportDashboard,
+                div.text-xs.text-gray-400.font-semibold {
+                    display: none !important;
+                }
+            `;
+            document.head.appendChild(style);
+            console.log('✅ 快速访问模式 CSS 已添加到 head');
+        }
+    </script>
     <script>
         console.log('📍 index.html 加载完成');
         window.addEventListener('load', () => console.log('📍 页面 load 事件触发'));
@@ -92,6 +122,12 @@
                     <i class="fas fa-history mr-3 w-5"></i>数据备份与恢复
                 </button>
                 
+                <!-- ✨ 访客菜单 (仅访客登录可见) -->
+                <div class="border-t border-gray-700 my-2 guest-menu-section hidden"></div>
+                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center guest-menu-section hidden" data-target="guest-dashboard">
+                    <i class="fas fa-home mr-3 w-5"></i>访客中心
+                </button>
+                
                 <!-- ✨ 管理菜单 (仅管理员可见) -->
                 <div class="border-t border-gray-700 my-2"></div>
                 <div class="px-4 py-2 text-xs text-gray-400 font-semibold">管理</div>
@@ -100,6 +136,9 @@
                 </button>
                 <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="guest-management" data-admin-only>
                     <i class="fas fa-user-friends mr-3 w-5"></i>访客管理
+                </button>
+                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="export-approval" data-admin-only>
+                    <i class="fas fa-check-circle mr-3 w-5"></i>导出申请审批
                 </button>
                 <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="audit-log" data-admin-only>
                     <i class="fas fa-history mr-3 w-5"></i>审计日志
@@ -453,6 +492,16 @@
             <!-- 11. ✨ 审计日志 (仅管理员) -->
             <div id="audit-log" class="content-section hidden">
                 <!-- AuditLog.js 会把界面渲染到这里 -->
+            </div>
+
+            <!-- 12. ✨ 访客中心 (仅访客登录后显示) -->
+            <div id="guest-dashboard" class="content-section hidden">
+                <!-- GuestDashboard.js 会把界面渲染到这里 -->
+            </div>
+
+            <!-- 13. ✨ 导出申请审批 (仅管理员) -->
+            <div id="export-approval" class="content-section hidden">
+                <!-- ExportApproval.js 会把界面渲染到这里 -->
             </div>
 
         </div>

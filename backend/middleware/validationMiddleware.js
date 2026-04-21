@@ -396,6 +396,55 @@ export function createValidationMiddleware(config = {}) {
     ]
 }
 
+/**
+ * 中间件：验证用户或访客 Token
+ * 同时支持普通用户和访客认证
+ */
+export function validateToken(req, res, next) {
+    try {
+        const authHeader = req.headers.authorization;
+        
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            return res.status(401).json({ error: '缺少授权令牌' });
+        }
+        
+        const token = authHeader.substring(7);
+        const JWT_SECRET = process.env.JWT_SECRET || 'food-lab-secret-key';
+        
+        try {
+            const decoded = require('jsonwebtoken').verify(token, JWT_SECRET);
+            
+            // 支持两种令牌类型
+            if (decoded.type === 'guest') {
+                req.user = {
+                    guestId: decoded.guestId,
+                    username: decoded.username,
+                    email: decoded.email,
+                    type: 'guest',
+                    guest_type: decoded.guest_type,
+                    has_export_permission: decoded.has_export_permission
+                };
+            } else {
+                // 普通用户令牌
+                req.user = {
+                    userId: decoded.userId,
+                    username: decoded.username,
+                    role: decoded.role,
+                    email: decoded.email,
+                    type: 'user'
+                };
+            }
+            
+            next();
+        } catch (error) {
+            return res.status(401).json({ error: '令牌无效或已过期: ' + error.message });
+        }
+    } catch (error) {
+        console.error('令牌验证错误:', error);
+        res.status(500).json({ error: '服务器错误' });
+    }
+}
+
 export default {
     escapeHtml,
     sanitizeHtml,
@@ -410,5 +459,6 @@ export default {
     validateQueryParams,
     rateLimit,
     createValidationMiddleware,
+    validateToken,
     fieldValidators
 }

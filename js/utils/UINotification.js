@@ -11,6 +11,7 @@
  */
 export class UINotification {
     static defaultDuration = 3000
+    static loadingElement = null
     
     /**
      * 显示通知
@@ -46,6 +47,7 @@ export class UINotification {
      * 成功通知
      */
     static success(message, duration = 3000) {
+        this.hideLoading()
         return this.show(`✅ ${message}`, 'success', duration)
     }
     
@@ -53,6 +55,7 @@ export class UINotification {
      * 错误通知
      */
     static error(message, duration = 5000) {
+        this.hideLoading()
         return this.show(`❌ ${message}`, 'error', duration)
     }
     
@@ -60,6 +63,7 @@ export class UINotification {
      * 警告通知
      */
     static warning(message, duration = 4000) {
+        this.hideLoading()
         return this.show(`⚠️ ${message}`, 'warning', duration)
     }
     
@@ -67,6 +71,7 @@ export class UINotification {
      * 信息通知
      */
     static info(message, duration = 3000) {
+        this.hideLoading()
         return this.show(`ℹ️ ${message}`, 'info', duration)
     }
     
@@ -74,11 +79,23 @@ export class UINotification {
      * 加载通知（永不消失，直到手动关闭）
      */
     static loading(message) {
-        return this.show(
+        this.hideLoading()
+        this.loadingElement = this.show(
             `<i class="fas fa-spinner fa-spin mr-1"></i>${message}`, 
             'info', 
             0
         )
+        return this.loadingElement
+    }
+    
+    /**
+     * 隐藏加载通知
+     */
+    static hideLoading() {
+        if (this.loadingElement && this.loadingElement.parentElement) {
+            this.loadingElement.remove()
+            this.loadingElement = null
+        }
     }
     
     /**
