@@ -11,6 +11,10 @@ export class Router {
     constructor() {
         this.currentPage = null;
         this.isInitialized = false;
+        
+        // 🎯 暴露自己到全局作用域（用于调试和事件处理）
+        window.router = this;
+        console.log('✅ Router 已暴露到 window.router');
     }
 
     /**
@@ -211,33 +215,92 @@ export class Router {
      * 处理登出
      */
     async handleLogout() {
-        const guestAuthService = new GuestAuthService();
+        console.log('🔴 ===== 登出流程开始 =====');
         
-        // 如果是访客，清除访客认证
-        if (guestAuthService.isLoggedIn()) {
-            guestAuthService.logout();
-        } else {
-            // 否则清除用户认证
-            await authService.logout();
+        try {
+            // 获取全局的 guestAuthService 实例（main.js 中定义）
+            const guestAuthService = window.guestAuthService || new GuestAuthService();
+            
+            console.log('  1️⃣ 检查用户身份类型...');
+            const isGuest = guestAuthService.isLoggedIn();
+            const isAdmin = this.isAdmin();
+            console.log(`  身份: 访客=${isGuest}, 管理员=${isAdmin}`);
+            
+            // 清除所有认证相关数据
+            console.log('  2️⃣ 清除认证信息...');
+            
+            // 清除访客认证（如果是访客）
+            if (isGuest) {
+                console.log('  📍 清除访客认证...');
+                guestAuthService.logout();
+            }
+            
+            // 清除用户认证（如果是管理员）
+            if (isAdmin) {
+                console.log('  📍 清除用户认证...');
+                await authService.logout();
+            }
+            
+            // 清除所有本地存储数据
+            console.log('  3️⃣ 清除本地存储...');
+            const clearKeys = ['authToken', 'guestToken', 'user', 'guest', 'is_quick_access', 'cache_tableware', 'cache_pesticide', 'cache_oil', 'cache_lean', 'cache_pathogen'];
+            clearKeys.forEach(key => {
+                localStorage.removeItem(key);
+                sessionStorage.removeItem(key);
+            });
+            console.log(`  已清除 ${clearKeys.length} 个存储项`);
+            
+            console.log('  4️⃣ 正在跳转到登录页面...');
+            
+            // 延迟一会儿再跳转，确保清除操作完成
+            setTimeout(() => {
+                console.log('  ✅ 重定向到 login.html');
+                window.location.href = './login.html';
+            }, 300);
+        } catch (error) {
+            console.error('❌ 登出过程中出错:', error);
+            // 即使出错也跳转到登录页面
+            console.log('⚠️ 强制重定向到 login.html');
+            window.location.href = './login.html';
         }
-        
-        window.location.href = './login.html';
     }
 
     /**
      * 设置登出按钮事件
      */
     setupLogoutButton() {
-        const logoutBtn = document.getElementById('btnLogout');
-        if (logoutBtn) {
-            logoutBtn.addEventListener('click', () => this.handleLogout());
-        }
-
+        console.log('🔧 setupLogoutButton() 被调用');
+        
+        // 找到所有的登出按钮（可能有多个）
+        const logoutBtns = document.querySelectorAll('#btnLogout');
+        console.log(`  找到 ${logoutBtns.length} 个登出按钮`);
+        
+        logoutBtns.forEach((btn, index) => {
+            console.log(`  绑定按钮 ${index}: 可见=${btn.offsetParent !== null}, 禁用=${btn.disabled}`);
+            btn.addEventListener('click', (e) => {
+                console.log('🔴 登出按钮被点击！');
+                e.preventDefault();
+                e.stopPropagation();
+                console.log('  调用 handleLogout()...');
+                this.handleLogout();
+            });
+        });
+        
         // 也可以通过菜单项登出
         const logoutMenuItems = document.querySelectorAll('[data-logout]');
-        logoutMenuItems.forEach(item => {
-            item.addEventListener('click', () => this.handleLogout());
+        console.log(`  找到 ${logoutMenuItems.length} 个登出菜单项`);
+        
+        logoutMenuItems.forEach((item, index) => {
+            console.log(`  绑定菜单项 ${index}`);
+            item.addEventListener('click', (e) => {
+                console.log('🔴 登出菜单项被点击！');
+                e.preventDefault();
+                e.stopPropagation();
+                this.handleLogout();
+            });
         });
+        
+        console.log(`✅ setupLogoutButton() 完成 - 已绑定 ${logoutBtns.length + logoutMenuItems.length} 个登出元素`);
     }
 
     /**
@@ -355,6 +418,10 @@ export class Router {
      * 初始化所有路由相关功能
      */
     setupAll() {
+        // 🎯 暴露自己到全局作用域
+        window.router = this;
+        console.log('✅ setupAll() - window.router 已暴露');
+        
         // 设置登出按钮
         this.setupLogoutButton();
 
@@ -382,3 +449,9 @@ export class Router {
 
 // 导出单例
 export const router = new Router();
+
+// 🎯 立即暴露到全局作用域
+if (typeof window !== 'undefined') {
+    window.router = router;
+    console.log('✅ Router.js - window.router 已立即暴露');
+}

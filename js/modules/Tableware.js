@@ -3,6 +3,7 @@ import { auth } from '../core/Auth.js';
 import { FormValidator } from '../utils/FormValidator.js';
 import { UINotification } from '../utils/UINotification.js';
 import { NetworkHelper } from '../utils/NetworkHelper.js';
+import { GuestAuthService } from '../services/GuestAuthService.js';
 
 const storage = new StorageService('tableware');
 let currentPage = 1;
@@ -11,14 +12,56 @@ let sortOrder = 'desc';
 let selectedCanteenFilter = 'all'; // ✅ 新增：食堂筛选状态
 
 export function initTableware() {
+    // ✨ 检查是否处于快速访问模式 - 优先检查 URL 参数
+    const urlParams = new URLSearchParams(window.location.search);
+    let isQuickAccess = urlParams.get('quickAccess') === 'true';
+    
+    // 如果 URL 中没有找到，则检查 GuestAuthService
+    if (!isQuickAccess) {
+        const guestAuthService = new GuestAuthService();
+        isQuickAccess = guestAuthService.isQuickAccessMode();
+    }
+    
+    console.log('📍 Tableware 初始化 - 快速访问模式:', isQuickAccess, 'URL参数:', urlParams.get('quickAccess'));
+    
     const form = document.getElementById('tablewareTestForm');
+    console.log('🎯 查找 tablewareTestForm:', form ? 'found' : 'NOT FOUND');
+    
+    // 🎯 修改：即使form为null,也要执行快速访问模式的初始化逻辑
     if (form) {
         form.removeAttribute('onsubmit');
-        form.addEventListener('submit', handleFormSubmit);
-        updateFormStructure();
+        
+        // 在快速访问模式下，隐藏整个表单区域，只显示数据表格
+        if (isQuickAccess) {
+            // 使用多种方法确保表单被隐藏
+            form.style.display = 'none !important';
+            form.style.visibility = 'hidden';
+            form.classList.add('hidden-in-quick-access');
+            
+            console.log('✅ 快速访问模式：表单已隐藏，仅显示数据表格');
+            
+            // ✨ 直接在Tableware全局作用域中export renderTable，以便可以从外部调用
+            window.renderTablewareData = () => {
+                renderTable();
+            };
+            
+            // 延迟足够长的时间以确保示例数据已初始化
+            setTimeout(() => {
+                console.log('📊 快速访问模式：1秒后调用renderTable() - 确保数据已加载');
+                renderTable();
+            }, 1000);
+            
+            // 再次确认隐藏
+            setTimeout(() => {
+                form.style.display = 'none !important';
+                console.log('✅ 二次确认：表单隐藏状态检查完成');
+            }, 200);
+        } else {
+            form.addEventListener('submit', handleFormSubmit);
+            updateFormStructure();
+            document.getElementById('btnAddAtpPoint')?.addEventListener('click', addAtpPoint);
+        }
     }
-
-    document.getElementById('btnAddAtpPoint')?.addEventListener('click', addAtpPoint);
     
     // 事件委托
     document.getElementById('tablewareRecords')?.addEventListener('click', (e) => {
@@ -63,7 +106,41 @@ export function initTableware() {
     });
 
     setupPaginationListeners();
-    renderTable();
+    
+    // ✨ 如果是快速访问模式，即使form没有找到也要渲染表格
+    if (isQuickAccess) {
+        console.log('📊 快速访问模式 - 立即调用renderTable()');
+        // 立即调用
+        try {
+            renderTable();
+            window.tablewareReady = true;
+            console.log('✅ renderTable()同步执行成功');
+        } catch (e) {
+            console.error('❌ renderTable()同步执行失败:', e);
+        }
+        
+        // 也使用延迟调用作为备份
+        setTimeout(() => {
+            console.log('📊 500ms延迟：再次调用renderTable()');
+            try {
+                renderTable();
+                console.log('✅ renderTable()延迟执行成功');
+            } catch (e) {
+                console.error('❌ renderTable()延迟执行失败:', e);
+            }
+        }, 500);
+    } else {
+        renderTable();
+    }
+    
+    // ✨ 快速访问模式：监听数据变化事件
+    if (isQuickAccess) {
+        console.log('📊 监听 dataChanged 事件以重新渲染表格');
+        document.addEventListener('dataChanged', () => {
+            console.log('📊 dataChanged 事件触发 - 重新渲染Tableware表格');
+            setTimeout(renderTable, 100);
+        });
+    }
 }
 
 // --- 核心业务逻辑：编辑与整改 ---
@@ -661,9 +738,46 @@ function handleFormSubmit(e) {
 
 // ✅ 修改：renderTable 函数增加食堂筛选逻辑
 function renderTable() {
-    const allRecords = storage.getAll();
+    // ✨ 设置调试标志
+    window.renderTableExecuted = (window.renderTableExecuted || 0) + 1;
+    console.log('🎯 renderTable() 被调用 - 第', window.renderTableExecuted, '次');
+    
+    // ✨ 快速访问模式：直接从localStorage读取，绕过StorageService缓存
+    let allRecords;
+    const isQuickAccess = new URLSearchParams(window.location.search).get('quickAccess') === 'true';
+    
+    console.log('📊 renderTable: isQuickAccess =', isQuickAccess);
+    
+    if (isQuickAccess) {
+        try {
+            const cacheData = localStorage.getItem('cache_tableware');
+            const parsed = JSON.parse(cacheData || '{}');
+            allRecords = parsed.data || [];
+            console.log('📖 快速访问模式：从localStorage读取', allRecords.length, '条记录');
+            if (allRecords.length > 0) {
+                console.log('📋 第一条记录ID:', allRecords[0].id, '日期:', allRecords[0].testDate);
+            }
+        } catch (e) {
+            console.error('❌ 读取缓存失败:', e);
+            allRecords = storage.getAll();
+        }
+    } else {
+        allRecords = storage.getAll();
+        console.log('📖 普通模式：从StorageService读取', allRecords.length, '条记录');
+    }
+    
     const tbody = document.getElementById('tablewareRecords');
-    if (!tbody) return;
+    window.lastTableRenderDebug = {
+        called: true,
+        tbodyFound: !!tbody,
+        allRecordsCount: allRecords.length,
+        isQuickAccess: isQuickAccess
+    };
+    console.log('🎯 获取tbody元素:', tbody ? 'found' : 'not found', '记录数:', allRecords.length);
+    if (!tbody) {
+        console.error('❌ tablewareRecords 元素不存在!');
+        return;
+    }
 
     // 表头
     const thead = tbody.parentElement.querySelector('thead');
@@ -704,16 +818,23 @@ function renderTable() {
 
     updatePagination(startIndex, Math.min(startIndex + recordsPerPage, totalRecords), totalRecords, totalPages);
 
+    console.log('🎯 渲染前检查 - currentRecords.length:', currentRecords.length, ', totalRecords:', totalRecords);
+    
     if (!currentRecords || currentRecords.length === 0) {
+        console.log('⚠️ 没有当前记录要显示，显示空消息');
         tbody.innerHTML = `<tr><td colspan="7" class="text-center py-6 text-gray-500 bg-gray-50">暂无检测数据记录</td></tr>`;
         return;
     }
 
     let tableContent = '';
     
-    currentRecords.forEach(record => {
+    currentRecords.forEach((record, idx) => {
+        console.log(`🎯 处理第${idx + 1}条记录:`, record.id, record.testDate);
+        
         const points = Array.isArray(record.atpPoints) ? record.atpPoints : [];
         const rowSpan = Math.max(1, points.length);
+        
+        console.log(`  - atpPoints数量: ${points.length}`);
         
         // 状态显示逻辑
         let displayStatusHtml = '';
@@ -770,7 +891,10 @@ function renderTable() {
         });
     });
     
+    console.log('✅ 表格内容生成完成，长度:', tableContent.length, '字节');
+    console.log('✅ 设置tbody.innerHTML，包含', (tableContent.match(/<tr/g) || []).length, '行');
     tbody.innerHTML = tableContent;
+    console.log('✅ 表格已渲染，当前tbody包含', tbody.querySelectorAll('tr').length, '行');
 }
 
 // ✅ 修改：setupPaginationListeners 函数增加食堂筛选事件

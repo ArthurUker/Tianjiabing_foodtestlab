@@ -4,6 +4,7 @@ import { GenericTestModule } from './modules/GenericTest.js';
 import { initPathogen } from './modules/Pathogen.js';
 import { initDashboard } from './modules/Dashboard.js';
 import { ExportService } from './services/ExportService.js';
+import { initializeSampleData } from './utils/SampleDataGenerator.js';
 // 1. ✨ 引入新模块
 import { BackupRestoreService } from './modules/BackupRestore.js';
 // 2. ✨ 引入认证与路由
@@ -17,6 +18,52 @@ import { initAuditLog } from './modules/AuditLog.js';
 // 6. ✨ 引入访客管理模块
 import { initGuestManagement } from './modules/GuestManagement.js';
 // 7. ✨ 引入会话管理服务
+
+// ✨ 全局快速访问模式渲染函数 - 直接暴露给window
+window.renderQuickAccessData = () => {
+    console.log('🎯 快速访问模式渲染函数被调用');
+    
+    const tbody = document.getElementById('tablewareRecords');
+    if (!tbody) {
+        console.warn('⚠️ tablewareRecords 元素不存在');
+        return;
+    }
+    
+    const cacheData = localStorage.getItem('cache_tableware');
+    if (!cacheData) {
+        console.warn('⚠️ 缓存无数据');
+        return;
+    }
+    
+    try {
+        const parsed = JSON.parse(cacheData);
+        const records = parsed.data || [];
+        console.log(`✅ 发现${records.length}条记录`);
+        
+        if (records.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="7" class="text-center py-6">暂无数据</td></tr>`;
+            return;
+        }
+        
+        let html = '';
+        records.slice(0, 20).forEach(record => {
+            html += `<tr>
+                <td class="border px-4 py-2">${record.testDate || ''}</td>
+                <td class="border px-4 py-2">${record.canteen || ''}</td>
+                <td class="border px-4 py-2">${record.location || ''}</td>
+                <td class="border px-4 py-2">${record.rluValue || ''}</td>
+                <td class="border px-4 py-2">${record.result || ''}</td>
+                <td class="border px-4 py-2">${record.inspector || ''}</td>
+                <td class="border px-4 py-2">-</td>
+            </tr>`;
+        });
+        tbody.innerHTML = html;
+        console.log(`✅ 已渲染${records.length}条记录`);
+    } catch (e) {
+        console.error('❌ 渲染失败:', e);
+    }
+};
+
 import { sessionManager } from './services/SessionManager.js';
 // 8. ✨ 引入访客认证服务 (使用单例实例)
 import guestAuthService from './services/GuestAuthService.js';
@@ -26,6 +73,40 @@ import { GuestDashboard } from './modules/GuestDashboard.js';
 import { ExportApproval } from './modules/ExportApproval.js';
 
 console.log('✅ main.js 模块加载开始');
+
+// ✅ 全局导航处理函数 - 作为 onclick 属性的备份
+window.handleNavigation = function(target) {
+    console.log('🔧 handleNavigation 被调用，目标:', target);
+    
+    if (!target) return;
+    
+    // 获取所有按钮和内容区域
+    const allBtns = document.querySelectorAll('.nav-btn');
+    const allSections = document.querySelectorAll('.content-section');
+    
+    // 移除所有激活状态
+    allBtns.forEach(btn => {
+        btn.classList.remove('active', 'bg-blue-700');
+    });
+    allSections.forEach(section => {
+        section.classList.add('hidden');
+    });
+    
+    // 找到目标按钮并激活
+    const targetBtn = Array.from(allBtns).find(btn => btn.getAttribute('data-target') === target);
+    if (targetBtn) {
+        targetBtn.classList.add('active', 'bg-blue-700');
+    }
+    
+    // 显示目标内容
+    const targetSection = document.getElementById(target);
+    if (targetSection) {
+        targetSection.classList.remove('hidden');
+        console.log('✅ 导航成功，显示:', target);
+    } else {
+        console.error('❌ 无法找到内容区域:', target);
+    }
+};
 
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('✅ DOMContentLoaded 事件触发');
@@ -51,20 +132,45 @@ document.addEventListener('DOMContentLoaded', async () => {
             guestAuthService.quickAccessAsViewer();
         }
         
+        // ✨ 在快速访问模式下初始化示例数据
+        if (isQuickAccessMode) {
+            console.log('📊 初始化快速访问模式的示例数据...');
+            initializeSampleData();
+        }
+        
         // 0. 🔐 初始化路由与认证系统 (必须最先执行)
         console.log('🔧 Router 初始化中...');
         await router.init();
         router.setupAll();
-        console.log('✅ Router 初始化完成');
+        
+        // 🎯 暴露 router 到全局作用域（用于调试和登出功能）
+        window.router = router;
+        console.log('✅ Router 初始化完成, window.router 已暴露');
         
         // 1. UI 初始化 (它会自动处理侧边栏点击切换)
         console.log('🔧 UIHelper.setupNavigation 调用中...');
-        UIHelper.setupNavigation();
-        console.log('✅ UIHelper.setupNavigation 完成');
+        
+        // 使用 Promise 确保导航设置在下一个微任务中执行
+        Promise.resolve().then(() => {
+            try {
+                const navBtns = document.querySelectorAll('.nav-btn');
+                if (navBtns.length === 0) {
+                    console.warn('⚠️ 未找到导航按钮，将在 100ms 后重试');
+                    setTimeout(() => {
+                        UIHelper.setupNavigation();
+                    }, 100);
+                } else {
+                    UIHelper.setupNavigation();
+                }
+                console.log('✅ UIHelper.setupNavigation 完成');
+            } catch (error) {
+                console.error('❌ UIHelper.setupNavigation 失败:', error);
+            }
+        });
         
         // 🎯 快速访问模式：隐藏管理功能菜单 (必须在 UIHelper.setupNavigation 之后执行)
         if (isQuickAccessMode) {
-            console.log('� ========== 快速访问模式激活 - 开始隐藏菜单 ==========');
+            console.log('✨ ========== 快速访问模式激活 - 开始隐藏菜单与编辑功能 ==========');
             
             // 方法1: 使用内联 CSS 样式 (使用 !important)
             const style = document.createElement('style');
@@ -73,15 +179,53 @@ document.addEventListener('DOMContentLoaded', async () => {
                 button[data-target="backup-restore"],
                 button[data-admin-only],
                 div[data-admin-only],
-                #btnExportDashboard {
+                #btnExportDashboard,
+                #btnAddAtpPoint,
+                #btnImportPathogen,
+                #btnDownloadTemplate,
+                #fileInput,
+                #pathogenFileInput,
+                button[type="submit"],
+                .btn-delete,
+                .btn-edit,
+                .btn-remove-point {
                     display: none !important;
                 }
                 div.text-xs.text-gray-400.font-semibold {
                     display: none !important;
                 }
+                /* 禁用表单输入 */
+                #tablewareTestForm input,
+                #tablewareTestForm select,
+                #tablewareTestForm textarea,
+                #pesticideTestForm input,
+                #pesticideTestForm select,
+                #pesticideTestForm textarea,
+                #oilTestForm input,
+                #oilTestForm select,
+                #oilTestForm textarea,
+                #leanMeatTestForm input,
+                #leanMeatTestForm select,
+                #leanMeatTestForm textarea {
+                    background-color: #f5f5f5 !important;
+                    cursor: not-allowed !important;
+                    opacity: 0.8 !important;
+                }
             `;
             document.head.appendChild(style);
+            
+            // 方法2: 直接禁用所有表单元素
+            setTimeout(() => {
+                document.querySelectorAll('input, select, textarea, button[type="submit"]').forEach(el => {
+                    if (!el.dataset.target) {  // 不禁用导航按钮
+                        el.disabled = true;
+                        el.readOnly = true;
+                    }
+                });
+                console.log('✅ 快速访问模式：所有表单编辑功能已禁用');
+            }, 500);
         }
+
 
         // 2. 业务模块初始化
         console.log('🔧 initTableware 调用中...');
@@ -100,8 +244,30 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // 3. 看板初始化
         console.log('🔧 initDashboard 调用中...');
-        initDashboard();
-        console.log('✅ initDashboard 完成');
+        try {
+            console.log('📝 initDashboard 是否存在:', typeof initDashboard);
+            const result = initDashboard();
+            console.log('📊 initDashboard 返回值:', result);
+            // 🎯 暴露 initDashboard 到全局作用域以便调试
+            window.initDashboard = initDashboard;
+            console.log('✅ initDashboard 完成');
+            
+            // 🔥 强制确保Dashboard显示正确标题
+            setTimeout(() => {
+                const dashboardH2 = document.querySelector('#dashboard h2');
+                if (dashboardH2 && dashboardH2.textContent.includes('实时数据概览')) {
+                    console.warn('⚠️ Dashboard标题未更新，强制纠正...');
+                    if (typeof createDashboardStructure === 'function') {
+                        createDashboardStructure();
+                        console.log('✅ Dashboard已强制重新初始化');
+                    }
+                }
+            }, 500);
+        } catch (error) {
+            console.error('❌ initDashboard 执行出错:', error.message, error.stack);
+            // 即使出错，也尝试暴露函数
+            window.initDashboard = initDashboard;
+        }
 
         // 4. 看板快速导出功能 (仅非快速访问模式)
         if (!isQuickAccessMode) {
@@ -180,7 +346,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         // 10. ✨ 初始化访客中心 (仅访客登录用户可访问)
         console.log('🔧 GuestDashboard 初始化中...');
         try {
-            if (guestAuthService.isLoggedIn()) {
+            // 🎯 关键修复：只有当访客已登录且管理员未登录时，才显示访客仪表板
+            const isAdminLoggedIn = authService.getToken();
+            const isGuestLoggedIn = guestAuthService.isLoggedIn();
+            
+            console.log('🔍 管理员token:', !!isAdminLoggedIn);
+            console.log('🔍 访客状态:', isGuestLoggedIn);
+            
+            if (isGuestLoggedIn && !isAdminLoggedIn) {
                 console.log('✅ 检测到访客登录，初始化访客仪表板...');
                 
                 // 检查是否为快速访问模式
@@ -240,7 +413,83 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
         
+        // ✨ 最后：确保导航已正确设置（作为备份）
+        console.log('🔧 导航最终检查中...');
+        try {
+            const navBtns = document.querySelectorAll('.nav-btn');
+            console.log(`  发现 ${navBtns.length} 个导航按钮`);
+            if (navBtns.length > 0) {
+                UIHelper.setupNavigation();
+                console.log('✅ 导航设置成功');
+            } else {
+                console.warn('⚠️ 未找到导航按钮');
+            }
+        } catch (error) {
+            console.error('❌ 导航设置失败:', error);
+        }
+        
         console.log('✅✅✅ 所有模块初始化完成！');
+        
+        // ✨ 快速访问模式：后备数据渲染器
+        window.isQuickAccessModeOnInit = isQuickAccessMode;  // 保存状态用于调试
+        console.log('🔍 DEBUG: isQuickAccessMode =', isQuickAccessMode);
+        
+        if (isQuickAccessMode) {
+            console.log('🎯 快速访问模式 - 启用后备数据渲染');
+            window.backupRendererScheduled = true;
+            setTimeout(() => {
+                window.backupRendererExecuted = true;
+                console.log('🎯 后备渲染器：2秒后检查表格并填充数据');
+                
+                // 专门处理餐具洁净度
+                const tbody = document.getElementById('tablewareRecords');
+                if (tbody) {
+                    const cacheData = localStorage.getItem('cache_tableware');
+                    if (cacheData) {
+                        try {
+                            const parsed = JSON.parse(cacheData);
+                            const records = parsed.data || [];
+                            console.log(`🎯 餐具洁净度: 发现${records.length}条记录`);
+                            
+                            if (records.length > 0) {
+                                let html = '';
+                                records.slice(0, 20).forEach(record => {
+                                    const testDate = record.testDate || '';
+                                    const canteen = record.canteen || '';
+                                    const location = record.location || '';
+                                    const rluValue = record.rluValue || '';
+                                    const result = record.result || '';
+                                    const inspector = record.inspector || '';
+                                    
+                                    html += `<tr>
+                                        <td class="border px-4 py-2">${testDate}</td>
+                                        <td class="border px-4 py-2">${canteen}</td>
+                                        <td class="border px-4 py-2">${location}</td>
+                                        <td class="border px-4 py-2">${rluValue}</td>
+                                        <td class="border px-4 py-2">${result}</td>
+                                        <td class="border px-4 py-2">${inspector}</td>
+                                        <td class="border px-4 py-2">-</td>
+                                    </tr>`;
+                                });
+                                tbody.innerHTML = html;
+                                console.log(`✅ 餐具洁净度: 已渲染${records.length}条记录`);
+                            } else {
+                                tbody.innerHTML = `<tr><td colspan="7" class="text-center py-6">暂无数据</td></tr>`;
+                            }
+                        } catch (e) {
+                            console.error(`❌ 餐具洁净度渲染失败:`, e);
+                        }
+                    } else {
+                        console.warn(`⚠️ 餐具缓存无数据`);
+                    }
+                } else {
+                    console.warn(`⚠️ tablewareRecords 元素不存在`);
+                }
+            }, 2000);  // 2秒延迟
+        } else {
+            console.log('🔍 DEBUG: 快速访问模式未启用');
+        }
+
     } catch (error) {
         console.error('❌❌❌ DOMContentLoaded 中发生错误:', error);
         console.error('Stack:', error.stack);

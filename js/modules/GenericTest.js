@@ -3,6 +3,7 @@ import { auth } from '../core/Auth.js';
 import { FormValidator } from '../utils/FormValidator.js';
 import { UINotification } from '../utils/UINotification.js';
 import { NetworkHelper } from '../utils/NetworkHelper.js';
+import { GuestAuthService } from '../services/GuestAuthService.js';
 
 export class GenericTestModule {
     constructor(config) {
@@ -15,6 +16,11 @@ export class GenericTestModule {
         this.sortOrder = 'desc';
         this.selectedCanteenFilter = 'all';
         this.selectedMeatTypes = [];
+        
+        // ✨ 检查是否处于快速访问模式
+        const guestAuthService = new GuestAuthService();
+        this.isQuickAccess = guestAuthService.isQuickAccessMode();
+        
         this.init();
     }
 
@@ -22,11 +28,18 @@ export class GenericTestModule {
         const form = document.getElementById(this.formId);
         if (form) {
             form.removeAttribute('onsubmit');
-            form.addEventListener('submit', (e) => this.handleSubmit(e));
-            this.updateFormStructure();
-
-            if (this.moduleName === 'oil') {
-                this.initOilQualityAutoUpdate();
+            
+            // 在快速访问模式下，隐藏整个表单区域，只显示数据表格
+            if (this.isQuickAccess) {
+                form.style.display = 'none';
+                console.log(`✅ 快速访问模式：${this.moduleName} 表单已隐藏，仅显示数据表格`);
+            } else {
+                form.addEventListener('submit', (e) => this.handleSubmit(e));
+                this.updateFormStructure();
+                
+                if (this.moduleName === 'oil') {
+                    this.initOilQualityAutoUpdate();
+                }
             }
         }
 
@@ -160,7 +173,24 @@ export class GenericTestModule {
     }
 
     getFilteredRecords() {
-        const allRecords = this.storage.getAll();
+        // ✨ 快速访问模式：直接从localStorage读取，绕过StorageService缓存
+        let allRecords;
+        const isQuickAccess = new URLSearchParams(window.location.search).get('quickAccess') === 'true';
+        
+        if (isQuickAccess) {
+            try {
+                const cacheKey = `cache_${this.moduleName}`;
+                const cacheData = localStorage.getItem(cacheKey);
+                allRecords = cacheData ? JSON.parse(cacheData).data || [] : [];
+                console.log(`📖 快速访问模式: ${this.moduleName} 从localStorage读取`, allRecords.length, '条记录');
+            } catch (e) {
+                console.error('❌ 读取缓存失败:', e);
+                allRecords = this.storage.getAll();
+            }
+        } else {
+            allRecords = this.storage.getAll();
+        }
+        
         let filteredRecords = allRecords;
 
         if (this.selectedCanteenFilter !== 'all') {

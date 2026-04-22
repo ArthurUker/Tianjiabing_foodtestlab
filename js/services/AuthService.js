@@ -62,6 +62,14 @@ export class AuthService {
             }
 
             if (data.success && data.token) {
+                // 🎯 在登录前清除所有访客信息（切换身份）
+                console.log('🔧 清除访客信息，准备以管理员身份登录...');
+                localStorage.removeItem('current_guest');
+                localStorage.removeItem('guest_token');
+                localStorage.removeItem('is_quick_access');
+                sessionStorage.removeItem('current_guest');
+                sessionStorage.removeItem('guest_token');
+                
                 // 保存 Token 和用户信息
                 this.saveToken(data.token, data.expiresIn);
                 this.saveUser(data.user);

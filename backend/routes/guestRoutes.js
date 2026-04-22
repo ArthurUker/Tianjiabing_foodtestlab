@@ -14,6 +14,56 @@ const JWT_SECRET = process.env.JWT_SECRET || 'food-lab-secret-key-guest';
 const JWT_EXPIRE = '7d';
 
 /**
+ * 快速访客访问 - 无需账号密码直接访问
+ * POST /api/guest/quick-access
+ * 用于 "数据查看访客" - 只能查看数据，不能编辑
+ */
+router.post('/quick-access', async (req, res) => {
+    try {
+        console.log('🔓 处理快速访客访问请求...');
+        
+        // 生成临时访客令牌
+        const tempGuestId = 'temp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        
+        // 生成 JWT Token - 用于快速访问模式
+        const token = jwt.sign(
+            {
+                guestId: tempGuestId,
+                username: '快速查看访客',
+                email: 'quick-view@local',
+                type: 'guest',
+                guest_type: 'viewer',  // 只读访客
+                has_export_permission: false,
+                is_quick_access: true,  // 标记为快速访问
+                created_at: new Date().toISOString()
+            },
+            JWT_SECRET,
+            { expiresIn: '4h' }  // 快速访问4小时有效期
+        );
+
+        // 记录快速访问（如果需要审计日志）
+        console.log('✅ 快速访客令牌已生成:', tempGuestId);
+
+        res.json({
+            success: true,
+            token,
+            guest: {
+                id: tempGuestId,
+                username: '快速查看访客',
+                full_name: '数据查看访客',
+                guest_type: 'viewer',
+                has_export_permission: false,
+                is_quick_access: true,
+                expires_in: '4 hours'
+            }
+        });
+    } catch (error) {
+        console.error('快速访客访问错误:', error);
+        res.status(500).json({ error: '服务器错误: ' + error.message });
+    }
+});
+
+/**
  * 访客自助注册（只读访客或导出申请访客）
  * POST /api/guest/register
  */

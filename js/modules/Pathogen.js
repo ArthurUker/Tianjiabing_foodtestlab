@@ -3,6 +3,7 @@ import { auth } from '../core/Auth.js';
 import { FormValidator } from '../utils/FormValidator.js';
 import { UINotification } from '../utils/UINotification.js';
 import { NetworkHelper } from '../utils/NetworkHelper.js';
+import { GuestAuthService } from '../services/GuestAuthService.js';
 
 const storage = new StorageService('pathogen');
 let currentPage = 1;
@@ -11,24 +12,37 @@ let sortOrder = 'desc';
 let selectedCanteenFilter = 'all'; // ✅ 新增：食堂筛选状态
 
 export function initPathogen() {
+    // ✨ 检查是否处于快速访问模式
+    const guestAuthService = new GuestAuthService();
+    const isQuickAccess = guestAuthService.isQuickAccessMode();
+    
     const btnImport = document.getElementById('btnImportPathogen');
     const fileInput = document.getElementById('pathogenFileInput');
     
-    if (btnImport && fileInput) {
-        btnImport.addEventListener('click', () => {
-            if (!fileInput.files.length) return alert('请选择文件');
-            handleFileImport(fileInput.files[0]);
+    // 在快速访问模式下隐藏整个导入区域，只显示数据表格
+    if (isQuickAccess) {
+        const importContainer = fileInput?.closest('.flex')?.parentElement;
+        if (importContainer) {
+            importContainer.style.display = 'none';
+        }
+        console.log('✅ 快速访问模式：已隐藏病原体检测的导入区域，仅显示数据表格');
+    } else {
+        if (btnImport && fileInput) {
+            btnImport.addEventListener('click', () => {
+                if (!fileInput.files.length) return alert('请选择文件');
+                handleFileImport(fileInput.files[0]);
+            });
+        }
+
+        document.getElementById('btnDownloadTemplate')?.addEventListener('click', () => {
+            const link = document.createElement('a');
+            link.href = './templates/pathogen_template.docx';
+            link.download = 'pathogen_template.docx';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
         });
     }
-
-    document.getElementById('btnDownloadTemplate')?.addEventListener('click', () => {
-        const link = document.createElement('a');
-        link.href = './templates/pathogen_template.docx';
-        link.download = 'pathogen_template.docx';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    });
 
     document.getElementById('pathogenRecords')?.addEventListener('click', (e) => {
         const deleteBtn = e.target.closest('.btn-delete');

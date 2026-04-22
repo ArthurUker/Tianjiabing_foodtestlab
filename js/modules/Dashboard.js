@@ -16,49 +16,95 @@ let trendChart, canteenChart;
 const CAN_COLOR_PALETTE = ['#ff00a0', '#4daf4a', '#377eb8', '#8b5cf6', '#ef4444', '#06b6d4', '#a3e635'];
 
 export function initDashboard() {
-    // 创建增强版看板的HTML结构
-    createDashboardStructure();
+    console.log('📊 Dashboard.initDashboard() 开始执行');
     
-    // 设置当前日期
-    const now = new Date();
-    document.getElementById('currentDate').textContent = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`;
-    
-    // 初始化日期选择器默认值
-    document.getElementById('dayFilter').valueAsDate = now;
-    document.getElementById('monthFilter').value = now.toISOString().substring(0, 7);
-    
-    // ✅ 初始化周选择器默认值
-    const weekValue = getWeekString(now);
-    document.getElementById('weekFilter').value = weekValue;
-    
-    // ✅ 初始化食堂选择器
-    initCanteenFilter();
-    
-    // 绑定事件处理器
-    document.getElementById('dateFilterType').addEventListener('change', updateDateFilterOptions);
-    document.getElementById('btnFilterDashboard').addEventListener('click', loadDashboardData);
-    
-    // 初始化图表
-    initCharts();
-    
-    // 加载初始数据
-    loadDashboardData();
-    
-    // 监听数据变化
-    document.addEventListener('dataChanged', loadDashboardData);
-    
-    // 绑定详情链接
-    document.querySelectorAll('a[data-target]').forEach(link => {
-        link.addEventListener('click', function(e) {
-            e.preventDefault();
-            const target = this.getAttribute('data-target');
-            document.querySelector(`button.nav-btn[data-target="${target}"]`).click();
+    try {
+        // 创建增强版看板的HTML结构
+        console.log('🔧 调用 createDashboardStructure()...');
+        createDashboardStructure();
+        console.log('✅ createDashboardStructure() 完成');
+        
+        // 设置当前日期
+        const now = new Date();
+        const currentDateEl = document.getElementById('currentDate');
+        if (currentDateEl) {
+            currentDateEl.textContent = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`;
+        }
+        
+        // 初始化日期选择器默认值
+        const dayFilterEl = document.getElementById('dayFilter');
+        if (dayFilterEl) {
+            dayFilterEl.valueAsDate = now;
+        }
+        
+        const monthFilterEl = document.getElementById('monthFilter');
+        if (monthFilterEl) {
+            monthFilterEl.value = now.toISOString().substring(0, 7);
+        }
+        
+        // ✅ 初始化周选择器默认值
+        const weekValue = getWeekString(now);
+        const weekFilterEl = document.getElementById('weekFilter');
+        if (weekFilterEl) {
+            weekFilterEl.value = weekValue;
+        }
+        
+        // ✅ 初始化食堂选择器
+        console.log('🔧 初始化食堂筛选...');
+        initCanteenFilter();
+        
+        // 绑定事件处理器
+        const dateFilterType = document.getElementById('dateFilterType');
+        if (dateFilterType) {
+            dateFilterType.addEventListener('change', updateDateFilterOptions);
+        }
+        
+        const btnFilterDashboard = document.getElementById('btnFilterDashboard');
+        if (btnFilterDashboard) {
+            btnFilterDashboard.addEventListener('click', loadDashboardData);
+        }
+        
+        // 初始化图表
+        console.log('🔧 初始化图表...');
+        initCharts();
+        
+        // 加载初始数据
+        console.log('🔧 加载初始数据...');
+        loadDashboardData();
+        
+        // ✨ 快速访问模式：添加后备数据加载
+        const isQuickAccess = new URLSearchParams(window.location.search).get('quickAccess') === 'true';
+        if (isQuickAccess) {
+            console.log('🎯 Dashboard 快速访问模式：延迟加载统计数据');
+            setTimeout(() => {
+                console.log('🎯 Dashboard 快速访问模式：执行延迟加载');
+                loadDashboardData();
+            }, 2500);
+        }
+        
+        // 监听数据变化
+        document.addEventListener('dataChanged', loadDashboardData);
+        
+        // 绑定详情链接
+        document.querySelectorAll('a[data-target]').forEach(link => {
+            link.addEventListener('click', function(e) {
+                e.preventDefault();
+                const target = this.getAttribute('data-target');
+                document.querySelector(`button.nav-btn[data-target="${target}"]`).click();
+            });
         });
-    });
-    // 绑定导出看板按钮
-    const btnExportDashboard = document.getElementById('btnExportDashboardPDF');
-    if (btnExportDashboard) {
-        btnExportDashboard.onclick = exportDashboardToPDF;
+        
+        // 绑定导出看板按钮
+        const btnExportDashboard = document.getElementById('btnExportDashboardPDF');
+        if (btnExportDashboard) {
+            btnExportDashboard.onclick = exportDashboardToPDF;
+        }
+        
+        console.log('✅ Dashboard.initDashboard() 执行完成');
+        return true;
+    } catch (error) {
+        console.error('❌ Dashboard.initDashboard() 执行失败:', error.message, error.stack);
+        return false;
     }
 }
 
@@ -67,9 +113,25 @@ function initCanteenFilter() {
     const canteenSet = new Set();
     const types = ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'];
     
+    const isQuickAccess = new URLSearchParams(window.location.search).get('quickAccess') === 'true';
+    
     // 收集所有出现过的食堂
     types.forEach(type => {
-        const records = services[type].getAll();
+        let records;
+        
+        if (isQuickAccess) {
+            try {
+                const cacheKey = `cache_${type}`;
+                const cacheData = localStorage.getItem(cacheKey);
+                records = cacheData ? JSON.parse(cacheData).data || [] : [];
+            } catch (e) {
+                console.error('❌ 读取缓存失败:', e);
+                records = services[type].getAll();
+            }
+        } else {
+            records = services[type].getAll();
+        }
+        
         records.forEach(r => {
             if (r && r.canteen) canteenSet.add(r.canteen);
         });
@@ -478,6 +540,9 @@ function loadDashboardData() {
         leanMeat: getStats('leanMeat', startDate, endDate, selectedCanteen),
         pathogen: getStats('pathogen', startDate, endDate, selectedCanteen)
     };
+    
+    // 🎯 DEBUG
+    console.log('🎯 Dashboard stats:', stats);
 
     // 更新卡片显示
     updateCard('tableware', stats.tableware);
@@ -681,7 +746,24 @@ function getWeekRange(weekString) {
 
 // ✅ 修改：通用统计函数 - 增加食堂筛选参数
 function getStats(type, startDate, endDate, selectedCanteen = 'all') {
-  const records = services[type].getAll();
+  // ✨ 快速访问模式：直接从localStorage读取，绕过StorageService缓存
+  let records;
+  const isQuickAccess = new URLSearchParams(window.location.search).get('quickAccess') === 'true';
+  
+  if (isQuickAccess) {
+      try {
+          const cacheKey = `cache_${type}`;
+          const cacheData = localStorage.getItem(cacheKey);
+          records = cacheData ? JSON.parse(cacheData).data || [] : [];
+          console.log(`📖 快速访问模式: ${type} 从localStorage读取`, records.length, '条记录');
+      } catch (e) {
+          console.error('❌ 读取缓存失败:', e);
+          records = services[type].getAll();
+      }
+  } else {
+      records = services[type].getAll();
+  }
+  
   const filtered = records.filter(r => {
       const testDate = r.testDate || (r.timestamp ? r.timestamp.split('T')[0] : null);
       if (!testDate) return false;
@@ -1365,4 +1447,10 @@ function calculateCanteenPassRate(startDate, endDate, selectedCanteen = 'all') {
     });
 
     return { labels, data };
+}
+
+// 🎯 暴露 initDashboard 到全局作用域
+if (typeof window !== 'undefined') {
+    window.initDashboard = initDashboard;
+    console.log('✅ initDashboard 已暴露到 window 全局作用域');
 }

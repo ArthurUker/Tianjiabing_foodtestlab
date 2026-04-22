@@ -62,6 +62,146 @@
         window.addEventListener('load', () => console.log('📍 页面 load 事件触发'));
         document.addEventListener('DOMContentLoaded', () => console.log('📍 页面 DOMContentLoaded 事件触发'));
     </script>
+    
+    <!-- ✅ 内联导航处理函数 - 确保被加载 -->
+    <script>
+        window.handleNavigation = function(target) {
+            console.log('📍 handleNavigation 被调用 (内联)，目标:', target);
+            
+            if (!target) return;
+            
+            // 获取所有按钮和内容区域
+            const allBtns = document.querySelectorAll('.nav-btn');
+            const allSections = document.querySelectorAll('.content-section');
+            
+            console.log('  按钮数:', allBtns.length, '内容区数:', allSections.length);
+            
+            // 移除所有激活状态
+            allBtns.forEach(btn => {
+                btn.classList.remove('active', 'bg-blue-700');
+            });
+            allSections.forEach(section => {
+                section.classList.add('hidden');
+            });
+            
+            // 找到目标按钮并激活
+            const targetBtn = Array.from(allBtns).find(btn => btn.getAttribute('data-target') === target);
+            if (targetBtn) {
+                targetBtn.classList.add('active', 'bg-blue-700');
+                console.log('  ✅ 按钮已激活');
+            }
+            
+            // 显示目标内容
+            const targetSection = document.getElementById(target);
+            if (targetSection) {
+                targetSection.classList.remove('hidden');
+                console.log('  ✅ 内容已显示:', target);
+            } else {
+                console.error('  ❌ 无法找到内容区域:', target);
+            }
+        };
+        
+        console.log('✅ handleNavigation 函数已在 HEAD 中定义');
+    </script>
+    
+    <!-- ✨ 快速访问模式初始化 - 在页面加载最早阶段隐藏编辑功能 -->
+    <script>
+        // 检查是否在快速访问模式
+        const quickAccessParams = new URLSearchParams(window.location.search);
+        const isQuickAccessMode = quickAccessParams.get('quickAccess') === 'true';
+        
+        console.log('🔍 HEAD中检测快速访问模式:', isQuickAccessMode);
+        
+        if (isQuickAccessMode) {
+            console.log('✨ 快速访问模式已检测到 - 应用隐藏样式');
+            
+            // 立即添加 CSS 来隐藏编辑功能
+            const style = document.createElement('style');
+            style.innerHTML = `
+                #btnAddAtpPoint,
+                #btnImportPathogen,
+                #btnDownloadTemplate,
+                #pathogenFileInput,
+                button[type="submit"] {
+                    display: none !important;
+                }
+                
+                /* 隐藏表单中的删除按钮 */
+                .btn-delete,
+                .btn-edit,
+                .btn-remove-point {
+                    display: none !important;
+                }
+                
+                /* 禁用表单输入的可视化 */
+                input[disabled],
+                select[disabled],
+                textarea[disabled] {
+                    background-color: #f5f5f5 !important;
+                    cursor: not-allowed !important;
+                    opacity: 0.85 !important;
+                }
+                
+                /* 快速访问模式：隐藏所有表单 */
+                #tablewareTestForm,
+                #pesticideTestForm,
+                #oilTestForm,
+                #leanMeatTestForm,
+                .flex.gap-4.items-end.mb-6.border.p-4.rounded.bg-gray-50 {
+                    display: none !important;
+                    visibility: hidden !important;
+                    height: 0 !important;
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    border: none !important;
+                }
+            `;
+            document.head.appendChild(style);
+            console.log('✅ 快速访问模式 CSS 已应用 - 所有表单已隐藏');
+            
+            // 在DOMContentLoaded时再次确保隐藏
+            document.addEventListener('DOMContentLoaded', () => {
+                console.log('📍 DOMContentLoaded - 二次确认隐藏表单');
+                ['tablewareTestForm', 'pesticideTestForm', 'oilTestForm', 'leanMeatTestForm'].forEach(formId => {
+                    const form = document.getElementById(formId);
+                    if (form) {
+                        form.style.display = 'none !important';
+                        form.style.visibility = 'hidden';
+                        form.parentElement?.querySelectorAll('form').forEach(f => {
+                            f.style.display = 'none !important';
+                        });
+                    }
+                });
+                
+                // 隐藏所有提交按钮
+                document.querySelectorAll('button[type="submit"]').forEach(btn => {
+                    btn.style.display = 'none !important';
+                });
+                console.log('✅ 表单隐藏二次确认完成');
+            });
+            
+            // 在DOMContentLoaded时再次确保隐藏
+            document.addEventListener('DOMContentLoaded', () => {
+                console.log('📍 DOMContentLoaded - 二次确认隐藏表单');
+                ['tablewareTestForm', 'pesticideTestForm', 'oilTestForm', 'leanMeatTestForm'].forEach(formId => {
+                    const form = document.getElementById(formId);
+                    if (form) {
+                        form.style.display = 'none !important';
+                        form.style.visibility = 'hidden';
+                        form.parentElement?.querySelectorAll('form').forEach(f => {
+                            f.style.display = 'none !important';
+                        });
+                    }
+                });
+                
+                // 隐藏所有提交按钮
+                document.querySelectorAll('button[type="submit"]').forEach(btn => {
+                    btn.style.display = 'none !important';
+                });
+                console.log('✅ 表单隐藏二次确认完成');
+            });
+        }
+    </script>
 </head>
 <body class="bg-gray-50">
 
@@ -95,52 +235,52 @@
                 <p class="text-xs text-gray-400 mt-1">Version 3.0 (Modular)</p>
             </div>
             <nav class="p-2 space-y-1">
-                <button class="nav-btn active w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="dashboard">
+                <button class="nav-btn active w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="dashboard" onclick="window.handleNavigation('dashboard')">
                     <i class="fas fa-tachometer-alt mr-3 w-5"></i>数据看板
                 </button>
-                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="tableware-test">
+                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="tableware-test" onclick="window.handleNavigation('tableware-test')">
                     <i class="fas fa-utensils mr-3 w-5"></i>餐具洁净度
                 </button>
-                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="pesticide-test">
+                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="pesticide-test" onclick="window.handleNavigation('pesticide-test')">
                     <i class="fas fa-seedling mr-3 w-5"></i>果蔬农残
                 </button>
-                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="oil-test">
+                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="oil-test" onclick="window.handleNavigation('oil-test')">
                     <i class="fas fa-oil-can mr-3 w-5"></i>食用油品质
                 </button>
-                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="lean-meat-test">
+                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="lean-meat-test" onclick="window.handleNavigation('lean-meat-test')">
                     <i class="fas fa-drumstick-bite mr-3 w-5"></i>肉、蛋农残检测
                 </button>
-                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="pathogen-test">
+                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="pathogen-test" onclick="window.handleNavigation('pathogen-test')">
                     <i class="fas fa-virus mr-3 w-5"></i>病原体检测
                 </button>
                 <div class="border-t border-gray-700 my-2"></div>
-                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="export-data">
+                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="export-data" onclick="window.handleNavigation('export-data')">
                     <i class="fas fa-file-export mr-3 w-5"></i>数据导出
                 </button>
                 <!-- ✨ 新增：数据备份与恢复 (风格完全统一) -->
-                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="backup-restore">
+                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="backup-restore" onclick="window.handleNavigation('backup-restore')">
                     <i class="fas fa-history mr-3 w-5"></i>数据备份与恢复
                 </button>
                 
                 <!-- ✨ 访客菜单 (仅访客登录可见) -->
                 <div class="border-t border-gray-700 my-2 guest-menu-section hidden"></div>
-                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center guest-menu-section hidden" data-target="guest-dashboard">
+                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center guest-menu-section hidden" data-target="guest-dashboard" onclick="window.handleNavigation('guest-dashboard')">
                     <i class="fas fa-home mr-3 w-5"></i>访客中心
                 </button>
                 
                 <!-- ✨ 管理菜单 (仅管理员可见) -->
                 <div class="border-t border-gray-700 my-2"></div>
                 <div class="px-4 py-2 text-xs text-gray-400 font-semibold">管理</div>
-                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="user-management" data-admin-only>
+                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="user-management" data-admin-only onclick="window.handleNavigation('user-management')">
                     <i class="fas fa-users mr-3 w-5"></i>用户管理
                 </button>
-                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="guest-management" data-admin-only>
+                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="guest-management" data-admin-only onclick="window.handleNavigation('guest-management')">
                     <i class="fas fa-user-friends mr-3 w-5"></i>访客管理
                 </button>
-                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="export-approval" data-admin-only>
+                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="export-approval" data-admin-only onclick="window.handleNavigation('export-approval')">
                     <i class="fas fa-check-circle mr-3 w-5"></i>导出申请审批
                 </button>
-                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="audit-log" data-admin-only>
+                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="audit-log" data-admin-only onclick="window.handleNavigation('audit-log')">
                     <i class="fas fa-history mr-3 w-5"></i>审计日志
                 </button>
             </nav>
@@ -508,6 +648,308 @@
     </div>
 
     <!-- 模块入口 -->
-    <script type="module" src="./js/main.js"></script>
+    <script type="module" src="./js/main.js?t=1776765600000"></script>
+
+    <!-- 🎯 Dashboard 初始化兜底脚本 - 确保Dashboard被正确渲染 -->
+    <script>
+        console.log('🔧 Dashboard 兜底脚本正在加载...');
+        
+        // 强制初始化Dashboard的函数
+        function forceDashboardInit() {
+            const dashboard = document.getElementById('dashboard');
+            if (!dashboard) {
+                console.warn('⚠️ Dashboard 元素不存在');
+                return false;
+            }
+            
+            const dashboardHeading = dashboard.querySelector('h2');
+            
+            if (dashboardHeading && dashboardHeading.textContent.includes('实时数据概览')) {
+                console.log('🔧 开始强制Dashboard初始化...');
+                
+                // 直接修改dashboard内容为"数据看板（分类）"
+                dashboard.innerHTML = `
+                    <div id="dashboard-capture-area" class="bg-white rounded-lg shadow-md p-6 mb-6">
+                        <div class="flex flex-col md:flex-row items-center justify-between gap-4">
+                            <h2 class="text-2xl font-bold text-gray-800">
+                                <i class="fas fa-chart-line text-blue-600 mr-2"></i>数据看板（分类）
+                            </h2>
+                        </div>
+                    </div>
+                `;
+                console.log('✅ Dashboard 标题已更新为"数据看板（分类）"');
+                return true;
+            }
+            return false;
+        }
+        
+        // 立即尝试初始化(如果DOM已就绪)
+        console.log('🔧 尝试立即初始化 Dashboard...');
+        if (document.readyState === 'loading') {
+            console.log('📄 页面仍在加载,监听 DOMContentLoaded...');
+            document.addEventListener('DOMContentLoaded', () => {
+                console.log('✅ DOMContentLoaded 事件触发');
+                setTimeout(() => {
+                    forceDashboardInit();
+                }, 100);
+            });
+        } else {
+            console.log('📄 页面已加载,直接初始化...');
+            setTimeout(() => {
+                forceDashboardInit();
+            }, 100);
+        }
+        
+        // 延迟再次检查(以防万一)
+        setTimeout(() => {
+            console.log('⏱️ 延迟检查 Dashboard...');
+            forceDashboardInit();
+        }, 2000);
+    </script>
+
+    <!-- 🎯 快速访问模式处理脚本 - 在DOM准备好后运行 -->
+    <script>
+        // 🎯 立即为登出按钮添加事件监听（不依赖Router模块）
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('🔧 为登出按钮添加事件监听...');
+            
+            const logoutBtns = document.querySelectorAll('#btnLogout');
+            console.log(`  找到 ${logoutBtns.length} 个登出按钮`);
+            
+            logoutBtns.forEach((btn, index) => {
+                btn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    console.log('🔴 登出按钮被点击！');
+                    
+                    // 清除所有本地存储
+                    console.log('  清除本地存储...');
+                    ['authToken', 'guestToken', 'user', 'guest', 'is_quick_access', 
+                     'cache_tableware', 'cache_pesticide', 'cache_oil', 'cache_lean', 
+                     'cache_pathogen', 'saved_username'].forEach(key => {
+                        localStorage.removeItem(key);
+                        sessionStorage.removeItem(key);
+                    });
+                    
+                    console.log('  ✅ 本地存储已清除');
+                    console.log('  正在跳转到登录页面...');
+                    
+                    // 延迟跳转确保清除操作完成
+                    setTimeout(() => {
+                        window.location.href = './login.html';
+                    }, 300);
+                });
+            });
+            
+            console.log('✅ 登出按钮事件处理已设置');
+            
+            // 其他快速访问模式处理...
+            const isQuickAccess = new URLSearchParams(window.location.search).get('quickAccess') === 'true';
+            console.log('🔧 快速访问模式处理器 - DOMContentLoaded');
+            console.log('📌 快速访问模式状态:', isQuickAccess);
+            
+            if (isQuickAccess) {
+                console.log('✨ 开始快速访问模式配置...');
+                
+                // 第1步：隐藏所有表单
+                setTimeout(() => {
+                    console.log('📍 步骤1: 隐藏所有表单元素');
+                    const formIds = [
+                        'tablewareTestForm',
+                        'pesticideTestForm', 
+                        'oilTestForm',
+                        'leanMeatTestForm',
+                        'pathogenTestForm'
+                    ];
+                    
+                    formIds.forEach(formId => {
+                        const form = document.getElementById(formId);
+                        if (form) {
+                            console.log(`  - 隐藏表单: ${formId}`);
+                            form.style.display = 'none';
+                            form.style.visibility = 'hidden';
+                            form.style.height = '0';
+                            form.style.margin = '0';
+                            form.style.padding = '0';
+                            form.style.border = 'none';
+                        }
+                    });
+                    
+                    // 隐藏所有提交按钮和添加按钮
+                    document.querySelectorAll('button[type="submit"]').forEach(btn => {
+                        btn.style.display = 'none';
+                    });
+                    
+                    console.log('✅ 表单隐藏完成');
+                }, 100);
+                
+                // 第2步：禁用表单输入
+                setTimeout(() => {
+                    console.log('📍 步骤2: 禁用所有输入元素');
+                    document.querySelectorAll('input, select, textarea').forEach(elem => {
+                        elem.disabled = true;
+                        elem.style.backgroundColor = '#f5f5f5';
+                        elem.style.cursor = 'not-allowed';
+                    });
+                    console.log('✅ 输入元素已禁用');
+                }, 200);
+                
+                // 第3步：显示数据提示
+                setTimeout(() => {
+                    console.log('📍 步骤3: 等待数据加载完成');
+                    // 监听 StorageService 数据更新
+                    let dataCheckCount = 0;
+                    const checkData = setInterval(() => {
+                        const tablewareData = localStorage.getItem('cache_tableware');
+                        dataCheckCount++;
+                        console.log(`  📊 数据检查 #${dataCheckCount}:`, tablewareData ? '✅ 有数据' : '⏳ 等待中...');
+                        
+                        if (tablewareData || dataCheckCount > 10) {
+                            clearInterval(checkData);
+                            console.log('✅ 数据检查完成');
+                        }
+                    }, 100);
+                }, 300);
+            }
+        });
+    </script>
+    
+    <!-- 🎯 快速访问模式辅助脚本 - 确保表格数据显示 -->
+    <script>
+        // 等待所有初始化完成后，检查并渲染快速访问模式的表格
+        setTimeout(() => {
+            const isQuickAccess = new URLSearchParams(window.location.search).get('quickAccess') === 'true';
+            if (!isQuickAccess) return;
+            
+            console.log('🎯 [辅助脚本] 检查快速访问模式表格渲染');
+            
+            // 检查是否已经准备好
+            if (window.tablewareReady) {
+                console.log('✅ Tableware已准备好');
+                return;
+            }
+            
+            // 尝试收集所有表格并检查其数据
+            const tableIds = ['tablewareRecords', 'pesticideRecords', 'oilRecords', 'leanMeatRecords'];
+            tableIds.forEach(tableId => {
+                const tbody = document.getElementById(tableId);
+                if (!tbody) return;
+                
+                const rows = tbody.querySelectorAll('tr');
+                console.log(`  📊 ${tableId}: ${rows.length} 行`);
+                
+                // 如果某个表格为空但有缓存数据，尝试手动触发渲染
+                if (rows.length === 0) {
+                    const moduleName = tableId.replace('Records', '');
+                    const cacheKey = `cache_${moduleName}`;
+                    const cacheData = localStorage.getItem(cacheKey);
+                    
+                    if (cacheData) {
+                        const parsed = JSON.parse(cacheData);
+                        console.log(`  ⚠️ ${cacheKey} 有${parsed.data ? parsed.data.length : 0}条数据，但表格为空`);
+                    }
+                }
+            });
+        }, 3000);  // 3秒后检查
+    </script>
+    
+    <!-- 🎯 快速访问模式：最后备渲染 - 调用全局函数 -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('🎯 [DOMContentLoaded在index.html] 快速访问模式最后备渲染');
+            setTimeout(() => {
+                const isQuickAccess = new URLSearchParams(window.location.search).get('quickAccess') === 'true';
+                console.log('🎯 [index.html] renderQuickAccessData 存在:', !!window.renderQuickAccessData);
+                console.log('🎯 [index.html] isQuickAccess:', isQuickAccess);
+                
+                if (isQuickAccess) {
+                    // 如果函数还不存在，直接在这里定义并执行
+                    if (!window.renderQuickAccessData) {
+                        console.log('🎯 [index.html] renderQuickAccessData不存在，直接在这里执行');
+                        const tbody = document.getElementById('tablewareRecords');
+                        if (tbody) {
+                            const cacheData = localStorage.getItem('cache_tableware');
+                            if (cacheData) {
+                                try {
+                                    const parsed = JSON.parse(cacheData);
+                                    const records = parsed.data || [];
+                                    console.log(`✅ [index.html] 直接渲染: 发现${records.length}条记录`);
+                                    
+                                    if (records.length > 0) {
+                                        let html = '';
+                                        records.slice(0, 20).forEach(record => {
+                                            html += `<tr>
+                                                <td class="border px-4 py-2">${record.testDate || ''}</td>
+                                                <td class="border px-4 py-2">${record.canteen || ''}</td>
+                                                <td class="border px-4 py-2">${record.location || ''}</td>
+                                                <td class="border px-4 py-2">${record.rluValue || ''}</td>
+                                                <td class="border px-4 py-2">${record.result || ''}</td>
+                                                <td class="border px-4 py-2">${record.inspector || ''}</td>
+                                                <td class="border px-4 py-2">-</td>
+                                            </tr>`;
+                                        });
+                                        tbody.innerHTML = html;
+                                        console.log(`✅ [index.html] 直接渲染完成`);
+                                    }
+                                } catch (e) {
+                                    console.error('❌ [index.html] 直接渲染失败:', e);
+                                }
+                            }
+                        }
+                    } else if (window.renderQuickAccessData) {
+                        console.log('🎯 [index.html] 调用 renderQuickAccessData');
+                        window.renderQuickAccessData();
+                    }
+                    
+                    // 🎯 也直接更新Dashboard卡片
+                    console.log('🎯 [index.html] 更新Dashboard卡片');
+                    const types = ['tableware', 'pesticide', 'oil'];
+                    types.forEach(type => {
+                        const cacheKey = `cache_${type}`;
+                        const cacheData = localStorage.getItem(cacheKey);
+                        if (!cacheData) return;
+                        
+                        try {
+                            const parsed = JSON.parse(cacheData);
+                            const records = parsed.data || [];
+                            
+                            let count = 0;
+                            let passCount = 0;
+                            
+                            if (type === 'tableware') {
+                                records.forEach(r => {
+                                    count++;
+                                    if (r.result && r.result.includes('合格')) {
+                                        passCount++;
+                                    }
+                                });
+                            } else if (type === 'pesticide' || type === 'oil') {
+                                count = records.length;
+                                records.forEach(r => {
+                                    if ((r.result && r.result.includes('合格')) || 
+                                        (r.pestResult && r.pestResult.includes('合格'))) {
+                                        passCount++;
+                                    }
+                                });
+                            }
+                            
+                            const passRate = count > 0 ? Math.round((passCount / count) * 100) : 0;
+                            
+                            const countEl = document.getElementById(`card_${type}_count`);
+                            const passEl = document.getElementById(`card_${type}_pass`);
+                            
+                            if (countEl) countEl.textContent = count;
+                            if (passEl) passEl.textContent = `${passRate}%`;
+                            
+                            console.log(`✅ [index.html] ${type}: ${count}条, ${passRate}%`);
+                        } catch (e) {
+                            console.error(`❌ [index.html] ${type}更新失败:`, e);
+                        }
+                    });
+                }
+            }, 3000);
+        });
+    </script>
+
 </body>
 </html>

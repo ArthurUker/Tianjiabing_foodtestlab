@@ -366,8 +366,8 @@
         
         // ===== 管理员登录表单元素 =====
         const form = document.getElementById('loginForm');
-        const usernameInput = document.getElementById('adminUsername');
-        const passwordInput = document.getElementById('adminPassword');
+        const usernameInput = document.getElementById('username');
+        const passwordInput = document.getElementById('password');
         const rememberMeCheckbox = document.getElementById('rememberMe');
         const loginBtn = document.getElementById('loginBtn');
         const loginBtnText = document.getElementById('loginBtnText');
@@ -426,29 +426,6 @@
                 guestRegisterNotice.classList.add('hidden');
                 guestSubmitBtnText.innerHTML = '<i class="fas fa-sign-in-alt mr-2"></i>登 录';
             }
-        }
-
-        // ===== 快速查看按钮事件 =====
-        const quickViewBtn = document.getElementById('quickViewBtn');
-        if (quickViewBtn) {
-            quickViewBtn.addEventListener('click', async () => {
-                console.log('🚀 用户点击快速查看数据按钮');
-                
-                // 激活快速访问模式
-                guestAuthService.quickAccessAsViewer();
-                
-                // 显示成功消息
-                const message = document.createElement('div');
-                message.className = 'fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 animate-bounce';
-                message.innerHTML = '<i class="fas fa-check mr-2"></i>已进入数据查看模式';
-                document.body.appendChild(message);
-                
-                // 等待一秒后跳转到主页 (使用 URL 参数标记快速访问)
-                await new Promise(r => setTimeout(r, 1000));
-                
-                // 导航到 index.html（使用 URL 参数）
-                window.location.href = './index.html?quickAccess=true';
-            });
         }
 
         // 密码可见性切换 (管理员登录)
@@ -709,6 +686,70 @@
         guestFormElement.addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
                 guestFormElement.dispatchEvent(new Event('submit'));
+            }
+        });
+
+        // =============== 快速查看数据按钮处理 ===============
+        const quickViewBtn = document.getElementById('quickViewBtn');
+        quickViewBtn.addEventListener('click', async function(e) {
+            e.preventDefault();
+            
+            console.log('🚀 快速查看数据被点击...');
+            
+            // 显示加载状态
+            const originalText = this.innerHTML;
+            this.disabled = true;
+            this.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>正在准备数据...';
+            
+            try {
+                // 调用后端API获取快速访客令牌
+                const response = await fetch('http://localhost:3000/api/guest/quick-access', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                if (data.success && data.token) {
+                    console.log('✅ 快速访客令牌已获取');
+                    
+                    // 保存快速访客令牌到 localStorage
+                    localStorage.setItem('guest_token', data.token);
+                    localStorage.setItem('current_guest', JSON.stringify({
+                        id: data.guest.id,
+                        username: data.guest.username,
+                        full_name: data.guest.full_name,
+                        guest_type: 'viewer',
+                        has_export_permission: false,
+                        is_quick_access: true
+                    }));
+                    localStorage.setItem('is_quick_access', 'true');
+                    
+                    console.log('📝 快速访客信息已保存到 localStorage');
+                    
+                    // 显示成功提示
+                    showGuestSuccess('✅ 快速访问已准备好！');
+                    
+                    // 1秒后跳转到主应用
+                    setTimeout(() => {
+                        window.location.href = './index.html?quickAccess=true';
+                    }, 1000);
+                } else {
+                    throw new Error(data.error || '获取快速访问令牌失败');
+                }
+            } catch (error) {
+                console.error('❌ 快速访问错误:', error);
+                showGuestError('快速访问失败: ' + error.message);
+                
+                // 恢复按钮
+                this.disabled = false;
+                this.innerHTML = originalText;
             }
         });
     </script>
