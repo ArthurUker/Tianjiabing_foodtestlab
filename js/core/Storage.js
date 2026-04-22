@@ -168,6 +168,8 @@ export class StorageService {
 
         this._updateLocalCache(mergedData);
         this._emit('sync', { type: 'full_sync' });
+        // 通知全局 DOM，Dashboard 及其他模块可监听此事件刷新
+        document.dispatchEvent(new CustomEvent('dataChanged', { detail: { table: this.tableName, type: 'full_sync' } }));
     }
 
     async _processQueuedRequests() {

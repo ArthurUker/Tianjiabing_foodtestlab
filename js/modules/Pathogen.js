@@ -70,6 +70,9 @@ export function initPathogen() {
     loadMammothJS();
     setupPaginationListeners();
     renderTable();
+
+    // 数据从 Supabase 同步完成后重新渲染表格
+    storage.on('sync', () => renderTable());
 }
 
 function loadMammothJS() {

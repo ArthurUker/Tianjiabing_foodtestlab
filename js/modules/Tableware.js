@@ -133,14 +133,15 @@ export function initTableware() {
         renderTable();
     }
     
-    // ✨ 快速访问模式：监听数据变化事件
-    if (isQuickAccess) {
-        console.log('📊 监听 dataChanged 事件以重新渲染表格');
-        document.addEventListener('dataChanged', () => {
-            console.log('📊 dataChanged 事件触发 - 重新渲染Tableware表格');
+    // 监听数据变化事件（快速访问模式 + 普通模式均需要）
+    document.addEventListener('dataChanged', (e) => {
+        if (!e.detail || e.detail.table === 'tableware') {
             setTimeout(renderTable, 100);
-        });
-    }
+        }
+    });
+
+    // 数据从 Supabase 同步完成后重新渲染表格
+    storage.on('sync', () => renderTable());
 }
 
 // --- 核心业务逻辑：编辑与整改 ---
