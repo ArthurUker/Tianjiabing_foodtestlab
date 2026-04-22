@@ -236,6 +236,19 @@ export function createUserRoutes(supabase, jwtSecret) {
         }
     })
 
+    // 更新用户信息 (仅管理员)
+    router.put('/:userId', authenticateUser, authorizeAdmin, async (req, res) => {
+        try {
+            const { userId } = req.params
+            const { email, fullName, role } = req.body
+
+            const result = await userManager.updateUserByAdmin(parseInt(userId), { email, fullName, role })
+            res.json(result)
+        } catch (error) {
+            res.status(400).json({ error: `❌ 更新失败: ${error.message}` })
+        }
+    })
+
     return router
 }
 

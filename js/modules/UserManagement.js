@@ -21,12 +21,6 @@ export class UserManagement {
      */
     init() {
         console.log('🔧 ' + this.moduleName + ' 初始化中...');
-        
-        // 检查权限
-        if (!router.isAdmin()) {
-            console.warn('⚠️ 用户无权访问用户管理模块');
-            return false;
-        }
 
         this.renderUI();
         this.bindEvents();
@@ -322,8 +316,14 @@ export class UserManagement {
             if (window.userMgmt.currentEditId) {
                 // 编辑用户
                 UINotification.loading('正在保存用户信息...');
-                // TODO: 调用编辑用户 API
-                UINotification.success('用户信息已更新');
+                const result = await authService.updateUser(window.userMgmt.currentEditId, { email, fullName, role });
+                if (result.success) {
+                    UINotification.success('用户信息已更新');
+                    this.closeModal();
+                    this.loadUsers();
+                } else {
+                    UINotification.error('更新用户失败: ' + result.message);
+                }
             } else {
                 // 创建新用户
                 UINotification.loading('正在创建用户...');

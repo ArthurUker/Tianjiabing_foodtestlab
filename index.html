@@ -263,12 +263,6 @@
                 <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="user-management" data-admin-only onclick="window.handleNavigation('user-management')">
                     <i class="fas fa-users mr-3 w-5"></i>用户管理
                 </button>
-                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="guest-management" data-admin-only onclick="window.handleNavigation('guest-management')">
-                    <i class="fas fa-user-friends mr-3 w-5"></i>访客管理
-                </button>
-                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="export-approval" data-admin-only onclick="window.handleNavigation('export-approval')">
-                    <i class="fas fa-check-circle mr-3 w-5"></i>导出申请审批
-                </button>
                 <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="audit-log" data-admin-only onclick="window.handleNavigation('audit-log')">
                     <i class="fas fa-history mr-3 w-5"></i>审计日志
                 </button>
@@ -613,11 +607,6 @@
                 <!-- UserManagement.js 会把界面渲染到这里 -->
             </div>
 
-            <!-- 10. ✨ 访客管理 (仅管理员) -->
-            <div id="guest-management" class="content-section hidden">
-                <!-- GuestManagement.js 会把界面渲染到这里 -->
-            </div>
-
             <!-- 11. ✨ 审计日志 (仅管理员) -->
             <div id="audit-log" class="content-section hidden">
                 <!-- AuditLog.js 会把界面渲染到这里 -->
@@ -626,11 +615,6 @@
             <!-- 12. ✨ 访客中心 (仅访客登录后显示) -->
             <div id="guest-dashboard" class="content-section hidden">
                 <!-- GuestDashboard.js 会把界面渲染到这里 -->
-            </div>
-
-            <!-- 13. ✨ 导出申请审批 (仅管理员) -->
-            <div id="export-approval" class="content-section hidden">
-                <!-- ExportApproval.js 会把界面渲染到这里 -->
             </div>
 
         </div>

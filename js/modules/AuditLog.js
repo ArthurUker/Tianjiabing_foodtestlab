@@ -21,12 +21,6 @@ export class AuditLog {
      */
     init() {
         console.log('🔧 ' + this.moduleName + ' 初始化中...');
-        
-        // 检查权限
-        if (!router.isAdmin()) {
-            console.warn('⚠️ 用户无权访问审计日志模块');
-            return false;
-        }
 
         this.renderUI();
         this.bindEvents();

@@ -391,6 +391,54 @@ export class UserManager {
         }
     }
 
+    async updateUserByAdmin(userId, { email, fullName, role }) {
+        try {
+            const updateData = {}
+
+            if (email) {
+                if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                    throw new Error('邮箱格式无效')
+                }
+                updateData.email = email
+            }
+
+            if (fullName !== undefined) {
+                updateData.full_name = fullName
+            }
+
+            const validRoles = ['user', 'admin', 'manager', 'operator', 'viewer']
+            if (role) {
+                if (!validRoles.includes(role)) {
+                    throw new Error(`无效的角色: ${role}`)
+                }
+                updateData.role = role
+            }
+
+            if (Object.keys(updateData).length === 0) {
+                throw new Error('没有可更新的字段')
+            }
+
+            const { error } = await this.supabase
+                .from('users')
+                .update(updateData)
+                .eq('id', userId)
+
+            if (error) {
+                throw new Error(`更新用户失败: ${error.message}`)
+            }
+
+            console.log(`✅ 用户 ${userId} 信息已更新`)
+
+            return {
+                success: true,
+                message: '用户信息已更新'
+            }
+        } catch (error) {
+            console.error(`❌ 更新用户失败: ${error.message}`)
+            throw error
+        }
+    }
+
     // ====== Helper Methods ======
 
     validateUserInput({ username, email, password, fullName }) {

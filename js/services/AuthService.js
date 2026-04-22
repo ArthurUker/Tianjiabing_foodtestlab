@@ -426,6 +426,37 @@ export class AuthService {
             return { success: false, message: error.message };
         }
     }
+
+    /**
+     * 更新用户信息 (管理员)
+     * @param {string} userId - 用户 ID
+     * @param {object} userData - {email, fullName, role}
+     * @returns {Promise<{success: boolean, message: string}>}
+     */
+    async updateUser(userId, userData) {
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/api/user/${userId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.getToken()}`
+                },
+                body: JSON.stringify(userData)
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || data.message || '更新用户失败');
+            }
+
+            console.log('✅ 用户信息已更新:', userId);
+            return { success: true };
+        } catch (error) {
+            console.error('❌ 更新用户错误:', error.message);
+            return { success: false, message: error.message };
+        }
+    }
 }
 
 // 自动检测 API 基础 URL

@@ -6,8 +6,6 @@ import { fileURLToPath } from 'url'
 import { createClient } from '@supabase/supabase-js'
 import jwt from 'jsonwebtoken'
 import { createUserRoutes } from './routes/userRoutes.js'
-import guestRoutes from './routes/guestRoutes.js'
-import guestExportRoutes from './routes/guestExportRoutes.js'
 import { createValidationMiddleware, rateLimit, sanitizeText } from './middleware/validationMiddleware.js'
 import { initializeTestUsers } from './config/testDataInitializer.js'
 
@@ -44,10 +42,6 @@ app.get('/health', (req, res) => {
 // ====== User Authentication Routes ======
 const userRoutes = createUserRoutes(supabase, process.env.JWT_SECRET)
 app.use('/api/user', userRoutes)
-
-// ====== Guest Authentication Routes ======
-app.use('/api/guest', guestRoutes)
-app.use('/api/guest-export-request', guestExportRoutes)
 
 // ====== API Routes ======
 

@@ -15,9 +15,7 @@ import { initUserManagement } from './modules/UserManagement.js';
 import { permissionService } from './services/PermissionService.js';
 // 5. ✨ 引入审计日志模块
 import { initAuditLog } from './modules/AuditLog.js';
-// 6. ✨ 引入访客管理模块
-import { initGuestManagement } from './modules/GuestManagement.js';
-// 7. ✨ 引入会话管理服务
+// 6. ✨ 引入会话管理服务
 
 // ✨ 全局快速访问模式渲染函数 - 直接暴露给window
 window.renderQuickAccessData = () => {
@@ -65,12 +63,10 @@ window.renderQuickAccessData = () => {
 };
 
 import { sessionManager } from './services/SessionManager.js';
-// 8. ✨ 引入访客认证服务 (使用单例实例)
+// 7. ✨ 引入访客认证服务 (使用单例实例)
 import guestAuthService from './services/GuestAuthService.js';
-// 9. ✨ 引入访客中心模块
+// 8. ✨ 引入访客中心模块
 import { GuestDashboard } from './modules/GuestDashboard.js';
-// 10. ✨ 引入导出申请审批模块
-import { ExportApproval } from './modules/ExportApproval.js';
 
 console.log('✅ main.js 模块加载开始');
 
@@ -300,7 +296,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!isQuickAccessMode) {
             console.log('🔧 UserManagement 初始化中...');
             try {
-                if (router.isAdmin()) {
+                if (router.isAdmin() || permissionService.hasRole('manager')) {
                     initUserManagement();
                     console.log('✅ UserManagement 初始化成功');
                 } else {
@@ -326,22 +322,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
 
-        // 8. ✨ 初始化访客管理模块 (仅管理员可访问，快速访问模式下跳过)
-        if (!isQuickAccessMode) {
-            console.log('🔧 GuestManagement 初始化中...');
-            try {
-                if (router.isAdmin()) {
-                    initGuestManagement();
-                    console.log('✅ GuestManagement 初始化成功');
-                } else {
-                    console.log('⚠️ 当前用户无权访问访客管理模块');
-                }
-            } catch (error) {
-                console.error('❌ GuestManagement 初始化失败:', error);
-            }
-        }
-
-        // 9. ✨ 初始化会话管理 (针对所有用户)
+        // 8. ✨ 初始化会话管理 (针对所有用户)
         console.log('🔧 SessionManager 初始化中...');
         try {
             sessionManager.init();
@@ -404,22 +385,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             console.error('❌ GuestDashboard 初始化失败:', error);
         }
 
-        // 11. ✨ 初始化导出申请审批界面 (仅管理员可访问，快速访问模式下跳过)
-        if (!isQuickAccessMode) {
-            console.log('🔧 ExportApproval 初始化中...');
-            try {
-                if (router.isAdmin()) {
-                    const exportApproval = new ExportApproval();
-                    exportApproval.init();
-                    console.log('✅ ExportApproval 初始化成功');
-                } else {
-                    console.log('⚠️ 当前用户无权访问导出申请审批模块');
-                }
-            } catch (error) {
-                console.error('❌ ExportApproval 初始化失败:', error);
-            }
-        }
-        
         // ✨ 最后：确保导航已正确设置（作为备份）
         console.log('🔧 导航最终检查中...');
         try {
