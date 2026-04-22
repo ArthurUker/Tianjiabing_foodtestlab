@@ -193,26 +193,6 @@
                 </div>
             </div>
 
-            <!-- 分隔线 -->
-            <div class="relative my-6">
-                <div class="absolute inset-0 flex items-center">
-                    <div class="w-full border-t border-gray-300"></div>
-                </div>
-                <div class="relative flex justify-center text-sm">
-                    <span class="px-2 bg-white text-gray-500">或</span>
-                </div>
-            </div>
-
-            <!-- 快速查看数据 - 无需登录 -->
-            <button 
-                type="button" 
-                id="quickViewBtn"
-                class="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-semibold py-2.5 rounded-lg transition duration-300 shadow-lg hover:shadow-xl flex items-center justify-center mb-3"
-            >
-                <i class="fas fa-chart-bar mr-2"></i>
-                <span>📊 快速查看数据</span>
-            </button>
-
             <!-- 其他登录选项 (预留) -->
             <button type="button" class="w-full py-2 px-4 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition flex items-center justify-center">
                 <i class="fas fa-question-circle mr-2"></i>
@@ -440,14 +420,6 @@
             });
         }
 
-        // =============== 快速查看数据按钮处理 ===============
-        const quickViewBtn = document.getElementById('quickViewBtn');
-        quickViewBtn.addEventListener('click', function(e) {
-            e.preventDefault();
-            this.disabled = true;
-            this.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>正在准备数据...';
-            enterAsGuest();
-        });
     </script>
 </body>
 </html>

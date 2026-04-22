@@ -290,6 +290,18 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
 
+        // 5b. ✨ 初始化数据备份与恢复模块 (仅非快速访问模式)
+        if (!isQuickAccessMode) {
+            console.log('🔧 BackupRestoreService 初始化中...');
+            try {
+                const backupRestore = new BackupRestoreService();
+                backupRestore.init();
+                console.log('✅ BackupRestoreService 初始化成功');
+            } catch (error) {
+                console.error('❌ BackupRestoreService 初始化失败:', error);
+            }
+        }
+
         // 6. ✨ 初始化用户管理模块 (仅管理员可访问)
         if (!isQuickAccessMode) {
             console.log('🔧 UserManagement 初始化中...');
