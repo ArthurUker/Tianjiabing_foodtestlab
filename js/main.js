@@ -310,13 +310,14 @@ document.addEventListener('DOMContentLoaded', async () => {
             console.log('🔧 AuditLog 初始化中...');
             try {
                 if (router.isAdmin()) {
-                initAuditLog();
-                console.log('✅ AuditLog 初始化成功');
-            } else {
-                console.log('⚠️ 当前用户无权访问审计日志模块');
+                    initAuditLog();
+                    console.log('✅ AuditLog 初始化成功');
+                } else {
+                    console.log('⚠️ 当前用户无权访问审计日志模块');
+                }
+            } catch (error) {
+                console.error('❌ AuditLog 初始化失败:', error);
             }
-        } catch (error) {
-            console.error('❌ AuditLog 初始化失败:', error);
         }
 
         // 8. ✨ 初始化访客管理模块 (仅管理员可访问，快速访问模式下跳过)
@@ -347,7 +348,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.log('🔧 GuestDashboard 初始化中...');
         try {
             // 🎯 关键修复：只有当访客已登录且管理员未登录时，才显示访客仪表板
-            const isAdminLoggedIn = authService.getToken();
+            const isAdminLoggedIn = router.getToken ? router.getToken() : localStorage.getItem('auth_token');
             const isGuestLoggedIn = guestAuthService.isLoggedIn();
             
             console.log('🔍 管理员token:', !!isAdminLoggedIn);
