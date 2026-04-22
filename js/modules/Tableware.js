@@ -33,29 +33,18 @@ export function initTableware() {
         
         // 在快速访问模式下，隐藏整个表单区域，只显示数据表格
         if (isQuickAccess) {
-            // 使用多种方法确保表单被隐藏
-            form.style.display = 'none !important';
-            form.style.visibility = 'hidden';
+            // 隐藏表单
+            form.style.display = 'none';
             form.classList.add('hidden-in-quick-access');
             
             console.log('✅ 快速访问模式：表单已隐藏，仅显示数据表格');
             
-            // ✨ 直接在Tableware全局作用域中export renderTable，以便可以从外部调用
+            // ✅ 访客模式同样需要创建筛选控件和分页容器
+            updateFormStructure();
+            
             window.renderTablewareData = () => {
                 renderTable();
             };
-            
-            // 延迟足够长的时间以确保示例数据已初始化
-            setTimeout(() => {
-                console.log('📊 快速访问模式：1秒后调用renderTable() - 确保数据已加载');
-                renderTable();
-            }, 1000);
-            
-            // 再次确认隐藏
-            setTimeout(() => {
-                form.style.display = 'none !important';
-                console.log('✅ 二次确认：表单隐藏状态检查完成');
-            }, 200);
         } else {
             form.addEventListener('submit', handleFormSubmit);
             updateFormStructure();
@@ -107,28 +96,8 @@ export function initTableware() {
 
     setupPaginationListeners();
     
-    // ✨ 如果是快速访问模式，即使form没有找到也要渲染表格
     if (isQuickAccess) {
-        console.log('📊 快速访问模式 - 立即调用renderTable()');
-        // 立即调用
-        try {
-            renderTable();
-            window.tablewareReady = true;
-            console.log('✅ renderTable()同步执行成功');
-        } catch (e) {
-            console.error('❌ renderTable()同步执行失败:', e);
-        }
-        
-        // 也使用延迟调用作为备份
-        setTimeout(() => {
-            console.log('📊 500ms延迟：再次调用renderTable()');
-            try {
-                renderTable();
-                console.log('✅ renderTable()延迟执行成功');
-            } catch (e) {
-                console.error('❌ renderTable()延迟执行失败:', e);
-            }
-        }, 500);
+        renderTable();
     } else {
         renderTable();
     }

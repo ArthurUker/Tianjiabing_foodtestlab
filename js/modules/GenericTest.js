@@ -33,6 +33,8 @@ export class GenericTestModule {
             if (this.isQuickAccess) {
                 form.style.display = 'none';
                 console.log(`✅ 快速访问模式：${this.moduleName} 表单已隐藏，仅显示数据表格`);
+                // ✅ 访客模式同样需要创建筛选控件和分页容器
+                this.updateFormStructure();
             } else {
                 form.addEventListener('submit', (e) => this.handleSubmit(e));
                 this.updateFormStructure();
