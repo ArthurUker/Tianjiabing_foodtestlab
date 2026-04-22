@@ -7,7 +7,6 @@ import { createClient } from '@supabase/supabase-js'
 import jwt from 'jsonwebtoken'
 import { createUserRoutes } from './routes/userRoutes.js'
 import { createValidationMiddleware, rateLimit, sanitizeText } from './middleware/validationMiddleware.js'
-import { initializeTestUsers } from './config/testDataInitializer.js'
 
 dotenv.config()
 
@@ -387,14 +386,6 @@ app.listen(PORT, async () => {
 ╚════════════════════════════════════════╝
     `)
     
-    // 在开发和测试环境中初始化测试用户
-    if (process.env.NODE_ENV !== 'production') {
-        try {
-            await initializeTestUsers(supabase)
-        } catch (error) {
-            console.error('❌ 初始化测试用户失败:', error.message)
-        }
-    }
 })
 
 export default app

@@ -6,6 +6,7 @@
 import { authService } from '../services/AuthService.js';
 import { UINotification } from '../utils/UINotification.js';
 import { router } from '../core/Router.js';
+import { logOperation } from '../utils/AuditLogger.js';
 
 export class UserManagement {
     constructor() {
@@ -125,7 +126,7 @@ export class UserManagement {
                             <input type="tel" id="formPhone" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="请输入手机号（选填）">
                         </div>
                         <div id="passwordDiv">
-                            <label class="block text-sm font-medium text-gray-700 mb-1">密码</label>
+                            <label class="block text-sm font-medium text-gray-700 mb-1" id="passwordLabel">密码</label>
                             <input type="password" id="formPassword" required class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                         </div>
                         <div>
@@ -281,6 +282,7 @@ export class UserManagement {
         const form = document.getElementById('userForm');
         form.reset();
         document.getElementById('modalTitle').textContent = '创建新用户';
+        document.getElementById('passwordLabel').textContent = '密码';
         document.getElementById('passwordDiv').classList.remove('hidden');
         document.getElementById('formPassword').required = true;
         window.userMgmt.currentEditId = null;
@@ -296,8 +298,10 @@ export class UserManagement {
         document.getElementById('formPhone').value = user.phone || '';
         document.getElementById('formRole').value = user.role;
         document.getElementById('formFullName').value = user.fullName || user.full_name || '';
-        document.getElementById('passwordDiv').classList.add('hidden');
+        document.getElementById('passwordLabel').textContent = '新密码（留空则不修改）';
+        document.getElementById('passwordDiv').classList.remove('hidden');
         document.getElementById('formPassword').required = false;
+        document.getElementById('formPassword').value = '';
         window.userMgmt.currentEditId = user.id;
         document.getElementById('userModal').classList.remove('hidden');
     }
@@ -325,20 +329,32 @@ export class UserManagement {
             if (window.userMgmt.currentEditId) {
                 // 编辑用户
                 UINotification.loading('正在保存用户信息...');
-                const result = await authService.updateUser(window.userMgmt.currentEditId, { phone, fullName, role });
-                if (result.success) {
-                    UINotification.success('用户信息已更新');
-                    this.closeModal();
-                    this.loadUsers();
-                } else {
+                const result = await authService.updateUser(window.userMgmt.currentEditId, { username, phone, fullName, role });
+                if (!result.success) {
                     UINotification.error('更新用户失败: ' + result.message);
+                    return;
                 }
+                // 如果填写了新密码，则同步重置密码
+                if (password) {
+                    const pwResult = await authService.adminResetPassword(window.userMgmt.currentEditId, password);
+                    if (!pwResult.success) {
+                        UINotification.error('用户信息已保存，但密码重置失败: ' + pwResult.message);
+                        this.closeModal();
+                        this.loadUsers();
+                        return;
+                    }
+                }
+                UINotification.success('用户信息已更新');
+                logOperation('update', 'users', `修改用户 ${username || window.userMgmt.currentEditId}`);
+                this.closeModal();
+                this.loadUsers();
             } else {
                 // 创建新用户
                 UINotification.loading('正在创建用户...');
                 const result = await authService.registerUser({ username, phone, password, fullName });
                 if (result.success) {
                     UINotification.success('用户已创建');
+                    logOperation('create', 'users', `新增用户 ${username}`);
                     this.closeModal();
                     this.loadUsers();
                 } else {
@@ -362,6 +378,7 @@ export class UserManagement {
             const result = await authService.deleteUser(userId);
             if (result.success) {
                 UINotification.success('用户已删除');
+                logOperation('delete', 'users', `删除用户 ID: ${userId}`);
                 this.loadUsers();
             } else {
                 UINotification.error('删除用户失败: ' + result.message);

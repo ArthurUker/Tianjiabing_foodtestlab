@@ -385,21 +385,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             console.error('❌ GuestDashboard 初始化失败:', error);
         }
 
-        // ✨ 最后：确保导航已正确设置（作为备份）
-        console.log('🔧 导航最终检查中...');
-        try {
-            const navBtns = document.querySelectorAll('.nav-btn');
-            console.log(`  发现 ${navBtns.length} 个导航按钮`);
-            if (navBtns.length > 0) {
-                UIHelper.setupNavigation();
-                console.log('✅ 导航设置成功');
-            } else {
-                console.warn('⚠️ 未找到导航按钮');
-            }
-        } catch (error) {
-            console.error('❌ 导航设置失败:', error);
-        }
-        
+        // ✨ 导航已在初始化开始时设置，无需重复调用
         console.log('✅✅✅ 所有模块初始化完成！');
         
         // ✨ 快速访问模式：后备数据渲染器

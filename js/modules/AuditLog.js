@@ -1,41 +1,33 @@
 /**
- * AuditLog - 操作审计日志模块
- * 记录和展示所有数据修改操作，便于追踪和审计
+ * AuditLog - 操作审计日志模块（按用户+日期分组版）
+ * 主列表：每个用户每天的所有操作为一个条目，展示最新一条操作
+ * 点击条目：弹出详情面板，显示该用户当天所有操作记录
  */
 
-import { authService } from '../services/AuthService.js';
 import { UINotification } from '../utils/UINotification.js';
-import { router } from '../core/Router.js';
+import { getLogsByDate, getAvailableDates, clearAllLogs, logOperation } from '../utils/AuditLogger.js';
 
 export class AuditLog {
     constructor() {
         this.moduleName = '审计日志';
-        this.logs = [];
+        this.entries = [];       // 分组后的 (user, date) 条目
         this.currentPage = 1;
-        this.pageSize = 20;
-        this.totalLogs = 0;
+        this.pageSize = 15;
+        this.filterDate = '';    // 筛选特定日期，空=全部
+        this.filterUser = '';    // 筛选特定用户名
     }
 
-    /**
-     * 初始化模块
-     */
     init() {
         console.log('🔧 ' + this.moduleName + ' 初始化中...');
-
         this.renderUI();
         this.bindEvents();
-        this.loadAuditLogs();
-
+        this.loadEntries();
         console.log('✅ ' + this.moduleName + ' 初始化完成');
         return true;
     }
 
-    /**
-     * 渲染审计日志 UI
-     */
     renderUI() {
         const content = document.getElementById('audit-log');
-        
         if (!content) {
             console.warn('⚠️ 找不到 id="audit-log" 的容器');
             return;
@@ -48,401 +40,419 @@ export class AuditLog {
                     <h2 class="text-2xl font-bold text-gray-800 flex items-center">
                         <i class="fas fa-history text-blue-600 mr-3"></i>操作审计日志
                     </h2>
-                    <button id="btnExportLogs" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition flex items-center">
-                        <i class="fas fa-download mr-2"></i>导出日志
-                    </button>
+                    <div class="flex gap-2">
+                        <button id="btnExportLogs" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition flex items-center">
+                            <i class="fas fa-download mr-2"></i>导出当天日志
+                        </button>
+                        <button id="btnClearAllLogs" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition flex items-center">
+                            <i class="fas fa-trash mr-2"></i>清空所有日志
+                        </button>
+                    </div>
                 </div>
 
                 <!-- 筛选条件 -->
-                <div class="bg-white rounded-lg shadow-md p-4 space-y-4">
-                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <!-- 操作类型过滤 -->
+                <div class="bg-white rounded-lg shadow-md p-4">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">操作类型</label>
-                            <select id="actionFilter" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                <option value="">所有操作</option>
-                                <option value="create">创建</option>
-                                <option value="update">编辑</option>
-                                <option value="delete">删除</option>
-                                <option value="export">导出</option>
-                                <option value="login">登录</option>
-                                <option value="logout">登出</option>
-                            </select>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">查看日期</label>
+                            <div class="flex gap-2 items-center">
+                                <input type="date" id="dateSelector"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <button id="btnTodayLogs" class="px-3 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 whitespace-nowrap">今天</button>
+                            </div>
                         </div>
-
-                        <!-- 数据表过滤 -->
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">数据表</label>
-                            <select id="tableFilter" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                <option value="">所有表</option>
-                                <option value="tableware">餐具检测</option>
-                                <option value="pesticide">果蔬农残</option>
-                                <option value="oil">食用油</option>
-                                <option value="leanMeat">肉蛋检测</option>
-                                <option value="pathogen">病原体</option>
-                                <option value="users">用户管理</option>
-                            </select>
-                        </div>
-
-                        <!-- 用户过滤 -->
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">操作用户</label>
-                            <input 
-                                type="text" 
-                                id="userFilter"
-                                placeholder="输入用户名..."
-                                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            >
+                            <input type="text" id="userFilter" placeholder="输入用户名..."
+                                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                         </div>
-
-                        <!-- 日期范围 -->
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">日期范围</label>
-                            <select id="dateRangeFilter" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                <option value="">所有时间</option>
-                                <option value="today">今天</option>
-                                <option value="week">本周</option>
-                                <option value="month">本月</option>
-                                <option value="quarter">本季度</option>
-                            </select>
+                        <div class="flex items-end gap-2">
+                            <button id="btnFilterLogs" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+                                <i class="fas fa-search mr-2"></i>筛选
+                            </button>
+                            <button id="btnClearFilters" class="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition">
+                                <i class="fas fa-times mr-2"></i>重置
+                            </button>
                         </div>
-                    </div>
-
-                    <div class="flex gap-2">
-                        <button id="btnFilterLogs" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
-                            <i class="fas fa-search mr-2"></i>搜索
-                        </button>
-                        <button id="btnClearFilters" class="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition">
-                            <i class="fas fa-times mr-2"></i>清除筛选
-                        </button>
                     </div>
                 </div>
 
-                <!-- 日志列表 -->
+                <!-- 有日志的日期快速跳转 -->
+                <div id="dateChips" class="flex flex-wrap gap-2"></div>
+
+                <!-- 汇总统计 -->
+                <div id="logStats" class="grid grid-cols-3 md:grid-cols-6 gap-3"></div>
+
+                <!-- 分组条目列表 -->
                 <div class="bg-white rounded-lg shadow-md overflow-hidden">
                     <table class="w-full">
                         <thead class="bg-gray-100 border-b">
                             <tr>
-                                <th class="px-6 py-3 text-left text-sm font-semibold text-gray-700">时间</th>
-                                <th class="px-6 py-3 text-left text-sm font-semibold text-gray-700">操作人</th>
-                                <th class="px-6 py-3 text-left text-sm font-semibold text-gray-700">操作类型</th>
-                                <th class="px-6 py-3 text-left text-sm font-semibold text-gray-700">数据表</th>
-                                <th class="px-6 py-3 text-left text-sm font-semibold text-gray-700">记录ID</th>
-                                <th class="px-6 py-3 text-left text-sm font-semibold text-gray-700">状态</th>
-                                <th class="px-6 py-3 text-left text-sm font-semibold text-gray-700">操作</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">操作用户</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">日期</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">操作次数</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">最新操作</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">最新时间</th>
+                                <th class="px-4 py-3 text-center text-sm font-semibold text-gray-700">操作</th>
                             </tr>
                         </thead>
-                        <tbody id="logTable" class="divide-y">
-                            <!-- 日志行将插入这里 -->
-                        </tbody>
+                        <tbody id="logTable" class="divide-y"></tbody>
                     </table>
+                    <div id="emptyTip" class="hidden text-center py-12 text-gray-400">
+                        <i class="fas fa-inbox text-4xl mb-3 block"></i>
+                        <p>暂无操作记录</p>
+                    </div>
                 </div>
 
                 <!-- 分页 -->
                 <div class="flex justify-between items-center">
                     <div class="text-sm text-gray-600">
-                        共 <span id="totalCount">0</span> 条日志，第 <span id="currentPage">1</span> 页
+                        共 <span id="totalCount">0</span> 条，第 <span id="currentPageNum">1</span> 页
                     </div>
                     <div class="space-x-2">
                         <button id="btnPrevPage" class="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition">
-                            <i class="fas fa-chevron-left mr-2"></i>上一页
+                            <i class="fas fa-chevron-left mr-1"></i>上一页
                         </button>
                         <button id="btnNextPage" class="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition">
-                            下一页<i class="fas fa-chevron-right ml-2"></i>
+                            下一页<i class="fas fa-chevron-right ml-1"></i>
                         </button>
                     </div>
                 </div>
             </div>
 
-            <!-- 日志详情模态框 -->
-            <div id="logDetailModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
-                <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-2xl max-h-96 overflow-y-auto">
-                    <h3 class="text-xl font-bold mb-4">操作详情</h3>
-                    <div class="space-y-4" id="logDetailContent">
-                        <!-- 详情内容将插入这里 -->
+            <!-- 详情弹窗 -->
+            <div id="detailModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+                <div class="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col">
+                    <div class="flex justify-between items-center p-5 border-b">
+                        <h3 class="text-lg font-bold text-gray-800" id="detailTitle">操作详情</h3>
+                        <button id="btnCloseDetail" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
                     </div>
-                    <button id="btnCloseDetail" class="mt-6 px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400">关闭</button>
+                    <div class="overflow-y-auto flex-1 p-5">
+                        <table class="w-full text-sm">
+                            <thead class="bg-gray-50 sticky top-0">
+                                <tr>
+                                    <th class="px-3 py-2 text-left font-semibold text-gray-700">时间</th>
+                                    <th class="px-3 py-2 text-left font-semibold text-gray-700">操作类型</th>
+                                    <th class="px-3 py-2 text-left font-semibold text-gray-700">模块</th>
+                                    <th class="px-3 py-2 text-left font-semibold text-gray-700">操作详情</th>
+                                </tr>
+                            </thead>
+                            <tbody id="detailTable" class="divide-y"></tbody>
+                        </table>
+                    </div>
+                    <div class="p-4 border-t text-right">
+                        <button id="btnExportDetail" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 mr-2">
+                            <i class="fas fa-download mr-1"></i>导出此记录
+                        </button>
+                        <button id="btnCloseDetail2" class="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400">关闭</button>
+                    </div>
                 </div>
             </div>
         `;
     }
 
-    /**
-     * 绑定事件
-     */
     bindEvents() {
-        // 搜索
-        document.getElementById('btnFilterLogs').addEventListener('click', () => this.loadAuditLogs());
+        document.getElementById('btnFilterLogs')?.addEventListener('click', () => {
+            this.filterDate = document.getElementById('dateSelector')?.value || '';
+            this.filterUser = (document.getElementById('userFilter')?.value || '').trim().toLowerCase();
+            this.currentPage = 1;
+            this.loadEntries();
+        });
 
-        // 清除筛选
-        document.getElementById('btnClearFilters').addEventListener('click', () => this.clearFilters());
+        document.getElementById('btnClearFilters')?.addEventListener('click', () => {
+            document.getElementById('dateSelector').value = '';
+            document.getElementById('userFilter').value = '';
+            this.filterDate = '';
+            this.filterUser = '';
+            this.currentPage = 1;
+            this.loadEntries();
+        });
 
-        // 导出
-        document.getElementById('btnExportLogs').addEventListener('click', () => this.exportLogs());
+        document.getElementById('btnTodayLogs')?.addEventListener('click', () => {
+            const today = new Date().toISOString().slice(0, 10);
+            document.getElementById('dateSelector').value = today;
+            this.filterDate = today;
+            this.filterUser = '';
+            this.currentPage = 1;
+            this.loadEntries();
+        });
 
-        // 分页
-        document.getElementById('btnPrevPage').addEventListener('click', () => {
-            if (this.currentPage > 1) {
-                this.currentPage--;
-                this.loadAuditLogs();
+        document.getElementById('btnExportLogs')?.addEventListener('click', () => {
+            const today = new Date().toISOString().slice(0, 10);
+            this.exportDate(today);
+        });
+
+        document.getElementById('btnClearAllLogs')?.addEventListener('click', () => {
+            if (confirm('确定要清空所有审计日志吗？此操作不可撤销。')) {
+                clearAllLogs();
+                logOperation('delete', 'system', '管理员清空所有审计日志');
+                UINotification.success('所有日志已清空');
+                this.loadEntries();
             }
         });
 
-        document.getElementById('btnNextPage').addEventListener('click', () => {
-            if (this.currentPage * this.pageSize < this.totalLogs) {
-                this.currentPage++;
-                this.loadAuditLogs();
+        document.getElementById('btnPrevPage')?.addEventListener('click', () => {
+            if (this.currentPage > 1) { this.currentPage--; this.renderTable(); }
+        });
+        document.getElementById('btnNextPage')?.addEventListener('click', () => {
+            if (this.currentPage * this.pageSize < this.entries.length) { this.currentPage++; this.renderTable(); }
+        });
+
+        document.getElementById('btnCloseDetail')?.addEventListener('click', () => this.closeDetail());
+        document.getElementById('btnCloseDetail2')?.addEventListener('click', () => this.closeDetail());
+    }
+
+    /**
+     * 加载并生成分组条目
+     */
+    loadEntries() {
+        const dates = getAvailableDates();
+        const entryMap = new Map(); // key: "user||date"
+
+        for (const date of dates) {
+            if (this.filterDate && date !== this.filterDate) continue;
+            const logs = getLogsByDate(date);
+            for (const log of logs) {
+                const user = log.user || '未知用户';
+                if (this.filterUser && !user.toLowerCase().includes(this.filterUser)) continue;
+                const key = `${user}||${date}`;
+                if (!entryMap.has(key)) {
+                    entryMap.set(key, { user, date, logs: [] });
+                }
+                entryMap.get(key).logs.push(log);
             }
-        });
-
-        // 关闭详情
-        document.getElementById('btnCloseDetail').addEventListener('click', () => {
-            document.getElementById('logDetailModal').classList.add('hidden');
-        });
-    }
-
-    /**
-     * 加载审计日志
-     */
-    async loadAuditLogs() {
-        try {
-            UINotification.loading('正在加载审计日志...');
-
-            // 获取筛选条件
-            const action = document.getElementById('actionFilter')?.value;
-            const table = document.getElementById('tableFilter')?.value;
-            const user = document.getElementById('userFilter')?.value;
-            const dateRange = document.getElementById('dateRangeFilter')?.value;
-
-            // 模拟日志数据 (实际应从后端 API 获取)
-            // TODO: 调用 GET /api/audit/logs API
-            const mockLogs = this.generateMockLogs();
-
-            this.logs = mockLogs;
-            this.totalLogs = mockLogs.length;
-            this.renderLogTable();
-
-            UINotification.success('审计日志已加载 (' + mockLogs.length + ' 条)');
-        } catch (error) {
-            console.error('❌ 加载审计日志错误:', error);
-            UINotification.error('加载审计日志时出错');
-        }
-    }
-
-    /**
-     * 生成模拟日志数据 (为演示用)
-     */
-    generateMockLogs() {
-        const actions = ['create', 'update', 'delete', 'export', 'login', 'logout'];
-        const tables = ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'];
-        const users = ['admin', 'manager', '李丹', '王宏'];
-        const logs = [];
-
-        for (let i = 0; i < 50; i++) {
-            logs.push({
-                id: 1000 + i,
-                timestamp: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000).toISOString(),
-                user: users[Math.floor(Math.random() * users.length)],
-                action: actions[Math.floor(Math.random() * actions.length)],
-                table: tables[Math.floor(Math.random() * tables.length)],
-                recordId: Math.floor(Math.random() * 1000),
-                status: Math.random() > 0.1 ? 'success' : 'failed',
-                ipAddress: `192.168.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`,
-                oldValue: '{"status": "合格"}',
-                newValue: '{"status": "不合格"}'
-            });
         }
 
-        return logs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        // 转为数组，每个条目取最新一条操作
+        const entries = Array.from(entryMap.values()).map(entry => {
+            const sorted = entry.logs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+            return {
+                user: entry.user,
+                date: entry.date,
+                count: sorted.length,
+                latest: sorted[0],
+                allLogs: sorted
+            };
+        });
+
+        // 按最新操作时间倒序排列
+        entries.sort((a, b) => new Date(b.latest.timestamp) - new Date(a.latest.timestamp));
+        this.entries = entries;
+        this.currentPage = 1;
+
+        this.renderDateChips();
+        this.renderStats();
+        this.renderTable();
+    }
+
+    renderDateChips() {
+        const container = document.getElementById('dateChips');
+        if (!container) return;
+        const dates = getAvailableDates();
+        if (dates.length === 0) { container.innerHTML = ''; return; }
+        container.innerHTML = '<span class="text-sm text-gray-500 self-center mr-1">有记录的日期：</span>' +
+            dates.map(d => {
+                const active = d === this.filterDate ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300';
+                return `<button class="px-3 py-1 text-sm rounded-full ${active} transition" onclick="window.auditLog.jumpToDate('${d}')">${d}</button>`;
+            }).join('');
+    }
+
+    renderStats() {
+        const container = document.getElementById('logStats');
+        if (!container) return;
+        const counts = { login: 0, logout: 0, create: 0, update: 0, delete: 0, export: 0 };
+        for (const entry of this.entries) {
+            for (const log of entry.allLogs) {
+                if (log.action in counts) counts[log.action]++;
+            }
+        }
+        const labels = { login: '登录', logout: '登出', create: '新增', update: '修改', delete: '删除', export: '导出' };
+        const colors = { login: 'blue', logout: 'gray', create: 'green', update: 'yellow', delete: 'red', export: 'purple' };
+        container.innerHTML = Object.entries(counts).map(([action, count]) => `
+            <div class="bg-white rounded-lg shadow p-3 text-center">
+                <div class="text-2xl font-bold text-${colors[action]}-600">${count}</div>
+                <div class="text-xs text-gray-500 mt-1">${labels[action]}</div>
+            </div>
+        `).join('');
+    }
+
+    renderTable() {
+        const tbody = document.getElementById('logTable');
+        const emptyTip = document.getElementById('emptyTip');
+        if (!tbody) return;
+
+        if (this.entries.length === 0) {
+            tbody.innerHTML = '';
+            emptyTip?.classList.remove('hidden');
+            document.getElementById('totalCount').textContent = '0';
+            document.getElementById('currentPageNum').textContent = '1';
+            return;
+        }
+        emptyTip?.classList.add('hidden');
+
+        const start = (this.currentPage - 1) * this.pageSize;
+        const page = this.entries.slice(start, start + this.pageSize);
+
+        tbody.innerHTML = page.map((entry, idx) => {
+            const entryIndex = start + idx;
+            const latest = entry.latest;
+            const actionLabel = this.getActionLabel(latest.action);
+            const actionColor = this.getActionColor(latest.action);
+            const timeStr = new Date(latest.timestamp).toLocaleTimeString('zh-CN', { hour12: false });
+
+            return `
+                <tr class="hover:bg-blue-50 transition cursor-pointer" onclick="window.auditLog.showDetail(${entryIndex})">
+                    <td class="px-4 py-3">
+                        <div class="flex items-center gap-2">
+                            <div class="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
+                                <i class="fas fa-user text-blue-600 text-xs"></i>
+                            </div>
+                            <span class="font-medium text-gray-800">${this.escapeHtml(entry.user)}</span>
+                        </div>
+                    </td>
+                    <td class="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">${entry.date}</td>
+                    <td class="px-4 py-3">
+                        <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 text-blue-700 font-bold text-sm">${entry.count}</span>
+                    </td>
+                    <td class="px-4 py-3">
+                        <span class="px-2 py-1 rounded-full text-xs font-medium ${actionColor} mr-2">${actionLabel}</span>
+                        <span class="text-sm text-gray-700">${this.getModuleLabel(latest.module)} · ${this.escapeHtml(latest.detail || '')}</span>
+                    </td>
+                    <td class="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">${timeStr}</td>
+                    <td class="px-4 py-3 text-center">
+                        <button class="px-3 py-1 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                            onclick="event.stopPropagation(); window.auditLog.showDetail(${entryIndex})">
+                            查看详情
+                        </button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+
+        document.getElementById('totalCount').textContent = this.entries.length;
+        document.getElementById('currentPageNum').textContent = this.currentPage;
     }
 
     /**
-     * 渲染日志表格
+     * 显示指定条目的详情弹窗
      */
-    renderLogTable() {
-        const tableBody = document.getElementById('logTable');
-        tableBody.innerHTML = '';
+    showDetail(entryIndex) {
+        const entry = this.entries[entryIndex];
+        if (!entry) return;
 
-        const startIdx = (this.currentPage - 1) * this.pageSize;
-        const endIdx = startIdx + this.pageSize;
-        const pageData = this.logs.slice(startIdx, endIdx);
+        document.getElementById('detailTitle').textContent =
+            `${this.escapeHtml(entry.user)} 的操作记录 · ${entry.date}（共 ${entry.count} 次操作）`;
 
-        pageData.forEach(log => {
-            const row = document.createElement('tr');
-            row.className = 'hover:bg-gray-50 transition';
-            
+        const tbody = document.getElementById('detailTable');
+        tbody.innerHTML = entry.allLogs.map(log => {
             const actionLabel = this.getActionLabel(log.action);
             const actionColor = this.getActionColor(log.action);
-            const statusColor = log.status === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800';
-
-            row.innerHTML = `
-                <td class="px-6 py-4 text-sm text-gray-600">
-                    ${new Date(log.timestamp).toLocaleString()}
-                </td>
-                <td class="px-6 py-4">
-                    <div class="flex items-center">
-                        <div class="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center mr-2">
-                            <i class="fas fa-user text-blue-600 text-xs"></i>
-                        </div>
-                        <span class="font-medium text-gray-800">${log.user}</span>
-                    </div>
-                </td>
-                <td class="px-6 py-4">
-                    <span class="px-3 py-1 rounded-full text-sm font-medium ${actionColor}">
-                        ${actionLabel}
-                    </span>
-                </td>
-                <td class="px-6 py-4 text-sm text-gray-600">${log.table}</td>
-                <td class="px-6 py-4 text-sm text-gray-600">#${log.recordId}</td>
-                <td class="px-6 py-4">
-                    <span class="px-3 py-1 rounded-full text-sm font-medium ${statusColor}">
-                        ${log.status === 'success' ? '成功' : '失败'}
-                    </span>
-                </td>
-                <td class="px-6 py-4">
-                    <button class="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm" onclick="window.auditLog.showDetail(${JSON.stringify(log)})">
-                        <i class="fas fa-eye mr-1"></i>详情
-                    </button>
-                </td>
+            const timeStr = new Date(log.timestamp).toLocaleTimeString('zh-CN', { hour12: false });
+            return `
+                <tr class="hover:bg-gray-50">
+                    <td class="px-3 py-2 text-gray-600 whitespace-nowrap">${timeStr}</td>
+                    <td class="px-3 py-2">
+                        <span class="px-2 py-1 rounded-full text-xs font-medium ${actionColor}">${actionLabel}</span>
+                    </td>
+                    <td class="px-3 py-2 text-gray-600">${this.getModuleLabel(log.module)}</td>
+                    <td class="px-3 py-2 text-gray-700">${this.escapeHtml(log.detail || '')}</td>
+                </tr>
             `;
-            tableBody.appendChild(row);
-        });
+        }).join('');
 
-        document.getElementById('totalCount').textContent = this.totalLogs;
-        document.getElementById('currentPage').textContent = this.currentPage;
+        // 绑定导出按钮
+        document.getElementById('btnExportDetail').onclick = () => this.exportEntryLogs(entry);
+        document.getElementById('detailModal').classList.remove('hidden');
     }
 
-    /**
-     * 获取操作类型标签
-     */
-    getActionLabel(action) {
-        const labels = {
-            'create': '创建',
-            'update': '编辑',
-            'delete': '删除',
-            'export': '导出',
-            'login': '登录',
-            'logout': '登出'
-        };
-        return labels[action] || action;
+    closeDetail() {
+        document.getElementById('detailModal').classList.add('hidden');
     }
 
-    /**
-     * 获取操作类型颜色
-     */
-    getActionColor(action) {
-        const colors = {
-            'create': 'bg-green-100 text-green-800',
-            'update': 'bg-blue-100 text-blue-800',
-            'delete': 'bg-red-100 text-red-800',
-            'export': 'bg-purple-100 text-purple-800',
-            'login': 'bg-yellow-100 text-yellow-800',
-            'logout': 'bg-gray-100 text-gray-800'
-        };
-        return colors[action] || 'bg-gray-100 text-gray-800';
-    }
-
-    /**
-     * 显示日志详情
-     */
-    showDetail(log) {
-        const modal = document.getElementById('logDetailModal');
-        const content = document.getElementById('logDetailContent');
-
-        content.innerHTML = `
-            <div class="space-y-3">
-                <div class="grid grid-cols-2 gap-4">
-                    <div>
-                        <span class="text-sm text-gray-500">时间</span>
-                        <p class="font-medium">${new Date(log.timestamp).toLocaleString()}</p>
-                    </div>
-                    <div>
-                        <span class="text-sm text-gray-500">操作人</span>
-                        <p class="font-medium">${log.user}</p>
-                    </div>
-                    <div>
-                        <span class="text-sm text-gray-500">操作类型</span>
-                        <p class="font-medium">${this.getActionLabel(log.action)}</p>
-                    </div>
-                    <div>
-                        <span class="text-sm text-gray-500">数据表</span>
-                        <p class="font-medium">${log.table}</p>
-                    </div>
-                    <div>
-                        <span class="text-sm text-gray-500">记录ID</span>
-                        <p class="font-medium">#${log.recordId}</p>
-                    </div>
-                    <div>
-                        <span class="text-sm text-gray-500">IP地址</span>
-                        <p class="font-medium">${log.ipAddress}</p>
-                    </div>
-                </div>
-
-                <hr>
-
-                <div>
-                    <span class="text-sm text-gray-500">变更前值</span>
-                    <div class="bg-gray-100 p-3 rounded mt-1 text-sm font-mono overflow-x-auto">
-                        ${log.oldValue || 'N/A'}
-                    </div>
-                </div>
-
-                <div>
-                    <span class="text-sm text-gray-500">变更后值</span>
-                    <div class="bg-gray-100 p-3 rounded mt-1 text-sm font-mono overflow-x-auto">
-                        ${log.newValue || 'N/A'}
-                    </div>
-                </div>
-            </div>
-        `;
-
-        modal.classList.remove('hidden');
-    }
-
-    /**
-     * 清除筛选条件
-     */
-    clearFilters() {
-        document.getElementById('actionFilter').value = '';
-        document.getElementById('tableFilter').value = '';
-        document.getElementById('userFilter').value = '';
-        document.getElementById('dateRangeFilter').value = '';
+    jumpToDate(dateStr) {
+        this.filterDate = dateStr;
+        const sel = document.getElementById('dateSelector');
+        if (sel) sel.value = dateStr;
+        this.filterUser = '';
         this.currentPage = 1;
-        this.loadAuditLogs();
+        this.loadEntries();
     }
 
-    /**
-     * 导出日志
-     */
-    async exportLogs() {
+    exportDate(dateStr) {
         try {
-            UINotification.loading('正在导出日志...');
-
-            // 生成 CSV 内容
-            let csv = '时间,操作人,操作类型,数据表,记录ID,状态,IP地址\n';
-            this.logs.forEach(log => {
-                csv += `"${new Date(log.timestamp).toLocaleString()}","${log.user}","${this.getActionLabel(log.action)}","${log.table}","${log.recordId}","${log.status}","${log.ipAddress}"\n`;
+            const logs = getLogsByDate(dateStr);
+            if (logs.length === 0) { UINotification.error('当天暂无日志'); return; }
+            let csv = '\uFEFF时间,操作人,操作类型,模块,操作详情\n';
+            logs.forEach(log => {
+                const time = new Date(log.timestamp).toLocaleString('zh-CN');
+                csv += `"${time}","${log.user || ''}","${this.getActionLabel(log.action)}","${this.getModuleLabel(log.module)}","${(log.detail || '').replace(/"/g, '""')}"\n`;
             });
-
-            // 创建下载链接
-            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(blob);
-            link.download = `audit-log-${new Date().toISOString().slice(0, 10)}.csv`;
-            link.click();
-
+            this._downloadCsv(csv, `audit-${dateStr}.csv`);
             UINotification.success('日志已导出');
-        } catch (error) {
-            console.error('❌ 导出日志错误:', error);
-            UINotification.error('导出日志时出错');
+        } catch (e) {
+            UINotification.error('导出失败');
         }
+    }
+
+    exportEntryLogs(entry) {
+        try {
+            let csv = '\uFEFF时间,操作人,操作类型,模块,操作详情\n';
+            entry.allLogs.forEach(log => {
+                const time = new Date(log.timestamp).toLocaleString('zh-CN');
+                csv += `"${time}","${log.user || ''}","${this.getActionLabel(log.action)}","${this.getModuleLabel(log.module)}","${(log.detail || '').replace(/"/g, '""')}"\n`;
+            });
+            this._downloadCsv(csv, `audit-${entry.user}-${entry.date}.csv`);
+            UINotification.success('日志已导出');
+        } catch (e) {
+            UINotification.error('导出失败');
+        }
+    }
+
+    _downloadCsv(csv, filename) {
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = filename;
+        link.click();
+    }
+
+    getActionLabel(action) {
+        const m = { login: '登录', logout: '登出', create: '新增', update: '修改', delete: '删除', export: '导出' };
+        return m[action] || action;
+    }
+
+    getActionColor(action) {
+        const m = {
+            create: 'bg-green-100 text-green-800',
+            update: 'bg-blue-100 text-blue-800',
+            delete: 'bg-red-100 text-red-800',
+            export: 'bg-purple-100 text-purple-800',
+            login: 'bg-yellow-100 text-yellow-800',
+            logout: 'bg-gray-100 text-gray-800'
+        };
+        return m[action] || 'bg-gray-100 text-gray-800';
+    }
+
+    getModuleLabel(module) {
+        const m = {
+            tableware: '餐具洁净', pesticide: '果蔬农残', oil: '食用油',
+            leanMeat: '肉蛋检测', pathogen: '病原体', users: '用户管理', system: '系统'
+        };
+        return m[module] || module || '-';
+    }
+
+    escapeHtml(str) {
+        return String(str)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 }
 
-// 导出并初始化
 export function initAuditLog() {
     const auditLog = new AuditLog();
-    window.auditLog = auditLog; // 暴露到全局以便内联事件使用
+    window.auditLog = auditLog;
     auditLog.init();
     return auditLog;
 }
+
+

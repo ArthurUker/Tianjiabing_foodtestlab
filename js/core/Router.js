@@ -235,15 +235,13 @@ export class Router {
                 guestAuthService.logout();
             }
             
-            // 清除用户认证（如果是管理员）
-            if (isAdmin) {
-                console.log('  📍 清除用户认证...');
-                await authService.logout();
-            }
+            // 清除用户认证（所有角色均需清除）
+            console.log('  📍 清除用户认证...');
+            authService.clearAuth();
             
             // 清除所有本地存储数据
             console.log('  3️⃣ 清除本地存储...');
-            const clearKeys = ['authToken', 'guestToken', 'user', 'guest', 'is_quick_access', 'cache_tableware', 'cache_pesticide', 'cache_oil', 'cache_lean', 'cache_pathogen'];
+            const clearKeys = ['auth_token', 'current_user', 'token_expiry', 'refresh_token', 'guest_token', 'current_guest', 'is_quick_access', 'cache_tableware', 'cache_pesticide', 'cache_oil', 'cache_lean', 'cache_pathogen'];
             clearKeys.forEach(key => {
                 localStorage.removeItem(key);
                 sessionStorage.removeItem(key);

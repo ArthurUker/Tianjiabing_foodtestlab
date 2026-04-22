@@ -240,9 +240,9 @@ export function createUserRoutes(supabase, jwtSecret) {
     router.put('/:userId', authenticateUser, authorizeAdmin, async (req, res) => {
         try {
             const { userId } = req.params
-            const { phone, fullName, role } = req.body
+            const { username, phone, fullName, role } = req.body
 
-            const result = await userManager.updateUserByAdmin(parseInt(userId), { phone, fullName, role })
+            const result = await userManager.updateUserByAdmin(parseInt(userId), { username, phone, fullName, role })
             res.json(result)
         } catch (error) {
             res.status(400).json({ error: `❌ 更新失败: ${error.message}` })

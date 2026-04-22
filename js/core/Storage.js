@@ -1,5 +1,7 @@
 // 文件路径: core/Storage.js
 
+import { logOperation } from '../utils/AuditLogger.js';
+
 // ==========================================
 // 0. 内置默认配置
 // ==========================================
@@ -225,6 +227,7 @@ export class StorageService {
 
         this._replaceTempIdInCache(tempId, savedRecord);
         this._emit('sync', { type: 'create', record: savedRecord });
+        logOperation('create', this.tableName, `新增记录 #${savedRecord.id || '?'}`);
     }
 
     async _handleUpdate(req) {
@@ -238,6 +241,7 @@ export class StorageService {
         });
         if (!res.ok) throw new Error(res.statusText);
         this._updateCacheStatus(recordId, 'synced');
+        logOperation('update', this.tableName, `修改记录 #${recordId}`);
     }
 
     async _handleDelete(req) {
@@ -247,6 +251,7 @@ export class StorageService {
             headers: this._getHeaders()
         });
         if (!res.ok) throw new Error(res.statusText);
+        logOperation('delete', this.tableName, `删除记录 #${recordId}`);
     }
     
     _initializeLocalCache() {

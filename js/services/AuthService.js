@@ -3,6 +3,8 @@
  * 处理登录、登出、Token 管理、权限验证等
  */
 
+import { logOperation } from '../utils/AuditLogger.js';
+
 export class AuthService {
     constructor(apiBaseUrl = '') {
         this.apiBaseUrl = apiBaseUrl || '';
@@ -80,6 +82,7 @@ export class AuthService {
                 }
 
                 console.log('✅ 登录成功:', data.user.username);
+                logOperation('login', 'system', `用户 ${data.user.username} 登录系统`);
                 return { success: true, user: data.user };
             } else {
                 throw new Error(data.message || '登录失败');
@@ -116,6 +119,7 @@ export class AuthService {
 
             // 清除本地认证信息
             this.clearAuth();
+            logOperation('logout', 'system', '用户登出系统');
             console.log('✅ 已登出');
             return { success: true };
         } catch (error) {
@@ -454,6 +458,31 @@ export class AuthService {
             return { success: true };
         } catch (error) {
             console.error('❌ 更新用户错误:', error.message);
+            return { success: false, message: error.message };
+        }
+    }
+
+    async adminResetPassword(userId, newPassword) {
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/api/user/reset-password/${userId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.getToken()}`
+                },
+                body: JSON.stringify({ newPassword })
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || data.message || '重置密码失败');
+            }
+
+            console.log('✅ 用户密码已重置:', userId);
+            return { success: true };
+        } catch (error) {
+            console.error('❌ 密码重置错误:', error.message);
             return { success: false, message: error.message };
         }
     }

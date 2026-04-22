@@ -128,6 +128,7 @@ export class UserManager {
             return {
                 success: true,
                 token,
+                expiresIn: 7 * 24 * 3600, // 7 天（秒），与 JWT expiresIn: '7d' 保持一致
                 user: {
                     id: user.id,
                     username: user.username,
@@ -418,9 +419,29 @@ export class UserManager {
         }
     }
 
-    async updateUserByAdmin(userId, { phone, fullName, role }) {
+    async updateUserByAdmin(userId, { username, phone, fullName, role }) {
         try {
             const updateData = {}
+
+            if (username !== undefined && username !== null && username !== '') {
+                if (username.length < 3) {
+                    throw new Error('用户名至少3个字符')
+                }
+                if (!/^[a-zA-Z0-9_\u4e00-\u9fa5]+$/.test(username)) {
+                    throw new Error('用户名只能包含字母、数字、下划线或中文')
+                }
+                // 检查用户名是否已被其他用户使用
+                const { data: existing } = await this.supabase
+                    .from('users')
+                    .select('id')
+                    .eq('username', username)
+                    .neq('id', userId)
+                    .maybeSingle()
+                if (existing) {
+                    throw new Error(`用户名 "${username}" 已被其他用户使用`)
+                }
+                updateData.username = username
+            }
 
             if (phone !== undefined) {
                 if (phone && !/^1[3-9]\d{9}$/.test(phone)) {
