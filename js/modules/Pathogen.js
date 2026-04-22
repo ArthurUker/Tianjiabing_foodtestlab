@@ -19,13 +19,14 @@ export function initPathogen() {
     const btnImport = document.getElementById('btnImportPathogen');
     const fileInput = document.getElementById('pathogenFileInput');
     
-    // 在快速访问模式下隐藏整个导入区域，只显示数据表格
+    // 在快速访问模式下隐藏导入行，只显示数据表格
     if (isQuickAccess) {
-        const importContainer = fileInput?.closest('.flex')?.parentElement;
-        if (importContainer) {
-            importContainer.style.display = 'none';
+        // 只隐藏导入操作行（.flex容器本身），不隐藏其父元素（否则整张卡片包括表格都不显示）
+        const importRow = fileInput?.closest('.flex');
+        if (importRow) {
+            importRow.style.display = 'none';
         }
-        console.log('✅ 快速访问模式：已隐藏病原体检测的导入区域，仅显示数据表格');
+        console.log('✅ 快速访问模式：已隐藏病原体检测的导入操作行，仅显示数据表格');
     } else {
         if (btnImport && fileInput) {
             btnImport.addEventListener('click', () => {

@@ -185,16 +185,19 @@ document.addEventListener('DOMContentLoaded', async () => {
                 #btnDownloadTemplate,
                 #fileInput,
                 #pathogenFileInput,
-                button[type="submit"],
                 .btn-delete,
                 .btn-edit,
-                .btn-remove-point {
+                .btn-remove-point,
+                #tablewareTestForm button[type="submit"],
+                #pesticideTestForm button[type="submit"],
+                #oilTestForm button[type="submit"],
+                #leanMeatTestForm button[type="submit"] {
                     display: none !important;
                 }
                 div.text-xs.text-gray-400.font-semibold {
                     display: none !important;
                 }
-                /* 禁用表单输入 */
+                /* 禁用录入表单操作 */
                 #tablewareTestForm input,
                 #tablewareTestForm select,
                 #tablewareTestForm textarea,
@@ -214,16 +217,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             `;
             document.head.appendChild(style);
             
-            // 方法2: 直接禁用所有表单元素
-            setTimeout(() => {
-                document.querySelectorAll('input, select, textarea, button[type="submit"]').forEach(el => {
-                    if (!el.dataset.target) {  // 不禁用导航按钮
-                        el.disabled = true;
-                        el.readOnly = true;
-                    }
-                });
-                console.log('✅ 快速访问模式：所有表单编辑功能已禁用');
-            }, 500);
+            console.log('✅ 访客模式：已通过CSS隐藏录入/编辑/删除功能');
         }
 
 
@@ -376,7 +370,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
                 
                 const guestDashboard = new GuestDashboard();
-                guestDashboard.renderUI();
+                guestDashboard.init();
                 console.log('✅ GuestDashboard 初始化成功');
                 
                 // 显示访客菜单
