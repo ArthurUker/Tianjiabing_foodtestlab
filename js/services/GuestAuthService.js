@@ -3,20 +3,22 @@
  * 处理访客登录、注册、权限检查等
  */
 
+const RAILWAY_API_URL = 'https://tianjiabingfoodtestlab-production.up.railway.app';
+
 export class GuestAuthService {
     constructor(apiBaseUrl = '') {
         // 优先使用传入的 baseUrl，否则根据环境动态设置
         if (apiBaseUrl) {
             this.apiBaseUrl = apiBaseUrl;
         } else {
-            // 开发环境：http://localhost:3000
-            // 生产环境：使用相同域名的 /api 路径
+            // 本地开发环境：http://localhost:3000
+            // 生产环境：使用 Railway 后端地址
             const isDevelopment = window.location.hostname === 'localhost' || 
                                   window.location.hostname === '127.0.0.1';
-            if (isDevelopment && window.location.port === '8000') {
+            if (isDevelopment) {
                 this.apiBaseUrl = 'http://localhost:3000';
             } else {
-                this.apiBaseUrl = window.location.origin;
+                this.apiBaseUrl = RAILWAY_API_URL;
             }
         }
     }
