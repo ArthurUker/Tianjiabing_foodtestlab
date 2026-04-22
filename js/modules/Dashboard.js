@@ -82,8 +82,11 @@ export function initDashboard() {
             }, 2500);
         }
         
-        // 监听数据变化
+        // 监听数据变化（用户手动增删改时触发）
         document.addEventListener('dataChanged', loadDashboardData);
+        
+        // Supabase 同步完成后刷新看板（每个表同步一次，冷却时间防止循环）
+        Object.values(services).forEach(s => s.on('sync', loadDashboardData));
         
         // 绑定详情链接
         document.querySelectorAll('a[data-target]').forEach(link => {

@@ -32,6 +32,7 @@ export class StorageService {
         this.pendingTempIds = new Set();
         this.processingRequestIds = new Set();
         this.eventListeners = { error: [], sync: [] };
+        this._lastSyncTime = 0; // 防止同步循环：记录最后一次同步时间
 
         this._initializeLocalCache();
         setTimeout(() => this._processQueuedRequests(), 100);
@@ -125,6 +126,13 @@ export class StorageService {
     }
 
     async _syncFromApi() {
+        // 防止同步循环：30秒内同一表不重复同步
+        const now = Date.now();
+        if (this._lastSyncTime > 0 && (now - this._lastSyncTime) < 30000) {
+            return;
+        }
+        this._lastSyncTime = now;
+
         const res = await fetch(`${this.apiEndpoint}?select=*&order=id.desc&limit=200`, {
             headers: this._getHeaders()
         });
@@ -168,8 +176,6 @@ export class StorageService {
 
         this._updateLocalCache(mergedData);
         this._emit('sync', { type: 'full_sync' });
-        // 通知全局 DOM，Dashboard 及其他模块可监听此事件刷新
-        document.dispatchEvent(new CustomEvent('dataChanged', { detail: { table: this.tableName, type: 'full_sync' } }));
     }
 
     async _processQueuedRequests() {
