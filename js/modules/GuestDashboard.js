@@ -136,15 +136,27 @@ export class GuestDashboard {
                     </h3>
                     <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
                         <button class="p-2 bg-blue-50 text-blue-600 rounded hover:bg-blue-100 text-sm font-medium flex items-center justify-center transition"
-                            onclick="window.location.href='#dashboard'">
+                            onclick="window.handleNavigation('dashboard')">
                             <i class="fas fa-chart-pie mr-1"></i>数据看板
                         </button>
                         <button class="p-2 bg-green-50 text-green-600 rounded hover:bg-green-100 text-sm font-medium flex items-center justify-center transition"
-                            onclick="window.location.href='#tableware'">
-                            <i class="fas fa-utensils mr-1"></i>餐具检测
+                            onclick="window.handleNavigation('tableware-test')">
+                            <i class="fas fa-utensils mr-1"></i>餐具洁净度
+                        </button>
+                        <button class="p-2 bg-lime-50 text-lime-600 rounded hover:bg-lime-100 text-sm font-medium flex items-center justify-center transition"
+                            onclick="window.handleNavigation('pesticide-test')">
+                            <i class="fas fa-leaf mr-1"></i>果蔬农残
+                        </button>
+                        <button class="p-2 bg-yellow-50 text-yellow-600 rounded hover:bg-yellow-100 text-sm font-medium flex items-center justify-center transition"
+                            onclick="window.handleNavigation('oil-test')">
+                            <i class="fas fa-flask mr-1"></i>食用油品质
+                        </button>
+                        <button class="p-2 bg-orange-50 text-orange-600 rounded hover:bg-orange-100 text-sm font-medium flex items-center justify-center transition"
+                            onclick="window.handleNavigation('lean-meat-test')">
+                            <i class="fas fa-drumstick-bite mr-1"></i>肉蛋农残
                         </button>
                         <button class="p-2 bg-purple-50 text-purple-600 rounded hover:bg-purple-100 text-sm font-medium flex items-center justify-center transition"
-                            onclick="window.location.href='#pathogen'">
+                            onclick="window.handleNavigation('pathogen-test')">
                             <i class="fas fa-virus mr-1"></i>病原体检测
                         </button>
                     </div>
