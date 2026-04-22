@@ -236,7 +236,7 @@ export class UserManagement {
                     </span>
                 </td>
                 <td class="px-6 py-4 space-x-2">
-                    <button class="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm" onclick="window.userMgmt.showEditModal(${JSON.stringify(user)})">
+                    <button class="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm btn-edit-user" data-user-id="${user.id}">
                         <i class="fas fa-edit mr-1"></i>编辑
                     </button>
                     <button class="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 text-sm" onclick="window.userMgmt.deleteUser('${user.id}')">
@@ -249,6 +249,15 @@ export class UserManagement {
 
         document.getElementById('totalCount').textContent = this.totalUsers;
         document.getElementById('currentPage').textContent = this.currentPage;
+
+        // 绑定编辑按钮（避免 JSON 在 onclick HTML 属性中的引号冲突）
+        tableBody.querySelectorAll('.btn-edit-user').forEach(btn => {
+            const userId = btn.dataset.userId;
+            const user = this.users.find(u => String(u.id) === String(userId));
+            if (user) {
+                btn.addEventListener('click', () => window.userMgmt.showEditModal(user));
+            }
+        });
     }
 
     /**
@@ -286,7 +295,7 @@ export class UserManagement {
         document.getElementById('formUsername').value = user.username;
         document.getElementById('formEmail').value = user.email;
         document.getElementById('formRole').value = user.role;
-        document.getElementById('formFullName').value = user.full_name || '';
+        document.getElementById('formFullName').value = user.fullName || user.full_name || '';
         document.getElementById('passwordDiv').classList.add('hidden');
         document.getElementById('formPassword').required = false;
         window.userMgmt.currentEditId = user.id;
