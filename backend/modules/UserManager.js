@@ -14,10 +14,10 @@ export class UserManager {
 
     // ====== User Registration ======
 
-    async registerUser(username, email, password, fullName) {
+    async registerUser(username, phone, password, fullName) {
         try {
             // 1. 验证输入
-            this.validateUserInput({ username, email, password, fullName })
+            this.validateUserInput({ username, phone, password, fullName })
 
             // 2. 检查用户是否已存在
             const { data: existingUser } = await this.supabase
@@ -30,33 +30,37 @@ export class UserManager {
                 throw new Error('用户名已存在')
             }
 
-            // 3. 检查邮箱是否已使用
-            const { data: existingEmail } = await this.supabase
-                .from('users')
-                .select('id')
-                .eq('email', email)
-                .single()
+            // 3. 检查手机号是否已使用
+            if (phone) {
+                const { data: existingPhone } = await this.supabase
+                    .from('users')
+                    .select('id')
+                    .eq('phone', phone)
+                    .single()
 
-            if (existingEmail) {
-                throw new Error('邮箱已被使用')
+                if (existingPhone) {
+                    throw new Error('手机号已被使用')
+                }
             }
 
             // 4. 加密密码
             const passwordHash = await bcryptjs.hash(password, 10)
 
-            // 5. 创建用户
+            // 5. 创建用户（email 自动生成）
+            const autoEmail = `${username}@foodlab.local`
             const { data: newUser, error } = await this.supabase
                 .from('users')
                 .insert([{
                     username,
-                    email,
+                    email: autoEmail,
+                    phone: phone || null,
                     password_hash: passwordHash,
                     full_name: fullName,
                     role: 'user',
                     status: 'active',
                     created_at: new Date().toISOString()
                 }])
-                .select('id, username, email, full_name, role')
+                .select('id, username, phone, full_name, role')
 
             if (error) {
                 throw new Error(`创建用户失败: ${error.message}`)
@@ -294,7 +298,7 @@ export class UserManager {
         try {
             const { data: users, error, count } = await this.supabase
                 .from('users')
-                .select('id, username, email, full_name, role, status, created_at, last_login', { count: 'exact' })
+                .select('id, username, phone, full_name, role, status, created_at, last_login', { count: 'exact' })
                 .range(offset, offset + limit - 1)
                 .order('created_at', { ascending: false })
 
@@ -414,15 +418,15 @@ export class UserManager {
         }
     }
 
-    async updateUserByAdmin(userId, { email, fullName, role }) {
+    async updateUserByAdmin(userId, { phone, fullName, role }) {
         try {
             const updateData = {}
 
-            if (email) {
-                if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-                    throw new Error('邮箱格式无效')
+            if (phone !== undefined) {
+                if (phone && !/^1[3-9]\d{9}$/.test(phone)) {
+                    throw new Error('手机号格式无效（请输入11位手机号）')
                 }
-                updateData.email = email
+                updateData.phone = phone || null
             }
 
             if (fullName !== undefined) {
@@ -464,15 +468,15 @@ export class UserManager {
 
     // ====== Helper Methods ======
 
-    validateUserInput({ username, email, password, fullName }) {
+    validateUserInput({ username, phone, password, fullName }) {
         const errors = []
 
         if (!username || username.length < 3) {
             errors.push('用户名至少3个字符')
         }
 
-        if (!email || !this.isValidEmail(email)) {
-            errors.push('邮箱格式无效')
+        if (phone && !/^1[3-9]\d{9}$/.test(phone)) {
+            errors.push('手机号格式无效（请输入11位手机号）')
         }
 
         if (!password || password.length < 6) {
@@ -480,7 +484,7 @@ export class UserManager {
         }
 
         if (!fullName || fullName.trim() === '') {
-            errors.push('全名必填')
+            errors.push('姓名必填')
         }
 
         if (errors.length > 0) {

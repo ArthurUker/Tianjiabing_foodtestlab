@@ -59,7 +59,7 @@ export class UserManagement {
                         <input 
                             type="text" 
                             id="searchInput"
-                            placeholder="搜索用户名或邮箱..."
+                            placeholder="搜索用户名或手机号..."
                             class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                         >
                     </div>
@@ -82,7 +82,7 @@ export class UserManagement {
                         <thead class="bg-gray-100 border-b">
                             <tr>
                                 <th class="px-6 py-3 text-left text-sm font-semibold text-gray-700">用户名</th>
-                                <th class="px-6 py-3 text-left text-sm font-semibold text-gray-700">邮箱</th>
+                                <th class="px-6 py-3 text-left text-sm font-semibold text-gray-700">手机号</th>
                                 <th class="px-6 py-3 text-left text-sm font-semibold text-gray-700">角色</th>
                                 <th class="px-6 py-3 text-left text-sm font-semibold text-gray-700">创建时间</th>
                                 <th class="px-6 py-3 text-left text-sm font-semibold text-gray-700">状态</th>
@@ -121,8 +121,8 @@ export class UserManagement {
                             <input type="text" id="formUsername" required class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">邮箱</label>
-                            <input type="email" id="formEmail" required class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">手机号</label>
+                            <input type="tel" id="formPhone" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="请输入手机号（选填）">
                         </div>
                         <div id="passwordDiv">
                             <label class="block text-sm font-medium text-gray-700 mb-1">密码</label>
@@ -223,7 +223,7 @@ export class UserManagement {
                         <span class="font-medium text-gray-800">${user.username}</span>
                     </div>
                 </td>
-                <td class="px-6 py-4 text-gray-600">${user.email || 'N/A'}</td>
+                <td class="px-6 py-4 text-gray-600">${user.phone || '未填写'}</td>
                 <td class="px-6 py-4">
                     <span class="px-3 py-1 rounded-full text-sm font-medium ${this.getRoleColor(user.role)}">
                         ${router.getRoleLabel(user.role)}
@@ -293,7 +293,7 @@ export class UserManagement {
     showEditModal(user) {
         document.getElementById('modalTitle').textContent = '编辑用户: ' + user.username;
         document.getElementById('formUsername').value = user.username;
-        document.getElementById('formEmail').value = user.email;
+        document.getElementById('formPhone').value = user.phone || '';
         document.getElementById('formRole').value = user.role;
         document.getElementById('formFullName').value = user.fullName || user.full_name || '';
         document.getElementById('passwordDiv').classList.add('hidden');
@@ -316,7 +316,7 @@ export class UserManagement {
         e.preventDefault();
 
         const username = document.getElementById('formUsername').value;
-        const email = document.getElementById('formEmail').value;
+        const phone = document.getElementById('formPhone').value.trim();
         const password = document.getElementById('formPassword').value;
         const role = document.getElementById('formRole').value;
         const fullName = document.getElementById('formFullName').value;
@@ -325,7 +325,7 @@ export class UserManagement {
             if (window.userMgmt.currentEditId) {
                 // 编辑用户
                 UINotification.loading('正在保存用户信息...');
-                const result = await authService.updateUser(window.userMgmt.currentEditId, { email, fullName, role });
+                const result = await authService.updateUser(window.userMgmt.currentEditId, { phone, fullName, role });
                 if (result.success) {
                     UINotification.success('用户信息已更新');
                     this.closeModal();
@@ -336,7 +336,7 @@ export class UserManagement {
             } else {
                 // 创建新用户
                 UINotification.loading('正在创建用户...');
-                const result = await authService.registerUser({ username, email, password, fullName });
+                const result = await authService.registerUser({ username, phone, password, fullName });
                 if (result.success) {
                     UINotification.success('用户已创建');
                     this.closeModal();

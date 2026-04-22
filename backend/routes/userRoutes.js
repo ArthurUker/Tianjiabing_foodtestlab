@@ -41,13 +41,13 @@ export function createUserRoutes(supabase, jwtSecret) {
     // 用户注册
     router.post('/register', async (req, res) => {
         try {
-            const { username, email, password, fullName } = req.body
+            const { username, phone, password, fullName } = req.body
 
-            if (!username || !email || !password || !fullName) {
+            if (!username || !password || !fullName) {
                 return res.status(400).json({ error: '❌ 缺少必要字段' })
             }
 
-            const result = await userManager.registerUser(username, email, password, fullName)
+            const result = await userManager.registerUser(username, phone, password, fullName)
             res.status(201).json(result)
         } catch (error) {
             res.status(400).json({ error: `❌ 注册失败: ${error.message}` })
@@ -240,9 +240,9 @@ export function createUserRoutes(supabase, jwtSecret) {
     router.put('/:userId', authenticateUser, authorizeAdmin, async (req, res) => {
         try {
             const { userId } = req.params
-            const { email, fullName, role } = req.body
+            const { phone, fullName, role } = req.body
 
-            const result = await userManager.updateUserByAdmin(parseInt(userId), { email, fullName, role })
+            const result = await userManager.updateUserByAdmin(parseInt(userId), { phone, fullName, role })
             res.json(result)
         } catch (error) {
             res.status(400).json({ error: `❌ 更新失败: ${error.message}` })

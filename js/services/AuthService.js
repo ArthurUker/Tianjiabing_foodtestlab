@@ -126,15 +126,15 @@ export class AuthService {
 
     /**
      * 注册新用户 (管理员功能)
-     * @param {object} userData - 用户数据 {username, email, password, fullName}
+     * @param {object} userData - 用户数据 {username, phone, password, fullName}
      * @returns {Promise<{success: boolean, message: string, user?: object}>}
      */
     async registerUser(userData) {
         try {
-            const { username, email, password, fullName } = userData;
+            const { username, phone, password, fullName } = userData;
 
-            if (!username || !email || !password) {
-                throw new Error('用户名、邮箱和密码是必填项');
+            if (!username || !password) {
+                throw new Error('用户名和密码是必填项');
             }
 
             const response = await fetch(`${this.apiBaseUrl}/api/user/register`, {
@@ -143,7 +143,7 @@ export class AuthService {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${this.getToken()}`
                 },
-                body: JSON.stringify({ username, email, password, fullName })
+                body: JSON.stringify({ username, phone, password, fullName })
             });
 
             const data = await response.json();
@@ -383,7 +383,7 @@ export class AuthService {
             const users = (data.data || []).map(user => ({
                 id: user.id,
                 username: user.username,
-                email: user.email,
+                phone: user.phone || '',
                 fullName: user.full_name,
                 role: user.role,
                 is_active: user.status === 'active',
