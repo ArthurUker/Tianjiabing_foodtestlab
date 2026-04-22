@@ -249,6 +249,23 @@ export function createUserRoutes(supabase, jwtSecret) {
         }
     })
 
+    // 删除用户 (仅管理员)
+    router.delete('/:userId', authenticateUser, authorizeAdmin, async (req, res) => {
+        try {
+            const { userId } = req.params
+
+            // 防止删除自己
+            if (parseInt(userId) === req.user.userId) {
+                return res.status(400).json({ error: '❌ 无法删除自己的账号' })
+            }
+
+            const result = await userManager.deleteUser(parseInt(userId))
+            res.json(result)
+        } catch (error) {
+            res.status(400).json({ error: `❌ 删除失败: ${error.message}` })
+        }
+    })
+
     return router
 }
 

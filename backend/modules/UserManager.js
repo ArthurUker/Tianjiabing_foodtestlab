@@ -391,6 +391,29 @@ export class UserManager {
         }
     }
 
+    async deleteUser(userId) {
+        try {
+            const { error } = await this.supabase
+                .from('users')
+                .delete()
+                .eq('id', userId)
+
+            if (error) {
+                throw new Error(`删除用户失败: ${error.message}`)
+            }
+
+            console.log(`✅ 用户 ${userId} 已删除`)
+
+            return {
+                success: true,
+                message: '用户已删除'
+            }
+        } catch (error) {
+            console.error(`❌ 删除用户失败: ${error.message}`)
+            throw error
+        }
+    }
+
     async updateUserByAdmin(userId, { email, fullName, role }) {
         try {
             const updateData = {}
