@@ -206,23 +206,6 @@
             </div>
         </div>
 
-        <!-- 底部说明 -->
-        <div class="text-center mt-6 text-white text-sm opacity-75">
-            <p><i class="fas fa-info-circle mr-2"></i>演示账号：</p>
-            <p class="text-xs mt-1 font-semibold">👤 admin / 密码: 8888</p>
-            <p class="text-xs text-gray-300 mt-1">或</p>
-            <p class="text-xs mt-1">🧪 testuser@example.com / TestPass123!</p>
-            <details class="mt-3 text-left inline-block bg-white bg-opacity-10 p-2 rounded">
-                <summary class="cursor-pointer text-xs font-semibold hover:text-opacity-100">📋 查看所有测试账号</summary>
-                <div class="text-xs mt-2 space-y-1">
-                    <div class="font-semibold">👤 管理员:</div>
-                    <div class="ml-2">• admin / 8888</div>
-                    <div class="font-semibold mt-2">🧪 测试账号:</div>
-                    <div class="ml-2">• testuser@example.com / TestPass123!</div>
-                    <div class="ml-2">• qa@example.com / TestPass123!</div>
-                </div>
-            </details>
-        </div>
     </div>
 
     <script type="module">
@@ -230,6 +213,10 @@
         import { GuestAuthService } from './js/services/GuestAuthService.js';
 
         const guestAuthService = new GuestAuthService();
+        
+        // 每次打开登录页时清除访客 session（访客为临时身份，不自动重登录）
+        localStorage.removeItem('guest_token');
+        localStorage.removeItem('current_guest');
         
         // ===== 管理员登录表单元素 =====
         const form = document.getElementById('loginForm');
