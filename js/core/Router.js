@@ -229,32 +229,6 @@ export class Router {
                 console.log('✅ 已隐藏病原体检测内容区域');
             }
         }
-
-        // 基于模块权限隐藏导航（非访客用户）
-        const allModules = [
-            { target: 'tableware-test', permission: 'module:tableware' },
-            { target: 'pesticide-test', permission: 'module:pesticide' },
-            { target: 'oil-test', permission: 'module:oil' },
-            { target: 'lean-meat-test', permission: 'module:leanMeat' },
-            { target: 'pathogen-test', permission: 'module:pathogen' }
-        ];
-
-        allModules.forEach(module => {
-            const hasPermission = permissionService.hasPermission(module.permission);
-            if (!hasPermission) {
-                // 隐藏导航按钮
-                const btn = document.querySelector(`[data-target="${module.target}"]`);
-                if (btn) {
-                    btn.classList.add('hidden');
-                }
-                
-                // 隐藏内容区域
-                const section = document.getElementById(module.target);
-                if (section) {
-                    section.classList.add('hidden');
-                }
-            }
-        });
     }
 
     /**

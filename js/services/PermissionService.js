@@ -68,7 +68,30 @@ export class PermissionService {
      */
     getCurrentUserPermissions() {
         const user = authService.getUser();
-        if (!user) return [];
+        
+        // 如果是访客用户，返回访客的权限列表
+        if (!user) {
+            // 动态导入 GuestAuthService（避免循环依赖）
+            import('./GuestAuthService.js').then(module => {
+                const guestAuthService = module.default || new module.GuestAuthService();
+                const isGuest = guestAuthService.isLoggedIn();
+                if (isGuest) {
+                    return this.rolePermissionMap['guest'] || [];
+                }
+            }).catch(() => {
+                // 如果导入失败，返回空数组
+                return [];
+            });
+            
+            // 同步返回访客权限（简化版本）
+            // 检查 localStorage 中是否有访客令牌
+            if (typeof localStorage !== 'undefined' && localStorage.getItem('guest_token')) {
+                console.log('✅ 识别为访客用户，返回访客权限');
+                return this.rolePermissionMap['guest'] || [];
+            }
+            
+            return [];
+        }
 
         // 检查缓存
         if (this.permissionCache.has(user.id)) {
