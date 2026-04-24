@@ -24,7 +24,9 @@ export class PermissionService {
                 'backup:view', 'backup:create', 'backup:restore',
                 'users:read', 'users:create', 'users:update', 'users:delete',
                 'audit:view', 'audit:export',
-                'settings:view', 'settings:update'
+                'settings:view', 'settings:update',
+                // 模块权限
+                'module:tableware', 'module:pesticide', 'module:oil', 'module:leanMeat', 'module:pathogen'
             ],
             'manager': [
                 // 主管权限
@@ -32,21 +34,30 @@ export class PermissionService {
                 'export:pdf', 'export:excel',
                 'backup:view',
                 'users:read',
-                'audit:view'
+                'audit:view',
+                // 模块权限
+                'module:tableware', 'module:pesticide', 'module:oil', 'module:leanMeat', 'module:pathogen'
             ],
             'operator': [
                 // 操作人员权限
                 'records:read', 'records:create', 'records:update',
-                'export:pdf'
+                'export:pdf',
+                // 模块权限
+                'module:tableware', 'module:pesticide', 'module:oil', 'module:leanMeat', 'module:pathogen'
             ],
             'viewer': [
                 // 查看者权限 (只读)
                 'records:read',
-                'export:pdf'
+                'export:pdf',
+                // 模块权限
+                'module:tableware', 'module:pesticide', 'module:oil', 'module:leanMeat', 'module:pathogen'
             ],
             'guest': [
                 // 访客权限 (最小权限)
-                'records:read'
+                'records:read',
+                // 模块权限 - 访客只能看基础模块，不能看病原体检测
+                'module:tableware', 'module:pesticide', 'module:oil', 'module:leanMeat'
+                // ❌ 注意：故意不添加 'module:pathogen'，这样访客就看不到病原体检测模块
             ]
         };
     }

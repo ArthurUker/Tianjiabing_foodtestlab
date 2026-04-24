@@ -209,6 +209,52 @@ export class Router {
                 item.classList.add('hidden');
             }
         });
+
+        // 🔒 基于权限隐藏特定模块（访客权限控制）
+        // 如果是访客，隐藏病原体检测模块
+        if (isGuest) {
+            console.log('🔒 访客权限检查：隐藏病原体检测模块...');
+            
+            // 隐藏病原体检测导航按钮
+            const pathogenBtn = document.querySelector('[data-target="pathogen-test"]');
+            if (pathogenBtn) {
+                pathogenBtn.classList.add('hidden');
+                console.log('✅ 已隐藏病原体检测导航按钮');
+            }
+            
+            // 隐藏病原体检测内容区域
+            const pathogenSection = document.getElementById('pathogen-test');
+            if (pathogenSection) {
+                pathogenSection.classList.add('hidden');
+                console.log('✅ 已隐藏病原体检测内容区域');
+            }
+        }
+
+        // 基于模块权限隐藏导航（非访客用户）
+        const allModules = [
+            { target: 'tableware-test', permission: 'module:tableware' },
+            { target: 'pesticide-test', permission: 'module:pesticide' },
+            { target: 'oil-test', permission: 'module:oil' },
+            { target: 'lean-meat-test', permission: 'module:leanMeat' },
+            { target: 'pathogen-test', permission: 'module:pathogen' }
+        ];
+
+        allModules.forEach(module => {
+            const hasPermission = permissionService.hasPermission(module.permission);
+            if (!hasPermission) {
+                // 隐藏导航按钮
+                const btn = document.querySelector(`[data-target="${module.target}"]`);
+                if (btn) {
+                    btn.classList.add('hidden');
+                }
+                
+                // 隐藏内容区域
+                const section = document.getElementById(module.target);
+                if (section) {
+                    section.classList.add('hidden');
+                }
+            }
+        });
     }
 
     /**

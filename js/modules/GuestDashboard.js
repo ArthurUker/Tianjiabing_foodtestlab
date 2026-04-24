@@ -155,10 +155,7 @@ export class GuestDashboard {
                             onclick="window.handleNavigation('lean-meat-test')">
                             <i class="fas fa-drumstick-bite mr-1"></i>肉蛋农残
                         </button>
-                        <button class="p-2 bg-purple-50 text-purple-600 rounded hover:bg-purple-100 text-sm font-medium flex items-center justify-center transition"
-                            onclick="window.handleNavigation('pathogen-test')">
-                            <i class="fas fa-virus mr-1"></i>病原体检测
-                        </button>
+                        <!-- ❌ 访客无权访问病原体检测 - 已移除快速链接 -->
                     </div>
                 </div>
             </div>

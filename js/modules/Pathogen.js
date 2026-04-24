@@ -12,9 +12,17 @@ let sortOrder = 'desc';
 let selectedCanteenFilter = 'all'; // ✅ 新增：食堂筛选状态
 
 export function initPathogen() {
-    // ✨ 检查是否处于快速访问模式
+    // 🔒 权限检查：访客无权访问病原体检测模块
     const guestAuthService = new GuestAuthService();
+    const isGuest = guestAuthService.isLoggedIn();
     const isQuickAccess = guestAuthService.isQuickAccessMode();
+    
+    // 如果是普通访客（非快速访问模式），则无权访问
+    if (isGuest && !isQuickAccess) {
+        console.warn('⛔ 访客无权访问病原体检测模块');
+        UINotification.warning('您无权访问病原体检测模块');
+        return; // 访客无权访问，直接返回
+    }
     
     const btnImport = document.getElementById('btnImportPathogen');
     const fileInput = document.getElementById('pathogenFileInput');
