@@ -7,19 +7,11 @@ const RAILWAY_API_URL = 'https://tianjiabingfoodtestlab-production.up.railway.ap
 
 export class GuestAuthService {
     constructor(apiBaseUrl = '') {
-        // 优先使用传入的 baseUrl，否则根据环境动态设置
+        // 优先使用 Railway 生产环境确保可用性
         if (apiBaseUrl) {
             this.apiBaseUrl = apiBaseUrl;
         } else {
-            // 本地开发环境：http://localhost:3000
-            // 生产环境：使用 Railway 后端地址
-            const isDevelopment = window.location.hostname === 'localhost' || 
-                                  window.location.hostname === '127.0.0.1';
-            if (isDevelopment) {
-                this.apiBaseUrl = 'http://localhost:3000';
-            } else {
-                this.apiBaseUrl = RAILWAY_API_URL;
-            }
+            this.apiBaseUrl = RAILWAY_API_URL;
         }
     }
 

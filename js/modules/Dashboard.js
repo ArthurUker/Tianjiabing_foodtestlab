@@ -1018,8 +1018,28 @@ function updateRiskAlerts(stats, leanMeatByType) {
 }
 
 
-function calculateRiskLevel(positiveList) {
-    if (positiveList.length === 0) {
+function calculateRiskLevel(positiveList, allTestItems) {
+    // ===== 关键修复：直接从 allTestItems 重新计算阳性项 =====
+    // 支持"阳性"和"+"两种结果格式
+    function isPositiveResult(result) {
+        if (!result) return false;
+        const s = result.trim();
+        return s.includes('阳性') || s === '+' || s === '(+)' || s === '＋';
+    }
+
+    let validPositiveList = positiveList;
+    
+    if (allTestItems && allTestItems.length > 0) {
+        validPositiveList = allTestItems
+            .filter(item => item.result && isPositiveResult(item.result) && !item.isInternalControl)
+            .map(item => ({
+                pathogen: item.pathogen,
+                ct: parseFloat(item.ct) || 999,
+                ctRaw: item.ct
+            }));
+    }
+    
+    if (validPositiveList.length === 0) {
         return {
             riskLevel: '无风险',
             riskReason: '所有检测项均为阴性',
@@ -1027,7 +1047,7 @@ function calculateRiskLevel(positiveList) {
         };
     }
 
-    const minCt = Math.min(...positiveList.map(p => p.ct));
+    const minCt = Math.min(...validPositiveList.map(p => p.ct));
     
     let riskLevel = '未知';
     let riskInterpretation = '';
@@ -1046,11 +1066,11 @@ function calculateRiskLevel(positiveList) {
         riskInterpretation = '仅检出微量核酸片段，通常为环境残留或非活性核酸，无需特殊处置（参考：Kitajima et al., 2012）';
     }
 
-    const positiveItemsDisplay = positiveList
+    const positiveItemsDisplay = validPositiveList
         .map(p => `${p.pathogen}(Ct:${p.ctRaw})`)
         .join(', ');
 
-    const criticalPathogen = positiveList.find(p => p.ct === minCt);
+    const criticalPathogen = validPositiveList.find(p => p.ct === minCt);
     const riskReason = `${criticalPathogen.pathogen}，Ct=${criticalPathogen.ctRaw}。${riskInterpretation}`;
 
     return {

@@ -79,20 +79,6 @@ export function initTableware() {
             e.target.closest('.atp-point').remove();
         }
     });
-    
-    document.getElementById('atpPointsContainer')?.addEventListener('input', (e) => {
-        if (e.target.name === 'rluValue') {
-            const pointContainer = e.target.closest('.atp-point');
-            if (pointContainer) {
-                const rluValue = parseInt(e.target.value) || 0;
-                const resultField = pointContainer.querySelector('[name="result"]');
-                if (resultField) {
-                    resultField.value = determineResult(rluValue);
-                    updateResultFieldStyle(resultField);
-                }
-            }
-        }
-    });
 
     setupPaginationListeners();
     
@@ -483,17 +469,7 @@ function updateFormStructure() {
             defaultPoint.innerHTML = getPointTemplate();
             pointsContainer.innerHTML = '';
             pointsContainer.appendChild(defaultPoint);
-            
-            // 绑定事件
-            const rluInput = defaultPoint.querySelector('[name="rluValue"]');
-            const resultField = defaultPoint.querySelector('[name="result"]');
-            if (rluInput && resultField) {
-                rluInput.addEventListener('input', () => {
-                    const rluValue = parseInt(rluInput.value) || 0;
-                    resultField.value = determineResult(rluValue);
-                    updateResultFieldStyle(resultField);
-                });
-            }
+            bindPointEvents(defaultPoint);
         }
     }
 
@@ -655,12 +631,24 @@ function handleFormSubmit(e) {
             const div = pointElements[i];
             const locationEl = div.querySelector('[name="location"]');
             const rluEl = div.querySelector('[name="rluValue"]');
+            const typeEl = div.querySelector('[name="testType"]');
+            const testType = typeEl ? typeEl.value : 'atp';
             
             if (locationEl?.value && rluEl?.value) {
+                let res = div.querySelector('[name="result"]').value;
+                if (!res) {
+                    if (testType === 'detergent') {
+                        const v = parseFloat(rluEl.value);
+                        res = isNaN(v) ? '' : (v <= 0.005 ? '合格 (≤0.005)' : '不合格 (>0.005)');
+                    } else {
+                        res = determineResult(parseInt(rluEl.value) || 0);
+                    }
+                }
                 points.push({
                     loc: locationEl.value,
                     rlu: rluEl.value,
-                    res: div.querySelector('[name="result"]').value || determineResult(parseInt(rluEl.value) || 0)
+                    res: res,
+                    testType: testType
                 });
             } else {
                 skippedCount++;
@@ -757,7 +745,8 @@ function renderTable() {
                 <th class="px-4 py-3 text-left font-medium text-gray-700 border border-gray-200 text-center">日期</th>
                 <th class="px-4 py-3 text-left font-medium text-gray-700 border border-gray-200 text-center">食堂</th>
                 <th class="px-4 py-3 text-left font-medium text-gray-700 border border-gray-200">检测点位</th>
-                <th class="px-4 py-3 text-left font-medium text-gray-700 border border-gray-200 text-center">RLU值</th>
+                <th class="px-4 py-3 text-left font-medium text-gray-700 border border-gray-200 text-center">检测项目</th>
+                <th class="px-4 py-3 text-left font-medium text-gray-700 border border-gray-200 text-center">数值</th>
                 <th class="px-4 py-3 text-left font-medium text-gray-700 border border-gray-200">结果</th>
                 <th class="px-4 py-3 text-left font-medium text-gray-700 border border-gray-200 text-center">检测员</th>
                 <th class="px-4 py-3 text-left font-medium text-gray-700 border border-gray-200 text-center">操作</th>
@@ -820,7 +809,7 @@ function renderTable() {
                 <tr class="border-b hover:bg-gray-50">
                     <td class="border px-4 py-3 text-center align-middle">${record.testDate}</td>
                     <td class="border px-4 py-3 text-center align-middle">${record.canteen}</td>
-                    <td class="border px-4 py-3 text-gray-500" colspan="3">无数据</td>
+                    <td class="border px-4 py-3 text-gray-500" colspan="4">无数据</td>
                     <td class="border px-4 py-3 text-center align-middle">${record.inspector}</td>
                     <td class="border px-4 py-3 text-center align-middle">
                         <button class="px-3 py-1.5 bg-red-50 text-red-700 rounded btn-delete" data-id="${record.id}">删除</button>
@@ -830,12 +819,21 @@ function renderTable() {
         }
 
         points.forEach((p, idx) => {
+            const isDetergent = p.testType === 'detergent';
+            const typeLabel = isDetergent ? '洗涤剂残留' : '表面清洁度';
+            const typeClass = isDetergent ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700';
+            const valueDisplay = isDetergent
+                ? `${p.rlu} <span class="text-xs text-gray-500">mg/100cm<sup>2</sup></span>`
+                : p.rlu;
             tableContent += `
                 <tr class="border-b hover:bg-gray-50 transition duration-150">
                     ${idx === 0 ? `<td rowspan="${rowSpan}" class="border px-4 py-3 bg-white align-middle text-center">${record.testDate}</td>` : ''}
                     ${idx === 0 ? `<td rowspan="${rowSpan}" class="border px-4 py-3 bg-white align-middle text-center">${record.canteen}</td>` : ''}
                     <td class="border px-4 py-3 align-middle">${p.loc}</td>
-                    <td class="border px-4 py-3 align-middle text-center">${p.rlu}</td>
+                    <td class="border px-4 py-3 align-middle text-center">
+                        <span class="px-2 py-0.5 rounded-full text-xs font-medium ${typeClass}">${typeLabel}</span>
+                    </td>
+                    <td class="border px-4 py-3 align-middle text-center">${valueDisplay}</td>
                     <td class="border px-4 py-3 align-middle">
                         <div class="flex flex-col items-start">
                             <span class="result-value px-3 py-1 rounded-full text-xs font-medium ${getResultClass(p.res)} cursor-pointer hover:opacity-80" 
@@ -996,19 +994,121 @@ function addAtpPoint() {
     div.className = 'border border-gray-200 rounded-lg p-5 bg-gray-50 atp-point';
     div.innerHTML = getPointTemplate(true);
     document.getElementById('atpPointsContainer').appendChild(div);
-    
-    const rluInput = div.querySelector('[name="rluValue"]');
-    const resultField = div.querySelector('[name="result"]');
-    rluInput.addEventListener('input', () => {
-        const rluValue = parseInt(rluInput.value) || 0;
-        resultField.value = determineResult(rluValue);
-        updateResultFieldStyle(resultField);
-    });
+    bindPointEvents(div);
+}
+
+function getLocationOptionsByType(type) {
+    if (type === 'detergent') {
+        return [
+            { value: '', label: '请选择点位' },
+            { value: '不锈钢餐具', label: '不锈钢餐具' },
+            { value: '密胺类餐具', label: '密胺类餐具' }
+        ];
+    }
+
+    return [
+        { value: '', label: '请选择点位' },
+        { value: '餐具表面', label: '餐具表面' },
+        { value: '砧板表面', label: '砧板表面' },
+        { value: '操作台面', label: '操作台面' },
+        { value: '餐桌表面', label: '餐桌表面' },
+        { value: '其他接触面', label: '其他接触面' }
+    ];
+}
+
+// 统一绑定点位事件（支持ATP和洗涤剂两种类型）
+function bindPointEvents(pointDiv) {
+    const typeSelect = pointDiv.querySelector('[name="testType"]');
+    const locationSelect = pointDiv.querySelector('[name="location"]');
+    const rluInput = pointDiv.querySelector('[name="rluValue"]');
+    const resultField = pointDiv.querySelector('[name="result"]');
+    const valueLabel = pointDiv.querySelector('.value-label');
+    const unitLabel = pointDiv.querySelector('.unit-label');
+
+    function updateForType(type) {
+        if (locationSelect) {
+            const currentValue = locationSelect.value;
+            const options = getLocationOptionsByType(type);
+            locationSelect.innerHTML = options
+                .map(opt => `<option value="${opt.value}">${opt.label}</option>`)
+                .join('');
+
+            const hasCurrentOption = options.some(opt => opt.value === currentValue);
+            locationSelect.value = hasCurrentOption ? currentValue : '';
+        }
+
+        if (type === 'detergent') {
+            if (valueLabel) valueLabel.innerHTML = '洗涤剂浓度值 <span class="text-red-500">*</span>';
+            if (rluInput) {
+                rluInput.placeholder = '输入浓度值';
+                rluInput.step = '0.001';
+                rluInput.min = '0';
+            }
+            if (unitLabel) {
+                unitLabel.textContent = 'mg/100cm²';
+                unitLabel.classList.remove('hidden');
+            }
+        } else {
+            if (valueLabel) valueLabel.innerHTML = 'RLU读数 <span class="text-red-500">*</span>';
+            if (rluInput) {
+                rluInput.placeholder = '输入RLU读数';
+                rluInput.step = '1';
+                rluInput.removeAttribute('min');
+            }
+            if (unitLabel) {
+                unitLabel.textContent = '';
+                unitLabel.classList.add('hidden');
+            }
+        }
+        if (rluInput && rluInput.value) {
+            recalcResult(type, rluInput.value, resultField);
+        } else if (resultField) {
+            resultField.value = '';
+            updateResultFieldStyle(resultField);
+        }
+    }
+
+    function recalcResult(type, val, field) {
+        if (!field) return;
+        if (type === 'detergent') {
+            const v = parseFloat(val);
+            if (isNaN(v) || val === '') {
+                field.value = '';
+            } else {
+                field.value = v <= 0.005 ? '合格 (≤0.005)' : '不合格 (>0.005)';
+            }
+        } else {
+            field.value = determineResult(parseInt(val) || 0);
+        }
+        updateResultFieldStyle(field);
+    }
+
+    if (typeSelect) {
+        typeSelect.addEventListener('change', () => {
+            updateForType(typeSelect.value);
+        });
+        // 初始化
+        updateForType(typeSelect.value);
+    }
+
+    if (rluInput) {
+        rluInput.addEventListener('input', () => {
+            const type = typeSelect ? typeSelect.value : 'atp';
+            recalcResult(type, rluInput.value, resultField);
+        });
+    }
 }
 
 function getPointTemplate(removable = false) {
     return `
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 atp-point-content">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">检测项目 <span class="text-red-500">*</span></label>
+                <select name="testType" class="w-full border border-gray-300 p-2 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 point-test-type">
+                    <option value="atp">表面清洁度</option>
+                    <option value="detergent">洗涤剂残留</option>
+                </select>
+            </div>
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">检测点位 <span class="text-red-500">*</span></label>
                 <select name="location" class="w-full border border-gray-300 p-2 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500" required>
@@ -1020,19 +1120,22 @@ function getPointTemplate(removable = false) {
                     <option>其他接触面</option>
                 </select>
             </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">RLU读数 <span class="text-red-500">*</span></label>
-                <input type="number" name="rluValue" class="w-full border border-gray-300 p-2 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500" required placeholder="输入RLU读数">
+            <div class="value-input-col">
+                <label class="block text-sm font-medium text-gray-700 mb-1 value-label">RLU读数 <span class="text-red-500">*</span></label>
+                <div class="flex items-center gap-1">
+                    <input type="number" name="rluValue" class="w-full border border-gray-300 p-2 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500" required placeholder="输入RLU读数">
+                    <span class="unit-label text-xs text-gray-500 whitespace-nowrap hidden"></span>
+                </div>
             </div>
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">判定结果 <span class="text-blue-500">(自动)</span></label>
                 <input type="text" name="result" readonly class="w-full border border-gray-300 p-2 rounded-md shadow-sm bg-gray-50 cursor-not-allowed" value="">
             </div>
-            <div class="flex items-end">
-                ${removable ? 
-                    '<button type="button" class="btn-remove-point w-full bg-red-500 text-white px-3 py-2 rounded-md shadow-sm hover:bg-red-600 transition flex items-center justify-center"><i class="fas fa-trash-alt mr-1"></i>删除点位</button>' : 
-                    '<div class="text-xs text-gray-500 bg-blue-50 p-2 rounded-md border border-blue-100 flex items-center"><i class="fas fa-info-circle mr-1 text-blue-400"></i>默认检测点位</div>'}
-            </div>
+        </div>
+        <div class="flex justify-end mt-2">
+            ${removable ? 
+                '<button type="button" class="btn-remove-point bg-red-500 text-white px-3 py-1.5 rounded-md shadow-sm hover:bg-red-600 transition flex items-center text-sm"><i class="fas fa-trash-alt mr-1"></i>删除点位</button>' : 
+                '<div class="text-xs text-gray-500 bg-blue-50 px-2 py-1 rounded-md border border-blue-100 flex items-center"><i class="fas fa-info-circle mr-1 text-blue-400"></i>默认检测点位</div>'}
         </div>
     `;
 }

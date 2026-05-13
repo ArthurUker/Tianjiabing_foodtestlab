@@ -250,6 +250,13 @@ function handleRecheckImport(file, originalRecord, currentUser, callback) {
     reader.readAsArrayBuffer(file);
 }
 
+// 判断结果字段是否为阳性：支持"阳性"和"+"两种格式
+function isPositiveResult(result) {
+    if (!result) return false;
+    const s = result.trim();
+    return s.includes('阳性') || s === '+' || s === '(+)' || s === '＋';
+}
+
 function parseDetectionReport(text) {
     if (!text.includes('检测报告') && !text.includes('检测数据')) return null;
 
@@ -346,8 +353,8 @@ function parseDetectionReport(text) {
                 isInternalControl: isInternalControl
             });
 
-            // 4. 阳性判定
-            if (result.includes('阳性') && !isInternalControl) {
+            // 4. 阳性判定（支持"阳性"和"+"两种格式）
+            if (isPositiveResult(result) && !isInternalControl) {
                 const ctValue = parseFloat(ctRaw);
                 positiveList.push({
                     pathogen: pathogen,
@@ -376,7 +383,7 @@ function parseDetectionReport(text) {
         .map(item => `${item.pathogen}: ${item.result}`)
         .join(', ');
 
-    const riskAssessment = calculateRiskLevel(positiveList);
+    const riskAssessment = calculateRiskLevel(positiveList, allTestItems);
 
     return {
         testDate: dateMatch ? formatDateStandard(dateMatch[1]) : new Date().toISOString().split('T')[0],
@@ -399,8 +406,25 @@ function parseDetectionReport(text) {
 
 
 
-function calculateRiskLevel(positiveList) {
-    if (positiveList.length === 0) {
+function calculateRiskLevel(positiveList, allTestItems) {
+    // ===== 关键修复：直接从 allTestItems 重新计算阳性项 =====
+    // 这确保了原始结果（Ct值）不会因为阈值判定而被过滤掉
+    let validPositiveList = positiveList;
+    
+    if (allTestItems && allTestItems.length > 0) {
+        // 从 allTestItems 中提取所有标记为"阳性"的非内标项目
+        validPositiveList = allTestItems
+            .filter(item => item.result && isPositiveResult(item.result) && !item.isInternalControl)
+            .map(item => ({
+                pathogen: item.pathogen,
+                ct: parseFloat(item.ct) || 999,
+                ctRaw: item.ct
+            }));
+        
+        console.log('🔄 从 allTestItems 重新计算阳性项:', validPositiveList);
+    }
+    
+    if (validPositiveList.length === 0) {
         return {
             riskLevel: '无风险',
             riskReason: '所有检测项均为阴性',
@@ -408,7 +432,7 @@ function calculateRiskLevel(positiveList) {
         };
     }
 
-    const minCt = Math.min(...positiveList.map(p => p.ct));
+    const minCt = Math.min(...validPositiveList.map(p => p.ct));
     
     let riskLevel = '未知';
     
@@ -422,11 +446,11 @@ function calculateRiskLevel(positiveList) {
         riskLevel = '极低风险';
     }
 
-    const positiveItemsDisplay = positiveList
+    const positiveItemsDisplay = validPositiveList
         .map(p => `${p.pathogen}(Ct:${p.ctRaw})`)
         .join(', ');
 
-    const criticalPathogen = positiveList.find(p => p.ct === minCt);
+    const criticalPathogen = validPositiveList.find(p => p.ct === minCt);
     const riskReason = `最高风险项：${criticalPathogen.pathogen}，Ct值=${criticalPathogen.ctRaw}`;
 
     return {
@@ -818,7 +842,7 @@ function showTestDetailModal(testData) {
                 </thead>
                 <tbody>
                     ${testData.allTestItems.map(item => {
-                        const isPositive = item.result.includes('阳性');
+                        const isPositive = isPositiveResult(item.result);
                         const isInternalControl = item.isInternalControl;
                         
                         let rowClass = 'hover:bg-gray-50';
@@ -1300,6 +1324,19 @@ function renderTable() {
     }
 
     tbody.innerHTML = currentRecords.map(item => {
+        // 动态从 allTestItems 重新计算阳性项展示，修复历史存储错误
+        let displayPositiveItems = item.positiveItems;
+        if (item.allTestItems && item.allTestItems.length > 0) {
+            const recalculated = item.allTestItems
+                .filter(t => t.result && isPositiveResult(t.result) && !t.isInternalControl)
+                .map(t => `${t.pathogen}(Ct:${t.ct})`);
+            if (recalculated.length > 0) {
+                displayPositiveItems = recalculated.join(', ');
+            } else {
+                displayPositiveItems = '无';
+            }
+        }
+
         let riskClass = 'bg-gray-100 text-gray-800';
         if (item.riskLevel === '高风险') {
             riskClass = 'bg-red-100 text-red-800';
@@ -1313,7 +1350,7 @@ function renderTable() {
             riskClass = 'bg-blue-100 text-blue-800';
         }
         
-        const positiveClass = item.positiveItems !== '无' ? 'text-red-600 font-bold' : 'text-gray-600';
+        const positiveClass = displayPositiveItems !== '无' ? 'text-red-600 font-bold' : 'text-gray-600';
         
         let statusBadge = '';
         if (item.finalStatus) {
@@ -1328,7 +1365,7 @@ function renderTable() {
                 <td class="px-4 py-3 text-center">${item.canteen}</td>
                 <td class="px-4 py-3 text-center">${item.sampleType}</td>
                 <td class="px-4 py-3 ${positiveClass} cursor-pointer hover:underline result-value" data-id="${item.id}" title="点击查看详情">
-                    ${item.positiveItems}${statusBadge}
+                    ${displayPositiveItems}${statusBadge}
                 </td>
                 <td class="px-4 py-3 text-center">
                     <span class="px-2 py-1 rounded-full text-xs font-medium ${riskClass}" title="${item.riskReason || ''}">
