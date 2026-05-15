@@ -257,7 +257,7 @@ function showEditModal(record, currentUser) {
     };
 
     // 保存整改日志
-    document.getElementById('btnSaveLog').onclick = () => {
+    document.getElementById('btnSaveLog').onclick = async () => {
         const content = document.getElementById('newCorrectiveAction').value.trim();
         if (!content) {
             alert('请输入整改内容');
@@ -305,7 +305,7 @@ function showEditModal(record, currentUser) {
     };
 
     // 保存复检逻辑
-    document.getElementById('btnSaveRecheck').onclick = () => {
+    document.getElementById('btnSaveRecheck').onclick = async () => {
         const pointEls = document.querySelectorAll('.recheck-point');
         const points = [];
         let allPassed = true;

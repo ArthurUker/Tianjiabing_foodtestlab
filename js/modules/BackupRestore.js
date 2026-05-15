@@ -374,7 +374,7 @@ export class BackupRestoreService {
         }
     }
 
-    handleBackup() {
+    async handleBackup() {
         try {
             const backupData = {
                 version: '2.0',
@@ -499,7 +499,7 @@ export class BackupRestoreService {
     }
 
     // [核心修复] 统一恢复逻辑
-    processRestoreData(backupData, sourceName) {
+    async processRestoreData(backupData, sourceName) {
         try {
             // 1. 格式检测
             const isStandardFormat = backupData.tables && backupData.version;

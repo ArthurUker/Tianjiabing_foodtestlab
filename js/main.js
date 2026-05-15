@@ -15,6 +15,9 @@ import { initUserManagement } from './modules/UserManagement.js';
 import { permissionService } from './services/PermissionService.js';
 // 5. ✨ 引入审计日志模块
 import { initAuditLog } from './modules/AuditLog.js';
+import { sessionManager } from './services/SessionManager.js';
+import guestAuthService from './services/GuestAuthService.js';
+import { GuestDashboard } from './modules/GuestDashboard.js';
 // 6. ✨ 引入会话管理服务
 
 // ✨ 全局快速访问模式渲染函数 - 直接暴露给window
@@ -61,12 +64,6 @@ window.renderQuickAccessData = () => {
         console.error('❌ 渲染失败:', e);
     }
 };
-
-import { sessionManager } from './services/SessionManager.js';
-// 7. ✨ 引入访客认证服务 (使用单例实例)
-import guestAuthService from './services/GuestAuthService.js';
-// 8. ✨ 引入访客中心模块
-import { GuestDashboard } from './modules/GuestDashboard.js';
 
 console.log('✅ main.js 模块加载开始');
 

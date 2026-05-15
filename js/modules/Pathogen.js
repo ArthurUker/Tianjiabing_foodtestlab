@@ -668,7 +668,7 @@ function showEditModal(record, currentUser) {
         btnTabTrace.className = "px-4 py-2 border-b-2 border-blue-500 text-blue-600 font-medium";
     };
 
-    document.getElementById('btnSaveBasicInfo').onclick = () => {
+    document.getElementById('btnSaveBasicInfo').onclick = async () => {
         const updates = {
             sampleId: document.getElementById('editSampleId').value,
             canteen: document.getElementById('editCanteen').value,
