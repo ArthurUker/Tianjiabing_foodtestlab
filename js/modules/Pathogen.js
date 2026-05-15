@@ -4,6 +4,7 @@ import { FormValidator } from '../utils/FormValidator.js';
 import { UINotification } from '../utils/UINotification.js';
 import { NetworkHelper } from '../utils/NetworkHelper.js';
 import { GuestAuthService } from '../services/GuestAuthService.js';
+import { calculatePathogenRisk, isPositiveResult } from '../utils/pathogenRisk.js';
 
 const storage = new StorageService('pathogen');
 let currentPage = 1;
@@ -250,13 +251,6 @@ function handleRecheckImport(file, originalRecord, currentUser, callback) {
     reader.readAsArrayBuffer(file);
 }
 
-// 判断结果字段是否为阳性：支持"阳性"和"+"两种格式
-function isPositiveResult(result) {
-    if (!result) return false;
-    const s = result.trim();
-    return s.includes('阳性') || s === '+' || s === '(+)' || s === '＋';
-}
-
 function parseDetectionReport(text) {
     if (!text.includes('检测报告') && !text.includes('检测数据')) return null;
 
@@ -383,7 +377,7 @@ function parseDetectionReport(text) {
         .map(item => `${item.pathogen}: ${item.result}`)
         .join(', ');
 
-    const riskAssessment = calculateRiskLevel(positiveList, allTestItems);
+    const riskAssessment = calculatePathogenRisk(positiveList, allTestItems);
 
     return {
         testDate: dateMatch ? formatDateStandard(dateMatch[1]) : new Date().toISOString().split('T')[0],
@@ -392,7 +386,7 @@ function parseDetectionReport(text) {
         sampleType: projectName.includes('水') ? '水样' : '食品/环境样本',
         sampleInfo: rawInfo || '未知',
         positiveItems: riskAssessment.positiveItemsDisplay,
-        positiveDetails: positiveList,
+        positiveDetails: riskAssessment.positiveDetails,
         riskLevel: riskAssessment.riskLevel,
         riskReason: riskAssessment.riskReason,
         inspector: inspectorMatch ? inspectorMatch[1] : '系统导入',
@@ -403,63 +397,6 @@ function parseDetectionReport(text) {
         recheckReports: []
     };
 }
-
-
-
-function calculateRiskLevel(positiveList, allTestItems) {
-    // ===== 关键修复：直接从 allTestItems 重新计算阳性项 =====
-    // 这确保了原始结果（Ct值）不会因为阈值判定而被过滤掉
-    let validPositiveList = positiveList;
-    
-    if (allTestItems && allTestItems.length > 0) {
-        // 从 allTestItems 中提取所有标记为"阳性"的非内标项目
-        validPositiveList = allTestItems
-            .filter(item => item.result && isPositiveResult(item.result) && !item.isInternalControl)
-            .map(item => ({
-                pathogen: item.pathogen,
-                ct: parseFloat(item.ct) || 999,
-                ctRaw: item.ct
-            }));
-        
-        console.log('🔄 从 allTestItems 重新计算阳性项:', validPositiveList);
-    }
-    
-    if (validPositiveList.length === 0) {
-        return {
-            riskLevel: '无风险',
-            riskReason: '所有检测项均为阴性',
-            positiveItemsDisplay: '无'
-        };
-    }
-
-    const minCt = Math.min(...validPositiveList.map(p => p.ct));
-    
-    let riskLevel = '未知';
-    
-    if (minCt < 20) {
-        riskLevel = '高风险';
-    } else if (minCt >= 20 && minCt < 30) {
-        riskLevel = '中风险';
-    } else if (minCt >= 30 && minCt < 35) {
-        riskLevel = '低风险';
-    } else if (minCt >= 35) {
-        riskLevel = '极低风险';
-    }
-
-    const positiveItemsDisplay = validPositiveList
-        .map(p => `${p.pathogen}(Ct:${p.ctRaw})`)
-        .join(', ');
-
-    const criticalPathogen = validPositiveList.find(p => p.ct === minCt);
-    const riskReason = `最高风险项：${criticalPathogen.pathogen}，Ct值=${criticalPathogen.ctRaw}`;
-
-    return {
-        riskLevel: riskLevel,
-        riskReason: riskReason,
-        positiveItemsDisplay: positiveItemsDisplay
-    };
-}
-
 function formatDateStandard(dateStr) {
     const date = new Date(dateStr.replace(/年|月/g, '-').replace(/日/g, ''));
     if (isNaN(date.getTime())) return dateStr;
@@ -1324,29 +1261,21 @@ function renderTable() {
     }
 
     tbody.innerHTML = currentRecords.map(item => {
-        // 动态从 allTestItems 重新计算阳性项展示，修复历史存储错误
-        let displayPositiveItems = item.positiveItems;
-        if (item.allTestItems && item.allTestItems.length > 0) {
-            const recalculated = item.allTestItems
-                .filter(t => t.result && isPositiveResult(t.result) && !t.isInternalControl)
-                .map(t => `${t.pathogen}(Ct:${t.ct})`);
-            if (recalculated.length > 0) {
-                displayPositiveItems = recalculated.join(', ');
-            } else {
-                displayPositiveItems = '无';
-            }
-        }
+        const riskAssessment = calculatePathogenRisk(item.positiveDetails || [], item.allTestItems || []);
+        const displayPositiveItems = riskAssessment.positiveItemsDisplay;
+        const displayRiskLevel = riskAssessment.riskLevel || item.riskLevel;
+        const displayRiskReason = riskAssessment.riskReason || item.riskReason;
 
         let riskClass = 'bg-gray-100 text-gray-800';
-        if (item.riskLevel === '高风险') {
+        if (displayRiskLevel === '高风险') {
             riskClass = 'bg-red-100 text-red-800';
-        } else if (item.riskLevel === '中风险') {
+        } else if (displayRiskLevel === '中风险') {
             riskClass = 'bg-orange-100 text-orange-800';
-        } else if (item.riskLevel === '低风险') {
+        } else if (displayRiskLevel === '低风险') {
             riskClass = 'bg-yellow-100 text-yellow-800';
-        } else if (item.riskLevel === '极低风险') {
+        } else if (displayRiskLevel === '极低风险') {
             riskClass = 'bg-green-100 text-green-800';
-        } else if (item.riskLevel === '无风险') {
+        } else if (displayRiskLevel === '无风险') {
             riskClass = 'bg-blue-100 text-blue-800';
         }
         
@@ -1368,8 +1297,8 @@ function renderTable() {
                     ${displayPositiveItems}${statusBadge}
                 </td>
                 <td class="px-4 py-3 text-center">
-                    <span class="px-2 py-1 rounded-full text-xs font-medium ${riskClass}" title="${item.riskReason || ''}">
-                        ${item.riskLevel}
+                    <span class="px-2 py-1 rounded-full text-xs font-medium ${riskClass}" title="${displayRiskReason || ''}">
+                        ${displayRiskLevel}
                     </span>
                 </td>
                 <td class="px-4 py-3 text-center">${item.inspector}</td>

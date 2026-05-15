@@ -1,6 +1,7 @@
 import { StorageService } from '../core/Storage.js';
 import { UINotification } from '../utils/UINotification.js';
 import { NetworkHelper } from '../utils/NetworkHelper.js';
+import { calculatePathogenRisk } from '../utils/pathogenRisk.js';
 
 const services = {
     tableware: new StorageService('tableware'),
@@ -807,28 +808,20 @@ function getStats(type, startDate, endDate, selectedCanteen = 'all') {
       };
       
       filtered.forEach(r => {
-          const items = r.positiveItems;
-          if (!items || items === '无' || (typeof items === 'string' && items.trim() === '')) {
-              r.positiveDetails = [];
-              return;
+          const riskAssessment = calculatePathogenRisk(r.positiveDetails || [], r.allTestItems || []);
+
+          // 统一覆盖为算法实时结果，避免历史缓存字段不一致
+          r.riskLevel = riskAssessment.riskLevel;
+          r.riskReason = riskAssessment.riskReason;
+          r.positiveItems = riskAssessment.positiveItemsDisplay;
+          r.positiveDetails = riskAssessment.positiveDetails;
+
+          if (riskAssessment.riskLevel !== '无风险') {
+              positiveCount++;
           }
-          
-          positiveCount++;
-          
+
           if (r.riskLevel && riskLevels[r.riskLevel] !== undefined) {
               riskLevels[r.riskLevel]++;
-          }
-          
-          if (r.allTestItems && Array.isArray(r.allTestItems)) {
-              r.positiveDetails = r.allTestItems
-                  .filter(item => item.result && item.result.includes('阳性') && !item.isInternalControl)
-                  .map(item => ({
-                      pathogen: item.pathogen,
-                      ct: parseFloat(item.ct) || 40,
-                      ctRaw: item.ct
-                  }));
-          } else {
-              r.positiveDetails = [];
           }
       });
       
@@ -1017,69 +1010,6 @@ function updateRiskAlerts(stats, leanMeatByType) {
     }
 }
 
-
-function calculateRiskLevel(positiveList, allTestItems) {
-    // ===== 关键修复：直接从 allTestItems 重新计算阳性项 =====
-    // 支持"阳性"和"+"两种结果格式
-    function isPositiveResult(result) {
-        if (!result) return false;
-        const s = result.trim();
-        return s.includes('阳性') || s === '+' || s === '(+)' || s === '＋';
-    }
-
-    let validPositiveList = positiveList;
-    
-    if (allTestItems && allTestItems.length > 0) {
-        validPositiveList = allTestItems
-            .filter(item => item.result && isPositiveResult(item.result) && !item.isInternalControl)
-            .map(item => ({
-                pathogen: item.pathogen,
-                ct: parseFloat(item.ct) || 999,
-                ctRaw: item.ct
-            }));
-    }
-    
-    if (validPositiveList.length === 0) {
-        return {
-            riskLevel: '无风险',
-            riskReason: '所有检测项均为阴性',
-            positiveItemsDisplay: '无'
-        };
-    }
-
-    const minCt = Math.min(...validPositiveList.map(p => p.ct));
-    
-    let riskLevel = '未知';
-    let riskInterpretation = '';
-    
-    if (minCt < 20) {
-        riskLevel = '高风险';
-        riskInterpretation = '病原体载量高，提示可能存在活性感染源，需立即处置';
-    } else if (minCt >= 20 && minCt < 30) {
-        riskLevel = '中风险';
-        riskInterpretation = '检出中等载量病原体核酸，建议加强清洁消毒';
-    } else if (minCt >= 30 && minCt < 35) {
-        riskLevel = '低风险';
-        riskInterpretation = '检出低载量病原体核酸，可能为环境残留，建议常规消毒';
-    } else if (minCt >= 35) {
-        riskLevel = '极低风险';
-        riskInterpretation = '仅检出微量核酸片段，通常为环境残留或非活性核酸，无需特殊处置（参考：Kitajima et al., 2012）';
-    }
-
-    const positiveItemsDisplay = validPositiveList
-        .map(p => `${p.pathogen}(Ct:${p.ctRaw})`)
-        .join(', ');
-
-    const criticalPathogen = validPositiveList.find(p => p.ct === minCt);
-    const riskReason = `${criticalPathogen.pathogen}，Ct=${criticalPathogen.ctRaw}。${riskInterpretation}`;
-
-    return {
-        riskLevel: riskLevel,
-        riskReason: riskReason,
-        riskInterpretation: riskInterpretation,
-        positiveItemsDisplay: positiveItemsDisplay
-    };
-}
 
 
 
