@@ -4,6 +4,7 @@ import { FormValidator } from '../utils/FormValidator.js';
 import { UINotification } from '../utils/UINotification.js';
 import { NetworkHelper } from '../utils/NetworkHelper.js';
 import { GuestAuthService } from '../services/GuestAuthService.js';
+import { auditLogService } from '../services/AuditLogService.js';
 
 const storage = new StorageService('tableware');
 let currentPage = 1;
@@ -277,6 +278,14 @@ function showEditModal(record, currentUser) {
         const success = storage.update(record.id, record);
         
         if (success) {
+            // 记录审计日志
+            const pointId = record?.pointId || record.id;
+            await auditLogService.logOperation(
+                'update',
+                'tableware',
+                record.id,
+                `更新餐具洁净度整改措施：检测点 ${pointId}`
+            );
             document.getElementById('auditLogsList').innerHTML = renderLogs(record.modificationLogs);
             renderTable(); 
             document.dispatchEvent(new Event('dataChanged')); 
@@ -348,6 +357,14 @@ function showEditModal(record, currentUser) {
         const success = storage.update(record.id, record);
 
         if (success) {
+            // 记录审计日志
+            const pointId = record?.pointId || record.id;
+            await auditLogService.logOperation(
+                'update',
+                'tableware',
+                record.id,
+                `复检录入：检测点 ${pointId}，状态变为${record.finalStatus}`
+            );
             document.getElementById('recheckHistoryList').innerHTML = renderRecheckHistory(record.recheckRecords);
             document.getElementById('auditLogsList').innerHTML = renderLogs(record.modificationLogs);
             renderTable();
@@ -590,8 +607,17 @@ async function handleDeleteRecord(recordId) {
     if (!confirmed) return;
 
     try {
+        const record = storage.getAll().find(r => r.id === parseInt(recordId));
         const success = storage.delete(recordId);
         if (success) {
+            // 记录审计日志
+            const pointId = record?.pointId || recordId;
+            await auditLogService.logOperation(
+                'delete',
+                'tableware',
+                recordId,
+                `删除餐具洁净度检测记录：检测点 ${pointId}`
+            );
             UINotification.success('✅ 删除成功');
             renderTable();
             document.dispatchEvent(new Event('dataChanged'));

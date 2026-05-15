@@ -2,6 +2,7 @@
 import { supabase } from '../utils/supabaseClient.js';
 import { UINotification } from '../utils/UINotification.js';
 import { NetworkHelper } from '../utils/NetworkHelper.js';
+import { auditLogService } from '../services/AuditLogService.js';
 
 export class BackupRestoreService {
     constructor() {
@@ -407,6 +408,13 @@ export class BackupRestoreService {
             URL.revokeObjectURL(url);
 
             UINotification.success(`✅ 备份成功！共导出 ${count} 条记录`);
+            // 记录审计日志
+            await auditLogService.logOperation(
+                'export',
+                'system',
+                'backup',
+                `导出数据备份：共 ${count} 条记录`
+            );
         } catch (error) {
             console.error('备份失败:', error);
             UINotification.error('❌ 备份失败: ' + error.message);
@@ -472,6 +480,13 @@ export class BackupRestoreService {
             await Promise.all(promises);
 
             this.showStatus('✅ 云端同步成功！页面即将刷新...', 'green');
+            // 记录审计日志
+            await auditLogService.logOperation(
+                'import',
+                'system',
+                'backup',
+                `从服务器云端恢复数据：已加载 5 个数据表`
+            );
             UINotification.success('✅ 同步成功！本地数据已更新为服务器最新状态');
             setTimeout(() => window.location.reload(), 1500);
 
@@ -552,9 +567,23 @@ export class BackupRestoreService {
             // 5. 结果处理
             if (shouldSyncToServer) {
                 localStorage.setItem('force_data_sync', 'true');
+                // 记录审计日志
+                await auditLogService.logOperation(
+                    'import',
+                    'system',
+                    'backup',
+                    `导入数据恢复：来自 ${sourceName}，已恢复 ${restoreCount} 个表，并加入同步队列`
+                );
                 alert(`✅ 恢复成功！\n已恢复 ${restoreCount} 个表。\n\n数据已加入上传队列，页面刷新后将自动开始同步。`);
             } else {
                 localStorage.setItem('block_data_sync', 'true');
+                // 记录审计日志
+                await auditLogService.logOperation(
+                    'import',
+                    'system',
+                    'backup',
+                    `导入数据恢复（本地模式）：来自 ${sourceName}，已恢复 ${restoreCount} 个表`
+                );
                 alert(`✅ 恢复成功！\n已设置为本地模式。`);
             }
             

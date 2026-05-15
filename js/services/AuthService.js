@@ -493,9 +493,20 @@ export class AuthService {
 const RAILWAY_API_URL = 'https://tianjiabingfoodtestlab-production.up.railway.app';
 const LOCAL_API_URL = 'http://localhost:3000';
 
-function getApiBaseUrl() {
-    // 优先使用 Railway 生产环境，确保在没有本地后端的情况下仍能登录
-    console.log('🔗 API Base URL 已设置为 Railway 生产环境:', RAILWAY_API_URL);
+export function getApiBaseUrl() {
+    // 检测环境：优先使用本地后端（如果可用），否则使用 Railway 生产环境
+    // 本地环境或开发环境：使用 localhost:3000
+    // 生产环境或本地后端不可用：使用 Railway
+    
+    const isDevelopment = window.location.hostname === 'localhost' || 
+                          window.location.hostname === '127.0.0.1';
+    
+    if (isDevelopment) {
+        console.log('🔗 开发环境检测到，使用本地后端:', LOCAL_API_URL);
+        return LOCAL_API_URL;
+    }
+    
+    console.log('🔗 生产环境，使用 Railway 后端:', RAILWAY_API_URL);
     return RAILWAY_API_URL;
 }
 

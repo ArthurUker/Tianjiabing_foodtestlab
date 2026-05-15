@@ -2,6 +2,7 @@ import { StorageService } from '../core/Storage.js';
 import { UINotification } from '../utils/UINotification.js';
 import { NetworkHelper } from '../utils/NetworkHelper.js';
 import { calculatePathogenRisk } from '../utils/pathogenRisk.js';
+import { auditLogService } from '../services/AuditLogService.js';
 
 const services = {
     tableware: new StorageService('tableware'),
@@ -196,6 +197,14 @@ async function exportDashboardToPDF() {
         
         pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
         pdf.save(`数据看板_${new Date().toISOString().split('T')[0]}.pdf`);
+        
+        // 记录审计日志
+        await auditLogService.logOperation(
+            'export',
+            'dashboard',
+            'pdf',
+            '导出数据看板为 PDF'
+        );
         
         UINotification.success('✅ PDF 导出成功！');
     } catch (error) {

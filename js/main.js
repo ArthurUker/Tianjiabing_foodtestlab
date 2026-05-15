@@ -99,6 +99,17 @@ window.handleNavigation = function(target) {
     if (targetSection) {
         targetSection.classList.remove('hidden');
         console.log('✅ 导航成功，显示:', target);
+        
+        // 特殊处理：初始化需要动态渲染的模块
+        if (target === 'audit-log' && typeof window.initAuditLog === 'function') {
+            try {
+                console.log('🔧 审计日志模块初始化中...');
+                window.initAuditLog();
+                console.log('✅ 审计日志模块初始化成功');
+            } catch (error) {
+                console.error('❌ 审计日志模块初始化失败:', error);
+            }
+        }
     } else {
         console.error('❌ 无法找到内容区域:', target);
     }
@@ -308,6 +319,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         // 7. ✨ 初始化审计日志模块 (仅管理员可访问)
+        // 暴露 initAuditLog 到全局以支持动态导航
+        window.initAuditLog = initAuditLog;
         if (!isQuickAccessMode) {
             console.log('🔧 AuditLog 初始化中...');
             try {

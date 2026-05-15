@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url'
 import { createClient } from '@supabase/supabase-js'
 import jwt from 'jsonwebtoken'
 import { createUserRoutes } from './routes/userRoutes.js'
+import { createAuditRoutes } from './routes/auditRoutes.js'
 import { createValidationMiddleware, rateLimit, sanitizeText } from './middleware/validationMiddleware.js'
 
 dotenv.config()
@@ -53,6 +54,10 @@ app.get('/health', (req, res) => {
 // ====== User Authentication Routes ======
 const userRoutes = createUserRoutes(supabase, process.env.JWT_SECRET)
 app.use('/api/user', userRoutes)
+
+// ====== Audit Logs Routes ======
+const auditRoutes = createAuditRoutes(supabase, process.env.JWT_SECRET)
+app.use('/api/audit-logs', auditRoutes)
 
 // ====== API Routes ======
 

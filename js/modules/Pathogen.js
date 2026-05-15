@@ -5,6 +5,7 @@ import { UINotification } from '../utils/UINotification.js';
 import { NetworkHelper } from '../utils/NetworkHelper.js';
 import { GuestAuthService } from '../services/GuestAuthService.js';
 import { calculatePathogenRisk, isPositiveResult } from '../utils/pathogenRisk.js';
+import { auditLogService } from '../services/AuditLogService.js';
 
 const storage = new StorageService('pathogen');
 let currentPage = 1;
@@ -412,8 +413,17 @@ async function handleDeleteRecord(recordId) {
     if (!confirmed) return;
 
     try {
+        const record = storage.getAll().find(r => r.id === parseInt(recordId));
         const success = storage.delete(recordId);
         if (success) {
+            // 记录审计日志
+            const sampleId = record?.sampleId || recordId;
+            await auditLogService.logOperation(
+                'delete',
+                'pathogen',
+                recordId,
+                `删除病原体检测记录：样本 ${sampleId}`
+            );
             UINotification.success('✅ 删除成功');
             renderTable();
             document.dispatchEvent(new Event('dataChanged'));
@@ -678,6 +688,14 @@ function showEditModal(record, currentUser) {
         });
 
         if (storage.update(record.id, record)) {
+            // 记录审计日志
+            const sampleId = record?.sampleId || record.id;
+            await auditLogService.logOperation(
+                'update',
+                'pathogen',
+                record.id,
+                `修改病原体检测记录：样本 ${sampleId}`
+            );
             document.getElementById('auditLogsList').innerHTML = renderLogs(record.modificationLogs);
             renderTable();
             document.dispatchEvent(new Event('dataChanged'));
