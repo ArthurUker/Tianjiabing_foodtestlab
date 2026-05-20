@@ -219,7 +219,7 @@ export const DEFAULT_CONFIG = {
 
     // API
     api: {
-        baseUrl: 'http://localhost:3000',
+        baseUrl: 'http://localhost:3001',
         timeout: 30000,
         retryAttempts: 3,
         retryDelay: 1000
@@ -271,7 +271,7 @@ export const ENVIRONMENT_CONFIG = {
         debug: true,
         logLevel: 'debug',
         api: {
-            baseUrl: 'http://localhost:3000',
+            baseUrl: 'http://localhost:3001',
             timeout: 60000
         },
         features: {

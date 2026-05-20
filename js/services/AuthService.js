@@ -489,7 +489,7 @@ export class AuthService {
 }
 
 // 自动检测 API 基础 URL
-const LOCAL_API_URL = 'http://localhost:3000';
+const LOCAL_API_URL = 'http://localhost:3001';
 
 export function getApiBaseUrl() {
     // 允许通过全局变量覆盖，便于灰度或特殊环境调试。
