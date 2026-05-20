@@ -5,7 +5,7 @@
  */
 
 export class APIClient {
-    constructor(baseURL = 'http://localhost:3000/api') {
+    constructor(baseURL = '/api') {
         this.baseURL = baseURL
         this.token = this.loadToken()
         this.requestInterceptors = []
@@ -205,7 +205,7 @@ export class APIClient {
 // ====== Singleton Instance ======
 
 export const apiClient = new APIClient(
-    import.meta.env.VITE_API_URL || 'http://localhost:3000/api'
+    import.meta.env.VITE_API_URL || '/api'
 )
 
 // ====== Usage Examples ======

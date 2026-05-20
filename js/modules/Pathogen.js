@@ -82,7 +82,7 @@ export function initPathogen() {
     setupPaginationListeners();
     renderTable();
 
-    // 数据从 Supabase 同步完成后重新渲染表格
+    // 数据从服务器同步完成后重新渲染表格
     storage.on('sync', () => renderTable());
 }
 

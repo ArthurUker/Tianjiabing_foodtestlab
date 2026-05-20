@@ -76,7 +76,7 @@ export class GenericTestModule {
         this.setupPaginationListeners();
         this.render();
 
-        // 数据从 Supabase 同步完成后重新渲染表格
+        // 数据从服务器同步完成后重新渲染表格
         this.storage.on('sync', () => this.render());
     }
 

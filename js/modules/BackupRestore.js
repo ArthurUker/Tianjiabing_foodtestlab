@@ -1,5 +1,4 @@
 // 文件路径: js/modules/BackupRestore.js
-import { supabase } from '../utils/supabaseClient.js';
 import { UINotification } from '../utils/UINotification.js';
 import { NetworkHelper } from '../utils/NetworkHelper.js';
 import { auditLogService } from '../services/AuditLogService.js';
@@ -452,21 +451,33 @@ export class BackupRestoreService {
         const btn = document.getElementById('btn-cloud-restore');
         if(btn) btn.disabled = true;
 
-        try {
-            // 使用 Promise.all 并行拉取 5 张表，速度极快
-            const promises = this.targetTables.map(async (tableName) => {
-                // 使用你原本的 supabase 客户端
-                const { data, error } = await supabase
-                    .from(tableName)
-                    .select('*')
-                    .order('id', { ascending: false })
-                    .limit(1000);
+        const token = localStorage.getItem('auth_token') || localStorage.getItem('guest_token');
+        if (!token || token.startsWith('temp-token-')) {
+            this.showStatus('❌ 云端同步需要登录有效账号后再执行', 'red');
+            UINotification.error('请先使用有效账号登录后再执行云端同步');
+            if (btn) btn.disabled = false;
+            return;
+        }
 
-                if (error) throw error;
+        try {
+            // 使用 Promise.all 并行拉取 5 张表
+            const promises = this.targetTables.map(async (tableName) => {
+                const response = await fetch(`/api/records/${tableName}?limit=1000&offset=0`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                const result = await response.json();
+                if (!response.ok) {
+                    throw new Error(result.error || `获取 ${tableName} 失败`);
+                }
+
+                const data = Array.isArray(result) ? result : (result.data || []);
                 
                 // 数据清洗：确保格式统一
                 const processedData = data.map(row => {
-                    // 兼容 Supabase 可能返回的 data 嵌套结构
+                    // 兼容历史数据中的 data 嵌套结构
                     const content = (row.data && typeof row.data === 'object') ? row.data : row;
                     // 标记为已同步
                     return { ...content, id: row.id, _status: 'synced' };

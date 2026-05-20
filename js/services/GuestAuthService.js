@@ -3,16 +3,10 @@
  * 处理访客登录、注册、权限检查等
  */
 
-const RAILWAY_API_URL = 'https://tianjiabingfoodtestlab-production.up.railway.app';
-
 export class GuestAuthService {
     constructor(apiBaseUrl = '') {
-        // 优先使用 Railway 生产环境确保可用性
-        if (apiBaseUrl) {
-            this.apiBaseUrl = apiBaseUrl;
-        } else {
-            this.apiBaseUrl = RAILWAY_API_URL;
-        }
+        // 默认走同源 API，适配腾讯云 Nginx 反向代理。
+        this.apiBaseUrl = apiBaseUrl || '';
     }
 
     /**

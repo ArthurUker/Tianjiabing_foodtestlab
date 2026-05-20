@@ -6,8 +6,9 @@ import { logOperation } from '../utils/AuditLogger.js';
 // 0. 内置默认配置
 // ==========================================
 const DEFAULT_CONFIG = {
-    apiUrl: 'https://mqnzaxwvyjtfktzqjugl.supabase.co/rest/v1',
-    apiKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1xbnpheHd2eWp0Zmt0enFqdWdsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYzODUwOTcsImV4cCI6MjA4MTk2MTA5N30.D0WfRNdUthCWG4LrXS4T0alem4ftBw6a2bn-qAwQt90'
+    apiBaseUrl: '/api/records',
+    maxSyncRows: 200,
+    syncCooldownMs: 30000
 };
 
 // 表名映射
@@ -22,11 +23,12 @@ const TABLE_NAME_MAP = {
 export class StorageService {
     constructor(tableName, config = {}) {
         this.tableName = tableName;
-        this.apiUrl = config.apiUrl || DEFAULT_CONFIG.apiUrl;
-        this.apiKey = config.apiKey || DEFAULT_CONFIG.apiKey;
+        this.apiBaseUrl = config.apiBaseUrl || DEFAULT_CONFIG.apiBaseUrl;
+        this.maxSyncRows = config.maxSyncRows || DEFAULT_CONFIG.maxSyncRows;
+        this.syncCooldownMs = config.syncCooldownMs || DEFAULT_CONFIG.syncCooldownMs;
         
         const dbTableName = TABLE_NAME_MAP[tableName] || tableName;
-        this.apiEndpoint = `${this.apiUrl}/${dbTableName}`;
+        this.apiEndpoint = `${this.apiBaseUrl}/${dbTableName}`;
         
         this.localCacheKey = `cache_${tableName}`;
         this.pendingRequestsKey = `pending_${tableName}`;
@@ -119,28 +121,49 @@ export class StorageService {
     }
 
     _getHeaders() {
-        return {
+        const token = this._getAuthToken();
+        const headers = {
             'Content-Type': 'application/json',
-            'apikey': this.apiKey,
-            'Authorization': `Bearer ${this.apiKey}`,
-            'Prefer': 'return=representation'
         };
+
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+
+        return headers;
+    }
+
+    _getAuthToken() {
+        const adminToken = localStorage.getItem('auth_token');
+        const guestToken = localStorage.getItem('guest_token');
+        return adminToken || guestToken || null;
+    }
+
+    _canSyncWithServer() {
+        const token = this._getAuthToken();
+        if (!token) return false;
+        // 快速访问令牌不是 JWT，不应请求受保护 API。
+        return !token.startsWith('temp-token-');
     }
 
     async _syncFromApi() {
         // 防止同步循环：30秒内同一表不重复同步
         const now = Date.now();
-        if (this._lastSyncTime > 0 && (now - this._lastSyncTime) < 30000) {
+        if (this._lastSyncTime > 0 && (now - this._lastSyncTime) < this.syncCooldownMs) {
+            return;
+        }
+        if (!this._canSyncWithServer()) {
             return;
         }
         this._lastSyncTime = now;
 
-        const res = await fetch(`${this.apiEndpoint}?select=*&order=id.desc&limit=200`, {
+        const res = await fetch(`${this.apiEndpoint}?limit=${this.maxSyncRows}&offset=0`, {
             headers: this._getHeaders()
         });
         if (!res.ok) throw new Error(`Fetch failed: ${res.status} ${res.statusText}`);
-        
-        const serverRows = await res.json();
+
+        const response = await res.json();
+        const serverRows = Array.isArray(response) ? response : (response.data || []);
         const serverDataMap = new Map();
         serverRows.forEach(row => {
             const content = (row.data && typeof row.data === 'object') ? row.data : row;
@@ -181,6 +204,10 @@ export class StorageService {
     }
 
     async _processQueuedRequests() {
+        if (!this._canSyncWithServer()) {
+            return;
+        }
+
         const all = this._getPendingRequests();
         const todo = all.filter(r => !this.processingRequestIds.has(r.id));
         if (todo.length === 0) return;
@@ -211,17 +238,16 @@ export class StorageService {
     async _handleCreate(req) {
         const { id: reqId, tempId, data } = req;
         const { _status, id, ...realData } = data;
-        const payload = { data: realData };
 
         const res = await fetch(this.apiEndpoint, {
             method: 'POST',
             headers: this._getHeaders(),
-            body: JSON.stringify(payload)
+            body: JSON.stringify(realData)
         });
 
         if (!res.ok) throw new Error(res.statusText);
         const responseJson = await res.json();
-        const serverRow = Array.isArray(responseJson) ? responseJson[0] : responseJson;
+        const serverRow = responseJson.data || responseJson;
         const content = (serverRow.data && typeof serverRow.data === 'object') ? serverRow.data : serverRow;
         const savedRecord = { ...content, id: serverRow.id };
 
@@ -233,11 +259,10 @@ export class StorageService {
     async _handleUpdate(req) {
         const { id: reqId, recordId, data } = req;
         const { _status, id, ...realData } = data;
-        const payload = { data: realData };
-        const res = await fetch(`${this.apiEndpoint}?id=eq.${recordId}`, {
-            method: 'PATCH',
+        const res = await fetch(`${this.apiEndpoint}/${recordId}`, {
+            method: 'PUT',
             headers: this._getHeaders(),
-            body: JSON.stringify(payload)
+            body: JSON.stringify(realData)
         });
         if (!res.ok) throw new Error(res.statusText);
         this._updateCacheStatus(recordId, 'synced');
@@ -246,7 +271,7 @@ export class StorageService {
 
     async _handleDelete(req) {
         const { id: reqId, recordId } = req;
-        const res = await fetch(`${this.apiEndpoint}?id=eq.${recordId}`, {
+        const res = await fetch(`${this.apiEndpoint}/${recordId}`, {
             method: 'DELETE',
             headers: this._getHeaders()
         });

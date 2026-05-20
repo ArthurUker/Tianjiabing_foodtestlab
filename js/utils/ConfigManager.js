@@ -13,15 +13,16 @@ export class ConfigManager {
     }
 
     /**
-     * 注册默认配置
+        refreshUrl: '/api/auth/refresh',
      */
     registerDefaults(defaults) {
         this.defaults = {
             ...this.defaults,
-            ...defaults
-        }
-        return this
-    }
+    // 数据源占位：迁移到腾讯云后，前端只应通过后端 API 访问数据
+    dataSource: {
+        baseUrl: '/api',
+        mode: 'backend-proxy'
+    },
 
     /**
      * 设置环境特定配置
@@ -227,7 +228,7 @@ export const DEFAULT_CONFIG = {
     // 认证
     auth: {
         tokenKey: 'auth_token',
-        refreshUrl: '/api/user/refresh-token',
+        refreshUrl: '/api/auth/refresh',
         tokenRefreshInterval: 10 * 60 * 1000 // 10分钟
     },
 
@@ -240,10 +241,10 @@ export const DEFAULT_CONFIG = {
         namespace: 'app'
     },
 
-    // 数据库
-    database: {
-        url: 'http://localhost:8000',
-        key: process.env.SUPABASE_KEY || ''
+    // 数据源占位：迁移到腾讯云后，前端只应通过后端 API 访问数据
+    dataSource: {
+        baseUrl: '/api',
+        mode: 'backend-proxy'
     },
 
     // UI
@@ -282,7 +283,7 @@ export const ENVIRONMENT_CONFIG = {
         debug: false,
         logLevel: 'info',
         api: {
-            baseUrl: 'https://staging-api.example.com',
+            baseUrl: '/api',
             timeout: 30000
         }
     },
@@ -291,7 +292,7 @@ export const ENVIRONMENT_CONFIG = {
         debug: false,
         logLevel: 'warn',
         api: {
-            baseUrl: 'https://api.example.com',
+            baseUrl: '/api',
             timeout: 20000
         },
         cache: {
@@ -341,7 +342,7 @@ setupConfig(process.env.NODE_ENV || 'development')
 const config = getConfigManager()
 
 // 获取配置值
-const apiUrl = config.get('api.baseUrl')        // http://localhost:3000
+const apiUrl = config.get('api.baseUrl')        // http://localhost:3000 或生产同源代理
 const cacheEnabled = config.get('cache.enabled') // true
 const pageSize = config.get('ui.pageSize')       // 20
 
