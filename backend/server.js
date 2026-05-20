@@ -358,4 +358,4 @@ process.on('SIGINT', async () => {
     })
 })
 
-export { app, prisma, userManager, authenticateUser }
+export { app, prisma, userManager }
