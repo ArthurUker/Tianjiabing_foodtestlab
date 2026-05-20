@@ -3,8 +3,9 @@ import cors from 'cors'
 import dotenv from 'dotenv'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { createClient } from '@supabase/supabase-js'
+import { PrismaClient } from '@prisma/client'
 import jwt from 'jsonwebtoken'
+import UserManager from './modules/UserManager.js'
 import { createUserRoutes } from './routes/userRoutes.js'
 import { createAuditRoutes } from './routes/auditRoutes.js'
 import { createValidationMiddleware, rateLimit, sanitizeText } from './middleware/validationMiddleware.js'
@@ -15,15 +16,23 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 const app = express()
-const PORT = process.env.PORT || 3000
+const PORT = process.env.PORT || 3001
 const serveStatic = process.env.SERVE_STATIC === 'true'
 const allowCorsWildcard = process.env.CORS_ORIGIN === '*'
+const JWT_SECRET = process.env.JWT_SECRET || 'local-dev-jwt-secret'
+
+// Initialize Prisma Client
+const prisma = new PrismaClient()
+
+// Initialize UserManager with Prisma
+const userManager = new UserManager(prisma, JWT_SECRET)
 
 function parseAllowedOrigins() {
     if (!process.env.CORS_ORIGIN) {
         return [
             'http://localhost:3000',
             'http://localhost:3001',
+            'http://localhost:8081',
             'http://localhost:5173',
             'http://127.0.0.1:5500'
         ]
@@ -35,11 +44,25 @@ function parseAllowedOrigins() {
         .filter(Boolean)
 }
 
-// Supabase Client (Backend Only - Keys Protected)
-const supabase = createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_KEY
-)
+// Middleware: Authenticate User
+export function authenticateUser(req, res, next) {
+    const authHeader = req.headers['authorization']
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'Missing or invalid Authorization header' })
+    }
+
+    const token = authHeader.split(' ')[1]
+    const verification = userManager.verifyToken(token)
+
+    if (!verification.valid) {
+        return res.status(401).json({ error: 'Invalid token', details: verification.error })
+    }
+
+    req.userId = verification.user.userId
+    req.userRole = verification.user.role
+    next()
+}
 
 // Security Middleware
 app.use(rateLimit(100, 15 * 60 * 1000)) // 15分钟内最多100个请求
@@ -75,357 +98,264 @@ app.get('/api/health', (req, res) => {
 })
 
 // ====== User Authentication Routes ======
-const userRoutes = createUserRoutes(supabase, process.env.JWT_SECRET)
+const userRoutes = createUserRoutes(userManager)
 app.use('/api/user', userRoutes)
 
 // ====== Audit Logs Routes ======
-const auditRoutes = createAuditRoutes(supabase, process.env.JWT_SECRET)
+const auditRoutes = createAuditRoutes(prisma, JWT_SECRET)
 app.use('/api/audit-logs', auditRoutes)
 
-// ====== API Routes ======
+// ====== Test Records API ======
 
-// 1. 获取所有检测记录
-app.get('/api/records/:type', authenticateUser, async (req, res) => {
+// 创建测试记录
+app.post('/api/test-records', authenticateUser, async (req, res) => {
     try {
-        const { type } = req.params
-        const { limit = 100, offset = 0 } = req.query
-        
-        const { data, error, count } = await supabase
-            .from(type)
-            .select('*', { count: 'exact' })
-            .range(offset, offset + limit - 1)
-            .order('id', { ascending: false })
-        
-        if (error) {
-            console.error('❌ Database error:', error)
-            return res.status(400).json({ error: error.message })
-        }
-        
+        const { test_type, test_name, sample_info, result_data } = req.body
+
+        const record = await prisma.testRecord.create({
+            data: {
+                record_code: `REC-${Date.now()}`,
+                test_type: test_type || 'generic',
+                test_name,
+                sample_info: JSON.stringify(sample_info || {}),
+                result_data: JSON.stringify(result_data || {}),
+                created_by: req.userId,
+                status: 'pending'
+            }
+        })
+
         res.json({
             success: true,
-            data,
-            total: count,
-            limit,
-            offset
+            data: record,
+            message: '测试记录创建成功'
         })
     } catch (error) {
-        console.error('❌ Server error:', error)
-        res.status(500).json({ error: error.message })
+        console.error('❌ Error creating test record:', error)
+        res.status(500).json({
+            error: '创建失败',
+            details: error.message
+        })
     }
 })
 
-// 2. 获取单条记录
-app.get('/api/records/:type/:id', authenticateUser, async (req, res) => {
+// 获取所有测试记录
+app.get('/api/test-records', authenticateUser, async (req, res) => {
     try {
-        const { type, id } = req.params
-        
-        const { data, error } = await supabase
-            .from(type)
-            .select('*')
-            .eq('id', id)
-            .single()
-        
-        if (error) {
+        const { limit = 100, offset = 0, test_type, status } = req.query
+
+        const where = {}
+        if (test_type) where.test_type = test_type
+        if (status) where.status = status
+
+        const records = await prisma.testRecord.findMany({
+            where,
+            skip: parseInt(offset),
+            take: parseInt(limit),
+            orderBy: { created_at: 'desc' }
+        })
+
+        const total = await prisma.testRecord.count({ where })
+
+        res.json({
+            success: true,
+            data: records,
+            total,
+            limit: parseInt(limit),
+            offset: parseInt(offset)
+        })
+    } catch (error) {
+        console.error('❌ Error fetching test records:', error)
+        res.status(500).json({
+            error: '获取失败',
+            details: error.message
+        })
+    }
+})
+
+// 获取单个测试记录
+app.get('/api/test-records/:id', authenticateUser, async (req, res) => {
+    try {
+        const { id } = req.params
+
+        const record = await prisma.testRecord.findUnique({
+            where: { id },
+            include: {
+                test_items: true,
+                attachments: true,
+                created_user: {
+                    select: {
+                        id: true,
+                        username: true,
+                        full_name: true
+                    }
+                }
+            }
+        })
+
+        if (!record) {
             return res.status(404).json({ error: '记录不存在' })
         }
-        
-        res.json({ success: true, data })
-    } catch (error) {
-        res.status(500).json({ error: error.message })
-    }
-})
 
-// 3. 创建新记录
-app.post('/api/records/:type', authenticateUser, async (req, res) => {
-    try {
-        const { type } = req.params
-        const payload = {
-            ...req.body,
-            created_by: req.user.userId,
-            created_at: new Date().toISOString()
-        }
-        
-        // 输入验证
-        const validation = validateInput(payload)
-        if (validation.errors) {
-            return res.status(400).json({ error: '数据验证失败', errors: validation.errors })
-        }
-        
-        const { data, error } = await supabase
-            .from(type)
-            .insert([payload])
-            .select()
-        
-        if (error) {
-            console.error('❌ Insert error:', error)
-            return res.status(400).json({ error: error.message })
-        }
-        
-        // 记录操作日志
-        logOperation(req.user.userId, 'CREATE', type, data[0].id)
-        
-        res.status(201).json({
-            success: true,
-            message: '✅ 记录已创建',
-            data: data[0]
-        })
-    } catch (error) {
-        console.error('❌ Server error:', error)
-        res.status(500).json({ error: error.message })
-    }
-})
-
-// 4. 更新记录
-app.put('/api/records/:type/:id', authenticateUser, async (req, res) => {
-    try {
-        const { type, id } = req.params
-        const payload = {
-            ...req.body,
-            updated_by: req.user.userId,
-            updated_at: new Date().toISOString()
-        }
-        
-        // 验证权限（用户只能编辑自己创建的记录）
-        const existing = await supabase
-            .from(type)
-            .select('created_by')
-            .eq('id', id)
-            .single()
-        
-        if (existing.data?.created_by !== req.user.userId && req.user.role !== 'admin') {
-            return res.status(403).json({ error: '无权编辑此记录' })
-        }
-        
-        const { data, error } = await supabase
-            .from(type)
-            .update(payload)
-            .eq('id', id)
-            .select()
-        
-        if (error) {
-            return res.status(400).json({ error: error.message })
-        }
-        
-        logOperation(req.user.userId, 'UPDATE', type, id)
-        
         res.json({
             success: true,
-            message: '✅ 记录已更新',
-            data: data[0]
+            data: record
         })
     } catch (error) {
-        res.status(500).json({ error: error.message })
+        console.error('❌ Error fetching test record:', error)
+        res.status(500).json({
+            error: '获取失败',
+            details: error.message
+        })
     }
 })
 
-// 5. 删除记录
-app.delete('/api/records/:type/:id', authenticateUser, async (req, res) => {
+// 更新测试记录
+app.put('/api/test-records/:id', authenticateUser, async (req, res) => {
     try {
-        const { type, id } = req.params
-        
-        // 验证权限
-        const existing = await supabase
-            .from(type)
-            .select('created_by')
-            .eq('id', id)
-            .single()
-        
-        if (existing.data?.created_by !== req.user.userId && req.user.role !== 'admin') {
-            return res.status(403).json({ error: '无权删除此记录' })
-        }
-        
-        const { error } = await supabase
-            .from(type)
-            .delete()
-            .eq('id', id)
-        
-        if (error) {
-            return res.status(400).json({ error: error.message })
-        }
-        
-        logOperation(req.user.userId, 'DELETE', type, id)
-        
+        const { id } = req.params
+        const { test_name, status, result_data } = req.body
+
+        const updateData = {}
+        if (test_name) updateData.test_name = test_name
+        if (status) updateData.status = status
+        if (result_data) updateData.result_data = JSON.stringify(result_data)
+
+        const record = await prisma.testRecord.update({
+            where: { id },
+            data: updateData
+        })
+
         res.json({
             success: true,
-            message: '✅ 记录已删除'
+            data: record,
+            message: '更新成功'
         })
     } catch (error) {
-        res.status(500).json({ error: error.message })
+        console.error('❌ Error updating test record:', error)
+        res.status(500).json({
+            error: '更新失败',
+            details: error.message
+        })
     }
 })
 
-// 6. 统计数据接口
-app.get('/api/statistics/:type', authenticateUser, async (req, res) => {
+// 删除测试记录
+app.delete('/api/test-records/:id', authenticateUser, async (req, res) => {
     try {
-        const { type } = req.params
-        
-        const { data, error } = await supabase
-            .from(type)
-            .select('*')
-        
-        if (error) {
-            return res.status(400).json({ error: error.message })
-        }
-        
-        const stats = {
-            total: data.length,
-            today: data.filter(r => isToday(r.created_at)).length,
-            thisWeek: data.filter(r => isThisWeek(r.created_at)).length,
-            thisMonth: data.filter(r => isThisMonth(r.created_at)).length
-        }
-        
-        res.json({ success: true, data: stats })
+        const { id } = req.params
+
+        await prisma.testRecord.delete({
+            where: { id }
+        })
+
+        res.json({
+            success: true,
+            message: '删除成功'
+        })
     } catch (error) {
-        res.status(500).json({ error: error.message })
+        console.error('❌ Error deleting test record:', error)
+        res.status(500).json({
+            error: '删除失败',
+            details: error.message
+        })
     }
 })
 
-// ====== Authentication ======
+// ====== User Management (Admin Only) ======
 
-// 用户登录 (模拟 - 实际应验证数据库)
-app.post('/api/auth/login', async (req, res) => {
+// 获取所有用户
+app.get('/api/users', authenticateUser, async (req, res) => {
     try {
-        const { username, password } = req.body
-        
-        // 模拟用户验证 (实际应查询数据库并验证密码哈希)
-        if (username === 'admin' && password === 'admin123') {
-            const token = jwt.sign(
-                {
-                    userId: 1,
-                    username: 'admin',
-                    role: 'admin'
-                },
-                process.env.JWT_SECRET,
-                { expiresIn: process.env.JWT_EXPIRE }
-            )
-            
-            res.json({
-                success: true,
-                token,
-                user: {
-                    id: 1,
-                    username: 'admin',
-                    role: 'admin'
-                }
-            })
-        } else {
-            res.status(401).json({ error: '❌ 用户名或密码错误' })
+        if (req.userRole !== 'admin') {
+            return res.status(403).json({ error: 'Only admins can access this' })
         }
+
+        const users = await userManager.getUserList(100, 0)
+        res.json(users)
     } catch (error) {
-        res.status(500).json({ error: error.message })
+        console.error('❌ Error fetching users:', error)
+        res.status(500).json({
+            error: '获取失败',
+            details: error.message
+        })
     }
 })
 
-// 登出
-app.post('/api/auth/logout', authenticateUser, (req, res) => {
-    res.json({ success: true, message: '✅ 已登出' })
-})
-
-// 刷新Token
-app.post('/api/auth/refresh', authenticateUser, (req, res) => {
-    const newToken = jwt.sign(
-        {
-            userId: req.user.userId,
-            username: req.user.username,
-            role: req.user.role
-        },
-        process.env.JWT_SECRET,
-        { expiresIn: process.env.JWT_EXPIRE }
-    )
-    
-    res.json({ success: true, token: newToken })
-})
-
-// ====== Middleware ======
-
-// 身份认证中间件
-function authenticateUser(req, res, next) {
-    const authHeader = req.headers.authorization
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return res.status(401).json({ error: '❌ 缺少授权令牌' })
-    }
-    
-    const token = authHeader.substring(7)
-    
+// 禁用用户
+app.post('/api/users/:userId/disable', authenticateUser, async (req, res) => {
     try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET)
-        req.user = decoded
-        next()
+        if (req.userRole !== 'admin') {
+            return res.status(403).json({ error: 'Only admins can access this' })
+        }
+
+        const result = await userManager.disableUser(req.params.userId)
+        res.json(result)
     } catch (error) {
-        return res.status(401).json({ error: '❌ 令牌无效或已过期' })
+        console.error('❌ Error disabling user:', error)
+        res.status(500).json({
+            error: '禁用失败',
+            details: error.message
+        })
     }
-}
+})
 
-// ====== Utilities ======
+// 启用用户
+app.post('/api/users/:userId/enable', authenticateUser, async (req, res) => {
+    try {
+        if (req.userRole !== 'admin') {
+            return res.status(403).json({ error: 'Only admins can access this' })
+        }
 
-function validateInput(data) {
-    const errors = {}
-    
-    // 样本ID验证
-    if (!data.sampleId || data.sampleId.trim() === '') {
-        errors.sampleId = '样本ID必填'
+        const result = await userManager.enableUser(req.params.userId)
+        res.json(result)
+    } catch (error) {
+        console.error('❌ Error enabling user:', error)
+        res.status(500).json({
+            error: '启用失败',
+            details: error.message
+        })
     }
-    
-    // 检测日期验证
-    if (!data.testDate) {
-        errors.testDate = '检测日期必填'
-    }
-    
-    return {
-        valid: Object.keys(errors).length === 0,
-        errors: Object.keys(errors).length > 0 ? errors : null
-    }
-}
-
-function logOperation(userId, operation, table, recordId) {
-    const timestamp = new Date().toISOString()
-    console.log(`📝 [${timestamp}] User ${userId} - ${operation} ${table}:${recordId}`)
-    // 实际应存储到审计日志表
-}
-
-function isToday(dateString) {
-    const date = new Date(dateString)
-    const today = new Date()
-    return date.toDateString() === today.toDateString()
-}
-
-function isThisWeek(dateString) {
-    const date = new Date(dateString)
-    const today = new Date()
-    const firstDay = new Date(today.setDate(today.getDate() - today.getDay()))
-    return date >= firstDay
-}
-
-function isThisMonth(dateString) {
-    const date = new Date(dateString)
-    const today = new Date()
-    return date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear()
-}
+})
 
 // ====== Error Handling ======
 
-app.use((req, res) => {
-    res.status(404).json({ error: '❌ 接口不存在' })
-})
-
 app.use((err, req, res, next) => {
-    console.error('❌ Error:', err)
-    res.status(500).json({ error: '❌ 服务器错误' })
+    console.error('❌ Unhandled error:', err)
+    res.status(500).json({
+        error: 'Internal Server Error',
+        message: process.env.NODE_ENV === 'development' ? err.message : 'An error occurred'
+    })
 })
 
 // ====== Start Server ======
 
-app.listen(PORT, async () => {
-    console.log(`
-╔════════════════════════════════════════╗
-║  🍽️  Food Safety Testing API Server   ║
-║  ✅ Running on port ${PORT}              ║
-║  🔒 All Supabase keys are protected    ║
-║  📝 Environment: ${process.env.NODE_ENV}            ║
-╚════════════════════════════════════════╝
-    `)
-    
+const server = app.listen(PORT, () => {
+    console.log(`\n${'='.repeat(60)}`)
+    console.log(`🚀 Food Safety Testing Lab API Server Started`)
+    console.log(`${'='.repeat(60)}`)
+    console.log(`📍 Server running on: http://localhost:${PORT}`)
+    console.log(`📍 API Endpoints: http://localhost:${PORT}/api`)
+    console.log(`🔐 JWT Secret configured: ${JWT_SECRET ? '✅' : '❌ MISSING'}`)
+    console.log(`🗄️  Database: SQLite (Prisma)`)
+    console.log(`📦 CORS Origins: ${allowCorsWildcard ? 'Allow All' : allowedOrigins.join(', ')}`)
+    console.log(`${'='.repeat(60)}\n`)
 })
 
-export default app
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+    console.log('📌 SIGTERM signal received: closing HTTP server')
+    server.close(async () => {
+        await prisma.$disconnect()
+        process.exit(0)
+    })
+})
+
+process.on('SIGINT', async () => {
+    console.log('📌 SIGINT signal received: closing HTTP server')
+    server.close(async () => {
+        await prisma.$disconnect()
+        process.exit(0)
+    })
+})
+
+export { app, prisma, userManager, authenticateUser }

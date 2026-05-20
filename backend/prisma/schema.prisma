@@ -1,0 +1,150 @@
+// Prisma Schema for Food Safety Testing Lab
+// Database: SQLite (local) / PostgreSQL (production)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ========== 用户管理 ==========
+
+model User {
+  id            String   @id @default(cuid())
+  username      String   @unique
+  email         String?  @unique
+  password_hash String
+  full_name     String?
+  phone         String?
+  role          String   @default("user") // admin / manager / operator / viewer / user
+  status        String   @default("active") // active / disabled
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+  last_login    DateTime?
+
+  audit_logs    AuditLog[]
+  test_records  TestRecord[]
+  guests        Guest[]
+}
+
+// ========== 审计日志 ==========
+
+model AuditLog {
+  id            String   @id @default(cuid())
+  user_id       String
+  action        String   // login / create / update / delete / export / import
+  resource_type String?  // test_record / user / backup / etc
+  resource_id   String?
+  details       String?  // JSON string for additional details
+  ip_address    String?
+  created_at    DateTime @default(now())
+
+  user          User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([created_at])
+}
+
+// ========== 测试记录 ==========
+
+model TestRecord {
+  id            String   @id @default(cuid())
+  record_code   String   @unique
+  test_type     String   // pathogen / tableware / generic / custom
+  test_name     String
+  sample_info   String?  // JSON for sample details
+  result_data   String?  // JSON for test results
+  status        String   @default("pending") // pending / completed / failed / archived
+  created_by    String
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+  completed_at  DateTime?
+
+  created_user  User     @relation(fields: [created_by], references: [id], onDelete: Cascade)
+  test_items    TestItem[]
+  attachments   Attachment[]
+
+  @@index([test_type])
+  @@index([status])
+  @@index([created_by])
+  @@index([created_at])
+}
+
+// ========== 测试项目 ==========
+
+model TestItem {
+  id            String   @id @default(cuid())
+  test_record_id String
+  item_name     String
+  item_code     String?
+  result        String?  // positive / negative / qualified / unqualified / etc
+  notes         String?
+  created_at    DateTime @default(now())
+
+  test_record   TestRecord @relation(fields: [test_record_id], references: [id], onDelete: Cascade)
+
+  @@index([test_record_id])
+}
+
+// ========== 附件/文件 ==========
+
+model Attachment {
+  id            String   @id @default(cuid())
+  test_record_id String?
+  file_name     String
+  file_path     String
+  file_size     Int?     // bytes
+  file_type     String?  // MIME type
+  uploaded_at   DateTime @default(now())
+
+  test_record   TestRecord? @relation(fields: [test_record_id], references: [id], onDelete: SetNull)
+
+  @@index([test_record_id])
+}
+
+// ========== 访客管理 ==========
+
+model Guest {
+  id            String   @id @default(cuid())
+  username      String   @unique
+  email         String?
+  password_hash String
+  full_name     String?
+  created_by    String
+  status        String   @default("active")
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  created_user  User     @relation(fields: [created_by], references: [id], onDelete: Cascade)
+
+  @@index([created_by])
+}
+
+// ========== 系统备份元数据 ==========
+
+model Backup {
+  id            String   @id @default(cuid())
+  backup_name   String
+  backup_path   String   @unique
+  backup_size   Int?
+  record_count  Int      @default(0)
+  created_at    DateTime @default(now())
+  created_by    String?
+  notes         String?
+}
+
+// ========== 系统日志 ==========
+
+model SystemLog {
+  id            String   @id @default(cuid())
+  level         String   // info / warn / error / debug
+  message       String
+  context       String?  // JSON
+  created_at    DateTime @default(now())
+
+  @@index([level])
+  @@index([created_at])
+}

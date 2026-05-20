@@ -1,5 +1,5 @@
 /**
- * UserManager - 用户管理模块
+ * UserManager - 用户管理模块 (Prisma + SQLite)
  * 处理用户注册、登录、密码管理等业务逻辑
  */
 
@@ -7,8 +7,8 @@ import bcryptjs from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 
 export class UserManager {
-    constructor(supabaseClient, jwtSecret) {
-        this.supabase = supabaseClient
+    constructor(prismaClient, jwtSecret) {
+        this.prisma = prismaClient
         this.jwtSecret = jwtSecret
     }
 
@@ -20,11 +20,9 @@ export class UserManager {
             this.validateUserInput({ username, phone, password, fullName })
 
             // 2. 检查用户是否已存在
-            const { data: existingUser } = await this.supabase
-                .from('users')
-                .select('id')
-                .eq('username', username)
-                .single()
+            const existingUser = await this.prisma.user.findUnique({
+                where: { username }
+            })
 
             if (existingUser) {
                 throw new Error('用户名已存在')
@@ -32,12 +30,9 @@ export class UserManager {
 
             // 3. 检查手机号是否已使用
             if (phone) {
-                const { data: existingPhone } = await this.supabase
-                    .from('users')
-                    .select('id')
-                    .eq('phone', phone)
-                    .single()
-
+                const existingPhone = await this.prisma.user.findFirst({
+                    where: { phone }
+                })
                 if (existingPhone) {
                     throw new Error('手机号已被使用')
                 }
@@ -46,31 +41,31 @@ export class UserManager {
             // 4. 加密密码
             const passwordHash = await bcryptjs.hash(password, 10)
 
-            // 5. 创建用户（email 自动生成）
+            // 5. 创建用户
             const autoEmail = `${username}@foodlab.local`
-            const { data: newUser, error } = await this.supabase
-                .from('users')
-                .insert([{
+            const newUser = await this.prisma.user.create({
+                data: {
                     username,
                     email: autoEmail,
                     phone: phone || null,
                     password_hash: passwordHash,
                     full_name: fullName,
                     role: 'user',
-                    status: 'active',
-                    created_at: new Date().toISOString()
-                }])
-                .select('id, username, phone, full_name, role')
-
-            if (error) {
-                throw new Error(`创建用户失败: ${error.message}`)
-            }
+                    status: 'active'
+                }
+            })
 
             console.log(`✅ 用户注册成功: ${username}`)
 
             return {
                 success: true,
-                user: newUser[0],
+                user: {
+                    id: newUser.id,
+                    username: newUser.username,
+                    phone: newUser.phone,
+                    full_name: newUser.full_name,
+                    role: newUser.role
+                },
                 message: '注册成功'
             }
         } catch (error) {
@@ -84,13 +79,11 @@ export class UserManager {
     async loginUser(username, password) {
         try {
             // 1. 查找用户
-            const { data: user, error } = await this.supabase
-                .from('users')
-                .select('*')
-                .eq('username', username)
-                .single()
+            const user = await this.prisma.user.findUnique({
+                where: { username }
+            })
 
-            if (error || !user) {
+            if (!user) {
                 throw new Error('用户不存在或密码错误')
             }
 
@@ -104,7 +97,7 @@ export class UserManager {
 
             if (!passwordMatch) {
                 // 记录失败登录
-                await this.logFailedLogin(user.id)
+                await this.logFailedLogin(user.id, username)
                 throw new Error('用户不存在或密码错误')
             }
 
@@ -123,12 +116,15 @@ export class UserManager {
             // 5. 更新最后登录时间
             await this.updateLastLogin(user.id)
 
+            // 6. 记录登录日志
+            await this.logLogin(user.id, username)
+
             console.log(`✅ 用户登录成功: ${username}`)
 
             return {
                 success: true,
                 token,
-                expiresIn: 7 * 24 * 3600, // 7 天（秒），与 JWT expiresIn: '7d' 保持一致
+                expiresIn: 7 * 24 * 3600, // 7 天（秒）
                 user: {
                     id: user.id,
                     username: user.username,
@@ -148,13 +144,11 @@ export class UserManager {
     async changePassword(userId, oldPassword, newPassword) {
         try {
             // 1. 获取用户
-            const { data: user, error } = await this.supabase
-                .from('users')
-                .select('password_hash')
-                .eq('id', userId)
-                .single()
+            const user = await this.prisma.user.findUnique({
+                where: { id: userId }
+            })
 
-            if (error || !user) {
+            if (!user) {
                 throw new Error('用户不存在')
             }
 
@@ -174,17 +168,13 @@ export class UserManager {
             const newPasswordHash = await bcryptjs.hash(newPassword, 10)
 
             // 5. 更新密码
-            const { error: updateError } = await this.supabase
-                .from('users')
-                .update({
+            await this.prisma.user.update({
+                where: { id: userId },
+                data: {
                     password_hash: newPasswordHash,
-                    updated_at: new Date().toISOString()
-                })
-                .eq('id', userId)
-
-            if (updateError) {
-                throw new Error(`更新密码失败: ${updateError.message}`)
-            }
+                    updated_at: new Date()
+                }
+            })
 
             console.log(`✅ 用户 ${userId} 密码已更新`)
 
@@ -209,17 +199,13 @@ export class UserManager {
             const passwordHash = await bcryptjs.hash(newPassword, 10)
 
             // 更新密码
-            const { error } = await this.supabase
-                .from('users')
-                .update({
+            await this.prisma.user.update({
+                where: { id: userId },
+                data: {
                     password_hash: passwordHash,
-                    updated_at: new Date().toISOString()
-                })
-                .eq('id', userId)
-
-            if (error) {
-                throw new Error(`重置密码失败: ${error.message}`)
-            }
+                    updated_at: new Date()
+                }
+            })
 
             console.log(`✅ 用户 ${userId} 密码已重置`)
 
@@ -237,13 +223,21 @@ export class UserManager {
 
     async getUserProfile(userId) {
         try {
-            const { data: user, error } = await this.supabase
-                .from('users')
-                .select('id, username, email, full_name, role, status, created_at, last_login')
-                .eq('id', userId)
-                .single()
+            const user = await this.prisma.user.findUnique({
+                where: { id: userId },
+                select: {
+                    id: true,
+                    username: true,
+                    email: true,
+                    full_name: true,
+                    role: true,
+                    status: true,
+                    created_at: true,
+                    last_login: true
+                }
+            })
 
-            if (error || !user) {
+            if (!user) {
                 throw new Error('用户不存在')
             }
 
@@ -269,23 +263,26 @@ export class UserManager {
                 }
             }
 
-            filteredUpdates.updated_at = new Date().toISOString()
+            filteredUpdates.updated_at = new Date()
 
-            const { data: updatedUser, error } = await this.supabase
-                .from('users')
-                .update(filteredUpdates)
-                .eq('id', userId)
-                .select('id, username, email, full_name, role, status')
-
-            if (error) {
-                throw new Error(`更新用户信息失败: ${error.message}`)
-            }
+            const updatedUser = await this.prisma.user.update({
+                where: { id: userId },
+                data: filteredUpdates,
+                select: {
+                    id: true,
+                    username: true,
+                    email: true,
+                    full_name: true,
+                    role: true,
+                    status: true
+                }
+            })
 
             console.log(`✅ 用户 ${userId} 信息已更新`)
 
             return {
                 success: true,
-                data: updatedUser[0]
+                data: updatedUser
             }
         } catch (error) {
             console.error(`❌ 更新用户信息失败: ${error.message}`)
@@ -297,15 +294,23 @@ export class UserManager {
 
     async getUserList(limit = 100, offset = 0) {
         try {
-            const { data: users, error, count } = await this.supabase
-                .from('users')
-                .select('id, username, phone, full_name, role, status, created_at, last_login', { count: 'exact' })
-                .range(offset, offset + limit - 1)
-                .order('created_at', { ascending: false })
+            const users = await this.prisma.user.findMany({
+                skip: offset,
+                take: limit,
+                select: {
+                    id: true,
+                    username: true,
+                    phone: true,
+                    full_name: true,
+                    role: true,
+                    status: true,
+                    created_at: true,
+                    last_login: true
+                },
+                orderBy: { created_at: 'desc' }
+            })
 
-            if (error) {
-                throw new Error(`获取用户列表失败: ${error.message}`)
-            }
+            const count = await this.prisma.user.count()
 
             return {
                 success: true,
@@ -324,14 +329,10 @@ export class UserManager {
 
     async disableUser(userId) {
         try {
-            const { error } = await this.supabase
-                .from('users')
-                .update({ status: 'disabled' })
-                .eq('id', userId)
-
-            if (error) {
-                throw new Error(`禁用用户失败: ${error.message}`)
-            }
+            await this.prisma.user.update({
+                where: { id: userId },
+                data: { status: 'disabled' }
+            })
 
             console.log(`✅ 用户 ${userId} 已禁用`)
 
@@ -347,14 +348,10 @@ export class UserManager {
 
     async enableUser(userId) {
         try {
-            const { error } = await this.supabase
-                .from('users')
-                .update({ status: 'active' })
-                .eq('id', userId)
-
-            if (error) {
-                throw new Error(`启用用户失败: ${error.message}`)
-            }
+            await this.prisma.user.update({
+                where: { id: userId },
+                data: { status: 'active' }
+            })
 
             console.log(`✅ 用户 ${userId} 已启用`)
 
@@ -370,19 +367,15 @@ export class UserManager {
 
     async changeUserRole(userId, newRole) {
         try {
-            const validRoles = ['user', 'admin', 'manager']
+            const validRoles = ['user', 'admin', 'manager', 'operator', 'viewer']
             if (!validRoles.includes(newRole)) {
                 throw new Error(`无效的角色: ${newRole}`)
             }
 
-            const { error } = await this.supabase
-                .from('users')
-                .update({ role: newRole })
-                .eq('id', userId)
-
-            if (error) {
-                throw new Error(`更改角色失败: ${error.message}`)
-            }
+            await this.prisma.user.update({
+                where: { id: userId },
+                data: { role: newRole }
+            })
 
             console.log(`✅ 用户 ${userId} 角色已更改为 ${newRole}`)
 
@@ -398,14 +391,9 @@ export class UserManager {
 
     async deleteUser(userId) {
         try {
-            const { error } = await this.supabase
-                .from('users')
-                .delete()
-                .eq('id', userId)
-
-            if (error) {
-                throw new Error(`删除用户失败: ${error.message}`)
-            }
+            await this.prisma.user.delete({
+                where: { id: userId }
+            })
 
             console.log(`✅ 用户 ${userId} 已删除`)
 
@@ -415,74 +403,6 @@ export class UserManager {
             }
         } catch (error) {
             console.error(`❌ 删除用户失败: ${error.message}`)
-            throw error
-        }
-    }
-
-    async updateUserByAdmin(userId, { username, phone, fullName, role }) {
-        try {
-            const updateData = {}
-
-            if (username !== undefined && username !== null && username !== '') {
-                if (username.length < 3) {
-                    throw new Error('用户名至少3个字符')
-                }
-                if (!/^[a-zA-Z0-9_\u4e00-\u9fa5]+$/.test(username)) {
-                    throw new Error('用户名只能包含字母、数字、下划线或中文')
-                }
-                // 检查用户名是否已被其他用户使用
-                const { data: existing } = await this.supabase
-                    .from('users')
-                    .select('id')
-                    .eq('username', username)
-                    .neq('id', userId)
-                    .maybeSingle()
-                if (existing) {
-                    throw new Error(`用户名 "${username}" 已被其他用户使用`)
-                }
-                updateData.username = username
-            }
-
-            if (phone !== undefined) {
-                if (phone && !/^1[3-9]\d{9}$/.test(phone)) {
-                    throw new Error('手机号格式无效（请输入11位手机号）')
-                }
-                updateData.phone = phone || null
-            }
-
-            if (fullName !== undefined) {
-                updateData.full_name = fullName
-            }
-
-            const validRoles = ['user', 'admin', 'manager', 'operator', 'viewer']
-            if (role) {
-                if (!validRoles.includes(role)) {
-                    throw new Error(`无效的角色: ${role}`)
-                }
-                updateData.role = role
-            }
-
-            if (Object.keys(updateData).length === 0) {
-                throw new Error('没有可更新的字段')
-            }
-
-            const { error } = await this.supabase
-                .from('users')
-                .update(updateData)
-                .eq('id', userId)
-
-            if (error) {
-                throw new Error(`更新用户失败: ${error.message}`)
-            }
-
-            console.log(`✅ 用户 ${userId} 信息已更新`)
-
-            return {
-                success: true,
-                message: '用户信息已更新'
-            }
-        } catch (error) {
-            console.error(`❌ 更新用户失败: ${error.message}`)
             throw error
         }
     }
@@ -520,24 +440,38 @@ export class UserManager {
 
     async updateLastLogin(userId) {
         try {
-            await this.supabase
-                .from('users')
-                .update({ last_login: new Date().toISOString() })
-                .eq('id', userId)
+            await this.prisma.user.update({
+                where: { id: userId },
+                data: { last_login: new Date() }
+            })
         } catch (error) {
             console.error(`❌ 更新最后登录时间失败: ${error.message}`)
         }
     }
 
-    async logFailedLogin(userId) {
+    async logLogin(userId, username) {
         try {
-            await this.supabase
-                .from('login_logs')
-                .insert([{
+            await this.prisma.auditLog.create({
+                data: {
                     user_id: userId,
-                    status: 'failed',
-                    created_at: new Date().toISOString()
-                }])
+                    action: 'login',
+                    details: JSON.stringify({ username, timestamp: new Date().toISOString() })
+                }
+            })
+        } catch (error) {
+            console.error(`❌ 记录登录日志失败: ${error.message}`)
+        }
+    }
+
+    async logFailedLogin(userId, username) {
+        try {
+            await this.prisma.auditLog.create({
+                data: {
+                    user_id: userId,
+                    action: 'login_failed',
+                    details: JSON.stringify({ username, timestamp: new Date().toISOString() })
+                }
+            })
         } catch (error) {
             console.error(`❌ 记录失败登录失败: ${error.message}`)
         }

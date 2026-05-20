@@ -7,7 +7,15 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
+    "db:push": "prisma db push",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:studio": "prisma studio",
+    "seed": "node prisma/seed.js",
     "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "prisma": {
+    "seed": "node prisma/seed.js"
   },
   "keywords": [
     "food-safety",
@@ -17,11 +25,14 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@supabase/supabase-js": "^2.104.0",
+    "@prisma/client": "^5.10.0",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.6",
     "dotenv": "^16.6.1",
     "express": "^4.22.1",
     "jsonwebtoken": "^9.0.2"
+  },
+  "devDependencies": {
+    "prisma": "^5.10.0"
   }
 }

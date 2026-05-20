@@ -1,15 +1,13 @@
 /**
- * User Authentication Routes
+ * User Authentication Routes (Prisma-based)
  * 用户注册、登录、个人资料、密码管理等API端点
  */
 
 import express from 'express'
-import UserManager from '../modules/UserManager.js'
 import jwt from 'jsonwebtoken'
 
-export function createUserRoutes(supabase, jwtSecret) {
+export function createUserRoutes(userManager) {
     const router = express.Router()
-    const userManager = new UserManager(supabase, jwtSecret)
 
     // ====== Authentication Middleware ======
 
@@ -20,13 +18,14 @@ export function createUserRoutes(supabase, jwtSecret) {
         }
 
         const token = authHeader.substring(7)
-        try {
-            const decoded = jwt.verify(token, jwtSecret)
-            req.user = decoded
-            next()
-        } catch (error) {
+        const verification = userManager.verifyToken(token)
+        
+        if (!verification.valid) {
             return res.status(401).json({ error: '❌ 令牌无效或已过期' })
         }
+
+        req.user = verification.user
+        next()
     }
 
     function authorizeAdmin(req, res, next) {
@@ -78,40 +77,40 @@ export function createUserRoutes(supabase, jwtSecret) {
         }
 
         const token = authHeader.substring(7)
-        const result = userManager.verifyToken(token)
+        const verification = userManager.verifyToken(token)
 
-        if (result.valid) {
-            res.json({
-                valid: true,
-                user: result.user
-            })
-        } else {
-            res.status(401).json({
+        if (!verification.valid) {
+            return res.status(401).json({
                 valid: false,
-                error: result.error
+                error: '❌ 令牌无效或已过期',
+                details: verification.error
             })
         }
+
+        res.json({
+            valid: true,
+            user: verification.user
+        })
     })
 
     // ====== Protected Routes ======
 
     // 获取当前用户信息
-    router.get('/profile', authenticateUser, async (req, res) => {
+    router.get('/me', authenticateUser, async (req, res) => {
         try {
             const result = await userManager.getUserProfile(req.user.userId)
             res.json(result)
         } catch (error) {
-            res.status(400).json({ error: `❌ 获取失败: ${error.message}` })
+            res.status(400).json({ error: `❌ 获取用户信息失败: ${error.message}` })
         }
     })
 
-    // 更新用户信息
-    router.put('/profile', authenticateUser, async (req, res) => {
+    // 更新个人资料
+    router.put('/me', authenticateUser, async (req, res) => {
         try {
-            const { fullName, email } = req.body
-
+            const { full_name, email } = req.body
             const result = await userManager.updateUserProfile(req.user.userId, {
-                full_name: fullName,
+                full_name,
                 email
             })
             res.json(result)
@@ -126,7 +125,11 @@ export function createUserRoutes(supabase, jwtSecret) {
             const { oldPassword, newPassword } = req.body
 
             if (!oldPassword || !newPassword) {
-                return res.status(400).json({ error: '❌ 缺少必要字段' })
+                return res.status(400).json({ error: '❌ 缺少密码信息' })
+            }
+
+            if (newPassword.length < 6) {
+                return res.status(400).json({ error: '❌ 新密码至少6个字符' })
             }
 
             const result = await userManager.changePassword(
@@ -136,133 +139,82 @@ export function createUserRoutes(supabase, jwtSecret) {
             )
             res.json(result)
         } catch (error) {
-            res.status(400).json({ error: `❌ 修改失败: ${error.message}` })
+            res.status(400).json({ error: `❌ 修改密码失败: ${error.message}` })
         }
-    })
-
-    // 刷新Token
-    router.post('/refresh-token', authenticateUser, (req, res) => {
-        const newToken = jwt.sign(
-            {
-                userId: req.user.userId,
-                username: req.user.username,
-                email: req.user.email,
-                role: req.user.role
-            },
-            jwtSecret,
-            { expiresIn: '7d' }
-        )
-
-        res.json({
-            success: true,
-            token: newToken
-        })
     })
 
     // ====== Admin Routes ======
 
-    // 获取用户列表 (仅管理员)
+    // 获取所有用户列表
     router.get('/list', authenticateUser, authorizeAdmin, async (req, res) => {
         try {
-            const limit = parseInt(req.query.limit) || 100
-            const offset = parseInt(req.query.offset) || 0
-
-            const result = await userManager.getUserList(limit, offset)
+            const { limit = 100, offset = 0 } = req.query
+            const result = await userManager.getUserList(parseInt(limit), parseInt(offset))
             res.json(result)
         } catch (error) {
-            res.status(400).json({ error: `❌ 获取失败: ${error.message}` })
+            res.status(400).json({ error: `❌ 获取用户列表失败: ${error.message}` })
         }
     })
 
-    // 禁用用户 (仅管理员)
-    router.post('/disable/:userId', authenticateUser, authorizeAdmin, async (req, res) => {
+    // 禁用用户
+    router.post('/:userId/disable', authenticateUser, authorizeAdmin, async (req, res) => {
         try {
-            const { userId } = req.params
+            const result = await userManager.disableUser(req.params.userId)
+            res.json(result)
+        } catch (error) {
+            res.status(400).json({ error: `❌ 禁用用户失败: ${error.message}` })
+        }
+    })
 
-            // 防止禁用自己
-            if (parseInt(userId) === req.user.userId) {
-                return res.status(400).json({ error: '❌ 无法禁用自己' })
+    // 启用用户
+    router.post('/:userId/enable', authenticateUser, authorizeAdmin, async (req, res) => {
+        try {
+            const result = await userManager.enableUser(req.params.userId)
+            res.json(result)
+        } catch (error) {
+            res.status(400).json({ error: `❌ 启用用户失败: ${error.message}` })
+        }
+    })
+
+    // 修改用户角色
+    router.post('/:userId/role', authenticateUser, authorizeAdmin, async (req, res) => {
+        try {
+            const { newRole } = req.body
+
+            if (!newRole) {
+                return res.status(400).json({ error: '❌ 缺少角色信息' })
             }
 
-            const result = await userManager.disableUser(parseInt(userId))
+            const result = await userManager.changeUserRole(req.params.userId, newRole)
             res.json(result)
         } catch (error) {
-            res.status(400).json({ error: `❌ 操作失败: ${error.message}` })
+            res.status(400).json({ error: `❌ 修改角色失败: ${error.message}` })
         }
     })
 
-    // 启用用户 (仅管理员)
-    router.post('/enable/:userId', authenticateUser, authorizeAdmin, async (req, res) => {
+    // 重置用户密码（管理员操作）
+    router.post('/:userId/reset-password', authenticateUser, authorizeAdmin, async (req, res) => {
         try {
-            const { userId } = req.params
-            const result = await userManager.enableUser(parseInt(userId))
-            res.json(result)
-        } catch (error) {
-            res.status(400).json({ error: `❌ 操作失败: ${error.message}` })
-        }
-    })
-
-    // 更改用户角色 (仅管理员)
-    router.post('/change-role/:userId', authenticateUser, authorizeAdmin, async (req, res) => {
-        try {
-            const { userId } = req.params
-            const { role } = req.body
-
-            if (!role) {
-                return res.status(400).json({ error: '❌ 角色未指定' })
-            }
-
-            const result = await userManager.changeUserRole(parseInt(userId), role)
-            res.json(result)
-        } catch (error) {
-            res.status(400).json({ error: `❌ 操作失败: ${error.message}` })
-        }
-    })
-
-    // 重置用户密码 (仅管理员)
-    router.post('/reset-password/:userId', authenticateUser, authorizeAdmin, async (req, res) => {
-        try {
-            const { userId } = req.params
             const { newPassword } = req.body
 
-            if (!newPassword) {
-                return res.status(400).json({ error: '❌ 新密码未指定' })
+            if (!newPassword || newPassword.length < 6) {
+                return res.status(400).json({ error: '❌ 新密码至少6个字符' })
             }
 
-            const result = await userManager.resetPassword(parseInt(userId), newPassword)
+            const result = await userManager.resetPassword(req.params.userId, newPassword)
             res.json(result)
         } catch (error) {
-            res.status(400).json({ error: `❌ 操作失败: ${error.message}` })
+            res.status(400).json({ error: `❌ 重置密码失败: ${error.message}` })
         }
     })
 
-    // 更新用户信息 (仅管理员)
-    router.put('/:userId', authenticateUser, authorizeAdmin, async (req, res) => {
-        try {
-            const { userId } = req.params
-            const { username, phone, fullName, role } = req.body
-
-            const result = await userManager.updateUserByAdmin(parseInt(userId), { username, phone, fullName, role })
-            res.json(result)
-        } catch (error) {
-            res.status(400).json({ error: `❌ 更新失败: ${error.message}` })
-        }
-    })
-
-    // 删除用户 (仅管理员)
+    // 删除用户
     router.delete('/:userId', authenticateUser, authorizeAdmin, async (req, res) => {
         try {
-            const { userId } = req.params
-
-            // 防止删除自己
-            if (parseInt(userId) === req.user.userId) {
-                return res.status(400).json({ error: '❌ 无法删除自己的账号' })
-            }
-
-            const result = await userManager.deleteUser(parseInt(userId))
+            const result = await userManager.deleteUser(req.params.userId)
             res.json(result)
         } catch (error) {
-            res.status(400).json({ error: `❌ 删除失败: ${error.message}` })
+            res.status(400).json({ error: `❌ 删除用户失败: ${error.message}` })
         }
     })
 

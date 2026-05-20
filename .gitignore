@@ -30,3 +30,9 @@ pnpm-debug.log*
 .cache/
 tmp/
 temp/
+
+# Prisma
+prisma/*.db
+backend/prisma/*.db
+backend/.env.local
+.env.local
