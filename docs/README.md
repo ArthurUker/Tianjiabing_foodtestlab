@@ -38,15 +38,16 @@
 | [FINAL_CODE_REVIEW_AND_PROJECT_ASSESSMENT.md](./FINAL_CODE_REVIEW_AND_PROJECT_ASSESSMENT.md) | 最终代码审查和评价 | 技术负责人、开发团队 |
 | [PROJECT_AUDIT_AND_CLEANUP_REPORT.md](./PROJECT_AUDIT_AND_CLEANUP_REPORT.md) | 项目审计和文件清理报告 | DevOps、技术负责人 |
 
-### 🛠️ 运维文档 (4 份)
+### 🛠️ 运维文档 (6 份)
 
 | 文档 | 用途 | 读者 |
 |------|------|------|
+| [ONE_CLICK_DEPLOYMENT_GUIDE.md](./ONE_CLICK_DEPLOYMENT_GUIDE.md) | 一键部署操作指南 ⭐ | 运维人员、部署负责人（必读） |
 | [OPERATIONS_GUIDE.md](./OPERATIONS_GUIDE.md) | 完整的运维手册 | 运维人员、SRE |
 | [DEPLOYMENT_CHECKLIST.md](./DEPLOYMENT_CHECKLIST.md) | 部署检查清单 | 部署人员 |
+| [SERVER_MULTI_APP_CONFLICT_AVOIDANCE_GUIDE.md](./SERVER_MULTI_APP_CONFLICT_AVOIDANCE_GUIDE.md) | 同机双系统防冲突部署指南 | 运维人员、部署负责人 |
 | [QUICK_FIX_GUIDE.md](./QUICK_FIX_GUIDE.md) | 快速故障排查 | 值班人员 |
 | [INTEGRATION_GUIDE.md](./INTEGRATION_GUIDE.md) | 集成和迁移指南 | 开发人员 |
-| [SERVER_MULTI_APP_CONFLICT_AVOIDANCE_GUIDE.md](./SERVER_MULTI_APP_CONFLICT_AVOIDANCE_GUIDE.md) | 同机双系统防冲突部署指南 | 运维人员、部署负责人 |
 
 ### 💡 开发文档 (3 份)
 
