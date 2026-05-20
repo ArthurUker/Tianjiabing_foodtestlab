@@ -60,6 +60,24 @@ check_prerequisites() {
     success "前置条件检查通过"
 }
 
+run_multi_app_preflight() {
+    local preflight_script="$(cd "$(dirname "$0")" && pwd)/preflight-multi-app.sh"
+
+    if [ -x "$preflight_script" ]; then
+        log "🧭 执行双系统防冲突预检..."
+        SYSTEM_NAME="foodtestlab" \
+        FRONTEND_PORT="8081" \
+        API_PORT="3001" \
+        OTHER_FRONTEND_PORT="8080" \
+        OTHER_API_PORT="3000" \
+        PM2_APP_NAME="foodtestlab-api" \
+        "$preflight_script" || error "双系统预检失败，请先排除冲突后再部署"
+        success "双系统防冲突预检通过"
+    else
+        warn "未找到可执行预检脚本: $preflight_script，跳过预检"
+    fi
+}
+
 check_deployment_approval() {
     if [ "$DRY_RUN" == "--dry-run" ]; then
         warn "演练模式 - 不会执行实际部署"
@@ -279,6 +297,7 @@ main() {
     
     # 前检查
     check_prerequisites || exit 1
+    run_multi_app_preflight
     check_deployment_approval
     
     # 构建

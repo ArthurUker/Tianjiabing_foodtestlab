@@ -46,6 +46,7 @@
 | [DEPLOYMENT_CHECKLIST.md](./DEPLOYMENT_CHECKLIST.md) | 部署检查清单 | 部署人员 |
 | [QUICK_FIX_GUIDE.md](./QUICK_FIX_GUIDE.md) | 快速故障排查 | 值班人员 |
 | [INTEGRATION_GUIDE.md](./INTEGRATION_GUIDE.md) | 集成和迁移指南 | 开发人员 |
+| [SERVER_MULTI_APP_CONFLICT_AVOIDANCE_GUIDE.md](./SERVER_MULTI_APP_CONFLICT_AVOIDANCE_GUIDE.md) | 同机双系统防冲突部署指南 | 运维人员、部署负责人 |
 
 ### 💡 开发文档 (3 份)
 

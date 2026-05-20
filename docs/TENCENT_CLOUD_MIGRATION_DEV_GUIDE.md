@@ -4,6 +4,12 @@
 
 本文档不是概念说明，而是迁移作战手册。目标是让你按步骤执行，能把系统稳定迁到腾讯云，并且具备回滚能力。
 
+如果你希望直接套用“轻后端、重前端”的低配方案，请优先使用以下模板：
+
+- Nginx：`deploy/nginx/foodtestlab-low-spec.conf`
+- PM2：`deploy/pm2/ecosystem.config.cjs`
+- 上线步骤：`docs/TENCENT_LOW_SPEC_DEPLOYMENT_TEMPLATE.md`
+
 当前迁移对象：
 
 - 数据存储：Supabase
@@ -142,6 +148,12 @@ node -v
 - 审计日志查看
 
 ## 7. 阶段 1：部署迁移实施手册
+
+在执行本节前，建议先完成以下一致性设置：
+
+- 后端环境变量 `SERVE_STATIC=false`（后端仅暴露 API）
+- 前端静态资源由 Nginx 或 COS 提供
+- Nginx 统一处理缓存头、反向代理与跨域策略
 
 ## 7.1 服务器初始化（Ubuntu 22.04）
 
