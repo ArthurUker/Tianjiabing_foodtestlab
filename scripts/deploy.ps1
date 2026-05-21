@@ -12,7 +12,9 @@ $repoRoot = if ($env:REPO_ROOT) { $env:REPO_ROOT } else { "C:\foodtestlab" }
 $backendPath = if ($env:BACKEND_PATH) { $env:BACKEND_PATH } else { Join-Path $repoRoot "backend" }
 $frontendPath = if ($env:FRONTEND_PATH) { $env:FRONTEND_PATH } else { $repoRoot }
 $nginxRoot = if ($env:NGINX_ROOT) { $env:NGINX_ROOT } else { "C:\nginx" }
-$branchName = if ($env:DEPLOY_BRANCH) { $env:DEPLOY_BRANCH } else { "runon_tencentcloud" }
+$branchName   = if ($env:DEPLOY_BRANCH)   { $env:DEPLOY_BRANCH }   else { "runon_tencentcloud" }
+# Nginx 静态文件 root 目录（与 nginx.conf 中 root 一致）
+$nginxWebRoot = if ($env:NGINX_WEBROOT) { $env:NGINX_WEBROOT } else { "C:\foodtestlab\dist" }
 
 # 食品系统固定隔离端口（避免与 RDPMS 冲突）
 $frontendPort = if ($env:FRONTEND_PORT) { [int]$env:FRONTEND_PORT } else { 8081 }
@@ -226,9 +228,99 @@ if (Test-Path $pkg) {
     }
 }
 
-Log "Nginx 重载配置"
+Log "将 dist/ 同步到 Nginx webroot"
+$distPath = Join-Path $frontendPath "dist"
+if (Test-Path $distPath) {
+    New-Item -ItemType Directory -Path $nginxWebRoot -Force | Out-Null
+    # 先清空旧文件，再拷入新文件，保证 Nginx 立刻生效
+    Remove-Item -Recurse -Force "$nginxWebRoot\*" -ErrorAction SilentlyContinue
+    Copy-Item -Path "$distPath\*" -Destination $nginxWebRoot -Recurse -Force
+    Ok "已将 dist/ 同步到 Nginx webroot: $nginxWebRoot"
+} else {
+    WarnMsg "未找到 dist/ 目录（$distPath），跳过 Nginx webroot 同步。请确认 npm run build 成功"
+}
+
+Log "Nginx 配置守护与重载"
 $nginxExe = Join-Path $nginxRoot "nginx.exe"
 if (Test-Path $nginxExe) {
+    $nginxConfPath = Join-Path $nginxRoot "conf\nginx.conf"
+    $nginxConfContent = Get-Content $nginxConfPath -Raw -ErrorAction SilentlyContinue
+
+    # 若未检测到 8081 server 块，则自动补全双系统配置，避免部署后食品系统入口丢失。
+    if ($nginxConfContent -notmatch 'listen\s+8081') {
+        WarnMsg "未检测到食品系统 Nginx server 块，正在自动写入双系统模板"
+        $fullNginxConf = @'
+worker_processes  1;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+    sendfile      on;
+    keepalive_timeout 65;
+
+    client_body_temp_path C:/nginx/temp/client_body_temp;
+    proxy_temp_path       C:/nginx/temp/proxy_temp;
+    fastcgi_temp_path     C:/nginx/temp/fastcgi_temp;
+    uwsgi_temp_path       C:/nginx/temp/uwsgi_temp;
+    scgi_temp_path        C:/nginx/temp/scgi_temp;
+
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript application/xml+rss application/xml image/svg+xml;
+    gzip_min_length 1024;
+
+    # RDPMS 系统 (端口 8080)
+    server {
+        listen 8080;
+        server_name _;
+        root  C:/rdpms/rdpms-system/frontend/dist;
+        index index.html;
+
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+
+        location /api/ {
+            proxy_pass         http://127.0.0.1:3000;
+            proxy_http_version 1.1;
+            proxy_set_header   Host            $host;
+            proxy_set_header   X-Real-IP       $remote_addr;
+            proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_read_timeout 60s;
+        }
+    }
+
+    # 食品检验系统 (端口 8081)
+    server {
+        listen 8081;
+        server_name _;
+        root  C:/foodtestlab/dist;
+        index index.html;
+
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+
+        location /api/ {
+            proxy_pass         http://127.0.0.1:3001;
+            proxy_http_version 1.1;
+            proxy_set_header   Host            $host;
+            proxy_set_header   X-Real-IP       $remote_addr;
+            proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_read_timeout 60s;
+        }
+    }
+}
+'@
+        Set-Content -Path $nginxConfPath -Value $fullNginxConf -Encoding UTF8
+        Ok "Nginx 双系统配置已写入：$nginxConfPath"
+    } else {
+        Ok "Nginx 食品系统配置已存在，无需改写 nginx.conf"
+    }
+
     Set-Location $nginxRoot
     .\nginx.exe -t
     if ($LASTEXITCODE -eq 0) {
