@@ -143,16 +143,53 @@ if ($LASTEXITCODE -ne 0) {
     }
 }
 
-Log "Prisma 生成和迁移"
+Log "确认 backend/.env 包含 DATABASE_URL"
+$backendEnvPath = Join-Path $backendPath ".env"
+if (-not (Test-Path $backendEnvPath)) {
+    WarnMsg ".env 不存在，从 .env.example 复制..."
+    $examplePath = Join-Path $repoRoot ".env.example"
+    if (Test-Path $examplePath) {
+        Copy-Item $examplePath $backendEnvPath
+    }
+}
+$envContent = Get-Content $backendEnvPath -Raw -ErrorAction SilentlyContinue
+if ($envContent -notmatch 'DATABASE_URL\s*=\s*file:') {
+    WarnMsg "DATABASE_URL 不是 SQLite 格式，正在自动修正..."
+    if ($envContent -match 'DATABASE_URL\s*=') {
+        $envContent = $envContent -replace '(?m)^DATABASE_URL\s*=.*$', 'DATABASE_URL="file:./prisma/foodtestlab.db"'
+    } else {
+        $envContent += "`nDATABASE_URL=\"file:./prisma/foodtestlab.db\""
+    }
+    Set-Content -Path $backendEnvPath -Value $envContent -Encoding UTF8 -NoNewline
+    Ok "DATABASE_URL 已修正为 SQLite 格式"
+} else {
+    Ok "DATABASE_URL 格式正确，无需修改"
+}
+
+Log "Prisma 生成和数据库初始化"
 if (Test-Path ".\prisma") {
     npx prisma generate
     if ($LASTEXITCODE -ne 0) { WarnMsg "prisma generate 失败，继续部署" }
 
-    # 与参考脚本一致使用 migrate deploy，避免开发环境 db push 语义
-    npx prisma migrate deploy
-    if ($LASTEXITCODE -ne 0) { WarnMsg "prisma migrate deploy 失败，请检查数据库连接与迁移文件" }
+    # 项目使用 SQLite + schema-first 模式，没有 migrations 文件夹，
+    # 使用 db push 直接同步 schema 到数据库文件
+    npx prisma db push --accept-data-loss
+    if ($LASTEXITCODE -ne 0) {
+        WarnMsg "prisma db push 失败，请检查 DATABASE_URL 与 prisma/schema.prisma"
+    } else {
+        Ok "数据库 schema 同步完成"
+        # 初始化种子数据（管理员账号等）
+        if (Test-Path ".\prisma\seed.js") {
+            node .\prisma\seed.js
+            if ($LASTEXITCODE -eq 0) {
+                Ok "seed.js 执行完成（管理员账号已初始化）"
+            } else {
+                WarnMsg "seed.js 执行失败，请手动运行: node backend/prisma/seed.js"
+            }
+        }
+    }
 } else {
-    WarnMsg "未检测到 prisma 目录，跳过迁移"
+    WarnMsg "未检测到 prisma 目录，跳过数据库初始化"
 }
 
 Log "PM2 重启后端"
