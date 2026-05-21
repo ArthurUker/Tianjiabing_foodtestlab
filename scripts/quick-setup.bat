@@ -37,10 +37,9 @@ if not exist "backend\.env" (
     echo ⚠️  警告: backend\.env 文件不存在
     echo 📝 请创建 backend\.env 文件并配置以下环境变量:
     echo.
-    echo    SUPABASE_URL=your_supabase_url
-    echo    SUPABASE_KEY=your_supabase_anon_key
+    echo    DATABASE_URL="file:./prisma/foodtestlab.db"
     echo    JWT_SECRET=your_jwt_secret_key
-    echo    CORS_ORIGIN=http://localhost:3000
+    echo    CORS_ORIGIN=http://localhost:8081
     echo    NODE_ENV=development
     echo.
     pause

@@ -1,7 +1,7 @@
 /**
  * APIClient - 前端API客户端
  * 所有数据操作通过此客户端与后端API通信
- * Supabase密钥完全隐藏在后端
+ * 数据访问由后端 REST API + Prisma 统一处理
  */
 
 export class APIClient {
