@@ -21,6 +21,9 @@ $frontendPort = if ($env:FRONTEND_PORT) { [int]$env:FRONTEND_PORT } else { 8081 
 $apiPort = if ($env:API_PORT) { [int]$env:API_PORT } else { 3001 }
 $pm2AppName = if ($env:PM2_APP_NAME) { $env:PM2_APP_NAME } else { "foodtestlab-api" }
 
+# 可选：指定数据库文件存放目录（默认放在 D:\foodtestlab\data）
+$dataPath = if ($env:DATA_PATH) { $env:DATA_PATH } else { "D:\foodtestlab\data" }
+
 # RDPMS 参考系统占用（用于冲突检查）
 $rdpmsFrontendPort = 8080
 $rdpmsApiPort = 3000
@@ -155,18 +158,26 @@ if (-not (Test-Path $backendEnvPath)) {
     }
 }
 $envContent = Get-Content $backendEnvPath -Raw -ErrorAction SilentlyContinue
-if ($envContent -notmatch 'DATABASE_URL\s*=\s*file:') {
-    WarnMsg "DATABASE_URL 不是 SQLite 格式，正在自动修正..."
-    if ($envContent -match 'DATABASE_URL\s*=') {
-        $envContent = $envContent -replace '(?m)^DATABASE_URL\s*=.*$', 'DATABASE_URL="file:./prisma/foodtestlab.db"'
-    } else {
-        $envContent += "`nDATABASE_URL=\"file:./prisma/foodtestlab.db\""
-    }
-    Set-Content -Path $backendEnvPath -Value $envContent -Encoding UTF8 -NoNewline
-    Ok "DATABASE_URL 已修正为 SQLite 格式"
+
+# Ensure data directory exists on target drive and compute SQLite DATABASE_URL
+if (-not (Test-Path $dataPath)) {
+    New-Item -ItemType Directory -Path $dataPath -Force | Out-Null
+    Ok "已创建数据目录: $dataPath"
 } else {
-    Ok "DATABASE_URL 格式正确，无需修改"
+    Ok "数据目录已存在: $dataPath"
 }
+$dbFile = Join-Path $dataPath "foodtestlab.db"
+# Prisma expects forward slashes in file: URLs on Windows
+$dbUrl = 'file:' + ($dbFile -replace '\\','/')
+
+# Update or insert DATABASE_URL in backend .env to point to the D: drive DB file
+if ($envContent -match '(?m)^DATABASE_URL\s*=') {
+    $envContent = $envContent -replace '(?m)^DATABASE_URL\s*=.*$', "DATABASE_URL=\"$dbUrl\""
+} else {
+    $envContent += "`nDATABASE_URL=\"$dbUrl\""
+}
+Set-Content -Path $backendEnvPath -Value $envContent -Encoding UTF8 -NoNewline
+Ok "DATABASE_URL 已设置为: $dbUrl"
 
 Log "Prisma 生成和数据库初始化"
 if (Test-Path ".\prisma") {
