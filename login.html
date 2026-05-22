@@ -4,6 +4,43 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>食品安全检验管理系统 - 登录</title>
+    <script>
+        // 生产环境日志降噪，避免控制台被第三方/调试信息刷屏
+        (function () {
+            const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1'
+            const debugByQuery = new URLSearchParams(location.search).get('debug') === 'true'
+            const debugByStorage = localStorage.getItem('app_debug') === 'true'
+            const enableDebug = isLocal || debugByQuery || debugByStorage
+
+            if (enableDebug) {
+                return
+            }
+
+            const raw = {
+                log: console.log.bind(console),
+                info: console.info.bind(console),
+                debug: console.debug.bind(console),
+                warn: console.warn.bind(console),
+                error: console.error.bind(console)
+            }
+
+            console.log = function () {}
+            console.info = function () {}
+            console.debug = function () {}
+
+            console.warn = function (...args) {
+                const text = String(args[0] || '')
+                if (text.includes('cdn.tailwindcss.com should not be used in production')) return
+                raw.warn(...args)
+            }
+
+            console.error = function (...args) {
+                const text = String(args[0] || '')
+                if (text.includes('Untrusted event')) return
+                raw.error(...args)
+            }
+        })()
+    </script>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
