@@ -102,7 +102,10 @@ app.use(cors({
             // Ignore parse errors and fall through to rejection
         }
 
-        return callback(new Error(`CORS: origin ${origin} not allowed`))
+        // Do not throw an Error here (it becomes a 500). Return false so CORS header is not set
+        // and log the denied origin for diagnosis.
+        console.warn(`CORS denied origin: ${origin}`)
+        return callback(null, false)
     },
     credentials: true
 }))
@@ -364,6 +367,7 @@ const server = app.listen(PORT, () => {
     console.log(`🔐 JWT Secret configured: ${JWT_SECRET ? '✅' : '❌ MISSING'}`)
     console.log(`🗄️  Database: SQLite (Prisma)`)
     console.log(`📦 CORS Origins: ${allowCorsWildcard ? 'Allow All' : allowedOrigins.join(', ')}`)
+    console.log(`📦 CORS Hostnames: ${allowedHostnames.length ? allowedHostnames.join(', ') : '(none)'}`)
     console.log(`${'='.repeat(60)}\n`)
 })
 
