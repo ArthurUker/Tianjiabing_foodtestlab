@@ -54,6 +54,74 @@ function parseAllowedHostnames() {
         .filter(Boolean)
 }
 
+const RECORD_ROUTE_TYPES = new Set([
+    'tableware',
+    'pathogen',
+    'leanMeat',
+    'oil',
+    'pesticide'
+])
+
+const TEST_TYPE_LABELS = {
+    tableware: '餐具洁净度检测',
+    pathogen: '病原体检测',
+    leanMeat: '肉、蛋农残检测',
+    oil: '食用油品质检测',
+    pesticide: '果蔬农残检测'
+}
+
+function normalizeRecordType(tableName) {
+    return RECORD_ROUTE_TYPES.has(tableName) ? tableName : null
+}
+
+function safeParseJson(value, fallback) {
+    if (!value) return fallback
+    try {
+        return JSON.parse(value)
+    } catch {
+        return fallback
+    }
+}
+
+function buildRecordPayload(record) {
+    const sampleInfo = safeParseJson(record.sample_info, {})
+    const resultData = safeParseJson(record.result_data, {})
+
+    return {
+        id: record.id,
+        record_code: record.record_code,
+        test_type: record.test_type,
+        test_name: record.test_name,
+        status: record.status,
+        created_at: record.created_at,
+        updated_at: record.updated_at,
+        ...sampleInfo,
+        ...resultData
+    }
+}
+
+function buildRecordWriteData(tableName, payload) {
+    const baseData = { ...payload }
+    delete baseData.id
+    delete baseData._status
+
+    const testDate = baseData.testDate || null
+    const canteen = baseData.canteen || null
+    const inspector = baseData.inspector || null
+
+    return {
+        test_type: tableName,
+        test_name: TEST_TYPE_LABELS[tableName] || tableName,
+        sample_info: JSON.stringify({
+            testDate,
+            canteen,
+            inspector
+        }),
+        result_data: JSON.stringify(baseData),
+        status: baseData.status || 'completed'
+    }
+}
+
 // Middleware: Authenticate User
 export function authenticateUser(req, res, next) {
     const authHeader = req.headers['authorization']
@@ -196,6 +264,141 @@ app.get('/api/test-records', authenticateUser, async (req, res) => {
         console.error('❌ Error fetching test records:', error)
         res.status(500).json({
             error: '获取失败',
+            details: error.message
+        })
+    }
+})
+
+// ====== Legacy Frontend Compatibility: /api/records/:tableName ======
+
+app.get('/api/records/:tableName', authenticateUser, async (req, res) => {
+    try {
+        const testType = normalizeRecordType(req.params.tableName)
+        if (!testType) {
+            return res.status(404).json({ error: '记录类型不存在' })
+        }
+
+        const { limit = 100, offset = 0, status } = req.query
+        const where = { test_type: testType }
+        if (status) where.status = status
+
+        const records = await prisma.testRecord.findMany({
+            where,
+            skip: parseInt(offset),
+            take: parseInt(limit),
+            orderBy: { created_at: 'desc' }
+        })
+
+        const total = await prisma.testRecord.count({ where })
+
+        res.json({
+            success: true,
+            data: records.map(buildRecordPayload),
+            total,
+            limit: parseInt(limit),
+            offset: parseInt(offset)
+        })
+    } catch (error) {
+        console.error('❌ Error fetching legacy records:', error)
+        res.status(500).json({
+            error: '获取失败',
+            details: error.message
+        })
+    }
+})
+
+app.post('/api/records/:tableName', authenticateUser, async (req, res) => {
+    try {
+        const testType = normalizeRecordType(req.params.tableName)
+        if (!testType) {
+            return res.status(404).json({ error: '记录类型不存在' })
+        }
+
+        const writeData = buildRecordWriteData(testType, req.body || {})
+        const record = await prisma.testRecord.create({
+            data: {
+                record_code: `REC-${Date.now()}`,
+                created_by: req.userId,
+                ...writeData
+            }
+        })
+
+        res.json({
+            success: true,
+            data: buildRecordPayload(record),
+            message: '记录创建成功'
+        })
+    } catch (error) {
+        console.error('❌ Error creating legacy record:', error)
+        res.status(500).json({
+            error: '创建失败',
+            details: error.message
+        })
+    }
+})
+
+app.put('/api/records/:tableName/:id', authenticateUser, async (req, res) => {
+    try {
+        const testType = normalizeRecordType(req.params.tableName)
+        if (!testType) {
+            return res.status(404).json({ error: '记录类型不存在' })
+        }
+
+        const existing = await prisma.testRecord.findUnique({
+            where: { id: req.params.id }
+        })
+
+        if (!existing || existing.test_type !== testType) {
+            return res.status(404).json({ error: '记录不存在' })
+        }
+
+        const writeData = buildRecordWriteData(testType, req.body || {})
+        const record = await prisma.testRecord.update({
+            where: { id: req.params.id },
+            data: writeData
+        })
+
+        res.json({
+            success: true,
+            data: buildRecordPayload(record),
+            message: '更新成功'
+        })
+    } catch (error) {
+        console.error('❌ Error updating legacy record:', error)
+        res.status(500).json({
+            error: '更新失败',
+            details: error.message
+        })
+    }
+})
+
+app.delete('/api/records/:tableName/:id', authenticateUser, async (req, res) => {
+    try {
+        const testType = normalizeRecordType(req.params.tableName)
+        if (!testType) {
+            return res.status(404).json({ error: '记录类型不存在' })
+        }
+
+        const existing = await prisma.testRecord.findUnique({
+            where: { id: req.params.id }
+        })
+
+        if (!existing || existing.test_type !== testType) {
+            return res.status(404).json({ error: '记录不存在' })
+        }
+
+        await prisma.testRecord.delete({
+            where: { id: req.params.id }
+        })
+
+        res.json({
+            success: true,
+            message: '删除成功'
+        })
+    } catch (error) {
+        console.error('❌ Error deleting legacy record:', error)
+        res.status(500).json({
+            error: '删除失败',
             details: error.message
         })
     }
