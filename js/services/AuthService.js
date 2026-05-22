@@ -153,7 +153,7 @@ export class AuthService {
             const data = await response.json();
 
             if (!response.ok) {
-                throw new Error(data.message || '注册失败');
+                throw new Error(data.error || data.message || '注册失败');
             }
 
             console.log('✅ 用户注册成功:', username);
