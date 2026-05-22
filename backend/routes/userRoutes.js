@@ -229,6 +229,7 @@ export function createUserRoutes(userManager) {
         try {
             const payload = req.body || {}
             const normalizedUpdates = {
+                username: payload.username,
                 full_name: payload.full_name ?? payload.fullName,
                 email: payload.email,
                 phone: payload.phone,

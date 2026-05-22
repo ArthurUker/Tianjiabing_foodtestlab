@@ -409,7 +409,7 @@ export class UserManager {
 
     async adminUpdateUser(userId, updates) {
         try {
-            const allowedUpdates = ['full_name', 'email', 'phone', 'role', 'status']
+            const allowedUpdates = ['username', 'full_name', 'email', 'phone', 'role', 'status']
             const filteredUpdates = {}
 
             for (const key of allowedUpdates) {
@@ -420,6 +420,20 @@ export class UserManager {
 
             if (Object.keys(filteredUpdates).length === 0) {
                 throw new Error('未提供可更新字段')
+            }
+
+            if (filteredUpdates.username) {
+                if (filteredUpdates.username.length < 3) {
+                    throw new Error('用户名至少3个字符')
+                }
+
+                const existingUser = await this.prisma.user.findUnique({
+                    where: { username: filteredUpdates.username }
+                })
+
+                if (existingUser && existingUser.id !== userId) {
+                    throw new Error('用户名已存在')
+                }
             }
 
             if (filteredUpdates.role) {
