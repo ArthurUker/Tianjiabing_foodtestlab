@@ -8,7 +8,12 @@ import { logOperation } from '../utils/AuditLogger.js';
 const DEFAULT_CONFIG = {
     apiBaseUrl: '/api/records',
     maxSyncRows: 200,
-    syncCooldownMs: 30000
+    syncCooldownMs: 30000,
+    queueBatchSize: 5,
+    queueBatchDelayMs: 400,
+    minRetryDelayMs: 1000,
+    maxRetryDelayMs: 30000,
+    globalBackoffKey: 'app_sync_backoff_until'
 };
 
 // 表名映射
@@ -26,6 +31,11 @@ export class StorageService {
         this.apiBaseUrl = config.apiBaseUrl || DEFAULT_CONFIG.apiBaseUrl;
         this.maxSyncRows = config.maxSyncRows || DEFAULT_CONFIG.maxSyncRows;
         this.syncCooldownMs = config.syncCooldownMs || DEFAULT_CONFIG.syncCooldownMs;
+        this.queueBatchSize = config.queueBatchSize || DEFAULT_CONFIG.queueBatchSize;
+        this.queueBatchDelayMs = config.queueBatchDelayMs || DEFAULT_CONFIG.queueBatchDelayMs;
+        this.minRetryDelayMs = config.minRetryDelayMs || DEFAULT_CONFIG.minRetryDelayMs;
+        this.maxRetryDelayMs = config.maxRetryDelayMs || DEFAULT_CONFIG.maxRetryDelayMs;
+        this.globalBackoffKey = config.globalBackoffKey || DEFAULT_CONFIG.globalBackoffKey;
         
         const dbTableName = TABLE_NAME_MAP[tableName] || tableName;
         this.apiEndpoint = `${this.apiBaseUrl}/${dbTableName}`;
@@ -37,6 +47,8 @@ export class StorageService {
         this.processingRequestIds = new Set();
         this.eventListeners = { error: [], sync: [] };
         this._lastSyncTime = 0; // 防止同步循环：记录最后一次同步时间
+        this._isProcessingQueue = false;
+        this._queueTimer = null;
 
         this._initializeLocalCache();
         setTimeout(() => this._processQueuedRequests(), 100);
@@ -208,11 +220,26 @@ export class StorageService {
             return;
         }
 
+        if (this._isProcessingQueue) {
+            return;
+        }
+
+        const now = Date.now();
+        const backoffUntil = this._getGlobalBackoffUntil();
+        if (backoffUntil > now) {
+            this._scheduleQueueProcess(backoffUntil - now);
+            return;
+        }
+
         const all = this._getPendingRequests();
-        const todo = all.filter(r => !this.processingRequestIds.has(r.id));
+        const todo = all.filter(r => !this.processingRequestIds.has(r.id) && (!r.nextAttemptAt || r.nextAttemptAt <= now));
         if (todo.length === 0) return;
 
-        for (const req of todo) {
+        this._isProcessingQueue = true;
+
+        try {
+            const batch = todo.slice(0, this.queueBatchSize);
+            for (const req of batch) {
             this.processingRequestIds.add(req.id);
             try {
                 if (req.type === 'create') await this._handleCreate(req);
@@ -222,15 +249,29 @@ export class StorageService {
                 this._removeRequestFromQueue(req.id);
             } catch (e) {
                 console.error(`Request ${req.id} failed:`, e);
-                const isIdempotent = req.type !== 'create';
                 const currentRetry = (req.retryCount || 0) + 1;
-                if (isIdempotent && currentRetry < 3) {
-                    this._updateRequestRetryCount(req.id, currentRetry);
+                const isRateLimited = e && e.status === 429;
+                const isRetryable = req.type !== 'create' || isRateLimited;
+
+                if (isRetryable && currentRetry < 3) {
+                    const retryDelay = this._computeRetryDelay(currentRetry, e?.retryAfterMs);
+                    if (isRateLimited) {
+                        this._setGlobalBackoff(retryDelay);
+                    }
+                    this._updateRequestRetry(req.id, currentRetry, Date.now() + retryDelay);
                 } else {
                     this._removeRequestFromQueue(req.id);
                     this._emit('error', { request: req, error: e });
                 }
                 this.processingRequestIds.delete(req.id);
+            }
+            }
+        } finally {
+            this._isProcessingQueue = false;
+
+            // 按批次推进队列，避免瞬时打满后端。
+            if (this._getPendingRequests().length > 0) {
+                this._scheduleQueueProcess(this.queueBatchDelayMs);
             }
         }
     }
@@ -245,7 +286,7 @@ export class StorageService {
             body: JSON.stringify(realData)
         });
 
-        if (!res.ok) throw new Error(res.statusText);
+        this._throwIfNotOk(res);
         const responseJson = await res.json();
         const serverRow = responseJson.data || responseJson;
         const content = (serverRow.data && typeof serverRow.data === 'object') ? serverRow.data : serverRow;
@@ -264,7 +305,7 @@ export class StorageService {
             headers: this._getHeaders(),
             body: JSON.stringify(realData)
         });
-        if (!res.ok) throw new Error(res.statusText);
+        this._throwIfNotOk(res);
         this._updateCacheStatus(recordId, 'synced');
         logOperation('update', this.tableName, `修改记录 #${recordId}`);
     }
@@ -275,7 +316,7 @@ export class StorageService {
             method: 'DELETE',
             headers: this._getHeaders()
         });
-        if (!res.ok) throw new Error(res.statusText);
+        this._throwIfNotOk(res);
         logOperation('delete', this.tableName, `删除记录 #${recordId}`);
     }
     
@@ -295,11 +336,12 @@ export class StorageService {
         localStorage.setItem(this.pendingRequestsKey, JSON.stringify(l));
         this.processingRequestIds.delete(id);
     }
-    _updateRequestRetryCount(reqId, count) {
+    _updateRequestRetry(reqId, count, nextAttemptAt = null) {
         const list = this._getPendingRequests();
         const index = list.findIndex(r => r.id === reqId);
         if (index !== -1) {
             list[index].retryCount = count;
+            list[index].nextAttemptAt = nextAttemptAt;
             localStorage.setItem(this.pendingRequestsKey, JSON.stringify(list));
         }
     }
@@ -331,6 +373,47 @@ export class StorageService {
     _cleanupTempRequests(tempId) {
         const list = this._getPendingRequests().filter(r => r.tempId !== tempId);
         localStorage.setItem(this.pendingRequestsKey, JSON.stringify(list));
+    }
+    _throwIfNotOk(response) {
+        if (response.ok) return;
+        const error = new Error(`HTTP ${response.status} ${response.statusText}`);
+        error.status = response.status;
+
+        const retryAfter = response.headers.get('Retry-After');
+        if (retryAfter) {
+            const retryAfterSeconds = Number(retryAfter);
+            if (!Number.isNaN(retryAfterSeconds) && retryAfterSeconds >= 0) {
+                error.retryAfterMs = retryAfterSeconds * 1000;
+            }
+        }
+        throw error;
+    }
+    _computeRetryDelay(retryCount, retryAfterMs) {
+        const backoff = Math.min(this.minRetryDelayMs * (2 ** Math.max(0, retryCount - 1)), this.maxRetryDelayMs);
+        if (typeof retryAfterMs === 'number' && retryAfterMs > 0) {
+            return Math.min(Math.max(retryAfterMs, backoff), this.maxRetryDelayMs);
+        }
+        return backoff;
+    }
+    _getGlobalBackoffUntil() {
+        const raw = Number(localStorage.getItem(this.globalBackoffKey));
+        return Number.isFinite(raw) ? raw : 0;
+    }
+    _setGlobalBackoff(delayMs) {
+        const target = Date.now() + Math.max(0, delayMs || this.minRetryDelayMs);
+        const current = this._getGlobalBackoffUntil();
+        if (target > current) {
+            localStorage.setItem(this.globalBackoffKey, String(target));
+        }
+    }
+    _scheduleQueueProcess(delayMs) {
+        if (this._queueTimer) {
+            clearTimeout(this._queueTimer);
+        }
+        this._queueTimer = setTimeout(() => {
+            this._queueTimer = null;
+            this._processQueuedRequests();
+        }, Math.max(0, delayMs || 0));
     }
     _emit(e, d) { if(this.eventListeners[e]) this.eventListeners[e].forEach(c=>c(d)); }
 }
