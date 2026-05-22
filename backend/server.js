@@ -2,7 +2,7 @@ import express from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
 import path from 'path'
-import { fileURLToPath } from 'url'
+import { fileURLToPath, URL } from 'url'
 import { PrismaClient } from '@prisma/client'
 import jwt from 'jsonwebtoken'
 import UserManager from './modules/UserManager.js'
@@ -44,6 +44,16 @@ function parseAllowedOrigins() {
         .filter(Boolean)
 }
 
+function parseAllowedHostnames() {
+    // Accept a comma-separated list of hostnames or hostname:port values from env.
+    // Example: CORS_HOSTNAMES=159.75.106.179,127.0.0.1:3001
+    const raw = process.env.CORS_HOSTNAMES || process.env.CORS_ADDITIONAL_HOSTS || ''
+    return raw
+        .split(',')
+        .map(h => h.trim())
+        .filter(Boolean)
+}
+
 // Middleware: Authenticate User
 export function authenticateUser(req, res, next) {
     const authHeader = req.headers['authorization']
@@ -68,15 +78,31 @@ export function authenticateUser(req, res, next) {
 app.use(rateLimit(100, 15 * 60 * 1000)) // 15分钟内最多100个请求
 
 const allowedOrigins = parseAllowedOrigins()
+const allowedHostnames = parseAllowedHostnames()
 
 app.use(cors({
     origin: (origin, callback) => {
-        // 允许无 origin 的请求（如 curl、Postman）
-        if (!origin) return callback(null, true);
-        if (allowCorsWildcard || allowedOrigins.includes(origin)) {
-            return callback(null, true);
+        // Allow requests with no origin (curl, Postman, server-side)
+        if (!origin) return callback(null, true)
+
+        // Allow wildcard via env
+        if (allowCorsWildcard) return callback(null, true)
+
+        // Exact origin match (scheme + host + port)
+        if (allowedOrigins.includes(origin)) return callback(null, true)
+
+        // Allow if origin's hostname (or hostname:port) is included in allowedHostnames
+        try {
+            const u = new URL(origin)
+            const hostWithPort = u.hostname + (u.port ? `:${u.port}` : '')
+            if (allowedHostnames.includes(u.hostname) || allowedHostnames.includes(hostWithPort)) {
+                return callback(null, true)
+            }
+        } catch (e) {
+            // Ignore parse errors and fall through to rejection
         }
-        return callback(new Error(`CORS: origin ${origin} not allowed`));
+
+        return callback(new Error(`CORS: origin ${origin} not allowed`))
     },
     credentials: true
 }))
