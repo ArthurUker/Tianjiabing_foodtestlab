@@ -343,13 +343,29 @@ export class BackupRestoreService {
             const cache = JSON.parse(localStorage.getItem(cacheKey) || '{"data":[]}');
             
             if (cache.data && cache.data.length > 0) {
-                // 生成 Storage.js 能够识别的请求格式
-                const requests = cache.data.map(record => ({
-                    id: `sync_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-                    type: 'create', // <--- 修改这里：从 'POST' 改为 'create'
-                    data: { ...record, _status: 'pending' }, // 确保带上 pending 状态
-                    timestamp: Date.now()
-                }));
+                const uniqueRecords = this._dedupeRecordsByFingerprint(cache.data);
+                // 已有正式ID的记录优先走 update，避免恢复时重复 create。
+                const requests = uniqueRecords.map(record => {
+                    const baseReq = {
+                        id: `sync_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+                        data: { ...record, _status: 'pending' },
+                        timestamp: Date.now()
+                    };
+
+                    if (this._canUseUpdate(record.id)) {
+                        return {
+                            ...baseReq,
+                            type: 'update',
+                            recordId: record.id
+                        };
+                    }
+
+                    return {
+                        ...baseReq,
+                        type: 'create',
+                        tempId: record.id
+                    };
+                });
                 localStorage.setItem(pendingKey, JSON.stringify(requests));
             }
         });
@@ -537,9 +553,12 @@ export class BackupRestoreService {
             const processTable = (tableName, data) => {
                 const cacheKey = `cache_${tableName}`;
                 const pendingKey = `pending_${tableName}`;
+                const existingCache = JSON.parse(localStorage.getItem(cacheKey) || '{"data":[]}').data || [];
+                const existingFingerprints = new Set(existingCache.map(r => this._buildRecordFingerprint(r)));
                 
                 // 写入缓存 (标记为 pending)
                 let records = Array.isArray(data) ? data : (data.data || []);
+                records = this._dedupeRecordsByFingerprint(records);
                 if (shouldSyncToServer) {
                     records = records.map(r => ({ ...r, _status: 'pending' }));
                 }
@@ -549,13 +568,41 @@ export class BackupRestoreService {
                 
                 // [关键] 如果选择同步，立即生成上传队列
                 if (shouldSyncToServer && records.length > 0) {
-                    const requests = records.map(record => ({
-                        id: `restore_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-                        type: 'create', // <--- 修改这里：从 'POST' 改为 'create'
-                        tempId: record.id, // 传递原始ID作为临时ID，防止重复创建
-                        data: record,
-                        timestamp: Date.now()
-                    }));
+                    const requests = [];
+                    const queuedFingerprints = new Set();
+
+                    records.forEach(record => {
+                        const fingerprint = this._buildRecordFingerprint(record);
+                        if (!fingerprint) return;
+                        if (queuedFingerprints.has(fingerprint)) return;
+
+                        const baseReq = {
+                            id: `restore_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+                            data: record,
+                            timestamp: Date.now()
+                        };
+
+                        if (this._canUseUpdate(record.id)) {
+                            requests.push({
+                                ...baseReq,
+                                type: 'update',
+                                recordId: record.id
+                            });
+                            queuedFingerprints.add(fingerprint);
+                            return;
+                        }
+
+                        // 无正式ID的记录仅在当前缓存未出现同指纹时创建，避免重复导入。
+                        if (!existingFingerprints.has(fingerprint)) {
+                            requests.push({
+                                ...baseReq,
+                                type: 'create',
+                                tempId: record.id
+                            });
+                            queuedFingerprints.add(fingerprint);
+                        }
+                    });
+
                     localStorage.setItem(pendingKey, JSON.stringify(requests));
                 }
                 restoreCount++;
@@ -613,5 +660,51 @@ export class BackupRestoreService {
             el.innerHTML = msg;
             el.className = `mb-6 p-3 rounded text-center font-medium text-sm bg-${color}-50 text-${color}-700 border border-${color}-200`;
         }
+    }
+
+    _canUseUpdate(id) {
+        return typeof id === 'string' &&
+            id.length > 0 &&
+            !id.startsWith('temp_') &&
+            !id.startsWith('restore_') &&
+            !id.startsWith('sync_');
+    }
+
+    _buildRecordFingerprint(record) {
+        if (!record || typeof record !== 'object') return '';
+
+        const clone = { ...record };
+        delete clone.id;
+        delete clone._status;
+        delete clone.created_at;
+        delete clone.updated_at;
+        delete clone.record_code;
+
+        const normalize = (value) => {
+            if (Array.isArray(value)) return value.map(normalize);
+            if (value && typeof value === 'object') {
+                return Object.keys(value).sort().reduce((acc, key) => {
+                    acc[key] = normalize(value[key]);
+                    return acc;
+                }, {});
+            }
+            return value;
+        };
+
+        return JSON.stringify(normalize(clone));
+    }
+
+    _dedupeRecordsByFingerprint(records) {
+        const seen = new Set();
+        const unique = [];
+
+        (records || []).forEach(record => {
+            const fingerprint = this._buildRecordFingerprint(record);
+            if (!fingerprint || seen.has(fingerprint)) return;
+            seen.add(fingerprint);
+            unique.push(record);
+        });
+
+        return unique;
     }
 }
