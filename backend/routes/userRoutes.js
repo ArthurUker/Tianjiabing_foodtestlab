@@ -208,6 +208,41 @@ export function createUserRoutes(userManager) {
         }
     })
 
+    // 兼容前端历史路径: /reset-password/:userId
+    router.post('/reset-password/:userId', authenticateUser, authorizeAdmin, async (req, res) => {
+        try {
+            const { newPassword } = req.body
+
+            if (!newPassword || newPassword.length < 6) {
+                return res.status(400).json({ error: '❌ 新密码至少6个字符' })
+            }
+
+            const result = await userManager.resetPassword(req.params.userId, newPassword)
+            res.json(result)
+        } catch (error) {
+            res.status(400).json({ error: `❌ 重置密码失败: ${error.message}` })
+        }
+    })
+
+    // 管理员更新指定用户信息
+    router.put('/:userId', authenticateUser, authorizeAdmin, async (req, res) => {
+        try {
+            const payload = req.body || {}
+            const normalizedUpdates = {
+                full_name: payload.full_name ?? payload.fullName,
+                email: payload.email,
+                phone: payload.phone,
+                role: payload.role,
+                status: payload.status ?? (payload.is_active === true ? 'active' : payload.is_active === false ? 'disabled' : undefined)
+            }
+
+            const result = await userManager.adminUpdateUser(req.params.userId, normalizedUpdates)
+            res.json(result)
+        } catch (error) {
+            res.status(400).json({ error: `❌ 更新用户失败: ${error.message}` })
+        }
+    })
+
     // 删除用户
     router.delete('/:userId', authenticateUser, authorizeAdmin, async (req, res) => {
         try {

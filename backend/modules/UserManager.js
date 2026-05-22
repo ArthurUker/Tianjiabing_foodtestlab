@@ -407,6 +407,66 @@ export class UserManager {
         }
     }
 
+    async adminUpdateUser(userId, updates) {
+        try {
+            const allowedUpdates = ['full_name', 'email', 'phone', 'role', 'status']
+            const filteredUpdates = {}
+
+            for (const key of allowedUpdates) {
+                if (key in updates && updates[key] !== undefined) {
+                    filteredUpdates[key] = updates[key]
+                }
+            }
+
+            if (Object.keys(filteredUpdates).length === 0) {
+                throw new Error('未提供可更新字段')
+            }
+
+            if (filteredUpdates.role) {
+                const validRoles = ['user', 'admin', 'manager', 'operator', 'viewer']
+                if (!validRoles.includes(filteredUpdates.role)) {
+                    throw new Error(`无效的角色: ${filteredUpdates.role}`)
+                }
+            }
+
+            if (filteredUpdates.status) {
+                const validStatus = ['active', 'disabled']
+                if (!validStatus.includes(filteredUpdates.status)) {
+                    throw new Error(`无效的状态: ${filteredUpdates.status}`)
+                }
+            }
+
+            filteredUpdates.updated_at = new Date()
+
+            const updatedUser = await this.prisma.user.update({
+                where: { id: userId },
+                data: filteredUpdates,
+                select: {
+                    id: true,
+                    username: true,
+                    phone: true,
+                    email: true,
+                    full_name: true,
+                    role: true,
+                    status: true,
+                    created_at: true,
+                    last_login: true
+                }
+            })
+
+            console.log(`✅ 管理员已更新用户 ${userId}`)
+
+            return {
+                success: true,
+                data: updatedUser,
+                message: '用户信息已更新'
+            }
+        } catch (error) {
+            console.error(`❌ 管理员更新用户失败: ${error.message}`)
+            throw error
+        }
+    }
+
     // ====== Helper Methods ======
 
     validateUserInput({ username, phone, password, fullName }) {
