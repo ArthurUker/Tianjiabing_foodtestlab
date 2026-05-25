@@ -12,6 +12,8 @@ const services = {
     pathogen: new StorageService('pathogen')
 };
 
+const DEFAULT_CANTEENS = ['一食堂', '二食堂', '三食堂'];
+
 // 全局图表对象
 let trendChart, canteenChart;
 // 统一配色（洋红 / 绿色 / 蓝色），后续按索引复用
@@ -117,6 +119,8 @@ export function initDashboard() {
 function initCanteenFilter() {
     const canteenSet = new Set();
     const types = ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'];
+    const canteenFilter = document.getElementById('canteenFilter');
+    const selectedBefore = canteenFilter?.value || 'all';
     
     const isQuickAccess = new URLSearchParams(window.location.search).get('quickAccess') === 'true';
     
@@ -138,11 +142,15 @@ function initCanteenFilter() {
         }
         
         records.forEach(r => {
-            if (r && r.canteen) canteenSet.add(r.canteen);
+            const canteen = getRecordCanteen(r);
+            if (canteen) canteenSet.add(canteen);
         });
     });
-    
-    const canteenFilter = document.getElementById('canteenFilter');
+
+    if (canteenSet.size === 0) {
+        DEFAULT_CANTEENS.forEach(c => canteenSet.add(c));
+    }
+
     if (canteenFilter) {
         // 添加"全部食堂"选项
         canteenFilter.innerHTML = '<option value="all">全部食堂</option>';
@@ -154,7 +162,20 @@ function initCanteenFilter() {
             option.textContent = canteen;
             canteenFilter.appendChild(option);
         });
+
+        canteenFilter.value = Array.from(canteenSet).includes(selectedBefore) ? selectedBefore : 'all';
     }
+}
+
+function getRecordCanteen(record) {
+    if (!record || typeof record !== 'object') return '';
+    return (
+        record.canteen ||
+        record.location ||
+        record.canteenName ||
+        record.diningHall ||
+        ''
+    ).toString().trim();
 }
 
 // ✅ 辅助函数：获取日期的周字符串（格式：2024-W52）
@@ -489,6 +510,9 @@ function updateDateFilterOptions() {
 
 // ✅ 修改：加载看板数据（增加食堂筛选）
 function loadDashboardData() {
+    // 同步回写后会触发 loadDashboardData，这里每次重建一次筛选项，避免页面初次加载时数据尚未就绪导致下拉为空。
+    initCanteenFilter();
+
     // 获取筛选日期范围
     const filterType = document.getElementById('dateFilterType').value;
     let startDate, endDate;
@@ -627,7 +651,8 @@ function getLeanMeatStatsByType(startDate, endDate, selectedCanteen = 'all') {
         if (d < startDate || d > endDate) return false;
         
         // ✅ 食堂筛选
-        if (selectedCanteen !== 'all' && r.canteen !== selectedCanteen) return false;
+        const canteen = getRecordCanteen(r);
+        if (selectedCanteen !== 'all' && canteen !== selectedCanteen) return false;
         
         return true;
     });
@@ -724,7 +749,7 @@ function updateLeanMeatOverviewLists(leanMeatByType) {
         const recent = records.slice(0, 5);
         recent.forEach(r => {
             const li = document.createElement('li');
-            li.textContent = `${r.testDate} ${r.canteen} ${r.result}`;
+            li.textContent = `${r.testDate} ${getRecordCanteen(r) || '未知食堂'} ${r.result}`;
             listEl.appendChild(li);
         });
     });
@@ -785,7 +810,8 @@ function getStats(type, startDate, endDate, selectedCanteen = 'all') {
       if (d < startDate || d > endDate) return false;
       
       // ✅ 食堂筛选
-      if (selectedCanteen !== 'all' && r.canteen !== selectedCanteen) return false;
+            const canteen = getRecordCanteen(r);
+            if (selectedCanteen !== 'all' && canteen !== selectedCanteen) return false;
       
       return true;
   });
@@ -879,13 +905,13 @@ function updateOverviewList(type, records) {
     recent.forEach(r => {
         const li = document.createElement('li');
         let text = '';
-        if(type === 'tableware') text = `${r.testDate} ${r.canteen} 检测${r.atpPoints?.length || 0}点位`;
+        if(type === 'tableware') text = `${r.testDate} ${getRecordCanteen(r) || '未知食堂'} 检测${r.atpPoints?.length || 0}点位`;
         else if(type === 'pesticide') text = `${r.testDate} ${r.vegetableType} ${r.result}`;
-        else if(type === 'oil') text = `${r.testDate} ${r.canteen} TPM:${r.tpmValue}%`;
+        else if(type === 'oil') text = `${r.testDate} ${getRecordCanteen(r) || '未知食堂'} TPM:${r.tpmValue}%`;
         else if(type === 'lean' || type === 'leanMeat') text = `${r.testDate} ${r.meatType} ${r.result}`;
         // ✅ 修改：病原体显示增加食堂信息
         else if(type === 'pathogen') {
-            const canteenInfo = r.canteen || '混样检测';
+            const canteenInfo = getRecordCanteen(r) || '混样检测';
             const positiveInfo = r.positiveItems || '无';
             text = `${r.testDate} ${canteenInfo} ${r.sampleId} ${positiveInfo}`;
         }
@@ -935,7 +961,7 @@ function updateRiskAlerts(stats, leanMeatByType) {
                     ctRaw: detail.ctRaw,
                     riskLevel: record.riskLevel,
                     sampleId: record.sampleId,
-                    canteen: record.canteen || '混样检测', // ✅ 默认为混样检测
+                    canteen: getRecordCanteen(record) || '混样检测', // ✅ 默认为混样检测
                     testDate: record.testDate
                 });
             });
@@ -1210,7 +1236,7 @@ function calculateCanteenTrends(startDate, endDate, selectedCanteen = 'all') {
           if (testDate < startDate || testDate > endDate) return;
           
           // ✅ 食堂筛选
-          const canteen = record.canteen || '未知食堂';
+          const canteen = getRecordCanteen(record) || '未知食堂';
           if (selectedCanteen !== 'all' && canteen !== selectedCanteen) return;
           
           if (!canteenData[canteen]) canteenData[canteen] = {};
@@ -1344,14 +1370,14 @@ function calculateCanteenPassRate(startDate, endDate, selectedCanteen = 'all') {
             }
             
             // ✅ 食堂筛选
-            if (selectedCanteen !== 'all' && r.canteen !== selectedCanteen) return;
-            
-            if (r && r.canteen) canteenSet.add(r.canteen);
+            const canteen = getRecordCanteen(r);
+            if (selectedCanteen !== 'all' && canteen !== selectedCanteen) return;
+
+            if (canteen) canteenSet.add(canteen);
         });
     });
 
-    const defaultCanteens = ['一食堂', '二食堂', '三食堂'];
-    const canteens = canteenSet.size ? Array.from(canteenSet) : defaultCanteens;
+    const canteens = canteenSet.size ? Array.from(canteenSet) : DEFAULT_CANTEENS;
 
     const stats = {};
     canteens.forEach(canteen => {
@@ -1369,9 +1395,9 @@ function calculateCanteenPassRate(startDate, endDate, selectedCanteen = 'all') {
             }
             
             // ✅ 食堂筛选
-            if (selectedCanteen !== 'all' && record.canteen !== selectedCanteen) return;
-            
-            const canteen = record.canteen;
+            const canteen = getRecordCanteen(record);
+            if (selectedCanteen !== 'all' && canteen !== selectedCanteen) return;
+
             if (!canteen || !stats[canteen]) return;
 
             if (type === 'tableware') {

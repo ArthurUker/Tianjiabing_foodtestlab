@@ -3,6 +3,7 @@ import cors from 'cors'
 import dotenv from 'dotenv'
 import path from 'path'
 import { fileURLToPath, URL } from 'url'
+import crypto from 'crypto'
 import { PrismaClient } from '@prisma/client'
 import jwt from 'jsonwebtoken'
 import UserManager from './modules/UserManager.js'
@@ -122,6 +123,40 @@ function buildRecordWriteData(tableName, payload) {
         result_data: JSON.stringify(baseData),
         status: baseData.status || 'completed'
     }
+}
+
+function normalizeForHash(value) {
+    if (Array.isArray(value)) {
+        return value.map(item => normalizeForHash(item))
+    }
+
+    if (value && typeof value === 'object') {
+        const sorted = {}
+        Object.keys(value).sort().forEach(key => {
+            sorted[key] = normalizeForHash(value[key])
+        })
+        return sorted
+    }
+
+    return value
+}
+
+function buildRecordHash(tableName, payload) {
+    const clone = { ...(payload || {}) }
+    delete clone.id
+    delete clone._status
+    delete clone.created_at
+    delete clone.updated_at
+    delete clone.record_code
+
+    const normalized = normalizeForHash(clone)
+    const raw = `${tableName}::${JSON.stringify(normalized)}`
+    return crypto.createHash('sha256').update(raw).digest('hex')
+}
+
+function buildDeterministicRecordCode(tableName, payload) {
+    const hash = buildRecordHash(tableName, payload)
+    return `RC-${tableName}-${hash}`
 }
 
 // Middleware: Authenticate User
@@ -316,10 +351,26 @@ app.post('/api/records/:tableName', authenticateUser, async (req, res) => {
             return res.status(404).json({ error: '记录类型不存在' })
         }
 
-        const writeData = buildRecordWriteData(testType, req.body || {})
+        const payload = req.body || {}
+        const writeData = buildRecordWriteData(testType, payload)
+        const recordCode = buildDeterministicRecordCode(testType, payload)
+
+        const existing = await prisma.testRecord.findUnique({
+            where: { record_code: recordCode }
+        })
+
+        if (existing) {
+            return res.json({
+                success: true,
+                deduplicated: true,
+                data: buildRecordPayload(existing),
+                message: '记录已存在，已按幂等策略返回现有数据'
+            })
+        }
+
         const record = await prisma.testRecord.create({
             data: {
-                record_code: `REC-${Date.now()}`,
+                record_code: recordCode,
                 created_by: req.userId,
                 ...writeData
             }
@@ -334,6 +385,85 @@ app.post('/api/records/:tableName', authenticateUser, async (req, res) => {
         console.error('❌ Error creating legacy record:', error)
         res.status(500).json({
             error: '创建失败',
+            details: error.message
+        })
+    }
+})
+
+app.post('/api/records/:tableName/bulk-upsert', authenticateUser, async (req, res) => {
+    try {
+        const testType = normalizeRecordType(req.params.tableName)
+        if (!testType) {
+            return res.status(404).json({ error: '记录类型不存在' })
+        }
+
+        const records = Array.isArray(req.body?.records) ? req.body.records : []
+        if (records.length === 0) {
+            return res.status(400).json({ error: 'records 不能为空' })
+        }
+        if (records.length > 2000) {
+            return res.status(400).json({ error: '单次导入记录数不能超过 2000 条' })
+        }
+
+        const uniqueByCode = new Map()
+        records.forEach(item => {
+            const code = buildDeterministicRecordCode(testType, item || {})
+            if (!uniqueByCode.has(code)) {
+                uniqueByCode.set(code, item || {})
+            }
+        })
+
+        let created = 0
+        let updated = 0
+        const failed = []
+
+        for (const [recordCode, payload] of uniqueByCode.entries()) {
+            try {
+                const writeData = buildRecordWriteData(testType, payload)
+                const existing = await prisma.testRecord.findUnique({
+                    where: { record_code: recordCode }
+                })
+
+                if (existing) {
+                    await prisma.testRecord.update({
+                        where: { id: existing.id },
+                        data: writeData
+                    })
+                    updated++
+                } else {
+                    await prisma.testRecord.create({
+                        data: {
+                            record_code: recordCode,
+                            created_by: req.userId,
+                            ...writeData
+                        }
+                    })
+                    created++
+                }
+            } catch (error) {
+                failed.push({
+                    record_code: recordCode,
+                    message: error.message
+                })
+            }
+        }
+
+        return res.json({
+            success: true,
+            message: '批量导入完成',
+            data: {
+                received: records.length,
+                unique: uniqueByCode.size,
+                created,
+                updated,
+                failed: failed.length,
+                failedRecords: failed
+            }
+        })
+    } catch (error) {
+        console.error('❌ Error bulk upsert legacy records:', error)
+        res.status(500).json({
+            error: '批量导入失败',
             details: error.message
         })
     }

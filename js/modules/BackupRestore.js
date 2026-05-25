@@ -12,6 +12,7 @@ export class BackupRestoreService {
         this.syncStatus = {
             inProgress: false,
             lastSync: null,
+            serverConnected: null,
             results: {}
         };
     }
@@ -19,8 +20,24 @@ export class BackupRestoreService {
     init() {
         this.renderUI();
         this.bindEvents();
+        this.startConnectionMonitor();
         // 检查是否有上次恢复后的同步结果
         this.checkPreviousSyncResult();
+    }
+
+    startConnectionMonitor() {
+        NetworkHelper.watchNetworkStatus(
+            () => this.checkSyncStatus({ silent: true }),
+            () => {
+                this.syncStatus.serverConnected = false;
+                this.updateSyncStatusIndicator();
+            }
+        );
+
+        // 定时刷新连接状态，确保服务器重启后能快速感知。
+        setInterval(() => {
+            this.checkSyncStatus({ silent: true });
+        }, 30000);
     }
 
     // 检查上次同步结果
@@ -248,7 +265,7 @@ export class BackupRestoreService {
     }
 
     // 更新同步状态指示器
-    updateSyncStatusIndicator() {
+    updateSyncStatusIndicator(extraText = '') {
         const indicator = document.getElementById('sync-status-indicator');
         if (!indicator) return;
 
@@ -256,7 +273,10 @@ export class BackupRestoreService {
         let statusText = '未知';
         let statusColor = 'bg-gray-300';
 
-        if (localStorage.getItem('block_data_sync') === 'true') {
+        if (this.syncStatus.serverConnected === false) {
+            statusText = '服务器离线';
+            statusColor = 'bg-red-500';
+        } else if (localStorage.getItem('block_data_sync') === 'true') {
             statusText = '已暂停';
             statusColor = 'bg-yellow-500';
         } else if (localStorage.getItem('force_data_sync') === 'true') {
@@ -273,27 +293,41 @@ export class BackupRestoreService {
         statusDot.className = `inline-block w-3 h-3 rounded-full ${statusColor} mr-2`;
         indicator.innerHTML = `
             <span class="inline-block w-3 h-3 rounded-full ${statusColor} mr-2"></span>
-            同步状态: ${statusText}
+            同步状态: ${statusText}${extraText ? `（${extraText}）` : ''}
         `;
     }
 
     // 检查同步状态
-    checkSyncStatus() {
+    async checkSyncStatus(options = {}) {
+        const { silent = false } = options;
         this.syncStatus.inProgress = true;
-        this.updateSyncStatusIndicator();
-        alert('正在检查数据同步状态...');
-        
-        setTimeout(() => {
-            const isBlocked = localStorage.getItem('block_data_sync') === 'true';
-            if (isBlocked) {
-                alert('⚠️ 数据同步当前已暂停');
-            } else {
-                alert('✅ 数据同步状态良好');
-            }
-            this.syncStatus.inProgress = false;
+        this.updateSyncStatusIndicator('检查中');
+
+        try {
+            await NetworkHelper.fetchWithTimeout('/api/health', { timeout: 5000, cache: 'no-store' });
+
+            const pendingCount = this.targetTables.reduce((sum, table) => {
+                const pending = JSON.parse(localStorage.getItem(`pending_${table}`) || '[]');
+                return sum + pending.length;
+            }, 0);
+
+            this.syncStatus.serverConnected = true;
             this.syncStatus.lastSync = Date.now();
+            this.updateSyncStatusIndicator(`待同步 ${pendingCount} 条`);
+
+            if (!silent) {
+                UINotification.success(`✅ 连接正常，当前待同步 ${pendingCount} 条`);
+            }
+        } catch (error) {
+            this.syncStatus.serverConnected = false;
+            this.updateSyncStatusIndicator('无法连接服务器');
+            if (!silent) {
+                UINotification.error(`❌ 连接失败：${error.message}`);
+            }
+        } finally {
+            this.syncStatus.inProgress = false;
             this.updateSyncStatusIndicator();
-        }, 1500);
+        }
     }
 
     // [关键修复] 强制同步数据到服务器
@@ -548,13 +582,12 @@ export class BackupRestoreService {
             const shouldSyncToServer = confirm(`同步控制选项:\n\n是否将恢复的数据同步到服务器？\n\n• 点击"确定"：恢复数据并自动加入上传队列\n• 点击"取消"：仅恢复到本地`);
 
             let restoreCount = 0;
+            const restoredTableRecords = {};
             
             // 4. 执行恢复
             const processTable = (tableName, data) => {
                 const cacheKey = `cache_${tableName}`;
                 const pendingKey = `pending_${tableName}`;
-                const existingCache = JSON.parse(localStorage.getItem(cacheKey) || '{"data":[]}').data || [];
-                const existingFingerprints = new Set(existingCache.map(r => this._buildRecordFingerprint(r)));
                 
                 // 写入缓存 (标记为 pending)
                 let records = Array.isArray(data) ? data : (data.data || []);
@@ -563,48 +596,12 @@ export class BackupRestoreService {
                     records = records.map(r => ({ ...r, _status: 'pending' }));
                 }
 
+                restoredTableRecords[tableName] = records;
+
                 const dataObj = { data: records, timestamp: Date.now() };
                 localStorage.setItem(cacheKey, JSON.stringify(dataObj));
                 
-                // [关键] 如果选择同步，立即生成上传队列
-                if (shouldSyncToServer && records.length > 0) {
-                    const requests = [];
-                    const queuedFingerprints = new Set();
-
-                    records.forEach(record => {
-                        const fingerprint = this._buildRecordFingerprint(record);
-                        if (!fingerprint) return;
-                        if (queuedFingerprints.has(fingerprint)) return;
-
-                        const baseReq = {
-                            id: `restore_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-                            data: record,
-                            timestamp: Date.now()
-                        };
-
-                        if (this._canUseUpdate(record.id)) {
-                            requests.push({
-                                ...baseReq,
-                                type: 'update',
-                                recordId: record.id
-                            });
-                            queuedFingerprints.add(fingerprint);
-                            return;
-                        }
-
-                        // 无正式ID的记录仅在当前缓存未出现同指纹时创建，避免重复导入。
-                        if (!existingFingerprints.has(fingerprint)) {
-                            requests.push({
-                                ...baseReq,
-                                type: 'create',
-                                tempId: record.id
-                            });
-                            queuedFingerprints.add(fingerprint);
-                        }
-                    });
-
-                    localStorage.setItem(pendingKey, JSON.stringify(requests));
-                }
+                localStorage.setItem(pendingKey, JSON.stringify([]));
                 restoreCount++;
             };
 
@@ -624,15 +621,29 @@ export class BackupRestoreService {
             
             // 5. 结果处理
             if (shouldSyncToServer) {
-                localStorage.setItem('force_data_sync', 'true');
+                let uploadedSummary = null;
+                try {
+                    uploadedSummary = await this.uploadRestoredDataToServer(restoredTableRecords);
+                } catch (uploadError) {
+                    console.warn('批量上传失败，回退到本地队列同步:', uploadError);
+                    this.queueRestoredDataForSync(restoredTableRecords);
+                    localStorage.setItem('force_data_sync', 'true');
+                }
+
+                localStorage.removeItem('block_data_sync');
                 // 记录审计日志
                 await auditLogService.logOperation(
                     'import',
                     'system',
                     'backup',
-                    `导入数据恢复：来自 ${sourceName}，已恢复 ${restoreCount} 个表，并加入同步队列`
+                    `导入数据恢复：来自 ${sourceName}，已恢复 ${restoreCount} 个表${uploadedSummary ? '并完成服务器批量同步' : '，已加入同步队列'}`
                 );
-                alert(`✅ 恢复成功！\n已恢复 ${restoreCount} 个表。\n\n数据已加入上传队列，页面刷新后将自动开始同步。`);
+
+                if (uploadedSummary) {
+                    alert(`✅ 恢复成功！\n已恢复 ${restoreCount} 个表，并已上传到服务器。\n\n创建 ${uploadedSummary.created} 条，更新 ${uploadedSummary.updated} 条，失败 ${uploadedSummary.failed} 条。`);
+                } else {
+                    alert(`✅ 恢复成功！\n已恢复 ${restoreCount} 个表。\n\n批量上传失败，已回退为本地上传队列，页面刷新后将自动重试同步。`);
+                }
             } else {
                 localStorage.setItem('block_data_sync', 'true');
                 // 记录审计日志
@@ -706,5 +717,87 @@ export class BackupRestoreService {
         });
 
         return unique;
+    }
+
+    queueRestoredDataForSync(restoredTableRecords) {
+        Object.keys(restoredTableRecords).forEach(tableName => {
+            const pendingKey = `pending_${tableName}`;
+            const records = Array.isArray(restoredTableRecords[tableName]) ? restoredTableRecords[tableName] : [];
+            const requests = [];
+            const queuedFingerprints = new Set();
+
+            records.forEach(record => {
+                const fingerprint = this._buildRecordFingerprint(record);
+                if (!fingerprint || queuedFingerprints.has(fingerprint)) return;
+
+                const baseReq = {
+                    id: `restore_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+                    data: { ...record, _status: 'pending' },
+                    timestamp: Date.now()
+                };
+
+                if (this._canUseUpdate(record.id)) {
+                    requests.push({
+                        ...baseReq,
+                        type: 'update',
+                        recordId: record.id
+                    });
+                } else {
+                    requests.push({
+                        ...baseReq,
+                        type: 'create',
+                        tempId: record.id
+                    });
+                }
+
+                queuedFingerprints.add(fingerprint);
+            });
+
+            localStorage.setItem(pendingKey, JSON.stringify(requests));
+        });
+    }
+
+    async uploadRestoredDataToServer(restoredTableRecords) {
+        const token = localStorage.getItem('auth_token') || localStorage.getItem('guest_token');
+        if (!token || token.startsWith('temp-token-')) {
+            throw new Error('缺少有效登录态，无法上传到服务器');
+        }
+
+        const summary = { created: 0, updated: 0, failed: 0 };
+
+        for (const tableName of this.targetTables) {
+            const records = Array.isArray(restoredTableRecords[tableName]) ? restoredTableRecords[tableName] : [];
+            if (!records.length) continue;
+
+            const payload = records.map(record => {
+                const clean = { ...record };
+                delete clean.id;
+                delete clean._status;
+                return clean;
+            });
+
+            const response = await NetworkHelper.post(`/api/records/${tableName}/bulk-upsert`, {
+                records: payload
+            }, {
+                timeout: 20000,
+                retries: 2,
+                headers: {
+                    Authorization: `Bearer ${token}`
+                }
+            });
+
+            const result = response?.data || {};
+            summary.created += result.created || 0;
+            summary.updated += result.updated || 0;
+            summary.failed += result.failed || 0;
+
+            const cacheKey = `cache_${tableName}`;
+            const cacheData = JSON.parse(localStorage.getItem(cacheKey) || '{"data":[]}');
+            const syncedData = (cacheData.data || []).map(item => ({ ...item, _status: 'synced' }));
+            localStorage.setItem(cacheKey, JSON.stringify({ ...cacheData, data: syncedData, timestamp: Date.now() }));
+            localStorage.setItem(`pending_${tableName}`, JSON.stringify([]));
+        }
+
+        return summary;
     }
 }
