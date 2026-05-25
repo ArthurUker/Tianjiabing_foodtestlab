@@ -312,7 +312,7 @@ app.get('/api/records/:tableName', authenticateUser, async (req, res) => {
     try {
         const testType = normalizeRecordType(req.params.tableName)
         if (!testType) {
-            return res.status(404).json({ error: '记录类型不存在' })
+            return res.status(400).json({ error: `未知记录类型: ${req.params.tableName}` })
         }
 
         const { limit = 100, offset = 0, status } = req.query
@@ -348,8 +348,10 @@ app.post('/api/records/:tableName', authenticateUser, async (req, res) => {
     try {
         const testType = normalizeRecordType(req.params.tableName)
         if (!testType) {
-            return res.status(404).json({ error: '记录类型不存在' })
+            return res.status(400).json({ error: `未知记录类型: ${req.params.tableName}` })
         }
+
+        console.log(`[POST /api/records/${req.params.tableName}] userId=${req.userId} body=`, JSON.stringify(req.body || {}).slice(0, 200))
 
         const payload = req.body || {}
         const writeData = buildRecordWriteData(testType, payload)
@@ -382,10 +384,29 @@ app.post('/api/records/:tableName', authenticateUser, async (req, res) => {
             message: '记录创建成功'
         })
     } catch (error) {
-        console.error('❌ Error creating legacy record:', error)
+        // P2002: 唯一约束冲突（并发重复写入）：按幂等策略返回已有记录
+        if (error.code === 'P2002' || (error.message && error.message.includes('Unique constraint'))) {
+            try {
+                const existing = await prisma.testRecord.findUnique({ where: { record_code: buildDeterministicRecordCode(normalizeRecordType(req.params.tableName), req.body || {}) } })
+                if (existing) {
+                    return res.json({ success: true, deduplicated: true, data: buildRecordPayload(existing), message: '记录已存在（并发写入），已按幂等策略返回现有数据' })
+                }
+            } catch (_) { /* fallthrough */ }
+        }
+        // P2003: 外键约束失败（如 created_by 对应的用户不存在）：返回 422 而非 500
+        if (error.code === 'P2003' || (error.message && error.message.includes('Foreign key constraint'))) {
+            console.error('❌ Foreign key constraint failed:', error.message, '\nuserId:', req.userId)
+            return res.status(422).json({
+                error: '关联用户不存在，请重新登录',
+                details: error.message,
+                code: 'INVALID_USER'
+            })
+        }
+        console.error('❌ Error creating legacy record:', error.message, '\nCode:', error.code, '\nStack:', error.stack)
         res.status(500).json({
             error: '创建失败',
-            details: error.message
+            details: error.message,
+            code: error.code || undefined
         })
     }
 })

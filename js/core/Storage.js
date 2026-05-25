@@ -232,45 +232,68 @@ export class StorageService {
         }
 
         const all = this._getPendingRequests();
-        const todo = all.filter(r => !this.processingRequestIds.has(r.id) && (!r.nextAttemptAt || r.nextAttemptAt <= now));
-        if (todo.length === 0) return;
+        // 过滤出"可立即执行"的请求：未在处理中、未被标记 failed、nextAttemptAt 已到期
+        const todo = all.filter(r =>
+            !this.processingRequestIds.has(r.id) &&
+            r._failed !== true &&
+            (!r.nextAttemptAt || r.nextAttemptAt <= now)
+        );
+        if (todo.length === 0) {
+            // 还有等待退避的请求，继续调度
+            const waiting = all.filter(r => !r._failed && r.nextAttemptAt && r.nextAttemptAt > now);
+            if (waiting.length > 0) {
+                const earliest = Math.min(...waiting.map(r => r.nextAttemptAt));
+                this._scheduleQueueProcess(earliest - now + 50);
+            }
+            return;
+        }
 
         this._isProcessingQueue = true;
 
         try {
             const batch = todo.slice(0, this.queueBatchSize);
             for (const req of batch) {
-            this.processingRequestIds.add(req.id);
-            try {
-                if (req.type === 'create') await this._handleCreate(req);
-                else if (req.type === 'update') await this._handleUpdate(req);
-                else if (req.type === 'delete') await this._handleDelete(req);
-                else if (req.type === 'update_temp') await this._handleUpdateTemp(req);
-                this._removeRequestFromQueue(req.id);
-            } catch (e) {
-                console.error(`Request ${req.id} failed:`, e);
-                const currentRetry = (req.retryCount || 0) + 1;
-                const isRateLimited = e && e.status === 429;
-                const isRetryable = req.type !== 'create' || isRateLimited;
-
-                if (isRetryable && currentRetry < 3) {
-                    const retryDelay = this._computeRetryDelay(currentRetry, e?.retryAfterMs);
-                    if (isRateLimited) {
-                        this._setGlobalBackoff(retryDelay);
-                    }
-                    this._updateRequestRetry(req.id, currentRetry, Date.now() + retryDelay);
-                } else {
+                this.processingRequestIds.add(req.id);
+                try {
+                    if (req.type === 'create') await this._handleCreate(req);
+                    else if (req.type === 'update') await this._handleUpdate(req);
+                    else if (req.type === 'delete') await this._handleDelete(req);
+                    else if (req.type === 'update_temp') await this._handleUpdateTemp(req);
                     this._removeRequestFromQueue(req.id);
-                    this._emit('error', { request: req, error: e });
+                } catch (e) {
+                    const httpStatus = e && e.status;
+                    const currentRetry = (req.retryCount || 0) + 1;
+                    const isRateLimited = httpStatus === 429;
+
+                    // 4xx（除 429）= 客户端数据错误，永远不会因重试而成功
+                    const isClientError = httpStatus >= 400 && httpStatus < 500 && !isRateLimited;
+
+                    const maxRetries = 3;
+                    const shouldRetry = !isClientError && currentRetry <= maxRetries;
+
+                    if (shouldRetry) {
+                        const retryDelay = this._computeRetryDelay(currentRetry, e?.retryAfterMs);
+                        if (isRateLimited) {
+                            this._setGlobalBackoff(retryDelay);
+                        }
+                        this._updateRequestRetry(req.id, currentRetry, Date.now() + retryDelay);
+                        console.warn(`[StorageService:${this.tableName}] 请求 ${req.id} 失败(${httpStatus || '网络'}), 第 ${currentRetry}/${maxRetries} 次，${retryDelay}ms 后重试`, e.message);
+                    } else {
+                        // 超出重试次数或客户端错误：标记 failed，移出活跃队列
+                        this._markRequestFailed(req.id, e.message);
+                        console.error(`[StorageService:${this.tableName}] 请求 ${req.id} 永久失败(${httpStatus || '网络'}, retry=${currentRetry - 1}):`, e.message);
+                        this._emit('error', { request: req, error: e });
+                    }
+                    this.processingRequestIds.delete(req.id);
                 }
-                this.processingRequestIds.delete(req.id);
-            }
             }
         } finally {
             this._isProcessingQueue = false;
 
-            // 按批次推进队列，避免瞬时打满后端。
-            if (this._getPendingRequests().length > 0) {
+            // 只在还有"可执行"请求时才继续调度，避免空轮询刷屏
+            const remaining = this._getPendingRequests();
+            const hasReady = remaining.some(r => !r._failed && (!r.nextAttemptAt || r.nextAttemptAt <= Date.now()));
+            if (hasReady) {
                 this._scheduleQueueProcess(this.queueBatchDelayMs);
             }
         }
@@ -278,7 +301,16 @@ export class StorageService {
 
     async _handleCreate(req) {
         const { id: reqId, tempId, data } = req;
-        const { _status, id, ...realData } = data;
+        const { _status, id, ...rawData } = data;
+
+        // 清洗 payload：移除服务端元字段 & 本地控制字段，避免污染 result_data
+        const SERVER_META_FIELDS = new Set([
+            'record_code', 'test_type', 'test_name',
+            'created_at', 'updated_at', 'completed_at'
+        ]);
+        const realData = Object.fromEntries(
+            Object.entries(rawData).filter(([k]) => !SERVER_META_FIELDS.has(k))
+        );
 
         const res = await fetch(this.apiEndpoint, {
             method: 'POST',
@@ -286,7 +318,7 @@ export class StorageService {
             body: JSON.stringify(realData)
         });
 
-        this._throwIfNotOk(res);
+        await this._throwIfNotOk(res);
         const responseJson = await res.json();
         const serverRow = responseJson.data || responseJson;
         const content = (serverRow.data && typeof serverRow.data === 'object') ? serverRow.data : serverRow;
@@ -305,7 +337,7 @@ export class StorageService {
             headers: this._getHeaders(),
             body: JSON.stringify(realData)
         });
-        this._throwIfNotOk(res);
+        await this._throwIfNotOk(res);
         this._updateCacheStatus(recordId, 'synced');
         logOperation('update', this.tableName, `修改记录 #${recordId}`);
     }
@@ -316,7 +348,7 @@ export class StorageService {
             method: 'DELETE',
             headers: this._getHeaders()
         });
-        this._throwIfNotOk(res);
+        await this._throwIfNotOk(res);
         logOperation('delete', this.tableName, `删除记录 #${recordId}`);
     }
     
@@ -335,6 +367,16 @@ export class StorageService {
         const l = this._getPendingRequests().filter(r => r.id !== id); 
         localStorage.setItem(this.pendingRequestsKey, JSON.stringify(l));
         this.processingRequestIds.delete(id);
+    }
+    _markRequestFailed(reqId, reason) {
+        const list = this._getPendingRequests();
+        const index = list.findIndex(r => r.id === reqId);
+        if (index !== -1) {
+            list[index]._failed = true;
+            list[index]._failReason = reason;
+            localStorage.setItem(this.pendingRequestsKey, JSON.stringify(list));
+        }
+        this.processingRequestIds.delete(reqId);
     }
     _updateRequestRetry(reqId, count, nextAttemptAt = null) {
         const list = this._getPendingRequests();
@@ -374,10 +416,27 @@ export class StorageService {
         const list = this._getPendingRequests().filter(r => r.tempId !== tempId);
         localStorage.setItem(this.pendingRequestsKey, JSON.stringify(list));
     }
-    _throwIfNotOk(response) {
+    async _throwIfNotOk(response) {
         if (response.ok) return;
-        const error = new Error(`HTTP ${response.status} ${response.statusText}`);
+
+        // 读响应体，打印后端返回的详细错误信息
+        let detail = '';
+        try {
+            const ct = response.headers.get('Content-Type') || '';
+            if (ct.includes('application/json')) {
+                const body = await response.json();
+                detail = body?.details || body?.error || JSON.stringify(body);
+            } else {
+                detail = await response.text();
+            }
+        } catch (_) { /* 忽略读体失败 */ }
+
+        const msg = `HTTP ${response.status} ${response.statusText}${detail ? ` — ${detail}` : ''}`;
+        console.error(`[StorageService] ${msg}`, { url: response.url, status: response.status, detail });
+
+        const error = new Error(msg);
         error.status = response.status;
+        error.responseDetail = detail;
 
         const retryAfter = response.headers.get('Retry-After');
         if (retryAfter) {

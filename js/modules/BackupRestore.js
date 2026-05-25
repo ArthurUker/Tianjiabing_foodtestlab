@@ -736,19 +736,13 @@ export class BackupRestoreService {
                     timestamp: Date.now()
                 };
 
-                if (this._canUseUpdate(record.id)) {
-                    requests.push({
-                        ...baseReq,
-                        type: 'update',
-                        recordId: record.id
-                    });
-                } else {
-                    requests.push({
-                        ...baseReq,
-                        type: 'create',
-                        tempId: record.id
-                    });
-                }
+                // 恢复场景下始终使用 create（服务端有幂等去重），避免向不同服务器
+                // 实例发 PUT 时因 ID 不存在而返回 404 导致同步失败。
+                requests.push({
+                    ...baseReq,
+                    type: 'create',
+                    tempId: record.id
+                });
 
                 queuedFingerprints.add(fingerprint);
             });

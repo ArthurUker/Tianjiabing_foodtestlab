@@ -132,14 +132,15 @@ export class NetworkHelper {
      * POST 请求快捷方法
      */
     static async post(url, data, options = {}) {
+        const { headers: extraHeaders, ...restOptions } = options
         return this.fetchWithRetry(url, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                ...options.headers
+                ...(extraHeaders || {})
             },
             body: JSON.stringify(data),
-            ...options
+            ...restOptions
         })
     }
     
@@ -157,14 +158,15 @@ export class NetworkHelper {
      * PUT 请求快捷方法
      */
     static async put(url, data, options = {}) {
+        const { headers: extraHeaders, ...restOptions } = options
         return this.fetchWithRetry(url, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
-                ...options.headers
+                ...(extraHeaders || {})
             },
             body: JSON.stringify(data),
-            ...options
+            ...restOptions
         })
     }
     
