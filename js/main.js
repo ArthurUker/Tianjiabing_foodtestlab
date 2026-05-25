@@ -107,6 +107,14 @@ window.handleNavigation = function(target) {
                 console.error('❌ 审计日志模块初始化失败:', error);
             }
         }
+        // 切换到看板时强制刷新数据，确保显示各模块最新缓存
+        if (target === 'dashboard' && typeof window.loadDashboardData === 'function') {
+            try {
+                window.loadDashboardData();
+            } catch (error) {
+                console.error('❌ 看板刷新失败:', error);
+            }
+        }
     } else {
         console.error('❌ 无法找到内容区域:', target);
     }

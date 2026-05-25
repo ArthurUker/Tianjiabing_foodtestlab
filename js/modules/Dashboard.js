@@ -95,6 +95,9 @@ export function initDashboard() {
         // 监听数据变化（用户手动增删改时触发）
         document.addEventListener('dataChanged', loadDashboardData);
         
+        // 暴露到全局，供导航时刷新调用
+        window.loadDashboardData = loadDashboardData;
+        
         // 服务器同步完成后：先更新食堂选项再刷新看板
         Object.values(services).forEach(s => s.on('sync', () => {
             initCanteenFilter();
