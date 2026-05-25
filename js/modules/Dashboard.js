@@ -67,6 +67,12 @@ export function initDashboard() {
         if (btnFilterDashboard) {
             btnFilterDashboard.addEventListener('click', loadDashboardData);
         }
+
+        // ✅ 食堂下拉直接触发过滤，无需点筛选按钮
+        const canteenFilterEl = document.getElementById('canteenFilter');
+        if (canteenFilterEl) {
+            canteenFilterEl.addEventListener('change', loadDashboardData);
+        }
         
         // 初始化图表
         console.log('🔧 初始化图表...');
@@ -89,8 +95,11 @@ export function initDashboard() {
         // 监听数据变化（用户手动增删改时触发）
         document.addEventListener('dataChanged', loadDashboardData);
         
-        // 服务器同步完成后刷新看板（每个表同步一次，冷却时间防止循环）
-        Object.values(services).forEach(s => s.on('sync', loadDashboardData));
+        // 服务器同步完成后：先更新食堂选项再刷新看板
+        Object.values(services).forEach(s => s.on('sync', () => {
+            initCanteenFilter();
+            loadDashboardData();
+        }));
         
         // 绑定详情链接
         document.querySelectorAll('a[data-target]').forEach(link => {
@@ -510,9 +519,6 @@ function updateDateFilterOptions() {
 
 // ✅ 修改：加载看板数据（增加食堂筛选）
 function loadDashboardData() {
-    // 同步回写后会触发 loadDashboardData，这里每次重建一次筛选项，避免页面初次加载时数据尚未就绪导致下拉为空。
-    initCanteenFilter();
-
     // 获取筛选日期范围
     const filterType = document.getElementById('dateFilterType').value;
     let startDate, endDate;
