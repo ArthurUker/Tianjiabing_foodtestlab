@@ -187,6 +187,24 @@ function getRecordCanteen(record) {
     ).toString().trim();
 }
 
+function getRecordDateTime(record) {
+    if (!record || typeof record !== 'object') return null;
+
+    const raw = record.timestamp || record.testDate;
+    if (!raw) return null;
+
+    const date = new Date(raw);
+    return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function sortByRecordDateDesc(records = []) {
+    return [...records].sort((a, b) => {
+        const ta = getRecordDateTime(a)?.getTime() || 0;
+        const tb = getRecordDateTime(b)?.getTime() || 0;
+        return tb - ta;
+    });
+}
+
 // ✅ 辅助函数：获取日期的周字符串（格式：2024-W52）
 function getWeekString(date) {
     const year = date.getFullYear();
@@ -650,10 +668,9 @@ function loadDashboardData() {
 function getLeanMeatStatsByType(startDate, endDate, selectedCanteen = 'all') {
     const records = services.leanMeat.getAll();
     const filtered = records.filter(r => {
-        const testDate = r.testDate || (r.timestamp ? r.timestamp.split('T')[0] : null);
-        if (!testDate) return false;
-        
-        const d = new Date(testDate);
+        const d = getRecordDateTime(r);
+        if (!d) return false;
+
         if (d < startDate || d > endDate) return false;
         
         // ✅ 食堂筛选
@@ -741,7 +758,7 @@ function updateLeanMeatOverviewLists(leanMeatByType) {
     
     Object.keys(typeMapping).forEach(cnType => {
         const enType = typeMapping[cnType];
-        const records = leanMeatByType[cnType].records;
+        const records = sortByRecordDateDesc(leanMeatByType[cnType].records);
         
         const listEl = document.getElementById(`list_lean_${enType}_overview`);
         if(!listEl) return;
@@ -809,10 +826,9 @@ function getStats(type, startDate, endDate, selectedCanteen = 'all') {
   }
   
   const filtered = records.filter(r => {
-      const testDate = r.testDate || (r.timestamp ? r.timestamp.split('T')[0] : null);
-      if (!testDate) return false;
-      
-      const d = new Date(testDate);
+      const d = getRecordDateTime(r);
+      if (!d) return false;
+
       if (d < startDate || d > endDate) return false;
       
       // ✅ 食堂筛选
@@ -821,13 +837,14 @@ function getStats(type, startDate, endDate, selectedCanteen = 'all') {
       
       return true;
   });
+    const sortedRecords = sortByRecordDateDesc(filtered);
 
   let count = 0;
   let passCount = 0;
   let positiveCount = 0;
 
   if (type === 'tableware') {
-      filtered.forEach(r => {
+      sortedRecords.forEach(r => {
           if (r.atpPoints && Array.isArray(r.atpPoints)) {
               r.atpPoints.forEach(point => {
                   count++;
@@ -839,7 +856,7 @@ function getStats(type, startDate, endDate, selectedCanteen = 'all') {
           }
       });
   } else if (type === 'pathogen') {
-      count = filtered.length;
+      count = sortedRecords.length;
       
       const riskLevels = {
           '高风险': 0,
@@ -848,7 +865,7 @@ function getStats(type, startDate, endDate, selectedCanteen = 'all') {
           '极低风险': 0
       };
       
-      filtered.forEach(r => {
+      sortedRecords.forEach(r => {
           const riskAssessment = calculatePathogenRisk(r.positiveDetails || [], r.allTestItems || []);
 
           // 统一覆盖为算法实时结果，避免历史缓存字段不一致
@@ -873,12 +890,12 @@ function getStats(type, startDate, endDate, selectedCanteen = 'all') {
           passCount,
           positiveCount, 
           passRate: count > 0 ? Math.round((passCount / count) * 100) : 100,
-          records: filtered,
+          records: sortedRecords,
           riskLevels
       };
   } else {
-      count = filtered.length;
-      passCount = filtered.filter(r => {
+      count = sortedRecords.length;
+      passCount = sortedRecords.filter(r => {
           const result = (r.result || '').toString().trim();
           const colorLevel = (r.colorLevel || '').toString().trim();
           return result.includes('合格') || colorLevel === '合格';
@@ -886,7 +903,7 @@ function getStats(type, startDate, endDate, selectedCanteen = 'all') {
   }
 
   const passRate = count > 0 ? Math.round((passCount / count) * 100) : 100;
-  return { count, passCount, positiveCount, passRate, records: filtered };
+  return { count, passCount, positiveCount, passRate, records: sortedRecords };
 }
 
 
@@ -907,7 +924,7 @@ function updateOverviewList(type, records) {
     }
 
     listEl.innerHTML = '';
-    const recent = records.slice(0, 5);
+    const recent = sortByRecordDateDesc(records).slice(0, 5);
     recent.forEach(r => {
         const li = document.createElement('li');
         let text = '';

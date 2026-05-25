@@ -199,7 +199,7 @@ export class GenericTestModule {
         let filteredRecords = allRecords;
 
         if (this.selectedCanteenFilter !== 'all') {
-            filteredRecords = filteredRecords.filter(record => record.canteen === this.selectedCanteenFilter);
+            filteredRecords = filteredRecords.filter(record => this.getRecordCanteen(record) === this.selectedCanteenFilter);
         }
 
         if (this.moduleName === 'leanMeat' && this.selectedMeatTypes.length > 0) {
@@ -207,6 +207,25 @@ export class GenericTestModule {
         }
 
         return filteredRecords;
+    }
+
+    getRecordCanteen(record) {
+        if (!record || typeof record !== 'object') return '';
+        return (
+            record.canteen ||
+            record.location ||
+            record.canteenName ||
+            record.diningHall ||
+            ''
+        ).toString().trim();
+    }
+
+    getRecordDate(record) {
+        if (!record || typeof record !== 'object') return null;
+        const raw = record.timestamp || record.testDate;
+        if (!raw) return null;
+        const d = new Date(raw);
+        return Number.isNaN(d.getTime()) ? null : d;
     }
 
     updatePaginationUI(start, end, total, pages) {
@@ -1059,8 +1078,8 @@ export class GenericTestModule {
         const filteredRecords = this.getFilteredRecords();
 
         const sortedRecords = [...filteredRecords].sort((a, b) => {
-            const dateA = new Date(a.testDate || '1970-01-01');
-            const dateB = new Date(b.testDate || '1970-01-01');
+            const dateA = this.getRecordDate(a) || new Date('1970-01-01');
+            const dateB = this.getRecordDate(b) || new Date('1970-01-01');
             return this.sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
         });
 
