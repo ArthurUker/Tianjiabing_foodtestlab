@@ -255,7 +255,12 @@
 
         const guestAuthService = new GuestAuthService();
         const enableGuestEntry = window.__ENABLE_GUEST_ENTRY__ === true;
-        
+
+        // 若用户已登录（含页面意外重载场景），直接跳转主界面
+        if (authService.isAuthenticated()) {
+            window.location.replace('./index.html');
+        }
+
         // 每次打开登录页时清除访客 session（访客为临时身份，不自动重登录）
         localStorage.removeItem('guest_token');
         localStorage.removeItem('current_guest');
@@ -396,8 +401,8 @@
                     
                     // 重定向到主应用
                     setTimeout(() => {
-                        window.location.href = './index.html';
-                    }, 500);
+                        window.location.replace('./index.html');
+                    }, 50);
                 } else {
                     const errorMsg = result.message || '登录失败，请检查用户名和密码';
                     console.error('❌ 登录失败:', errorMsg);
