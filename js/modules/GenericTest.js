@@ -222,7 +222,8 @@ export class GenericTestModule {
 
     getRecordDate(record) {
         if (!record || typeof record !== 'object') return null;
-        const raw = record.timestamp || record.testDate;
+        // 优先使用用户填写的检测日期 testDate，避免 timestamp（入库时间）干扰排序
+        const raw = record.testDate || record.timestamp;
         if (!raw) return null;
         const d = new Date(raw);
         return Number.isNaN(d.getTime()) ? null : d;

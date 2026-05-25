@@ -190,7 +190,8 @@ function getRecordCanteen(record) {
 function getRecordDateTime(record) {
     if (!record || typeof record !== 'object') return null;
 
-    const raw = record.timestamp || record.testDate;
+    // 优先使用用户填写的检测日期 testDate，避免 timestamp（入库时间）干扰排序
+    const raw = record.testDate || record.timestamp;
     if (!raw) return null;
 
     const date = new Date(raw);
@@ -622,8 +623,9 @@ function loadDashboardData() {
     // 更新瘦肉精分类卡片
     updateLeanMeatCards(leanMeatByType);
     
-    // 更新瘦肉精分类概览列表
-    updateLeanMeatOverviewLists(leanMeatByType);
+    // 更新瘦肉精分类概览列表（使用全局数据，不受日期筛选影响）
+    const leanMeatByTypeAllTime = getLeanMeatStatsByType(new Date(0), new Date(2099, 11, 31), selectedCanteen);
+    updateLeanMeatOverviewLists(leanMeatByTypeAllTime);
 
     // ✅ 计算总检测数和总合格率
     let totalCount = 0;
@@ -651,11 +653,13 @@ function loadDashboardData() {
     document.getElementById('card_total_count').textContent = totalCount;
     document.getElementById('card_total_pass').textContent = `${totalPassRate}%`;
 
-    // 更新概览列表
-    updateOverviewList('tableware', stats.tableware.records);
-    updateOverviewList('pesticide', stats.pesticide.records);
-    updateOverviewList('oil', stats.oil.records);
-    updateOverviewList('pathogen', stats.pathogen.records);
+    // 更新概览列表（始终显示全局最新5条，不受日期筛选影响，仅受食堂筛选影响）
+    const OVERVIEW_START = new Date(0);
+    const OVERVIEW_END = new Date(2099, 11, 31);
+    updateOverviewList('tableware', getStats('tableware', OVERVIEW_START, OVERVIEW_END, selectedCanteen).records);
+    updateOverviewList('pesticide', getStats('pesticide', OVERVIEW_START, OVERVIEW_END, selectedCanteen).records);
+    updateOverviewList('oil', getStats('oil', OVERVIEW_START, OVERVIEW_END, selectedCanteen).records);
+    updateOverviewList('pathogen', getStats('pathogen', OVERVIEW_START, OVERVIEW_END, selectedCanteen).records);
 
     // 更新风险提示
     updateRiskAlerts(stats, leanMeatByType);
