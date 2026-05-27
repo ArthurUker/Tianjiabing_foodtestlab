@@ -127,7 +127,14 @@ function buildRecordWriteData(tableName, payload) {
 
 function normalizeForHash(value) {
     if (Array.isArray(value)) {
-        return value.map(item => normalizeForHash(item))
+        const normalizedItems = value.map(item => normalizeForHash(item))
+        // Use order-insensitive array normalization so semantically identical
+        // payloads with different item order still map to the same record code.
+        return normalizedItems.sort((a, b) => {
+            const left = JSON.stringify(a)
+            const right = JSON.stringify(b)
+            return left.localeCompare(right)
+        })
     }
 
     if (value && typeof value === 'object') {
@@ -141,15 +148,45 @@ function normalizeForHash(value) {
     return value
 }
 
-function buildRecordHash(tableName, payload) {
-    const clone = { ...(payload || {}) }
-    delete clone.id
-    delete clone._status
-    delete clone.created_at
-    delete clone.updated_at
-    delete clone.record_code
+function stripVolatileFields(value) {
+    const volatileKeys = new Set([
+        'id',
+        '_status',
+        'status',
+        'record_code',
+        'created_at',
+        'updated_at',
+        'createdAt',
+        'updatedAt',
+        'sync_time',
+        'last_sync_at',
+        'modificationLogs',
+        'recheckRecords',
+        'recheckReports',
+        'importTime',
+        'importUser',
+        'lastModified'
+    ])
 
-    const normalized = normalizeForHash(clone)
+    if (Array.isArray(value)) {
+        return value.map(item => stripVolatileFields(item))
+    }
+
+    if (value && typeof value === 'object') {
+        const clean = {}
+        Object.keys(value).forEach(key => {
+            if (volatileKeys.has(key)) return
+            clean[key] = stripVolatileFields(value[key])
+        })
+        return clean
+    }
+
+    return value
+}
+
+function buildRecordHash(tableName, payload) {
+    const sanitized = stripVolatileFields(payload || {})
+    const normalized = normalizeForHash(sanitized)
     const raw = `${tableName}::${JSON.stringify(normalized)}`
     return crypto.createHash('sha256').update(raw).digest('hex')
 }
