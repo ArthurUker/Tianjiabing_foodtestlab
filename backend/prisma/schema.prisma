@@ -61,6 +61,7 @@ model TestRecord {
   created_by    String
   created_at    DateTime @default(now())
   updated_at    DateTime @updatedAt
+  version       Int      @default(0)
   completed_at  DateTime?
 
   created_user  User     @relation(fields: [created_by], references: [id], onDelete: Cascade)

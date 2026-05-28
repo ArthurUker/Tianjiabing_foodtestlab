@@ -1,6 +1,7 @@
 // 文件路径: core/Storage.js
 
 import { logOperation } from '../utils/AuditLogger.js';
+import { AdaptiveUploadQueue } from './AdaptiveUploadQueue.js';
 
 // ==========================================
 // 0. 内置默认配置
@@ -51,6 +52,23 @@ export class StorageService {
         this._queueTimer = null;
 
         this._initializeLocalCache();
+        // 初始化自适应上传队列（每个表单独队列可根据需要改为全局队列）
+        this._uploadQueue = new AdaptiveUploadQueue({
+            initialInterval: config.initialInterval || 800,
+            minInterval: config.minInterval || 400,
+            maxInterval: config.maxInterval || 15000,
+            maxConcurrent: config.maxConcurrent || 1,
+            getHeaders: () => this._getHeaders(),
+            onProgress: (s) => {
+                // 同步队列状态到 StorageService 的全局退避
+                if (s.isPaused) {
+                    // 当队列暂停时，尽量延长全局退避
+                    this._setGlobalBackoff(s.currentInterval);
+                }
+                if (this.eventListeners.sync) this._emit('sync', { type: 'queue_progress', status: s });
+            }
+        });
+
         setTimeout(() => this._processQueuedRequests(), 100);
     }
 
@@ -323,53 +341,62 @@ export class StorageService {
         const serverRow = responseJson.data || responseJson;
         const content = (serverRow.data && typeof serverRow.data === 'object') ? serverRow.data : serverRow;
         const savedRecord = { ...content, id: serverRow.id };
-
-        this._replaceTempIdInCache(tempId, savedRecord);
-        this._emit('sync', { type: 'create', record: savedRecord });
-        logOperation('create', this.tableName, `新增记录 #${savedRecord.id || '?'}`);
+            this._replaceTempIdInCache(tempId, savedRecord);
+            this._emit('sync', { type: 'create', record: savedRecord });
+            logOperation('create', this.tableName, `新增记录 #${savedRecord.id || '?'}`);
     }
 
     async _handleUpdate(req) {
         const { id: reqId, recordId, data } = req;
         const { _status, id, ...realData } = data;
-        const res = await fetch(`${this.apiEndpoint}/${recordId}`, {
-            method: 'PUT',
-            headers: this._getHeaders(),
-            body: JSON.stringify(realData)
-        });
-        await this._throwIfNotOk(res);
-        this._updateCacheStatus(recordId, 'synced');
-        logOperation('update', this.tableName, `修改记录 #${recordId}`);
+
+        try {
+            const responseJson = await this._uploadQueue.enqueue(this.tableName, recordId, realData, { method: 'PUT', idempotencyKey: reqId });
+            if (responseJson && responseJson.skipped) {
+                this._updateCacheStatus(recordId, 'synced');
+                return;
+            }
+            this._updateCacheStatus(recordId, 'synced');
+            logOperation('update', this.tableName, `修改记录 #${recordId}`);
+        } catch (e) {
+            throw e;
+        }
     }
 
     async _handleDelete(req) {
         const { id: reqId, recordId } = req;
-        const res = await fetch(`${this.apiEndpoint}/${recordId}`, {
-            method: 'DELETE',
-            headers: this._getHeaders()
-        });
-        await this._throwIfNotOk(res);
-        logOperation('delete', this.tableName, `删除记录 #${recordId}`);
+        try {
+            const responseJson = await this._uploadQueue.enqueue(this.tableName, recordId, {}, { method: 'DELETE', idempotencyKey: reqId });
+            if (responseJson && responseJson.skipped) return;
+            logOperation('delete', this.tableName, `删除记录 #${recordId}`);
+        } catch (e) {
+            throw e;
+        }
     }
     
     _initializeLocalCache() {
         if (!localStorage.getItem(this.localCacheKey)) localStorage.setItem(this.localCacheKey, JSON.stringify({data:[]}));
         if (!localStorage.getItem(this.pendingRequestsKey)) localStorage.setItem(this.pendingRequestsKey, JSON.stringify([]));
-    }
-    _getLocalCacheData() { try { return JSON.parse(localStorage.getItem(this.localCacheKey)).data || []; } catch { return []; } }
-    _addToLocalCache(r) { const d = this._getLocalCacheData(); d.unshift(r); this._updateLocalCache(d); }
-    _updateLocalCache(d) { localStorage.setItem(this.localCacheKey, JSON.stringify({data:d})); }
-    _isTempId(id) { return typeof id === 'string' && id.startsWith('temp_'); }
-    _genReqId(t) { return `${t}-${Date.now()}-${Math.random()}`; }
-    _addPendingRequest(r) { const l = this._getPendingRequests(); l.push(r); localStorage.setItem(this.pendingRequestsKey, JSON.stringify(l)); }
-    _getPendingRequests() { try { return JSON.parse(localStorage.getItem(this.pendingRequestsKey)) || []; } catch { return []; } }
-    _removeRequestFromQueue(id) { 
-        const l = this._getPendingRequests().filter(r => r.id !== id); 
-        localStorage.setItem(this.pendingRequestsKey, JSON.stringify(l));
-        this.processingRequestIds.delete(id);
-    }
-    _markRequestFailed(reqId, reason) {
-        const list = this._getPendingRequests();
+            // 使用 AdaptiveUploadQueue 发送请求（带幂等键）
+            try {
+                const responseJson = await this._uploadQueue.enqueue(this.tableName, null, realData, { method: 'POST', idempotencyKey: reqId });
+                // 允许后台返回跳过标记
+                if (responseJson && responseJson.skipped) {
+                    // nothing to do, keep temp record until other sync resolves
+                    return;
+                }
+
+                const serverRow = (responseJson && (responseJson.data || responseJson)) || {};
+                const content = (serverRow.data && typeof serverRow.data === 'object') ? serverRow.data : serverRow;
+                const savedRecord = { ...content, id: serverRow.id };
+
+                this._replaceTempIdInCache(tempId, savedRecord);
+                this._emit('sync', { type: 'create', record: savedRecord });
+                logOperation('create', this.tableName, `新增记录 #${savedRecord.id || '?'}`);
+            } catch (e) {
+                // 将错误抛回给上层统一处理（会触发重试/退避逻辑）
+                throw e;
+            }
         const index = list.findIndex(r => r.id === reqId);
         if (index !== -1) {
             list[index]._failed = true;

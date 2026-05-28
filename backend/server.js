@@ -10,6 +10,7 @@ import UserManager from './modules/UserManager.js'
 import { createUserRoutes } from './routes/userRoutes.js'
 import { createAuditRoutes } from './routes/auditRoutes.js'
 import { createValidationMiddleware, rateLimit, sanitizeText } from './middleware/validationMiddleware.js'
+import idempotencyMiddleware from './middleware/idempotencyMiddleware.js'
 
 dotenv.config()
 
@@ -96,6 +97,7 @@ function buildRecordPayload(record) {
         test_type: record.test_type,
         test_name: record.test_name,
         status: record.status,
+        version: record.version || 0,
         created_at: record.created_at,
         updated_at: record.updated_at,
         ...sampleInfo,
@@ -252,6 +254,9 @@ app.use(cors({
     credentials: true
 }))
 app.use(express.json({ limit: '10mb' }))
+
+// Idempotency middleware for records API (helps avoid duplicate writes on retry)
+app.use('/api/records', idempotencyMiddleware)
 
 // Optional static hosting for local convenience.
 // Production Tencent Cloud deployment should use Nginx/COS for static files.
@@ -411,6 +416,7 @@ app.post('/api/records/:tableName', authenticateUser, async (req, res) => {
             data: {
                 record_code: recordCode,
                 created_by: req.userId,
+                version: 1,
                 ...writeData
             }
         })
@@ -485,7 +491,10 @@ app.post('/api/records/:tableName/bulk-upsert', authenticateUser, async (req, re
                 if (existing) {
                     await prisma.testRecord.update({
                         where: { id: existing.id },
-                        data: writeData
+                        data: {
+                            ...writeData,
+                            version: (existing.version || 0) + 1,
+                        }
                     })
                     updated++
                 } else {
@@ -493,6 +502,7 @@ app.post('/api/records/:tableName/bulk-upsert', authenticateUser, async (req, re
                         data: {
                             record_code: recordCode,
                             created_by: req.userId,
+                            version: 1,
                             ...writeData
                         }
                     })
@@ -543,9 +553,22 @@ app.put('/api/records/:tableName/:id', authenticateUser, async (req, res) => {
         }
 
         const writeData = buildRecordWriteData(testType, req.body || {})
+
+        // 版本号乐观锁（如果客户端传了 version 字段）
+        if (req.body && typeof req.body.version !== 'undefined' && req.body.version !== existing.version) {
+            return res.status(409).json({
+                error: '版本冲突，请获取最新数据后重试',
+                serverVersion: existing.version,
+                clientVersion: req.body.version
+            })
+        }
+
         const record = await prisma.testRecord.update({
             where: { id: req.params.id },
-            data: writeData
+            data: {
+                ...writeData,
+                version: (existing.version || 0) + 1
+            }
         })
 
         res.json({
