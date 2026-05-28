@@ -163,7 +163,10 @@ export class AdaptiveUploadQueue {
       } else if (error.status === 409) {
         try {
           const latest = await this._fetchLatest(item.collection, item.recordId);
-          item.payload = { ...item.payload, version: latest.version };
+          const latestRow = latest?.data || latest || {};
+          if (typeof latestRow.version !== 'undefined') {
+            item.payload = { ...item.payload, version: latestRow.version };
+          }
           item.fingerprint = this._makeFingerprint(item.collection, item.recordId, item.payload);
           item.attempt++;
           if (item.attempt <= 3) {
@@ -230,7 +233,8 @@ export class AdaptiveUploadQueue {
   }
 
   async _fetchLatest(collection, recordId) {
-    const response = await fetch(`/api/records/${collection}/${recordId}`);
+    const headers = this._getHeaders() || {};
+    const response = await fetch(`/api/records/${collection}/${recordId}`, { headers });
     if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
     return response.json();
   }

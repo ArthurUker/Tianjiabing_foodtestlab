@@ -617,6 +617,34 @@ app.delete('/api/records/:tableName/:id', authenticateUser, async (req, res) => 
     }
 })
 
+app.get('/api/records/:tableName/:id', authenticateUser, async (req, res) => {
+    try {
+        const testType = normalizeRecordType(req.params.tableName)
+        if (!testType) {
+            return res.status(404).json({ error: '记录类型不存在' })
+        }
+
+        const existing = await prisma.testRecord.findUnique({
+            where: { id: req.params.id }
+        })
+
+        if (!existing || existing.test_type !== testType) {
+            return res.status(404).json({ error: '记录不存在' })
+        }
+
+        res.json({
+            success: true,
+            data: buildRecordPayload(existing)
+        })
+    } catch (error) {
+        console.error('❌ Error getting legacy record by id:', error)
+        res.status(500).json({
+            error: '获取记录失败',
+            details: error.message
+        })
+    }
+})
+
 // 获取单个测试记录
 app.get('/api/test-records/:id', authenticateUser, async (req, res) => {
     try {

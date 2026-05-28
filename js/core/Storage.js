@@ -3,9 +3,6 @@
 import { logOperation } from '../utils/AuditLogger.js';
 import { AdaptiveUploadQueue } from './AdaptiveUploadQueue.js';
 
-// ==========================================
-// 0. 内置默认配置
-// ==========================================
 const DEFAULT_CONFIG = {
     apiBaseUrl: '/api/records',
     maxSyncRows: 200,
@@ -17,14 +14,27 @@ const DEFAULT_CONFIG = {
     globalBackoffKey: 'app_sync_backoff_until'
 };
 
-// 表名映射
 const TABLE_NAME_MAP = {
-    'leanMeat': 'leanMeat', 
-    'oil': 'oil',
-    'pathogen': 'pathogen',
-    'pesticide': 'pesticide',
-    'tableware': 'tableware'
+    leanMeat: 'leanMeat',
+    oil: 'oil',
+    pathogen: 'pathogen',
+    pesticide: 'pesticide',
+    tableware: 'tableware'
 };
+
+const SERVER_META_FIELDS = new Set([
+    'record_code', 'test_type', 'test_name',
+    'created_at', 'updated_at', 'completed_at',
+    '_status'
+]);
+
+const VOLATILE_FIELDS = new Set([
+    'id', '_status', 'status', 'record_code',
+    'created_at', 'updated_at', 'createdAt', 'updatedAt',
+    'sync_time', 'last_sync_at', 'modificationLogs',
+    'recheckRecords', 'recheckReports', 'importTime',
+    'importUser', 'lastModified'
+]);
 
 export class StorageService {
     constructor(tableName, config = {}) {
@@ -37,35 +47,33 @@ export class StorageService {
         this.minRetryDelayMs = config.minRetryDelayMs || DEFAULT_CONFIG.minRetryDelayMs;
         this.maxRetryDelayMs = config.maxRetryDelayMs || DEFAULT_CONFIG.maxRetryDelayMs;
         this.globalBackoffKey = config.globalBackoffKey || DEFAULT_CONFIG.globalBackoffKey;
-        
+
         const dbTableName = TABLE_NAME_MAP[tableName] || tableName;
         this.apiEndpoint = `${this.apiBaseUrl}/${dbTableName}`;
-        
+
         this.localCacheKey = `cache_${tableName}`;
         this.pendingRequestsKey = `pending_${tableName}`;
-        
+        this.fingerprintIndexKey = `fingerprint_index_${tableName}`;
+
         this.pendingTempIds = new Set();
         this.processingRequestIds = new Set();
         this.eventListeners = { error: [], sync: [] };
-        this._lastSyncTime = 0; // 防止同步循环：记录最后一次同步时间
+        this._lastSyncTime = 0;
         this._isProcessingQueue = false;
         this._queueTimer = null;
+        this._serverFingerprintIndex = new Map();
 
         this._initializeLocalCache();
-        // 初始化自适应上传队列（每个表单独队列可根据需要改为全局队列）
+
         this._uploadQueue = new AdaptiveUploadQueue({
             initialInterval: config.initialInterval || 800,
             minInterval: config.minInterval || 400,
             maxInterval: config.maxInterval || 15000,
             maxConcurrent: config.maxConcurrent || 1,
             getHeaders: () => this._getHeaders(),
-            onProgress: (s) => {
-                // 同步队列状态到 StorageService 的全局退避
-                if (s.isPaused) {
-                    // 当队列暂停时，尽量延长全局退避
-                    this._setGlobalBackoff(s.currentInterval);
-                }
-                if (this.eventListeners.sync) this._emit('sync', { type: 'queue_progress', status: s });
+            onProgress: (status) => {
+                if (status.isPaused) this._setGlobalBackoff(status.currentInterval);
+                this._emit('sync', { type: 'queue_progress', status });
             }
         });
 
@@ -79,12 +87,21 @@ export class StorageService {
     }
 
     save(data) {
-        const tempId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        const tempRecord = { ...data, id: tempId, _status: 'pending' };
-        
+        const clean = this._sanitizePayload(data || {});
+
+        // 模块级本地去重：相同内容不重复入队
+        const localDup = this._findLocalDuplicate(clean);
+        if (localDup) {
+            this._emit('sync', { type: 'local_dedupe_hit', record: localDup });
+            return { ...localDup };
+        }
+
+        const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+        const tempRecord = { ...clean, id: tempId, _status: 'pending' };
+
         this._addToLocalCache(tempRecord);
         this.pendingTempIds.add(tempId);
-        
+
         this._addPendingRequest({
             id: this._genReqId('create'),
             type: 'create',
@@ -93,7 +110,7 @@ export class StorageService {
             timestamp: Date.now(),
             retryCount: 0
         });
-        
+
         this._processQueuedRequests();
         return tempRecord;
     }
@@ -103,21 +120,38 @@ export class StorageService {
         const index = cached.findIndex(r => r.id == id);
         if (index === -1) return false;
 
-        cached[index] = { ...updatedData, id, _status: 'updating' };
+        const clean = this._sanitizePayload(updatedData || {});
+        const localDup = this._findLocalDuplicate(clean, id);
+        if (localDup) {
+            // 更新内容与其他本地记录重复，保持当前记录不再继续上传，避免冲突刷屏
+            this._emit('error', {
+                request: { type: 'update', recordId: id },
+                error: new Error('本地去重命中：与另一条记录内容相同，已跳过重复更新')
+            });
+            return false;
+        }
+
+        cached[index] = {
+            ...cached[index],
+            ...clean,
+            id,
+            _status: 'updating'
+        };
         this._updateLocalCache(cached);
 
         if (this._isTempId(id)) {
-            this._queueTempUpdate(id, updatedData);
+            this._queueTempUpdate(id, clean);
         } else {
             this._addPendingRequest({
                 id: this._genReqId('update'),
                 type: 'update',
                 recordId: id,
-                data: updatedData,
+                data: { ...clean, version: cached[index].version ?? clean.version },
                 timestamp: Date.now(),
                 retryCount: 0
             });
         }
+
         this._processQueuedRequests();
         return true;
     }
@@ -132,7 +166,7 @@ export class StorageService {
 
         if (this._isTempId(id)) {
             this.pendingTempIds.delete(id);
-            this._cleanupTempRequests(id); 
+            this._cleanupTempRequests(id);
         } else {
             this._addPendingRequest({
                 id: this._genReqId('delete'),
@@ -142,6 +176,7 @@ export class StorageService {
                 retryCount: 0
             });
         }
+
         this._processQueuedRequests();
         return true;
     }
@@ -152,14 +187,8 @@ export class StorageService {
 
     _getHeaders() {
         const token = this._getAuthToken();
-        const headers = {
-            'Content-Type': 'application/json',
-        };
-
-        if (token) {
-            headers['Authorization'] = `Bearer ${token}`;
-        }
-
+        const headers = { 'Content-Type': 'application/json' };
+        if (token) headers.Authorization = `Bearer ${token}`;
         return headers;
     }
 
@@ -172,19 +201,15 @@ export class StorageService {
     _canSyncWithServer() {
         const token = this._getAuthToken();
         if (!token) return false;
-        // 快速访问令牌不是 JWT，不应请求受保护 API。
         return !token.startsWith('temp-token-');
     }
 
-    async _syncFromApi() {
-        // 防止同步循环：30秒内同一表不重复同步
+    async _syncFromApi(force = false) {
         const now = Date.now();
-        if (this._lastSyncTime > 0 && (now - this._lastSyncTime) < this.syncCooldownMs) {
+        if (!force && this._lastSyncTime > 0 && (now - this._lastSyncTime) < this.syncCooldownMs) {
             return;
         }
-        if (!this._canSyncWithServer()) {
-            return;
-        }
+        if (!this._canSyncWithServer()) return;
         this._lastSyncTime = now;
 
         const res = await fetch(`${this.apiEndpoint}?limit=${this.maxSyncRows}&offset=0`, {
@@ -194,11 +219,17 @@ export class StorageService {
 
         const response = await res.json();
         const serverRows = Array.isArray(response) ? response : (response.data || []);
+
         const serverDataMap = new Map();
-        serverRows.forEach(row => {
+        const serverFingerprintIndex = new Map();
+        for (const row of serverRows) {
             const content = (row.data && typeof row.data === 'object') ? row.data : row;
-            serverDataMap.set(row.id, { ...content, id: row.id, _status: 'synced' });
-        });
+            const normalized = { ...content, id: row.id, _status: 'synced' };
+            serverDataMap.set(row.id, normalized);
+            serverFingerprintIndex.set(this._buildFingerprint(normalized), normalized);
+        }
+        this._serverFingerprintIndex = serverFingerprintIndex;
+        this._persistFingerprintIndex(serverFingerprintIndex);
 
         const localCache = this._getLocalCacheData();
         const mergedData = [];
@@ -210,13 +241,15 @@ export class StorageService {
                 mergedData.push(localItem);
                 continue;
             }
+
             if (localItem._status === 'updating' || localItem._status === 'pending') {
                 mergedData.push(localItem);
                 continue;
             }
+
             if (serverDataMap.has(localItem.id)) {
                 mergedData.push(serverDataMap.get(localItem.id));
-            } 
+            }
         }
 
         for (const [id, serverItem] of serverDataMap) {
@@ -224,8 +257,8 @@ export class StorageService {
         }
 
         mergedData.sort((a, b) => {
-            const idA = typeof a.id === 'string' ? 9999999999 : a.id;
-            const idB = typeof b.id === 'string' ? 9999999999 : b.id;
+            const idA = typeof a.id === 'string' ? 9999999999 : Number(a.id || 0);
+            const idB = typeof b.id === 'string' ? 9999999999 : Number(b.id || 0);
             return idB - idA;
         });
 
@@ -234,13 +267,8 @@ export class StorageService {
     }
 
     async _processQueuedRequests() {
-        if (!this._canSyncWithServer()) {
-            return;
-        }
-
-        if (this._isProcessingQueue) {
-            return;
-        }
+        if (!this._canSyncWithServer()) return;
+        if (this._isProcessingQueue) return;
 
         const now = Date.now();
         const backoffUntil = this._getGlobalBackoffUntil();
@@ -250,14 +278,13 @@ export class StorageService {
         }
 
         const all = this._getPendingRequests();
-        // 过滤出"可立即执行"的请求：未在处理中、未被标记 failed、nextAttemptAt 已到期
         const todo = all.filter(r =>
             !this.processingRequestIds.has(r.id) &&
             r._failed !== true &&
             (!r.nextAttemptAt || r.nextAttemptAt <= now)
         );
+
         if (todo.length === 0) {
-            // 还有等待退避的请求，继续调度
             const waiting = all.filter(r => !r._failed && r.nextAttemptAt && r.nextAttemptAt > now);
             if (waiting.length > 0) {
                 const earliest = Math.min(...waiting.map(r => r.nextAttemptAt));
@@ -272,208 +299,260 @@ export class StorageService {
             const batch = todo.slice(0, this.queueBatchSize);
             for (const req of batch) {
                 this.processingRequestIds.add(req.id);
+
                 try {
                     if (req.type === 'create') await this._handleCreate(req);
                     else if (req.type === 'update') await this._handleUpdate(req);
                     else if (req.type === 'delete') await this._handleDelete(req);
                     else if (req.type === 'update_temp') await this._handleUpdateTemp(req);
+
                     this._removeRequestFromQueue(req.id);
+                    this.processingRequestIds.delete(req.id);
                 } catch (e) {
                     const httpStatus = e && e.status;
                     const currentRetry = (req.retryCount || 0) + 1;
                     const isRateLimited = httpStatus === 429;
+                    const isVersionConflict = httpStatus === 409;
+                    const isClientError = httpStatus >= 400 && httpStatus < 500 && !isRateLimited && !isVersionConflict;
 
-                    // 4xx（除 429）= 客户端数据错误，永远不会因重试而成功
-                    const isClientError = httpStatus >= 400 && httpStatus < 500 && !isRateLimited;
-
-                    const maxRetries = 3;
+                    const maxRetries = isVersionConflict ? 2 : 3;
                     const shouldRetry = !isClientError && currentRetry <= maxRetries;
 
                     if (shouldRetry) {
                         const retryDelay = this._computeRetryDelay(currentRetry, e?.retryAfterMs);
-                        if (isRateLimited) {
-                            this._setGlobalBackoff(retryDelay);
-                        }
+                        if (isRateLimited) this._setGlobalBackoff(retryDelay);
                         this._updateRequestRetry(req.id, currentRetry, Date.now() + retryDelay);
-                        console.warn(`[StorageService:${this.tableName}] 请求 ${req.id} 失败(${httpStatus || '网络'}), 第 ${currentRetry}/${maxRetries} 次，${retryDelay}ms 后重试`, e.message);
                     } else {
-                        // 超出重试次数或客户端错误：标记 failed，移出活跃队列
-                        this._markRequestFailed(req.id, e.message);
-                        console.error(`[StorageService:${this.tableName}] 请求 ${req.id} 永久失败(${httpStatus || '网络'}, retry=${currentRetry - 1}):`, e.message);
+                        this._markRequestFailed(req.id, e.message || '请求失败');
                         this._emit('error', { request: req, error: e });
                     }
+
                     this.processingRequestIds.delete(req.id);
                 }
             }
         } finally {
             this._isProcessingQueue = false;
-
-            // 只在还有"可执行"请求时才继续调度，避免空轮询刷屏
             const remaining = this._getPendingRequests();
             const hasReady = remaining.some(r => !r._failed && (!r.nextAttemptAt || r.nextAttemptAt <= Date.now()));
-            if (hasReady) {
-                this._scheduleQueueProcess(this.queueBatchDelayMs);
-            }
+            if (hasReady) this._scheduleQueueProcess(this.queueBatchDelayMs);
         }
     }
 
     async _handleCreate(req) {
         const { id: reqId, tempId, data } = req;
-        const { _status, id, ...rawData } = data;
+        const { id, _status, ...realData } = this._sanitizePayload(data || {});
 
-        // 清洗 payload：移除服务端元字段 & 本地控制字段，避免污染 result_data
-        const SERVER_META_FIELDS = new Set([
-            'record_code', 'test_type', 'test_name',
-            'created_at', 'updated_at', 'completed_at'
-        ]);
-        const realData = Object.fromEntries(
-            Object.entries(rawData).filter(([k]) => !SERVER_META_FIELDS.has(k))
-        );
+        // 云端去重校验：先检查本地缓存的云端指纹索引
+        const cloudDup = await this._findCloudDuplicate(realData);
+        if (cloudDup) {
+            this._replaceTempIdInCache(tempId, cloudDup);
+            this._emit('sync', { type: 'cloud_dedupe_hit', record: cloudDup });
+            return;
+        }
 
-        const res = await fetch(this.apiEndpoint, {
+        const responseJson = await this._uploadQueue.enqueue(this.tableName, null, realData, {
             method: 'POST',
-            headers: this._getHeaders(),
-            body: JSON.stringify(realData)
+            idempotencyKey: reqId
         });
 
-        await this._throwIfNotOk(res);
-        const responseJson = await res.json();
-        const serverRow = responseJson.data || responseJson;
+        if (responseJson && responseJson.skipped) {
+            this._emit('sync', { type: 'queue_skipped_duplicate', tempId });
+            return;
+        }
+
+        const serverRow = (responseJson && (responseJson.data || responseJson)) || {};
         const content = (serverRow.data && typeof serverRow.data === 'object') ? serverRow.data : serverRow;
-        const savedRecord = { ...content, id: serverRow.id };
-            this._replaceTempIdInCache(tempId, savedRecord);
-            this._emit('sync', { type: 'create', record: savedRecord });
-            logOperation('create', this.tableName, `新增记录 #${savedRecord.id || '?'}`);
+        const savedRecord = { ...content, id: serverRow.id, _status: 'synced' };
+
+        this._replaceTempIdInCache(tempId, savedRecord);
+        this._indexServerFingerprint(savedRecord);
+        this._emit('sync', { type: 'create', record: savedRecord });
+        logOperation('create', this.tableName, `新增记录 #${savedRecord.id || '?'}`);
     }
 
     async _handleUpdate(req) {
         const { id: reqId, recordId, data } = req;
-        const { _status, id, ...realData } = data;
+        const { id, _status, ...realData } = this._sanitizePayload(data || {});
 
-        try {
-            const responseJson = await this._uploadQueue.enqueue(this.tableName, recordId, realData, { method: 'PUT', idempotencyKey: reqId });
-            if (responseJson && responseJson.skipped) {
-                this._updateCacheStatus(recordId, 'synced');
-                return;
-            }
+        const responseJson = await this._uploadQueue.enqueue(this.tableName, recordId, realData, {
+            method: 'PUT',
+            idempotencyKey: reqId
+        });
+
+        if (responseJson && responseJson.skipped) {
             this._updateCacheStatus(recordId, 'synced');
-            logOperation('update', this.tableName, `修改记录 #${recordId}`);
-        } catch (e) {
-            throw e;
+            return;
         }
+
+        const serverRow = (responseJson && (responseJson.data || responseJson)) || {};
+        const content = (serverRow.data && typeof serverRow.data === 'object') ? serverRow.data : serverRow;
+
+        // 冲突恢复后，以服务端最新版本覆盖本地，确保本地与云端一致
+        if (serverRow && serverRow.id) {
+            const patched = { ...content, id: serverRow.id, _status: 'synced' };
+            this._replaceRecordInCache(serverRow.id, patched);
+            this._indexServerFingerprint(patched);
+        } else {
+            this._updateCacheStatus(recordId, 'synced');
+        }
+
+        logOperation('update', this.tableName, `修改记录 #${recordId}`);
     }
 
     async _handleDelete(req) {
         const { id: reqId, recordId } = req;
+        const responseJson = await this._uploadQueue.enqueue(this.tableName, recordId, {}, {
+            method: 'DELETE',
+            idempotencyKey: reqId
+        });
+
+        if (responseJson && responseJson.skipped) return;
+        this._removeFingerprintByRecordId(recordId);
+        logOperation('delete', this.tableName, `删除记录 #${recordId}`);
+    }
+
+    _initializeLocalCache() {
+        if (!localStorage.getItem(this.localCacheKey)) {
+            localStorage.setItem(this.localCacheKey, JSON.stringify({ data: [] }));
+        }
+        if (!localStorage.getItem(this.pendingRequestsKey)) {
+            localStorage.setItem(this.pendingRequestsKey, JSON.stringify([]));
+        }
+        this._loadPersistedFingerprintIndex();
+    }
+
+    _getLocalCacheData() {
         try {
-            const responseJson = await this._uploadQueue.enqueue(this.tableName, recordId, {}, { method: 'DELETE', idempotencyKey: reqId });
-            if (responseJson && responseJson.skipped) return;
-            logOperation('delete', this.tableName, `删除记录 #${recordId}`);
-        } catch (e) {
-            throw e;
+            const raw = localStorage.getItem(this.localCacheKey);
+            if (!raw) return [];
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) return parsed;
+            if (parsed && Array.isArray(parsed.data)) return parsed.data;
+            return [];
+        } catch {
+            return [];
         }
     }
-    
-    _initializeLocalCache() {
-        if (!localStorage.getItem(this.localCacheKey)) localStorage.setItem(this.localCacheKey, JSON.stringify({data:[]}));
-        if (!localStorage.getItem(this.pendingRequestsKey)) localStorage.setItem(this.pendingRequestsKey, JSON.stringify([]));
-            // 使用 AdaptiveUploadQueue 发送请求（带幂等键）
-            try {
-                const responseJson = await this._uploadQueue.enqueue(this.tableName, null, realData, { method: 'POST', idempotencyKey: reqId });
-                // 允许后台返回跳过标记
-                if (responseJson && responseJson.skipped) {
-                    // nothing to do, keep temp record until other sync resolves
-                    return;
-                }
 
-                const serverRow = (responseJson && (responseJson.data || responseJson)) || {};
-                const content = (serverRow.data && typeof serverRow.data === 'object') ? serverRow.data : serverRow;
-                const savedRecord = { ...content, id: serverRow.id };
+    _updateLocalCache(rows) {
+        localStorage.setItem(this.localCacheKey, JSON.stringify({ data: rows || [] }));
+    }
 
-                this._replaceTempIdInCache(tempId, savedRecord);
-                this._emit('sync', { type: 'create', record: savedRecord });
-                logOperation('create', this.tableName, `新增记录 #${savedRecord.id || '?'}`);
-            } catch (e) {
-                // 将错误抛回给上层统一处理（会触发重试/退避逻辑）
-                throw e;
-            }
+    _addToLocalCache(record) {
+        const rows = this._getLocalCacheData();
+        rows.unshift(record);
+        this._updateLocalCache(rows);
+    }
+
+    _replaceRecordInCache(recordId, record) {
+        const rows = this._getLocalCacheData();
+        const idx = rows.findIndex(r => r.id == recordId);
+        if (idx >= 0) {
+            rows[idx] = record;
+            this._updateLocalCache(rows);
+        }
+    }
+
+    _getPendingRequests() {
+        try {
+            const raw = localStorage.getItem(this.pendingRequestsKey);
+            const parsed = JSON.parse(raw || '[]');
+            return Array.isArray(parsed) ? parsed : [];
+        } catch {
+            return [];
+        }
+    }
+
+    _setPendingRequests(list) {
+        localStorage.setItem(this.pendingRequestsKey, JSON.stringify(Array.isArray(list) ? list : []));
+    }
+
+    _addPendingRequest(request) {
+        const list = this._getPendingRequests();
+        list.push(request);
+        this._setPendingRequests(list);
+    }
+
+    _removeRequestFromQueue(reqId) {
+        const list = this._getPendingRequests().filter(r => r.id !== reqId);
+        this._setPendingRequests(list);
+    }
+
+    _markRequestFailed(reqId, reason) {
+        const list = this._getPendingRequests();
         const index = list.findIndex(r => r.id === reqId);
         if (index !== -1) {
             list[index]._failed = true;
             list[index]._failReason = reason;
-            localStorage.setItem(this.pendingRequestsKey, JSON.stringify(list));
+            this._setPendingRequests(list);
         }
-        this.processingRequestIds.delete(reqId);
     }
+
     _updateRequestRetry(reqId, count, nextAttemptAt = null) {
         const list = this._getPendingRequests();
         const index = list.findIndex(r => r.id === reqId);
         if (index !== -1) {
             list[index].retryCount = count;
             list[index].nextAttemptAt = nextAttemptAt;
-            localStorage.setItem(this.pendingRequestsKey, JSON.stringify(list));
+            this._setPendingRequests(list);
         }
     }
-    _replaceTempIdInCache(tid, rec) {
-        const d = this._getLocalCacheData();
-        const i = d.findIndex(r => r.id === tid);
-        if (i !== -1) { d[i] = { ...rec, _status: 'synced' }; this._updateLocalCache(d); }
+
+    _replaceTempIdInCache(tempId, savedRecord) {
+        const rows = this._getLocalCacheData();
+        const index = rows.findIndex(r => r.id === tempId);
+        if (index !== -1) {
+            rows[index] = { ...savedRecord, _status: 'synced' };
+            this._updateLocalCache(rows);
+        }
+        this.pendingTempIds.delete(tempId);
     }
-    _updateCacheStatus(id, s) {
-        const d = this._getLocalCacheData();
-        const i = d.findIndex(r => r.id == id);
-        if (i !== -1) { d[i]._status = s; this._updateLocalCache(d); }
+
+    _updateCacheStatus(recordId, status) {
+        const rows = this._getLocalCacheData();
+        const index = rows.findIndex(r => r.id == recordId);
+        if (index !== -1) {
+            rows[index]._status = status;
+            this._updateLocalCache(rows);
+        }
     }
-    _queueTempUpdate(tempId, data) { 
-        const requestId = this._genReqId('update_temp');
+
+    _queueTempUpdate(tempId, data) {
         this._addPendingRequest({
-            id: requestId, type: 'update_temp', tempId, data, timestamp: Date.now(), retryCount: 0
+            id: this._genReqId('update_temp'),
+            type: 'update_temp',
+            tempId,
+            data,
+            timestamp: Date.now(),
+            retryCount: 0
         });
     }
-    async _handleUpdateTemp(req) { 
-        const { id: requestId, tempId, data } = req;
+
+    async _handleUpdateTemp(req) {
         const list = this._getPendingRequests();
-        const createReqIndex = list.findIndex(r => r.type === 'create' && r.tempId === tempId);
+        const createReqIndex = list.findIndex(r => r.type === 'create' && r.tempId === req.tempId);
         if (createReqIndex !== -1) {
-            list[createReqIndex].data = { ...list[createReqIndex].data, ...data };
-            localStorage.setItem(this.pendingRequestsKey, JSON.stringify(list));
+            list[createReqIndex].data = {
+                ...list[createReqIndex].data,
+                ...req.data
+            };
+            this._setPendingRequests(list);
         }
     }
+
     _cleanupTempRequests(tempId) {
         const list = this._getPendingRequests().filter(r => r.tempId !== tempId);
-        localStorage.setItem(this.pendingRequestsKey, JSON.stringify(list));
+        this._setPendingRequests(list);
     }
-    async _throwIfNotOk(response) {
-        if (response.ok) return;
 
-        // 读响应体，打印后端返回的详细错误信息
-        let detail = '';
-        try {
-            const ct = response.headers.get('Content-Type') || '';
-            if (ct.includes('application/json')) {
-                const body = await response.json();
-                detail = body?.details || body?.error || JSON.stringify(body);
-            } else {
-                detail = await response.text();
-            }
-        } catch (_) { /* 忽略读体失败 */ }
-
-        const msg = `HTTP ${response.status} ${response.statusText}${detail ? ` — ${detail}` : ''}`;
-        console.error(`[StorageService] ${msg}`, { url: response.url, status: response.status, detail });
-
-        const error = new Error(msg);
-        error.status = response.status;
-        error.responseDetail = detail;
-
-        const retryAfter = response.headers.get('Retry-After');
-        if (retryAfter) {
-            const retryAfterSeconds = Number(retryAfter);
-            if (!Number.isNaN(retryAfterSeconds) && retryAfterSeconds >= 0) {
-                error.retryAfterMs = retryAfterSeconds * 1000;
-            }
-        }
-        throw error;
+    _genReqId(type) {
+        return `sync_${Date.now()}_${Math.random().toString(36).slice(2, 7)}_${type}`;
     }
+
+    _isTempId(id) {
+        return typeof id === 'string' && id.startsWith('temp_');
+    }
+
     _computeRetryDelay(retryCount, retryAfterMs) {
         const backoff = Math.min(this.minRetryDelayMs * (2 ** Math.max(0, retryCount - 1)), this.maxRetryDelayMs);
         if (typeof retryAfterMs === 'number' && retryAfterMs > 0) {
@@ -481,10 +560,12 @@ export class StorageService {
         }
         return backoff;
     }
+
     _getGlobalBackoffUntil() {
         const raw = Number(localStorage.getItem(this.globalBackoffKey));
         return Number.isFinite(raw) ? raw : 0;
     }
+
     _setGlobalBackoff(delayMs) {
         const target = Date.now() + Math.max(0, delayMs || this.minRetryDelayMs);
         const current = this._getGlobalBackoffUntil();
@@ -492,14 +573,126 @@ export class StorageService {
             localStorage.setItem(this.globalBackoffKey, String(target));
         }
     }
+
     _scheduleQueueProcess(delayMs) {
-        if (this._queueTimer) {
-            clearTimeout(this._queueTimer);
-        }
+        if (this._queueTimer) clearTimeout(this._queueTimer);
         this._queueTimer = setTimeout(() => {
             this._queueTimer = null;
             this._processQueuedRequests();
         }, Math.max(0, delayMs || 0));
     }
-    _emit(e, d) { if(this.eventListeners[e]) this.eventListeners[e].forEach(c=>c(d)); }
+
+    _sanitizePayload(payload) {
+        return Object.fromEntries(
+            Object.entries(payload || {}).filter(([k]) => !SERVER_META_FIELDS.has(k))
+        );
+    }
+
+    _stripVolatileFields(value) {
+        if (Array.isArray(value)) {
+            return value.map(v => this._stripVolatileFields(v));
+        }
+        if (value && typeof value === 'object') {
+            const clean = {};
+            Object.keys(value).forEach(key => {
+                if (VOLATILE_FIELDS.has(key)) return;
+                clean[key] = this._stripVolatileFields(value[key]);
+            });
+            return clean;
+        }
+        return value;
+    }
+
+    _normalizeForHash(value) {
+        if (Array.isArray(value)) {
+            return value
+                .map(v => this._normalizeForHash(v))
+                .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+        }
+        if (value && typeof value === 'object') {
+            const sorted = {};
+            Object.keys(value).sort().forEach(k => {
+                sorted[k] = this._normalizeForHash(value[k]);
+            });
+            return sorted;
+        }
+        return value;
+    }
+
+    _buildFingerprint(record) {
+        const sanitized = this._stripVolatileFields(record || {});
+        const normalized = this._normalizeForHash(sanitized);
+        return `${this.tableName}::${JSON.stringify(normalized)}`;
+    }
+
+    _findLocalDuplicate(payload, excludeId = null) {
+        const fp = this._buildFingerprint(payload || {});
+        const rows = this._getLocalCacheData();
+        for (const row of rows) {
+            if (excludeId != null && String(row.id) === String(excludeId)) continue;
+            if (this._buildFingerprint(row) === fp) return row;
+        }
+        return null;
+    }
+
+    _indexServerFingerprint(record) {
+        const fp = this._buildFingerprint(record || {});
+        this._serverFingerprintIndex.set(fp, record);
+        this._persistFingerprintIndex(this._serverFingerprintIndex);
+    }
+
+    _removeFingerprintByRecordId(recordId) {
+        for (const [fp, row] of this._serverFingerprintIndex.entries()) {
+            if (String(row.id) === String(recordId)) {
+                this._serverFingerprintIndex.delete(fp);
+            }
+        }
+        this._persistFingerprintIndex(this._serverFingerprintIndex);
+    }
+
+    async _findCloudDuplicate(payload) {
+        const fp = this._buildFingerprint(payload || {});
+
+        if (this._serverFingerprintIndex.has(fp)) {
+            return this._serverFingerprintIndex.get(fp);
+        }
+
+        // 索引未命中时强制拉一次云端，保证跨端同步后仍可去重
+        await this._syncFromApi(true);
+        if (this._serverFingerprintIndex.has(fp)) {
+            return this._serverFingerprintIndex.get(fp);
+        }
+
+        return null;
+    }
+
+    _loadPersistedFingerprintIndex() {
+        try {
+            const raw = localStorage.getItem(this.fingerprintIndexKey);
+            if (!raw) return;
+            const rows = JSON.parse(raw);
+            if (!Array.isArray(rows)) return;
+            const map = new Map();
+            for (const item of rows) {
+                if (item && item.fp && item.record) map.set(item.fp, item.record);
+            }
+            this._serverFingerprintIndex = map;
+        } catch {
+            this._serverFingerprintIndex = new Map();
+        }
+    }
+
+    _persistFingerprintIndex(map) {
+        try {
+            const entries = Array.from((map || new Map()).entries()).map(([fp, record]) => ({ fp, record }));
+            localStorage.setItem(this.fingerprintIndexKey, JSON.stringify(entries.slice(-this.maxSyncRows)));
+        } catch {
+            // ignore persist errors
+        }
+    }
+
+    _emit(event, data) {
+        if (!this.eventListeners[event]) return;
+        this.eventListeners[event].forEach(cb => cb(data));
+    }
 }
