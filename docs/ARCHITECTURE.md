@@ -69,111 +69,226 @@ flowchart TD
 
 ---
 
-## 5. 部署架构
+## 5. Windows 生产部署架构
 
-### 5.1 生产环境访问方式
+### 5.1 部署环境
 
-生产环境采用腾讯云服务器部署。
+当前食品安全检测系统部署在腾讯云 Windows Server 环境中。系统采用 Nginx 托管前端静态资源，Node.js + Express 提供后端 REST API 服务，PM2 负责后端进程守护，SQLite 数据库文件存放于独立数据目录。
 
 | 项目 | 配置 |
 |---|---|
-| 公网访问端口 | 8081 |
-| 前端访问地址 | `http://公网IP:8081` |
-| 后端本地端口 | 3001 |
-| 后端本地地址 | `http://127.0.0.1:3001` |
-| API 公网路径 | `http://公网IP:8081/api/*` |
-| Web 服务器 | Nginx |
-| 后端运行时 | Node.js |
+| 服务器环境 | 腾讯云 Windows Server |
+| 项目根目录 | `C:\foodtestlab` |
+| 后端目录 | `C:\foodtestlab\backend` |
+| 前端目录 | `C:\foodtestlab` |
+| 前端构建产物目录 | `C:\foodtestlab\dist` |
+| Nginx 目录 | `C:\nginx` |
+| Nginx WebRoot | `C:\foodtestlab\dist` |
+| 数据目录 | `D:\foodtestlab\data` |
+| SQLite 数据库文件 | `D:\foodtestlab\data\foodtestlab.db` |
+| 部署分支 | `runon_tencentcloud` |
+| 前端端口 | `8081` |
+| API 端口 | `3001` |
+| PM2 进程名 | `foodtestlab-api` |
 
 ---
 
-### 5.2 Nginx 部署关系
+### 5.2 访问地址与 API 路径
 
-Nginx 负责两个核心职责：
-
-1. 托管前端静态资源；
-2. 将 `/api/` 开头的请求反向代理到本地 Node.js 后端服务。
-
-典型配置如下：
-
-```nginx
-server {
-    listen 8081;
-    server_name 159.75.106.179;
-
-    root /var/www/foodtestlab;
-    index index.html;
-
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    location /api/ {
-        proxy_pass http://127.0.0.1:3001;
-        proxy_http_version 1.1;
-
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-如果部署在 Windows Server 环境，前端静态资源目录可调整为：
-
-```text
-C:\foodtestlab\dist
-```
-
-如果部署在 Linux 环境，推荐目录为：
-
-```text
-/var/www/foodtestlab
-```
-
----
-
-### 5.3 静态资源缓存策略
-
-Nginx 对不同资源设置了不同缓存策略：
-
-| 资源类型 | 缓存策略 |
+| 类型 | 地址 |
 |---|---|
-| JS / CSS / 图片 / 字体 | 长缓存，30天 |
-| HTML 文件 | 不强缓存 |
-| API 请求 | 不由静态缓存处理 |
+| 前端公网访问地址 | `http://公网IP:8081` |
+| API 公网基础路径 | `http://公网IP:8081/api` |
+| 后端本机服务地址 | `http://127.0.0.1:3001` |
+| 后端本机 API 基础路径 | `http://127.0.0.1:3001/api` |
+| 后端本机健康检查 | `http://127.0.0.1:3001/api/health` |
+| 公网健康检查 | `http://公网IP:8081/api/health` |
+| 登录接口 | `POST /api/user/login` |
 
-配置中对静态资源启用了：
-
-```nginx
-expires 30d;
-add_header Cache-Control "public, max-age=2592000, immutable";
-```
-
-对 HTML 文件使用：
-
-```nginx
-Cache-Control "no-store, no-cache, must-revalidate";
-```
-
-这样可以保证页面入口文件及时更新，同时提高静态资源加载速度。
+当前系统部署验证以 `/api/health` 为标准健康检查路径。若 Nginx 配置中存在 `/health` 独立转发规则，该路径不作为当前文档中的主健康检查入口。
 
 ---
 
-### 5.4 Gzip 压缩
+### 5.3 双系统隔离部署
 
-Nginx 启用了基础 gzip 压缩：
+当前服务器同时部署 RDPMS 系统和食品检验系统。两套系统通过前端端口、API 端口和 PM2 进程名进行隔离。
 
-```nginx
-gzip on;
-gzip_types text/plain text/css application/json application/javascript application/xml+rss application/xml;
-gzip_min_length 1024;
+| 系统 | 前端端口 | API 端口 | PM2 进程名 |
+|---|---:|---:|---|
+| RDPMS | `8080` | `3000` | `rdpms-backend` |
+| 食品检验系统 | `8081` | `3001` | `foodtestlab-api` |
+
+部署脚本会检查端口矩阵和 PM2 名称，避免两个系统发生端口冲突、进程覆盖或服务混淆。
+
+部署日志中的正常提示包括：
+
+```text
+端口矩阵通过：食品系统 8081/3001 与 RDPMS 8080/3000 已隔离
+PM2 名称检查通过：foodtestlab-api 与 rdpms-backend 已隔离
 ```
 
-该配置适合低带宽、低规格服务器环境，可降低前端资源和 JSON 数据传输体积。
+若出现以下警告：
+
+```text
+警告: 端口 8081 当前被占用，部署后请确认为 Nginx 使用
+警告: 端口 3001 当前被占用，部署后请确认为 Node API 使用
+```
+
+在系统已部署运行的情况下，该提示通常表示端口正在被预期服务占用，并不必然代表错误。应结合以下命令确认：
+
+```powershell
+pm2 list
+netstat -ano | findstr ":8081"
+netstat -ano | findstr ":3001"
+```
 
 ---
+
+### 5.4 Nginx 反向代理关系
+
+Nginx 监听服务器 `8081` 端口，并负责前端静态文件托管和 API 反向代理。
+
+请求流向如下：
+
+```text
+用户浏览器
+  ↓
+http://公网IP:8081
+  ↓
+Nginx
+  ├── /            → C:\foodtestlab\dist\index.html
+  ├── /js /css     → C:\foodtestlab\dist 静态资源
+  └── /api/*       → http://127.0.0.1:3001/api/*
+```
+
+Nginx 的核心职责包括：
+
+1. 托管 `C:\foodtestlab\dist` 下的前端构建产物；
+2. 支持前端路由回退到 `index.html`；
+3. 将 `/api/` 请求反向代理到本机 Node.js 后端；
+4. 对 JS、CSS、图片、字体等静态资源启用缓存；
+5. 对 HTML 文件禁用强缓存，保证入口文件及时更新；
+6. 校验配置后重载服务，避免错误配置影响线上访问。
+
+---
+
+### 5.5 一键部署脚本
+
+系统通过 PowerShell 脚本执行一键部署：
+
+```powershell
+cd C:\foodtestlab
+.\deploy.ps1
+```
+
+部署脚本主要执行以下步骤：
+
+1. 输出部署基础信息；
+2. 检查 Node.js、npm、PM2 等基础工具；
+3. 检查食品系统与 RDPMS 系统端口隔离；
+4. 检查 Git 仓库和远程地址；
+5. 停止 `foodtestlab-api` PM2 进程以释放文件锁；
+6. 拉取 `runon_tencentcloud` 分支最新代码；
+7. 检查环境变量文件；
+8. 安装后端依赖；
+9. 设置数据库目录和 `DATABASE_URL`；
+10. 执行 Prisma Client 生成；
+11. 执行数据库 schema 同步；
+12. 执行 `seed.js` 种子数据初始化；
+13. 启动或重启 `foodtestlab-api` 后端服务；
+14. 保存 PM2 进程列表；
+15. 安装前端依赖；
+16. 执行前端静态构建；
+17. 验证 `dist/index.html` 是否存在；
+18. 检查 Nginx 配置语法；
+19. 执行本机 API 健康检查。
+
+部署成功的关键标志包括：
+
+```text
+数据库 schema 同步完成
+Build completed: dist/ generated successfully
+前端构建验证通过：dist/index.html 存在
+nginx: configuration file C:\nginx/conf/nginx.conf test is successful
+API 健康检查通过：http://127.0.0.1:3001/api/health 状态码: 200
+食品检验系统部署完成
+```
+
+---
+
+### 5.6 PM2 进程管理
+
+食品检验系统后端由 PM2 管理，进程名为：
+
+```text
+foodtestlab-api
+```
+
+常用命令如下：
+
+```powershell
+pm2 list
+pm2 logs foodtestlab-api
+pm2 restart foodtestlab-api
+pm2 stop foodtestlab-api
+pm2 save
+```
+
+正常部署后，PM2 状态应显示：
+
+```text
+foodtestlab-api    online
+rdpms-backend      online
+```
+
+其中 `foodtestlab-api` 对应食品检验系统，`rdpms-backend` 对应 RDPMS 系统。
+
+---
+
+### 5.7 数据库部署位置
+
+当前生产环境使用 SQLite 数据库，数据库文件位于：
+
+```text
+D:\foodtestlab\data\foodtestlab.db
+```
+
+部署脚本会设置：
+
+```text
+DATABASE_URL=file:D:/foodtestlab/data/foodtestlab.db
+```
+
+并执行：
+
+```powershell
+npx prisma generate
+npx prisma db push
+```
+
+用于生成 Prisma Client 并同步数据库 schema。
+
+该数据库文件位于独立数据目录，便于后续备份、迁移和权限管理。
+
+### 5.8 当前部署验证状态
+
+根据最近一次部署日志，系统当前部署状态如下：
+
+| 检查项 | 状态 |
+|---|---|
+| Git 分支 | `runon_tencentcloud` |
+| 最新提交 | `2639a5e feature: 新增果蔬农残检测-噻虫嗪-胶体金检测卡` |
+| 后端依赖安装 | 通过 |
+| Prisma Client 生成 | 通过 |
+| 数据库 schema 同步 | 通过 |
+| 前端构建 | 通过 |
+| Nginx 配置语法检查 | 通过 |
+| PM2 后端进程 | `foodtestlab-api online` |
+| API 健康检查 | `200 OK` |
+| RDPMS 隔离 | 通过 |
+| 食品系统端口 | 前端 `8081`，API `3001` |
+
+当前部署中存在 seed 初始化 email 唯一约束提示，但未阻断部署完成。建议后续优化 seed 脚本的幂等处理逻辑。
 
 ## 6. 前端架构
 
@@ -421,6 +536,61 @@ erDiagram
 
 ---
 
+## 8.4 数据库字段命名与 ORM 映射
+
+当前数据库结构由 Prisma ORM 管理，数据库字段和 Prisma 模型字段以 `backend/prisma/schema.prisma` 为最终准绳。
+
+根据当前数据库文档，主要模型字段采用 snake_case 命名，例如：
+
+```prisma
+model User {
+  id            String   @id @default(cuid())
+  username      String   @unique
+  email         String?  @unique
+  password_hash String
+  full_name     String?
+  phone         String?
+  role          String   @default("user")
+  status        String   @default("active")
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+  last_login    DateTime?
+}
+```
+
+因此，在数据库文档和架构说明中，用户密码字段应优先表述为：
+
+```text
+password_hash
+```
+
+时间字段应表述为：
+
+```text
+created_at
+updated_at
+last_login
+```
+
+如业务代码中出现 `passwordHash`、`createdAt`、`lastLogin` 等 camelCase 字段，应结合 `schema.prisma` 中是否存在 `@map` 映射进行确认。
+
+可能存在两种情况：
+
+| 情况 | 说明 |
+|---|---|
+| 直接 snake_case | Prisma Client 使用 `password_hash` |
+| Prisma `@map` 映射 | Prisma Client 使用 `passwordHash`，数据库列名为 `password_hash` |
+
+当前架构文档以 `schema.prisma` 和实际部署运行状态为准，不以概括性说明代码片段作为最终字段依据。
+
+建议通过以下命令确认实际字段：
+
+```powershell
+cd C:\foodtestlab\backend
+Get-Content .\prisma\schema.prisma
+Select-String -Path .\modules\UserManager.js -Pattern "password" -Context 3,3
+```
+
 ## 9. 前后端交互方式
 
 ### 9.1 交互模式
@@ -466,10 +636,22 @@ GET  http://公网IP:8081/api/health
 
 ### 9.3 登录接口
 
-用户登录接口位于：
+系统用户登录接口为：
 
 ```text
 POST /api/user/login
+```
+
+生产环境公网访问示例：
+
+```text
+POST http://公网IP:8081/api/user/login
+```
+
+后端本机访问示例：
+
+```text
+POST http://127.0.0.1:3001/api/user/login
 ```
 
 请求体示例：
@@ -477,7 +659,7 @@ POST /api/user/login
 ```json
 {
   "username": "admin",
-  "password": "admin123"
+  "password": "8888"
 }
 ```
 
@@ -487,11 +669,10 @@ POST /api/user/login
 {
   "success": true,
   "user": {
-    "id": "user_001",
+    "id": "user_id",
     "username": "admin",
     "role": "admin",
-    "status": "active",
-    "lastLogin": "2026-06-15T10:00:00Z"
+    "status": "active"
   },
   "token": "jwt-token-string"
 }
@@ -506,7 +687,15 @@ POST /api/user/login
 }
 ```
 
----
+根据部署日志和 seed 初始化说明，系统初始账户仅在首次创建时生效：
+
+```text
+admin / 8888
+operator / operator123
+viewer / viewer123
+```
+
+如果账户已经存在，seed 脚本会跳过已有账户。
 
 ### 9.4 登录处理流程
 
@@ -695,31 +884,19 @@ const urlParams = new URLSearchParams(window.location.search);
 const isQuickAccessParam = urlParams.get('quickAccess') === 'true';
 ```
 
-同时，系统也会读取 localStorage 中的快速访问标识：
-
-```text
-is_quick_access
-```
-
-最终判断逻辑为：
-
-```text
-URL 参数 quickAccess=true
-或
-localStorage 中存在 quickAccess 标识
-```
+同时，系统还会检查 localStorage 中是否已经存在快速访问状态。
 
 ---
 
-### 11.2 quickAccess 激活流程
+### 11.2 激活逻辑
 
-当系统检测到 `quickAccess=true` 且当前没有访客登录态时，会调用：
+当 URL 中包含 `quickAccess=true`，且当前没有有效访客登录态时，系统会调用：
 
 ```javascript
 guestAuthService.quickAccessAsViewer()
 ```
 
-该方法会创建一个临时访客：
+该方法会创建临时访客对象：
 
 ```javascript
 const tempGuest = {
@@ -731,7 +908,7 @@ const tempGuest = {
 };
 ```
 
-并写入：
+随后写入 localStorage：
 
 ```text
 guest_token
@@ -741,94 +918,87 @@ is_quick_access
 
 ---
 
-### 11.3 quickAccess 数据流
+### 11.3 生命周期
 
-```mermaid
-flowchart TD
-    A[用户访问 ?quickAccess=true] --> B[前端解析 URL 参数]
-    B --> C{是否已有访客登录态}
-    C -->|否| D[创建临时访客 temp_guest]
-    C -->|是| E[复用当前访客状态]
-    D --> F[写入 localStorage]
-    E --> G[进入访客界面]
-    F --> G
-    G --> H[隐藏管理菜单]
-    H --> I[读取缓存数据]
-    I --> J[只读展示数据]
-```
-
----
-
-### 11.4 quickAccess 权限边界
-
-快速访问模式属于 guest viewer 权限，原则上仅允许只读访问。
-
-| 功能 | quickAccess |
-|---|---:|
-| 查看公开数据 | 允许 |
-| 查看缓存数据 | 允许 |
-| 查看访客首页 | 允许 |
-| 编辑检测记录 | 禁止 |
-| 删除检测记录 | 禁止 |
-| 用户管理 | 禁止 |
-| 数据备份恢复 | 禁止 |
-| 查看审计日志 | 禁止 |
-| 导出数据 | 禁止 |
-| 系统配置 | 禁止 |
-
----
-
-### 11.5 quickAccess 生命周期
-
-当前实现中，quickAccess 临时访客有效期为 1 小时：
+quickAccess 临时访客默认有效期为 1 小时：
 
 ```javascript
 valid_until: new Date(Date.now() + 3600 * 1000).toISOString()
 ```
 
-超出有效期后，应清除对应访客状态或要求重新进入快速访问模式。
+超过有效期后，前端应清除 quickAccess 状态或要求用户重新通过快速访问入口进入系统。
 
 ---
+
+### 11.4 权限边界
+
+quickAccess viewer 属于临时只读访问模式。
+
+| 功能 | quickAccess viewer |
+|---|---:|
+| 访问首页 | 是 |
+| 查看公开数据 | 是 |
+| 查看缓存数据 | 是 |
+| 新增检测记录 | 否 |
+| 编辑检测记录 | 否 |
+| 删除检测记录 | 否 |
+| 用户管理 | 否 |
+| 数据导出 | 否 |
+| 备份恢复 | 否 |
+| 审计日志 | 否 |
+| 系统配置 | 否 |
+
+quickAccess 不应绕过后端权限控制。所有写操作、导出操作、用户管理、备份恢复等敏感接口必须拒绝 quickAccess 访问。
 
 ## 12. 权限体系
 
-### 12.1 权限分层
+### 12.1 角色与访问类型
 
-本文档按产品使用层级将用户划分为三类：
+当前系统的权限体系由两部分组成：
 
-| 角色 | 说明 |
-|---|---|
-| `admin` | 系统管理员，拥有完整管理权限 |
-| `user` | 普通用户，拥有业务数据查看和编辑权限 |
-| `guest` | 访客用户，主要用于只读访问和快速访问 |
+1. 系统用户角色；
+2. 访客访问类型。
 
-数据库和后端模型中可进一步扩展：
+系统用户角色主要存储在 `User.role` 字段中，访客类型主要存储在 `Guest.guest_type` 字段中。
 
-```text
-manager / operator / viewer
-```
+根据当前数据库文档、Prisma 模型注释、SQL 初始化脚本和 seed 初始化日志，系统涉及以下角色或访问类型：
 
-但在当前系统说明中统一抽象为 admin、user、guest 三级。
+| 类型 | 标识 | 说明 |
+|---|---|---|
+| 系统用户角色 | `admin` | 系统管理员，拥有最高权限 |
+| 系统用户角色 | `manager` | 管理人员或部门经理，拥有一定范围内的数据管理权限 |
+| 系统用户角色 | `operator` | 检测操作员，负责录入和维护检测数据 |
+| 系统用户角色 | `viewer` | 查看员，主要拥有只读权限 |
+| 系统用户角色 | `user` | 普通用户，系统默认角色 |
+| 访客类型 | `viewer` | 只读访客 |
+| 访客类型 | `export_applicant` | 可申请导出权限的访客 |
+| 快速访问类型 | `quickAccess viewer` | 通过 `?quickAccess=true` 创建的临时只读访客 |
+
+需要注意的是，部分历史 SQL 文件中可能仅包含 `admin`、`manager`、`user` 三类角色约束，而 Prisma 注释和 seed 初始化中已经出现 `operator`、`viewer`。因此，当前角色体系应以 `backend/prisma/schema.prisma`、`backend/prisma/seed.js` 和实际权限判断代码为准。
 
 ---
 
-### 12.2 角色权限说明
+### 12.2 系统用户角色说明
 
-#### 12.2.1 admin 管理员
+#### 12.2.1 admin
 
-管理员拥有系统最高权限，包括：
+`admin` 为系统管理员角色，拥有系统最高权限。
+
+典型权限包括：
 
 - 用户管理；
-- 查看和编辑所有检测数据；
-- 删除数据；
+- 角色管理；
+- 查看全部检测数据；
+- 新增、编辑、删除检测记录；
 - 数据导出；
 - 数据备份与恢复；
 - 查看审计日志；
-- 系统配置；
+- 查看系统日志；
 - 访客管理；
-- 导出申请审批。
+- 审批访客导出申请；
+- 系统配置和维护。
 
-典型模块：
+典型模块包括：
 
 ```text
 UserManagement
@@ -843,88 +1013,180 @@ GenericTest
 
 ---
 
-#### 12.2.2 user 普通用户
+#### 12.2.2 manager
 
-普通用户拥有有限业务权限，包括：
+`manager` 为管理人员或部门经理角色，权限低于管理员，但高于普通操作用户。
 
-- 查看部分检测数据；
+典型权限包括：
+
+- 查看管理范围内的检测数据；
 - 创建检测记录；
-- 编辑自己负责的数据；
-- 查看业务看板；
-- 使用检测模块；
-- 不可访问系统管理功能；
-- 不可查看审计日志；
-- 不可进行系统备份恢复；
-- 默认不可导出数据报告。
-
-典型模块：
-
-```text
-Dashboard
-Tableware
-Pathogen
-GenericTest
-```
+- 编辑管理范围内的检测记录；
+- 审核或管理部分业务数据；
+- 查看部分统计数据；
+- 可根据系统配置拥有部分删除或导出权限；
+- 不拥有系统级用户管理和系统配置权限，除非后端显式授权。
 
 ---
 
-#### 12.2.3 guest 访客
+#### 12.2.3 operator
 
-访客用户拥有只读权限，主要包括：
+`operator` 为检测操作员角色，主要负责检测业务数据的录入和维护。
+
+典型权限包括：
+
+- 创建检测记录；
+- 编辑自己创建或分配给自己的检测记录；
+- 上传或关联检测附件；
+- 查看与自身工作相关的数据；
+- 不允许管理用户；
+- 不允许执行系统备份恢复；
+- 默认不允许查看审计日志；
+- 默认不允许删除关键业务数据。
+
+---
+
+#### 12.2.4 viewer
+
+`viewer` 为查看员角色，主要用于只读访问场景。
+
+典型权限包括：
+
+- 查看检测记录；
+- 查看统计看板；
+- 查看部分公开或授权数据；
+- 不允许新增、编辑、删除数据；
+- 不允许导出数据，除非系统另行配置；
+- 不允许进入用户管理、备份恢复和审计日志模块。
+
+---
+
+#### 12.2.5 user
+
+`user` 为系统默认普通用户角色。  
+该角色用于未被明确划分为 manager、operator 或 viewer 的普通业务用户。
+
+典型权限包括：
+
+- 查看授权范围内的数据；
+- 创建部分检测记录；
+- 编辑自己负责的数据；
+- 不允许访问系统管理功能；
+- 不允许查看审计日志；
+- 默认不允许执行备份恢复；
+- 默认不允许管理其他用户。
+
+---
+
+### 12.3 访客类型说明
+
+#### 12.3.1 guest viewer
+
+`guest viewer` 为普通只读访客，主要通过 `Guest` 模型管理。
+
+典型权限包括：
 
 - 查看访客首页；
 - 查看公开数据；
-- 在 quickAccess 模式下查看缓存数据；
-- 不可新增、编辑、删除数据；
-- 不可导出数据；
-- 不可访问用户管理；
-- 不可访问备份恢复；
-- 不可访问审计日志。
+- 查看授权范围内的数据；
+- 不允许新增、编辑、删除数据；
+- 不允许用户管理；
+- 不允许备份恢复；
+- 不允许查看审计日志；
+- 不允许直接导出数据。
 
-典型模块：
+---
+
+#### 12.3.2 export_applicant
+
+`export_applicant` 为可申请导出权限的访客类型。
+
+该类型访客本身不应默认拥有直接导出权限，而是通过 `guest_export_requests` 表提交导出申请。
+
+典型流程为：
 
 ```text
-GuestDashboard
-quickAccess
+访客提交导出申请
+  ↓
+写入 guest_export_requests
+  ↓
+管理员或授权人员审批
+  ↓
+审批通过后在有效期内开放导出权限
+  ↓
+导出行为写入审计日志
 ```
 
 ---
 
-### 12.3 权限矩阵
+#### 12.3.3 quickAccess viewer
 
-| 功能模块 | admin | user | guest |
-|---|---:|---:|---:|
-| 登录系统 | 是 | 是 | 可选 |
-| 快速访问模式 | 否 | 否 | 是 |
-| 查看首页 / 看板 | 是 | 是 | 是 |
-| 查看检测记录 | 是 | 部分 | 公开 / 缓存数据 |
-| 新增检测记录 | 是 | 是 | 否 |
-| 编辑检测记录 | 是 | 自己负责的数据 | 否 |
-| 删除检测记录 | 是 | 否 | 否 |
-| 数据导出 | 是 | 否 | 否 |
-| 用户管理 | 是 | 否 | 否 |
-| 访客管理 | 是 | 否 | 否 |
-| 数据备份恢复 | 是 | 否 | 否 |
-| 查看审计日志 | 是 | 否 | 否 |
-| 系统配置 | 是 | 否 | 否 |
+`quickAccess viewer` 是通过 URL 参数快速创建的临时只读访客。
+
+入口形式为：
+
+```text
+http://公网IP:8081/?quickAccess=true
+```
+
+前端检测到该参数后，会调用：
+
+```javascript
+guestAuthService.quickAccessAsViewer()
+```
+
+并在 localStorage 中写入：
+
+```text
+guest_token
+current_guest
+is_quick_access
+```
+
+该模式默认有效期为 1 小时，主要用于无需完整登录流程的临时查看场景。
 
 ---
 
-### 12.4 权限控制实现层级
+### 12.4 权限矩阵
+
+| 功能模块 | admin | manager | operator | user | viewer | guest viewer | export_applicant | quickAccess viewer |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 登录系统 | 是 | 是 | 是 | 是 | 是 | 是 | 是 | URL 触发 |
+| 查看首页 / 看板 | 是 | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
+| 查看检测记录 | 全部 | 管理范围 | 相关数据 | 授权范围 | 授权范围 | 公开/授权 | 公开/授权 | 缓存/公开 |
+| 新增检测记录 | 是 | 是 | 是 | 可选 | 否 | 否 | 否 | 否 |
+| 编辑检测记录 | 是 | 管理范围 | 自己负责 | 自己负责 | 否 | 否 | 否 | 否 |
+| 删除检测记录 | 是 | 可选 | 否 | 否 | 否 | 否 | 否 | 否 |
+| 数据导出 | 是 | 可选 | 否 | 否 | 默认否 | 否 | 申请后可选 | 否 |
+| 用户管理 | 是 | 否 | 否 | 否 | 否 | 否 | 否 | 否 |
+| 访客管理 | 是 | 可选 | 否 | 否 | 否 | 否 | 否 | 否 |
+| 导出申请审批 | 是 | 可选 | 否 | 否 | 否 | 否 | 否 | 否 |
+| 数据备份恢复 | 是 | 否 | 否 | 否 | 否 | 否 | 否 | 否 |
+| 查看审计日志 | 是 | 可选 | 否 | 否 | 否 | 否 | 否 | 否 |
+| 系统配置 | 是 | 否 | 否 | 否 | 否 | 否 | 否 | 否 |
+
+说明：
+
+- “可选”表示取决于后端权限配置和实际业务规则；
+- 前端隐藏菜单不等于后端权限控制；
+- 所有敏感操作应由后端 API 进行最终权限校验；
+- quickAccess 模式必须保持只读。
+
+---
+
+### 12.5 权限控制实现层级
 
 系统权限控制分布在多个层级：
 
 | 层级 | 作用 |
 |---|---|
-| 前端路由层 | 判断是否允许访问某页面 |
+| 前端路由层 | 判断是否允许访问页面 |
 | 前端 UI 层 | 根据角色隐藏菜单、按钮和管理功能 |
-| 前端服务层 | 根据 token 或 guest 状态决定请求方式 |
-| 后端 API 层 | 对敏感接口进行认证和权限校验 |
-| 数据库层 | 保存用户角色、状态、访客有效期和审计信息 |
+| 前端服务层 | 根据 token、guest_token 或 quickAccess 状态决定请求方式 |
+| 后端 API 层 | 对登录态、角色和权限进行最终校验 |
+| 数据库层 | 保存用户角色、访客类型、有效期、导出申请和审计信息 |
 
-需要注意的是，前端权限控制主要提升用户体验，不应作为唯一安全边界。敏感操作必须由后端 API 进行最终校验。
-
----
+需要强调的是，localStorage 中的角色或访客状态仅用于前端展示和状态恢复，不应作为最终安全依据。敏感操作必须在后端校验用户身份和权限。
 
 ## 13. 数据流向说明
 
