@@ -11,7 +11,7 @@
 **PM2 进程名**：`foodtestlab-api`  
 **数据库类型**：Prisma + SQLite  
 **数据库文件**：`D:\foodtestlab\data\foodtestlab.db`  
-**文档版本**：v1.3  
+**文档版本**：v1.4  
 **更新时间**：2026-06-16  
 **适用对象**：后端开发人员、前端开发人员、测试人员、部署运维人员、项目交接人员  
 
@@ -31,7 +31,10 @@
 6. Nginx 反向代理配置检查；
 7. SQLite 数据库初始化、备份与恢复；
 8. 登录失败、500 错误、API 地址异常、数据库迁移异常等问题排查；
-9. 后续项目维护、交接和二次开发。
+9. 同一台服务器上食品检验系统与 RDPMS 系统共存运维；
+10. 后续项目维护、交接和二次开发。
+
+若本文档与旧文档或历史说明存在不一致，当前腾讯云生产部署应以本文档为准。
 
 若本文档与实际代码存在不一致，应优先以以下文件为准：
 
@@ -46,7 +49,52 @@ C:\nginx\conf\nginx.conf
 
 ---
 
-## 2. 系统概述
+## 2. 快速部署摘要
+
+适用于服务器环境已准备完成、项目目录已存在的常规更新部署。
+
+### 2.1 一键部署
+
+```powershell
+cd C:\foodtestlab
+.\deploy.ps1
+```
+
+如 PowerShell 执行策略限制脚本运行，可使用：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\deploy.ps1
+```
+
+### 2.2 部署后快速验证
+
+```powershell
+pm2 list
+Invoke-WebRequest -Uri "http://127.0.0.1:3001/api/health" -UseBasicParsing
+```
+
+浏览器访问：
+
+```text
+http://公网IP:8081
+```
+
+### 2.3 首次登录账号
+
+当前 `seed.js` 首次初始化时会创建以下账号：
+
+| 用户名 | 初始密码 | 角色 | 用途 |
+|---|---|---|---|
+| `admin` | `8888` | `admin` | 管理员 |
+| `operator` | `operator123` | `operator` | 测试员 |
+| `viewer` | `viewer123` | `viewer` | 查看员 |
+
+生产环境首次登录后，必须立即修改 `admin` 密码。  
+如 `operator` 和 `viewer` 示例账号无实际业务需要，应修改密码或禁用。
+
+---
+
+## 3. 系统概述
 
 食品安全检验管理系统 Pro 是面向学校食品安全快速检测场景开发的轻量化 Web 管理系统，用于记录、管理和追踪食堂相关检测数据，包括：
 
@@ -76,9 +124,9 @@ C:\nginx\conf\nginx.conf
 
 ---
 
-## 3. 生产部署架构
+## 4. 生产部署架构
 
-### 3.1 请求流向
+### 4.1 请求流向
 
 ```text
 用户浏览器
@@ -97,7 +145,7 @@ Nginx 监听 8081
                      D:\foodtestlab\data\foodtestlab.db
 ```
 
-### 3.2 生产访问地址
+### 4.2 生产访问地址
 
 | 类型 | 地址 |
 |---|---|
@@ -119,11 +167,9 @@ Nginx 监听 8081
 
 ---
 
-## 4. 目录规划
+## 5. 目录规划
 
-### 4.1 项目目录
-
-当前腾讯云 Windows Server 默认部署目录如下：
+### 5.1 项目目录
 
 | 项目 | 路径 |
 |---|---|
@@ -139,7 +185,7 @@ Nginx 监听 8081
 | SQLite 数据库文件 | `D:\foodtestlab\data\foodtestlab.db` |
 | 建议备份目录 | `D:\foodtestlab\backup` |
 
-### 4.2 项目结构参考
+### 5.2 项目结构参考
 
 ```text
 C:\foodtestlab
@@ -183,9 +229,9 @@ C:\foodtestlab\dist
 
 ---
 
-## 5. 环境要求
+## 6. 环境要求
 
-### 5.1 推荐环境
+### 6.1 推荐环境
 
 | 组件 | 推荐要求 |
 |---|---|
@@ -203,9 +249,7 @@ C:\foodtestlab\dist
 | 后端框架 | Express |
 | 前端架构 | 原生 HTML + JavaScript ES Modules |
 
-### 5.2 环境检查命令
-
-在服务器 PowerShell 中执行：
+### 6.2 环境检查命令
 
 ```powershell
 node -v
@@ -221,7 +265,7 @@ C:\nginx\nginx.exe -v
 systeminfo | findstr /B /C:"OS Name" /C:"OS Version"
 ```
 
-### 5.3 PM2 安装
+### 6.3 PM2 安装
 
 如服务器尚未安装 PM2，可执行：
 
@@ -237,7 +281,7 @@ pm2 -v
 
 ---
 
-## 6. 端口规划与双系统隔离
+## 7. 端口规划与双系统隔离
 
 当前服务器同时部署 RDPMS 系统和食品检验系统，两套系统通过端口和 PM2 进程名隔离。
 
@@ -255,6 +299,23 @@ pm2 -v
 | API 前缀 | `/api` | 所有正式 API 推荐经 `/api` 访问 |
 | 健康检查 | `/api/health` | 推荐生产健康检查路径 |
 
+### 7.1 双系统防冲突原则
+
+同一服务器同时部署 RDPMS 与食品检验系统时，应避免以下资源冲突：
+
+| 冲突类型 | 风险 | 食品系统约定 |
+|---|---|---|
+| 端口冲突 | 服务无法启动或请求转发错误 | 前端 `8081`，API `3001` |
+| PM2 名称冲突 | 误停止或误重启其他系统 | `foodtestlab-api` |
+| Nginx 配置覆盖 | 覆盖 RDPMS 配置导致旧系统不可访问 | 保留 `8080` 与 `8081` 两个 server |
+| 数据库路径冲突 | 数据串库或误删 | `D:\foodtestlab\data\foodtestlab.db` |
+| 前端构建目录冲突 | 静态资源互相覆盖 | `C:\foodtestlab\dist` |
+| 环境变量冲突 | API 端口、数据库路径错误 | 使用独立 `.env` 和 `backend\.env` |
+| 日志混淆 | 排查困难 | PM2 进程名和日志分别管理 |
+| 部署脚本误操作 | 误停止其他系统 | 仅操作 `foodtestlab-api` |
+
+部署或修改 Nginx 配置时，必须确认 RDPMS 的 `8080` server block 未被删除。
+
 部署脚本会检查：
 
 1. 食品系统端口不得与 RDPMS 端口冲突；
@@ -271,7 +332,7 @@ PM2 名称检查通过：foodtestlab-api 与 rdpms-backend 已隔离
 
 ---
 
-## 7. 腾讯云安全组配置
+## 8. 腾讯云安全组配置
 
 建议按最小开放原则配置安全组。
 
@@ -295,9 +356,9 @@ http://公网IP:8081
 
 ---
 
-## 8. Git 分支策略
+## 9. Git 分支策略
 
-### 8.1 部署分支
+### 9.1 部署分支
 
 当前腾讯云生产部署使用：
 
@@ -315,7 +376,7 @@ runon_tencentcloud
 6. 部署脚本 `deploy.ps1`；
 7. 与腾讯云运行环境相关的配置说明。
 
-### 8.2 使用原则
+### 9.2 使用原则
 
 1. 日常功能开发可在主分支或功能分支进行；
 2. 涉及腾讯云部署的改动，应合并至 `runon_tencentcloud`；
@@ -324,7 +385,7 @@ runon_tencentcloud
 5. 如因紧急问题直接修改服务器代码，应及时回传至 Git 仓库；
 6. 部署前应确认当前分支、远程地址和最近提交记录。
 
-### 8.3 分支检查命令
+### 9.3 分支检查命令
 
 ```powershell
 cd C:\foodtestlab
@@ -342,9 +403,9 @@ runon_tencentcloud
 
 ---
 
-## 9. 环境变量配置
+## 10. 环境变量配置
 
-### 9.1 文件位置
+### 10.1 文件位置
 
 当前项目可能存在两个 `.env` 文件：
 
@@ -355,9 +416,7 @@ runon_tencentcloud
 
 `deploy.ps1` 会检查根目录 `.env`。如果 `backend/.env` 不存在，会将根目录 `.env` 复制到后端目录。
 
-### 9.2 生产环境推荐 `.env`
-
-腾讯云生产环境推荐配置如下：
+### 10.2 生产环境推荐 `.env`
 
 ```env
 NODE_ENV=production
@@ -396,7 +455,7 @@ DEBUG_MODE=false
 MOCK_API=false
 ```
 
-### 9.3 关键变量说明
+### 10.3 关键变量说明
 
 | 变量 | 推荐值 | 说明 |
 |---|---|---|
@@ -412,7 +471,7 @@ MOCK_API=false
 | `DEBUG_MODE` | `false` | 生产关闭调试 |
 | `MOCK_API` | `false` | 生产关闭模拟 API |
 
-### 9.4 SQLite 口径说明
+### 10.4 SQLite 口径说明
 
 当前部署统一采用：
 
@@ -430,9 +489,41 @@ D:\foodtestlab\data\foodtestlab.db
 
 ---
 
-## 10. 一键部署脚本 `deploy.ps1`
+## 11. 部署前检查清单
 
-### 10.1 脚本位置
+部署前建议按以下清单检查。
+
+| 类别 | 检查项 | 命令或说明 |
+|---|---|---|
+| Git | 当前分支为 `runon_tencentcloud` | `git branch` |
+| Git | 工作区无未提交修改 | `git status` |
+| Git | 确认最近提交 | `git log --oneline -5` |
+| 环境 | Node 可用 | `node -v` |
+| 环境 | npm 可用 | `npm -v` |
+| 环境 | PM2 可用 | `pm2 -v` |
+| 环境 | Git 可用 | `git --version` |
+| Nginx | nginx.exe 存在 | `Test-Path C:\nginx\nginx.exe` |
+| Nginx | 配置语法正确 | `C:\nginx\nginx.exe -t` |
+| 数据库 | 部署前备份 SQLite | 复制 `D:\foodtestlab\data\foodtestlab.db` |
+| 端口 | 8081 未被异常占用 | `netstat -ano | findstr ":8081"` |
+| 端口 | 3001 未被异常占用 | `netstat -ano | findstr ":3001"` |
+| 双系统 | RDPMS 端口仍为 8080/3000 | 检查 Nginx 和 PM2 |
+| 安全 | `.env` 不使用默认 JWT_SECRET | 检查 `backend\.env` |
+| 安全 | 3001 未公网开放 | 检查腾讯云安全组 |
+
+推荐部署前备份数据库：
+
+```powershell
+$backupDir = "D:\foodtestlab\backup"
+New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
+Copy-Item "D:\foodtestlab\data\foodtestlab.db" "$backupDir\foodtestlab-$(Get-Date -Format yyyyMMdd-HHmmss).db"
+```
+
+---
+
+## 12. 一键部署脚本 `deploy.ps1`
+
+### 12.1 脚本位置
 
 ```text
 C:\foodtestlab\deploy.ps1
@@ -451,7 +542,7 @@ cd C:\foodtestlab
 powershell -ExecutionPolicy Bypass -File .\deploy.ps1
 ```
 
-### 10.2 默认参数
+### 12.2 默认参数
 
 | 参数 | 默认值 |
 |---|---|
@@ -467,7 +558,7 @@ powershell -ExecutionPolicy Bypass -File .\deploy.ps1
 | PM2 进程名 | `foodtestlab-api` |
 | 数据目录 | `D:\foodtestlab\data` |
 
-### 10.3 可通过环境变量覆盖的参数
+### 12.3 可通过环境变量覆盖的参数
 
 | 环境变量 | 默认值 | 说明 |
 |---|---|---|
@@ -491,7 +582,7 @@ $env:PM2_APP_NAME="foodtestlab-api"
 .\deploy.ps1
 ```
 
-### 10.4 脚本执行流程
+### 12.4 脚本执行流程
 
 `deploy.ps1` 主要执行以下步骤：
 
@@ -522,7 +613,7 @@ $env:PM2_APP_NAME="foodtestlab-api"
 25. 轮询本机 API 健康检查；
 26. 输出部署完成信息。
 
-### 10.5 部署日志
+### 12.5 部署日志
 
 日志目录：
 
@@ -538,7 +629,7 @@ deploy-20260616-120000.log
 
 部署完成后，脚本会输出实际日志路径。
 
-### 10.6 部署成功标志
+### 12.6 部署成功标志
 
 正常部署应出现类似信息：
 
@@ -551,10 +642,28 @@ API 健康检查通过：http://127.0.0.1:3001/api/health 状态码: 200
 食品检验系统部署完成
 ```
 
-部署完成后建议继续检查：
+---
+
+## 13. 部署后验收清单
+
+部署完成后应进行以下验收。
+
+| 类别 | 检查项 | 验收方式 |
+|---|---|---|
+| PM2 | 食品系统进程在线 | `pm2 list` |
+| 后端 | 本机健康检查通过 | `http://127.0.0.1:3001/api/health` |
+| Nginx | 配置语法正确 | `C:\nginx\nginx.exe -t` |
+| 前端 | 页面可访问 | `http://公网IP:8081` |
+| API | 公网 API 可访问 | `http://公网IP:8081/api/health` |
+| 登录 | `admin` 可登录 | `admin / 8888` |
+| 安全 | 登录后修改 admin 密码 | 人工确认 |
+| 双系统 | RDPMS 不受影响 | `http://公网IP:8080` |
+| 数据库 | SQLite 文件存在 | `D:\foodtestlab\data\foodtestlab.db` |
+| 日志 | 无明显启动错误 | `pm2 logs foodtestlab-api` |
+
+本机健康检查命令：
 
 ```powershell
-pm2 list
 Invoke-WebRequest -Uri "http://127.0.0.1:3001/api/health" -UseBasicParsing
 ```
 
@@ -566,9 +675,9 @@ http://公网IP:8081
 
 ---
 
-## 11. 后端部署说明
+## 14. 后端部署说明
 
-### 11.1 后端技术栈
+### 14.1 后端技术栈
 
 | 项目 | 内容 |
 |---|---|
@@ -581,7 +690,7 @@ http://公网IP:8081
 | 密码加密 | bcryptjs |
 | 默认端口 | `3001` |
 
-### 11.2 后端 package.json 关键命令
+### 14.2 后端 package.json 关键命令
 
 后端目录：
 
@@ -615,7 +724,7 @@ npm run seed
 pm2 start server.js --name foodtestlab-api --cwd C:\foodtestlab\backend --time
 ```
 
-### 11.3 依赖安装
+### 14.3 依赖安装
 
 部署脚本逻辑：
 
@@ -633,9 +742,9 @@ if (Test-Path "package-lock.json") {
 
 ---
 
-## 12. 前端部署说明
+## 15. 前端部署说明
 
-### 12.1 前端技术栈
+### 15.1 前端技术栈
 
 当前前端为：
 
@@ -663,7 +772,7 @@ login.html
 C:\foodtestlab\dist
 ```
 
-### 12.2 根目录 package.json 关键命令
+### 15.2 根目录 package.json 关键命令
 
 根目录：
 
@@ -688,7 +797,7 @@ npm start
 
 生产环境前端由 Nginx 托管，不通过 Node.js 直接托管静态文件。
 
-### 12.3 构建验证
+### 15.3 构建验证
 
 构建完成后应确认：
 
@@ -706,9 +815,9 @@ Test-Path C:\foodtestlab\dist\index.html
 
 ---
 
-## 13. 数据库部署与 Prisma 管理
+## 16. 数据库部署与 Prisma 管理
 
-### 13.1 数据库类型
+### 16.1 数据库类型
 
 当前生产环境使用：
 
@@ -728,7 +837,7 @@ Prisma 连接字符串：
 DATABASE_URL="file:D:/foodtestlab/data/foodtestlab.db"
 ```
 
-### 13.2 Prisma datasource 配置
+### 16.2 Prisma datasource 配置
 
 当前 `backend/prisma/schema.prisma` 中 datasource 明确配置为 SQLite：
 
@@ -753,7 +862,7 @@ PostgreSQL production
 
 应理解为后续扩展规划或历史注释，不作为当前部署依据。
 
-### 13.3 Prisma 文件
+### 16.3 Prisma 文件
 
 | 文件 | 说明 |
 |---|---|
@@ -763,7 +872,7 @@ PostgreSQL production
 | `backend/prisma/foodtestlab.db` | 开发环境数据库文件 |
 | `D:\foodtestlab\data\foodtestlab.db` | 生产环境数据库文件 |
 
-### 13.4 数据模型总览
+### 16.4 数据模型总览
 
 当前 `schema.prisma` 定义了以下模型：
 
@@ -778,7 +887,7 @@ PostgreSQL production
 | `Backup` | 系统备份元数据 |
 | `SystemLog` | 系统运行日志 |
 
-### 13.5 User 模型
+### 16.5 User 模型
 
 `User` 用于保存正式系统用户。
 
@@ -808,11 +917,9 @@ admin / manager / operator / viewer / user
 active / disabled
 ```
 
-### 13.6 AuditLog 模型
+### 16.6 AuditLog 模型
 
 `AuditLog` 用于记录用户操作审计。
-
-关键字段：
 
 | 字段 | 说明 |
 |---|---|
@@ -824,18 +931,9 @@ active / disabled
 | `ip_address` | IP 地址 |
 | `created_at` | 创建时间 |
 
-已建立索引：
-
-```text
-user_id
-created_at
-```
-
-### 13.7 TestRecord 模型
+### 16.7 TestRecord 模型
 
 `TestRecord` 是检测记录主表。
-
-关键字段：
 
 | 字段 | 说明 |
 |---|---|
@@ -861,17 +959,7 @@ pathogen / tableware / generic / custom
 pending / completed / failed / archived
 ```
 
-### 13.8 其他模型
-
-| 模型 | 作用 |
-|---|---|
-| `TestItem` | 保存检测项目明细 |
-| `Attachment` | 保存附件路径、文件名、大小、类型 |
-| `Guest` | 保存访客账号和创建来源 |
-| `Backup` | 保存备份文件名称、路径、大小、记录数等元数据 |
-| `SystemLog` | 保存系统级日志，包括 info / warn / error / debug |
-
-### 13.9 数据库同步命令
+### 16.8 数据库同步命令
 
 部署脚本会执行：
 
@@ -890,7 +978,7 @@ node prisma/seed.js
 | `npx prisma db push --accept-data-loss` | 将 Prisma schema 同步到 SQLite |
 | `node prisma/seed.js` | 初始化基础账号和系统日志 |
 
-### 13.10 `--accept-data-loss` 风险提示
+### 16.9 `--accept-data-loss` 风险提示
 
 当前部署脚本使用：
 
@@ -900,21 +988,11 @@ npx prisma db push --accept-data-loss
 
 该命令在 schema 变更时可能执行破坏性结构同步。生产部署前应先备份数据库。
 
-备份命令：
-
-```powershell
-$backupDir = "D:\foodtestlab\backup"
-New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
-Copy-Item "D:\foodtestlab\data\foodtestlab.db" "$backupDir\foodtestlab-$(Get-Date -Format yyyyMMdd-HHmmss).db"
-```
-
 ---
 
-## 14. 种子数据与默认账号
+## 17. 种子数据与默认账号
 
-### 14.1 seed.js 执行位置
-
-种子脚本位置：
+### 17.1 seed.js 执行位置
 
 ```text
 C:\foodtestlab\backend\prisma\seed.js
@@ -926,7 +1004,7 @@ C:\foodtestlab\backend\prisma\seed.js
 node prisma/seed.js
 ```
 
-### 14.2 初始化逻辑
+### 17.2 初始化逻辑
 
 当前 `seed.js` 使用 `ensureUser(user, plainPassword)` 逻辑初始化用户：
 
@@ -936,11 +1014,9 @@ node prisma/seed.js
 4. 创建初始用户；
 5. 最后写入一条 `SystemLog`，内容为“数据库初始化完成”。
 
-因此，`seed.js` **不会在每次部署时覆盖已经存在用户的密码**。
+因此，`seed.js` 不会在每次部署时覆盖已经存在用户的密码。
 
-这是生产环境中比较安全的初始化方式。
-
-### 14.3 初始账号
+### 17.3 初始账号
 
 当前种子脚本首次执行时会创建以下账号：
 
@@ -950,17 +1026,7 @@ node prisma/seed.js
 | `operator` | `operator123` | `operator` | `operator@foodlab.local` | 测试员 |
 | `viewer` | `viewer123` | `viewer` | `viewer@foodlab.local` | 查看员 |
 
-### 14.4 安全要求
-
-生产部署完成后，必须执行以下安全操作：
-
-1. 首次登录后立即修改 `admin` 初始密码；
-2. 不应长期使用 `8888` 作为管理员密码；
-3. 如不需要 `operator` 或 `viewer` 示例账号，应禁用或修改密码；
-4. 不应将生产真实密码写入公开仓库；
-5. 若系统对外长期开放，应建立密码复杂度和定期变更制度。
-
-### 14.5 重复执行 seed.js 的影响
+### 17.4 重复执行 seed.js 的影响
 
 因当前 `seed.js` 在创建用户前会检查用户是否存在：
 
@@ -984,38 +1050,72 @@ node prisma/seed.js
 
 因此多次执行后，`SystemLog` 中可能出现多条初始化日志。
 
+### 17.5 安全要求
+
+生产部署完成后，必须执行以下安全操作：
+
+1. 首次登录后立即修改 `admin` 初始密码；
+2. 不应长期使用 `8888` 作为管理员密码；
+3. 如不需要 `operator` 或 `viewer` 示例账号，应禁用或修改密码；
+4. 不应将生产真实密码写入公开仓库；
+5. 若系统对外长期开放，应建立密码复杂度和定期变更制度。
+
 ---
 
-## 15. Nginx 配置说明
+## 18. 登录与 Token 验证
 
-### 15.1 Nginx 文件位置
-
-Nginx 默认安装目录：
+当前正式登录接口为：
 
 ```text
-C:\nginx
+POST /api/user/login
 ```
 
-主配置文件：
+请求示例：
+
+```json
+{
+  "username": "admin",
+  "password": "8888"
+}
+```
+
+登录成功后，前端会将认证信息保存至浏览器本地存储：
 
 ```text
-C:\nginx\conf\nginx.conf
+localStorage.auth_token
+localStorage.current_user
 ```
 
-启动文件：
+后续访问受保护 API 时，请求头应包含：
 
-```text
-C:\nginx\nginx.exe
+```http
+Authorization: Bearer <token>
 ```
 
-日志文件：
+如果页面可访问但 API 返回 `401 Unauthorized`，应重点检查：
 
-```text
-C:\nginx\logs\access.log
-C:\nginx\logs\error.log
-```
+1. 是否已成功登录；
+2. `localStorage.auth_token` 是否存在；
+3. Token 是否过期；
+4. 后端 `JWT_SECRET` 是否发生变化；
+5. 前端请求是否使用 `/api/...` 路径；
+6. 后端认证中间件是否正常挂载。
 
-### 15.2 当前实际 Nginx 配置
+---
+
+## 19. Nginx 配置说明
+
+### 19.1 Nginx 文件位置
+
+| 项目 | 路径 |
+|---|---|
+| Nginx 安装目录 | `C:\nginx` |
+| 主配置文件 | `C:\nginx\conf\nginx.conf` |
+| 启动文件 | `C:\nginx\nginx.exe` |
+| access 日志 | `C:\nginx\logs\access.log` |
+| error 日志 | `C:\nginx\logs\error.log` |
+
+### 19.2 当前实际 Nginx 配置
 
 当前服务器使用双系统 Nginx 配置：
 
@@ -1091,7 +1191,7 @@ http {
 }
 ```
 
-### 15.3 食品检验系统关键配置说明
+### 19.3 食品检验系统关键配置说明
 
 | 配置 | 说明 |
 |---|---|
@@ -1105,41 +1205,11 @@ http {
 | `gzip on` | 启用 gzip 压缩 |
 | `server_name _` | 接收任意 Host |
 
-### 15.4 RDPMS 配置说明
-
-RDPMS 系统占用：
-
-```text
-前端端口：8080
-API 端口：3000
-前端目录：C:/rdpms/rdpms-system/frontend/dist
-```
-
-对应代理关系：
-
-```text
-http://公网IP:8080/api/* → http://127.0.0.1:3000/api/*
-```
-
-食品检验系统与 RDPMS 系统在 Nginx 层通过不同端口隔离。
-
-### 15.5 配置检查和重载
-
-进入 Nginx 目录：
+### 19.4 配置检查和重载
 
 ```powershell
 cd C:\nginx
-```
-
-检查配置：
-
-```powershell
 .\nginx.exe -t
-```
-
-重载配置：
-
-```powershell
 .\nginx.exe -s reload
 ```
 
@@ -1149,7 +1219,7 @@ cd C:\nginx
 C:\nginx\nginx.exe
 ```
 
-### 15.6 查看日志
+### 19.5 查看日志
 
 ```powershell
 Get-Content C:\nginx\logs\error.log -Tail 100
@@ -1158,61 +1228,27 @@ Get-Content C:\nginx\logs\access.log -Tail 100
 
 ---
 
-## 16. PM2 进程管理
+## 20. PM2 进程管理
 
-### 16.1 进程名称
+### 20.1 进程名称
 
-食品检验系统后端 PM2 进程名：
+| 系统 | PM2 进程名 |
+|---|---|
+| 食品检验系统 | `foodtestlab-api` |
+| RDPMS | `rdpms-backend` |
 
-```text
-foodtestlab-api
-```
-
-RDPMS 后端 PM2 进程名：
-
-```text
-rdpms-backend
-```
-
-### 16.2 常用命令
-
-查看进程：
+### 20.2 常用命令
 
 ```powershell
 pm2 list
-```
-
-查看日志：
-
-```powershell
 pm2 logs foodtestlab-api
-```
-
-重启后端：
-
-```powershell
 pm2 restart foodtestlab-api --update-env
-```
-
-停止后端：
-
-```powershell
 pm2 stop foodtestlab-api
-```
-
-查看详情：
-
-```powershell
 pm2 describe foodtestlab-api
-```
-
-保存进程列表：
-
-```powershell
 pm2 save
 ```
 
-### 16.3 正常状态
+### 20.3 正常状态
 
 正常情况下：
 
@@ -1221,7 +1257,7 @@ foodtestlab-api    online
 rdpms-backend      online
 ```
 
-### 16.4 Windows 重启后的恢复
+### 20.4 Windows 重启后的恢复
 
 如服务器重启后 PM2 进程未恢复，可执行：
 
@@ -1237,13 +1273,11 @@ pm2 save
 pm2 resurrect
 ```
 
-建议后续使用 `pm2-windows-startup`、Windows 计划任务或 NSSM 配置开机自启。
-
 ---
 
-## 17. Nginx 与 PM2 开机自启建议
+## 21. Nginx 与 PM2 开机自启建议
 
-### 17.1 Nginx 开机自启
+### 21.1 Nginx 开机自启
 
 Windows 版 Nginx 默认不会自动注册为系统服务。可选方式包括：
 
@@ -1259,7 +1293,7 @@ C:\nginx\nginx.exe
 
 推荐生产环境使用 NSSM 或计划任务实现开机自启。
 
-### 17.2 PM2 开机自启
+### 21.2 PM2 开机自启
 
 `deploy.ps1` 会执行：
 
@@ -1283,29 +1317,31 @@ pm2 start server.js --name foodtestlab-api --cwd C:\foodtestlab\backend --time
 pm2 save
 ```
 
+推荐后续使用 `pm2-windows-startup`、Windows 计划任务或 NSSM 配置开机自启。
+
 ---
 
-## 18. 健康检查与部署验证
+## 22. 健康检查与部署验证
 
-### 18.1 本机 API 健康检查
+### 22.1 本机 API 健康检查
 
 ```powershell
 Invoke-WebRequest -Uri "http://127.0.0.1:3001/api/health" -UseBasicParsing
 ```
 
-### 18.2 公网 API 健康检查
+### 22.2 公网 API 健康检查
 
 ```text
 http://公网IP:8081/api/health
 ```
 
-### 18.3 前端页面访问
+### 22.3 前端页面访问
 
 ```text
 http://公网IP:8081
 ```
 
-### 18.4 登录接口
+### 22.4 登录接口
 
 当前正式登录接口：
 
@@ -1320,9 +1356,7 @@ POST /api/login
 POST /api/auth/login
 ```
 
-### 18.5 初始账号登录验证
-
-首次部署后可使用以下账号进行登录验证：
+### 22.5 初始账号登录验证
 
 | 用户名 | 初始密码 | 角色 | 用途 |
 |---|---|---|---|
@@ -1334,11 +1368,11 @@ POST /api/auth/login
 
 ---
 
-## 19. 手动部署流程
+## 23. 手动部署流程
 
 如不使用 `deploy.ps1`，可按以下步骤手动部署。
 
-### 19.1 拉取代码
+### 23.1 拉取代码
 
 ```powershell
 cd C:\foodtestlab
@@ -1347,7 +1381,7 @@ git checkout runon_tencentcloud
 git reset --hard origin/runon_tencentcloud
 ```
 
-### 19.2 安装后端依赖
+### 23.2 安装后端依赖
 
 ```powershell
 cd C:\foodtestlab\backend
@@ -1360,7 +1394,7 @@ npm ci
 npm install
 ```
 
-### 19.3 配置数据库目录
+### 23.3 配置数据库目录
 
 ```powershell
 New-Item -ItemType Directory -Path D:\foodtestlab\data -Force
@@ -1372,7 +1406,7 @@ New-Item -ItemType Directory -Path D:\foodtestlab\data -Force
 DATABASE_URL="file:D:/foodtestlab/data/foodtestlab.db"
 ```
 
-### 19.4 Prisma 同步
+### 23.4 Prisma 同步
 
 ```powershell
 cd C:\foodtestlab\backend
@@ -1381,7 +1415,7 @@ npx prisma db push --accept-data-loss
 node prisma/seed.js
 ```
 
-### 19.5 启动后端
+### 23.5 启动后端
 
 ```powershell
 cd C:\foodtestlab\backend
@@ -1395,7 +1429,7 @@ pm2 save
 pm2 restart foodtestlab-api --update-env
 ```
 
-### 19.6 构建前端
+### 23.6 构建前端
 
 ```powershell
 cd C:\foodtestlab
@@ -1409,7 +1443,7 @@ npm run build
 Test-Path C:\foodtestlab\dist\index.html
 ```
 
-### 19.7 检查 Nginx
+### 23.7 检查 Nginx
 
 ```powershell
 cd C:\nginx
@@ -1417,7 +1451,7 @@ cd C:\nginx
 .\nginx.exe -s reload
 ```
 
-### 19.8 验证服务
+### 23.8 验证服务
 
 ```powershell
 Invoke-WebRequest -Uri "http://127.0.0.1:3001/api/health" -UseBasicParsing
@@ -1431,9 +1465,9 @@ http://公网IP:8081
 
 ---
 
-## 20. 数据库备份与恢复
+## 24. 数据库备份与恢复
 
-### 20.1 部署前备份
+### 24.1 部署前备份
 
 每次部署前建议备份：
 
@@ -1443,7 +1477,7 @@ New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
 Copy-Item "D:\foodtestlab\data\foodtestlab.db" "$backupDir\foodtestlab-$(Get-Date -Format yyyyMMdd-HHmmss).db"
 ```
 
-### 20.2 恢复数据库
+### 24.2 恢复数据库
 
 ```powershell
 pm2 stop foodtestlab-api
@@ -1453,7 +1487,7 @@ Copy-Item "D:\foodtestlab\backup\foodtestlab-备份时间.db" "D:\foodtestlab\da
 pm2 restart foodtestlab-api --update-env
 ```
 
-### 20.3 恢复后验证
+### 24.3 恢复后验证
 
 ```powershell
 Invoke-WebRequest -Uri "http://127.0.0.1:3001/api/health" -UseBasicParsing
@@ -1461,9 +1495,9 @@ Invoke-WebRequest -Uri "http://127.0.0.1:3001/api/health" -UseBasicParsing
 
 ---
 
-## 21. 回滚流程
+## 25. 回滚流程
 
-### 21.1 代码回滚
+### 25.1 代码回滚
 
 查看最近提交：
 
@@ -1484,7 +1518,7 @@ git reset --hard <commit_id>
 .\deploy.ps1
 ```
 
-### 21.2 数据库回滚
+### 25.2 数据库回滚
 
 如果本次部署涉及数据库结构或数据变更，应同步恢复部署前备份的数据库文件。
 
@@ -1496,9 +1530,9 @@ pm2 restart foodtestlab-api --update-env
 
 ---
 
-## 22. 常见问题排查
+## 26. 常见问题排查
 
-### 22.1 访问页面正常，但登录时报 500
+### 26.1 访问页面正常，但登录时报 500
 
 可能原因：
 
@@ -1529,7 +1563,7 @@ node prisma/seed.js
 pm2 restart foodtestlab-api --update-env
 ```
 
-### 22.2 公网 `/api/health` 返回 502
+### 26.2 公网 `/api/health` 返回 502
 
 可能原因：
 
@@ -1547,7 +1581,7 @@ netstat -ano | findstr ":3001"
 Invoke-WebRequest -Uri "http://127.0.0.1:3001/api/health" -UseBasicParsing
 ```
 
-### 22.3 页面能打开，但接口 404
+### 26.3 页面能打开，但接口 404
 
 可能原因：
 
@@ -1576,7 +1610,31 @@ POST /api/test-records
 /api/sync
 ```
 
-### 22.4 页面刷新后 404
+### 26.4 访客功能或导出申请接口不可用
+
+如果前端访客注册、访客登录或导出申请功能异常，并出现以下接口 404：
+
+```text
+/api/guest/*
+/api/guest-export-request/*
+```
+
+应优先检查后端是否已经实现并在 `backend/server.js` 中挂载相关路由。
+
+当前部署成功标准以已启用 API 为准，包括：
+
+```text
+/api/health
+/api/user
+/api/users
+/api/audit-logs
+/api/test-records
+/api/records/:tableName
+```
+
+未实现或未挂载的历史接口不应直接判断为 Nginx 或 PM2 部署失败。
+
+### 26.5 页面刷新后 404
 
 检查 Nginx 是否包含：
 
@@ -1594,7 +1652,7 @@ cd C:\nginx
 .\nginx.exe -s reload
 ```
 
-### 22.5 前端白屏
+### 26.6 前端白屏
 
 排查：
 
@@ -1610,7 +1668,7 @@ Get-Content C:\nginx\logs\error.log -Tail 100
 2. Network 中 JS/CSS 是否 404；
 3. API 请求路径是否为 `/api/...`。
 
-### 22.6 数据库文件不存在
+### 26.7 数据库文件不存在
 
 检查：
 
@@ -1634,7 +1692,7 @@ npx prisma db push --accept-data-loss
 node prisma/seed.js
 ```
 
-### 22.7 初始账号无法登录
+### 26.8 初始账号无法登录
 
 可能原因：
 
@@ -1655,7 +1713,7 @@ pm2 logs foodtestlab-api
 
 注意：由于 `seed.js` 对已存在账号会跳过，因此如果 `admin` 密码已被修改，再次执行 `seed.js` 不会恢复为 `8888`。
 
-### 22.8 端口冲突
+### 26.9 端口冲突
 
 ```powershell
 netstat -ano | findstr ":8081"
@@ -1666,7 +1724,7 @@ netstat -ano | findstr ":3000"
 
 如果部署脚本提示端口占用，在系统已运行的情况下可能是正常现象。应确认占用进程是否为预期的 Nginx 或 Node 服务。
 
-### 22.9 GitHub 拉取失败
+### 26.10 GitHub 拉取失败
 
 脚本有 3 次 `git fetch` 重试机制。若失败，会使用服务器本地已有代码继续部署。
 
@@ -1680,7 +1738,7 @@ git status
 git log --oneline -5
 ```
 
-### 22.10 Nginx reload 返回异常
+### 26.11 Nginx reload 返回异常
 
 如 Nginx 未启动，先执行：
 
@@ -1696,9 +1754,28 @@ cd C:\nginx
 .\nginx.exe -s reload
 ```
 
+### 26.12 API 返回 401 Unauthorized
+
+可能原因：
+
+1. 未登录；
+2. Token 不存在；
+3. Token 已过期；
+4. 前端未携带 `Authorization: Bearer <token>`；
+5. 后端 `JWT_SECRET` 变化导致旧 Token 全部失效；
+6. 当前账号被禁用。
+
+排查建议：
+
+1. 重新登录；
+2. 清理浏览器 localStorage；
+3. 检查浏览器 Network 请求头；
+4. 查看 PM2 后端日志；
+5. 确认用户状态为 `active`。
+
 ---
 
-## 23. 服务器重启后的恢复检查
+## 27. 服务器重启后的恢复检查
 
 服务器重启后建议依次检查：
 
@@ -1731,9 +1808,9 @@ http://公网IP:8081
 
 ---
 
-## 24. 运维检查清单
+## 28. 运维检查清单
 
-### 24.1 每次部署前
+### 28.1 每次部署前
 
 | 检查项 | 命令或说明 |
 |---|---|
@@ -1746,7 +1823,7 @@ http://公网IP:8081
 | 确认 RDPMS 不受影响 | 检查端口 `8080/3000` |
 | 确认 Nginx 配置 | `C:\nginx\nginx.exe -t` |
 
-### 24.2 每次部署后
+### 28.2 每次部署后
 
 | 检查项 | 命令或说明 |
 |---|---|
@@ -1761,7 +1838,7 @@ http://公网IP:8081
 
 ---
 
-## 25. 安全注意事项
+## 29. 安全注意事项
 
 1. 生产环境必须修改 `JWT_SECRET`；
 2. 生产环境不应长期使用默认管理员密码；
@@ -1774,20 +1851,44 @@ http://公网IP:8081
 9. 腾讯云 `3389` 远程桌面端口建议限制为固定管理 IP；
 10. Nginx 日志和 PM2 日志应定期清理；
 11. 后续如启用域名访问，建议配置 HTTPS；
-12. 如涉及敏感检测数据，应建立定期备份和访问审计制度。
+12. 如涉及敏感检测数据，应建立定期备份和访问审计制度；
+13. 不应将邮件密码、JWT 密钥、数据库连接串等敏感配置写入前端代码。
 
 ---
 
-## 26. 关键命令速查
+## 30. 与历史文档的口径差异说明
 
-### 26.1 一键部署
+当前腾讯云 Windows Server 部署以本文档为准。早期文档中存在部分规划性或历史性描述，不代表当前生产部署状态。
+
+| 历史或规划性表述 | 当前实际部署 |
+|---|---|
+| Docker / Kubernetes 部署 | 当前使用 Windows Server + PM2 |
+| systemd 服务 | 当前 Windows 环境不使用 systemd |
+| PostgreSQL 生产数据库 | 当前使用 SQLite |
+| Redis 缓存 | 当前未部署 Redis |
+| Elasticsearch / Kibana | 当前未部署 |
+| Prometheus / Grafana | 当前未部署 |
+| React 前端 | 当前为原生 HTML + JavaScript ES Modules |
+| 应用端口 3000 | 食品系统 API 端口为 `3001` |
+| 前端 localhost:3000 | 生产前端为 `http://公网IP:8081` |
+| `admin@foodlab.com` | 当前 seed.js 使用 `admin@foodlab.local` |
+| `/api/login` | 当前正式登录接口为 `/api/user/login` |
+| Supabase 数据存储 | 当前已迁移为 Prisma + SQLite |
+
+如后续升级为 PostgreSQL、Redis、Docker、HTTPS 或标准域名架构，应另行编写迁移部署文档。
+
+---
+
+## 31. 关键命令速查
+
+### 31.1 一键部署
 
 ```powershell
 cd C:\foodtestlab
 .\deploy.ps1
 ```
 
-### 26.2 PM2
+### 31.2 PM2
 
 ```powershell
 pm2 list
@@ -1797,7 +1898,7 @@ pm2 stop foodtestlab-api
 pm2 save
 ```
 
-### 26.3 Nginx
+### 31.3 Nginx
 
 ```powershell
 cd C:\nginx
@@ -1806,13 +1907,13 @@ cd C:\nginx
 C:\nginx\nginx.exe
 ```
 
-### 26.4 健康检查
+### 31.4 健康检查
 
 ```powershell
 Invoke-WebRequest -Uri "http://127.0.0.1:3001/api/health" -UseBasicParsing
 ```
 
-### 26.5 Prisma
+### 31.5 Prisma
 
 ```powershell
 cd C:\foodtestlab\backend
@@ -1821,14 +1922,14 @@ npx prisma db push --accept-data-loss
 node prisma/seed.js
 ```
 
-### 26.6 前端构建
+### 31.6 前端构建
 
 ```powershell
 cd C:\foodtestlab
 npm run build
 ```
 
-### 26.7 端口检查
+### 31.7 端口检查
 
 ```powershell
 netstat -ano | findstr ":8081"
@@ -1837,7 +1938,7 @@ netstat -ano | findstr ":8080"
 netstat -ano | findstr ":3000"
 ```
 
-### 26.8 日志查看
+### 31.8 日志查看
 
 ```powershell
 pm2 logs foodtestlab-api
@@ -1845,7 +1946,7 @@ Get-Content C:\nginx\logs\error.log -Tail 100
 Get-Content C:\nginx\logs\access.log -Tail 100
 ```
 
-### 26.9 初始账号
+### 31.9 初始账号
 
 ```text
 admin / 8888
@@ -1855,7 +1956,7 @@ viewer / viewer123
 
 ---
 
-## 27. 版本记录
+## 32. 版本记录
 
 | 版本 | 日期 | 修改内容 | 修改人 |
 |---|---|---|---|
@@ -1863,3 +1964,4 @@ viewer / viewer123
 | v1.1 | 2026-06-16 | 补充部署文件读取异常说明和资料获取建议 | 项目组 |
 | v1.2 | 2026-06-16 | 基于现有资料和部署脚本模板形成完整可交付版，固化 Nginx、Prisma、PM2、SQLite、故障排查和运维流程 | 项目组 |
 | v1.3 | 2026-06-16 | 根据真实 `nginx.conf`、`schema.prisma`、`seed.js` 完善 Nginx 双系统配置、SQLite schema、默认账号和初始化规则 | 项目组 |
+| v1.4 | 2026-06-16 | 增加快速部署摘要、部署前后检查清单、双系统防冲突、登录 Token 验证、访客接口风险说明和历史文档口径差异说明 | 项目组 |
