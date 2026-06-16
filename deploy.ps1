@@ -59,6 +59,24 @@ function Stop-PortProcess($port) {
     }
 }
 
+function Invoke-GitFetchWithTimeout($repoRootPath, $branchName, $timeoutSeconds) {
+    $arguments = @(
+        "-C", $repoRootPath,
+        "-c", "credential.interactive=never",
+        "-c", "http.lowSpeedLimit=1000",
+        "-c", "http.lowSpeedTime=30",
+        "fetch", "--prune", "origin", $branchName
+    )
+
+    $process = Start-Process -FilePath "git" -ArgumentList $arguments -NoNewWindow -PassThru
+    if (-not $process.WaitForExit($timeoutSeconds * 1000)) {
+        try { $process.Kill() } catch {}
+        return $false
+    }
+
+    return ($process.ExitCode -eq 0)
+}
+
 Log "珠海一中食品检验系统一键部署开始"
 
 # =========================================================
@@ -119,7 +137,7 @@ if (-not (Test-Path $nginxExe))  { Fail "未找到 nginx.exe: $nginxExe" }
 
 Write-Host "Node 版本: $(node -v)"
 Write-Host "npm  版本: $(npm -v)"
-Write-Host "PM2  版本: $(npx pm2 --no-update-notifier -v 2>$null)"
+Write-Host "PM2  版本: $(npx pm2 -v 2>$null)"
 
 # =========================================================
 # 3. 三系统隔离检查
@@ -168,8 +186,8 @@ if (-not (Test-Path (Join-Path $repoRoot ".git"))) {
     Write-Host "当前远程仓库: $remoteUrl"
 
     Log "停止珠海一中 PM2 后端，释放文件锁"
-    npx pm2 --no-update-notifier stop $pm2AppName 2>$null
-    npx pm2 --no-update-notifier delete $pm2AppName 2>$null
+    npx pm2 stop $pm2AppName *> $null
+    npx pm2 delete $pm2AppName *> $null
     Stop-PortProcess $apiPort
     Start-Sleep -Seconds 2
 
@@ -178,8 +196,9 @@ if (-not (Test-Path (Join-Path $repoRoot ".git"))) {
 
     while ($retryCount -lt $maxRetries) {
         Write-Host "正在执行 git fetch，尝试 $($retryCount + 1)/$maxRetries ..."
-        git -C $repoRoot fetch origin 2>&1
-        if ($LASTEXITCODE -eq 0) { $fetchSuccess = $true; break }
+        $fetchSuccess = Invoke-GitFetchWithTimeout $repoRoot $deployBranch 45
+        if ($fetchSuccess) { break }
+        Warn "git fetch 超时或失败（45 秒），准备重试"
         $retryCount++
         Start-Sleep -Seconds 3
     }
@@ -328,20 +347,20 @@ if (Test-Path "prisma") {
 
 Log "PM2 启动或重启珠海一中后端"
 
-$pm2Output = npx pm2 --no-update-notifier list 2>$null | Out-String
+$pm2Output = npx pm2 list 2>$null | Out-String
 
 if ($pm2Output -match [regex]::Escape($pm2AppName)) {
-    npx pm2 --no-update-notifier restart $pm2AppName --update-env
+    npx pm2 restart $pm2AppName --update-env
 } else {
-    if      (Test-Path "src/index.js")  { npx pm2 --no-update-notifier start src/index.js  --name $pm2AppName --cwd $backendPath --time }
-    elseif  (Test-Path "dist/index.js") { npx pm2 --no-update-notifier start dist/index.js --name $pm2AppName --cwd $backendPath --time }
-    elseif  (Test-Path "dist/main.js")  { npx pm2 --no-update-notifier start dist/main.js  --name $pm2AppName --cwd $backendPath --time }
-    elseif  (Test-Path "server.js")     { npx pm2 --no-update-notifier start server.js     --name $pm2AppName --cwd $backendPath --time }
-    else                                { npx pm2 --no-update-notifier start npm           --name $pm2AppName --cwd $backendPath -- start }
+    if      (Test-Path "src/index.js")  { npx pm2 start src/index.js  --name $pm2AppName --cwd $backendPath --time }
+    elseif  (Test-Path "dist/index.js") { npx pm2 start dist/index.js --name $pm2AppName --cwd $backendPath --time }
+    elseif  (Test-Path "dist/main.js")  { npx pm2 start dist/main.js  --name $pm2AppName --cwd $backendPath --time }
+    elseif  (Test-Path "server.js")     { npx pm2 start server.js     --name $pm2AppName --cwd $backendPath --time }
+    else                                { npx pm2 start npm           --name $pm2AppName --cwd $backendPath -- start }
 }
 
 if ($LASTEXITCODE -ne 0) { Fail "PM2 启动或重启后端失败" }
-npx pm2 --no-update-notifier save
+npx pm2 save
 
 # =========================================================
 # 8. API 健康检查（在前端构建之前，趁后端启动窗口期检查）
@@ -526,8 +545,8 @@ Log "珠海一中食品检验系统部署完成"
 Ok ("耗时: {0} 秒" -f [math]::Round($elapsed.TotalSeconds, 1))
 Write-Host ""
 Write-Host "请继续检查以下项目:" -ForegroundColor Cyan
-Write-Host "1. PM2 状态:     npx pm2 --no-update-notifier list"
-Write-Host "2. 后端日志:     npx pm2 --no-update-notifier logs $pm2AppName"
+Write-Host "1. PM2 状态:     npx pm2 list"
+Write-Host "2. 后端日志:     npx pm2 logs $pm2AppName"
 Write-Host "3. 健康检查:     Invoke-WebRequest -Uri `"$healthUrl`" -UseBasicParsing"
 Write-Host "4. 公网访问:     http://你的公网IP:$frontendPort"
 Write-Host "5. 部署日志:     $logFile"
