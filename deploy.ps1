@@ -45,6 +45,20 @@ function Test-PortListening($port) {
     }
 }
 
+function Stop-PortProcess($port) {
+    $connections = @(Test-PortListening $port)
+    foreach ($conn in $connections) {
+        if ($null -ne $conn.OwningProcess -and $conn.OwningProcess -gt 0) {
+            try {
+                Stop-Process -Id $conn.OwningProcess -Force -ErrorAction Stop
+                Write-Host "已强制结束占用端口 $port 的进程 PID=$($conn.OwningProcess)" -ForegroundColor Yellow
+            } catch {
+                Warn "无法结束占用端口 $port 的进程 PID=$($conn.OwningProcess)：$($_.Exception.Message)"
+            }
+        }
+    }
+}
+
 Log "珠海一中食品检验系统一键部署开始"
 
 # =========================================================
@@ -155,6 +169,8 @@ if (-not (Test-Path (Join-Path $repoRoot ".git"))) {
 
     Log "停止珠海一中 PM2 后端，释放文件锁"
     npx pm2 --no-update-notifier stop $pm2AppName 2>$null
+    npx pm2 --no-update-notifier delete $pm2AppName 2>$null
+    Stop-PortProcess $apiPort
     Start-Sleep -Seconds 2
 
     Log "拉取最新代码（带网络重试机制）"
@@ -250,10 +266,16 @@ if (-not (Test-Path "package.json")) { Fail "后端目录下未找到 package.js
 Log "后端依赖安装"
 
 if (Test-Path "package-lock.json") {
-    npm ci
+    try {
+        npm ci
+    } catch {
+        Warn "npm ci 在 Windows 上遇到文件占用，改用 npm install --no-audit --no-fund"
+        Stop-PortProcess $apiPort
+        npm install --no-audit --no-fund
+    }
 } else {
-    Warn "未找到 package-lock.json，改用 npm install"
-    npm install
+    Warn "未找到 package-lock.json，改用 npm install --no-audit --no-fund"
+    npm install --no-audit --no-fund
 }
 if ($LASTEXITCODE -ne 0) { Fail "后端依赖安装失败" }
 
