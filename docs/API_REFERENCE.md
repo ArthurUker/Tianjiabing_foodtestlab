@@ -1,7 +1,7 @@
 # 食品安全检验管理系统 Pro 后端接口文档
 
 **文档名称**：`API_REFERENCE.md`  
-**系统名称**：食品安全检验管理系统 Pro / 田家炳中学食品安全检验系统  
+**系统名称**：食品安全检验管理系统 Pro / 珠海一中食品安全检验系统  
 **后端目录**：`backend/`  
 **文档版本**：v1.1  
 **更新时间**：2026-06-16  
@@ -54,13 +54,13 @@ backend/prisma/schema.prisma
 生产环境中，Nginx 通常将：
 
 ```text
-http://服务器IP:8081/api/*
+http://服务器IP:8082/api/*
 ```
 
 反向代理至：
 
 ```text
-http://127.0.0.1:3001/api/*
+http://127.0.0.1:3002/api/*
 ```
 
 ---
@@ -301,13 +301,13 @@ GET /api/health
 ### 调试示例
 
 ```bash
-curl http://127.0.0.1:3001/api/health
+curl http://127.0.0.1:3002/api/health
 ```
 
 PowerShell：
 
 ```powershell
-Invoke-RestMethod -Uri "http://127.0.0.1:3001/api/health" -Method GET
+Invoke-RestMethod -Uri "http://127.0.0.1:3002/api/health" -Method GET
 ```
 
 ---
@@ -1553,8 +1553,8 @@ DELETE /api/records/:tableName/:id
 
 ```text
 http://localhost:3000
-http://localhost:3001
-http://localhost:8081
+http://localhost:3002
+http://localhost:8082
 http://localhost:5173
 http://127.0.0.1:5500
 ```
@@ -1629,7 +1629,7 @@ RATE_LIMIT_WINDOW_MS = 60000
 
 ```powershell
 Invoke-RestMethod `
-  -Uri "http://127.0.0.1:3001/api/health" `
+  -Uri "http://127.0.0.1:3002/api/health" `
   -Method GET
 ```
 
@@ -1642,7 +1642,7 @@ $loginBody = @{
 } | ConvertTo-Json
 
 $loginResp = Invoke-RestMethod `
-  -Uri "http://127.0.0.1:3001/api/user/login" `
+  -Uri "http://127.0.0.1:3002/api/user/login" `
   -Method POST `
   -ContentType "application/json" `
   -Body $loginBody
@@ -1655,7 +1655,7 @@ $token
 
 ```powershell
 Invoke-RestMethod `
-  -Uri "http://127.0.0.1:3001/api/records/tableware" `
+  -Uri "http://127.0.0.1:3002/api/records/tableware" `
   -Method GET `
   -Headers @{ Authorization = "Bearer $token" }
 ```
@@ -1675,7 +1675,7 @@ $recordBody = @{
 } | ConvertTo-Json
 
 Invoke-RestMethod `
-  -Uri "http://127.0.0.1:3001/api/records/tableware" `
+  -Uri "http://127.0.0.1:3002/api/records/tableware" `
   -Method POST `
   -ContentType "application/json" `
   -Headers @{ Authorization = "Bearer $token" } `
@@ -1699,7 +1699,7 @@ $bulkBody = @{
 } | ConvertTo-Json -Depth 5
 
 Invoke-RestMethod `
-  -Uri "http://127.0.0.1:3001/api/records/tableware/bulk-upsert" `
+  -Uri "http://127.0.0.1:3002/api/records/tableware/bulk-upsert" `
   -Method POST `
   -ContentType "application/json" `
   -Headers @{ Authorization = "Bearer $token" } `
@@ -1710,7 +1710,7 @@ Invoke-RestMethod `
 
 ```powershell
 Invoke-RestMethod `
-  -Uri "http://127.0.0.1:3001/api/users" `
+  -Uri "http://127.0.0.1:3002/api/users" `
   -Method GET `
   -Headers @{ Authorization = "Bearer $token" }
 ```
@@ -1862,8 +1862,8 @@ POST /api/users/:userId/enable
 
 ```powershell
 pm2 list
-pm2 logs foodtestlab-api
-netstat -ano | findstr :3001
+pm2 logs zhuhaiyizhong-api
+netstat -ano | findstr :3002
 nginx -t
 ```
 

@@ -7,7 +7,7 @@
 | 项目 | 内容 |
 |---|---|
 | 系统名称 | 食品安全检验管理系统 Pro |
-| 项目名称 | `tianjiabing-foodtestlab` |
+| 项目名称 | `zhuhaiyizhong-foodtestlab` |
 | 文档名称 | `FRONTEND_GUIDE.md` |
 | 文档类型 | 前端模块说明 / 前端维护指南 |
 | 适用对象 | 前端开发人员、后端联调人员、部署维护人员、项目交接人员 |

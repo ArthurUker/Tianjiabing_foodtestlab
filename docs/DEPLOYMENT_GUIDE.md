@@ -1,16 +1,16 @@
 # 食品安全检验管理系统 Pro 部署与运维指南
 
 **文档名称**：`DEPLOYMENT_GUIDE.md`  
-**系统名称**：食品安全检验管理系统 Pro / 田家炳中学食品安全检验系统  
-**项目名称**：`tianjiabing-foodtestlab`  
-**部署分支**：`runon_tencentcloud`  
+**系统名称**：食品安全检验管理系统 Pro / 珠海一中食品安全检验系统  
+**项目名称**：`zhuhaiyizhong-foodtestlab`  
+**部署分支**：`ZhuHaiYiZhong`  
 **部署环境**：腾讯云 Windows Server  
 **后端目录**：`backend/`  
 **后端默认端口**：`3001`  
 **前端生产访问端口**：`8081`  
-**PM2 进程名**：`foodtestlab-api`  
+**PM2 进程名**：`zhuhaiyizhong-api`  
 **数据库类型**：Prisma + SQLite  
-**数据库文件**：`D:\foodtestlab\data\foodtestlab.db`  
+**数据库文件**：`D:\珠海一中\foodtestlab.db`  
 **文档版本**：v1.4  
 **更新时间**：2026-06-16  
 **适用对象**：后端开发人员、前端开发人员、测试人员、部署运维人员、项目交接人员  
@@ -19,7 +19,7 @@
 
 ## 1. 文档目的
 
-本文档用于说明食品安全检验管理系统 Pro 在腾讯云 Windows Server 环境中的部署、更新、运维、回滚、Nginx 配置、PM2 进程管理、数据库初始化、常见故障排查以及 `runon_tencentcloud` 分支管理规则。
+本文档用于说明食品安全检验管理系统 Pro 在腾讯云 Windows Server 环境中的部署、更新、运维、回滚、Nginx 配置、PM2 进程管理、数据库初始化、常见故障排查以及 `ZhuHaiYiZhong` 分支管理规则。
 
 本文档适用于以下场景：
 
@@ -56,7 +56,7 @@ C:\nginx\conf\nginx.conf
 ### 2.1 一键部署
 
 ```powershell
-cd C:\foodtestlab
+cd C:\zhuhaiyizhong
 .\deploy.ps1
 ```
 
@@ -70,13 +70,13 @@ powershell -ExecutionPolicy Bypass -File .\deploy.ps1
 
 ```powershell
 pm2 list
-Invoke-WebRequest -Uri "http://127.0.0.1:3001/api/health" -UseBasicParsing
+Invoke-WebRequest -Uri "http://127.0.0.1:3002/api/health" -UseBasicParsing
 ```
 
 浏览器访问：
 
 ```text
-http://公网IP:8081
+http://公网IP:8082
 ```
 
 ### 2.3 首次登录账号
@@ -131,30 +131,30 @@ http://公网IP:8081
 ```text
 用户浏览器
   ↓
-http://公网IP:8081
+http://公网IP:8082
   ↓
 Nginx 监听 8081
-  ├── /             → C:\foodtestlab\dist\index.html
-  ├── /js /css 等   → C:\foodtestlab\dist 静态资源
-  └── /api/*        → http://127.0.0.1:3001/api/*
+  ├── /             → C:\zhuhaiyizhong\dist\index.html
+  ├── /js /css 等   → C:\zhuhaiyizhong\dist 静态资源
+  └── /api/*        → http://127.0.0.1:3002/api/*
                        ↓
                      Node.js + Express 后端
                        ↓
                      Prisma ORM
                        ↓
-                     D:\foodtestlab\data\foodtestlab.db
+                     D:\珠海一中\foodtestlab.db
 ```
 
 ### 4.2 生产访问地址
 
 | 类型 | 地址 |
 |---|---|
-| 前端公网访问地址 | `http://公网IP:8081` |
-| API 公网基础路径 | `http://公网IP:8081/api` |
-| 公网健康检查 | `http://公网IP:8081/api/health` |
-| 后端本机服务地址 | `http://127.0.0.1:3001` |
-| 后端本机 API 基础路径 | `http://127.0.0.1:3001/api` |
-| 后端本机健康检查 | `http://127.0.0.1:3001/api/health` |
+| 前端公网访问地址 | `http://公网IP:8082` |
+| API 公网基础路径 | `http://公网IP:8082/api` |
+| 公网健康检查 | `http://公网IP:8082/api/health` |
+| 后端本机服务地址 | `http://127.0.0.1:3002` |
+| 后端本机 API 基础路径 | `http://127.0.0.1:3002/api` |
+| 后端本机健康检查 | `http://127.0.0.1:3002/api/health` |
 | 登录接口 | `POST /api/user/login` |
 
 生产环境推荐统一使用：
@@ -173,22 +173,22 @@ Nginx 监听 8081
 
 | 项目 | 路径 |
 |---|---|
-| 项目根目录 | `C:\foodtestlab` |
-| 前端目录 | `C:\foodtestlab` |
-| 后端目录 | `C:\foodtestlab\backend` |
-| 前端构建产物目录 | `C:\foodtestlab\dist` |
-| 部署脚本 | `C:\foodtestlab\deploy.ps1` |
+| 项目根目录 | `C:\zhuhaiyizhong` |
+| 前端目录 | `C:\zhuhaiyizhong` |
+| 后端目录 | `C:\zhuhaiyizhong\backend` |
+| 前端构建产物目录 | `C:\zhuhaiyizhong\dist` |
+| 部署脚本 | `C:\zhuhaiyizhong\deploy.ps1` |
 | Nginx 安装目录 | `C:\nginx` |
 | Nginx 主配置文件 | `C:\nginx\conf\nginx.conf` |
-| Nginx WebRoot | `C:\foodtestlab\dist` |
+| Nginx WebRoot | `C:\zhuhaiyizhong\dist` |
 | 数据目录 | `D:\foodtestlab\data` |
-| SQLite 数据库文件 | `D:\foodtestlab\data\foodtestlab.db` |
+| SQLite 数据库文件 | `D:\珠海一中\foodtestlab.db` |
 | 建议备份目录 | `D:\foodtestlab\backup` |
 
 ### 5.2 项目结构参考
 
 ```text
-C:\foodtestlab
+C:\zhuhaiyizhong
 ├── backend
 │   ├── server.js
 │   ├── package.json
@@ -216,13 +216,13 @@ C:\foodtestlab
 生产环境中，SQLite 数据库文件应放置在独立数据目录：
 
 ```text
-D:\foodtestlab\data\foodtestlab.db
+D:\珠海一中\foodtestlab.db
 ```
 
 不建议将生产数据库文件放在：
 
 ```text
-C:\foodtestlab\dist
+C:\zhuhaiyizhong\dist
 ```
 
 或任何可被 Nginx 直接访问的 WebRoot 目录下。
@@ -288,7 +288,7 @@ pm2 -v
 | 系统 | 前端端口 | API 端口 | PM2 进程名 |
 |---|---:|---:|---|
 | RDPMS | `8080` | `3000` | `rdpms-backend` |
-| 食品检验系统 | `8081` | `3001` | `foodtestlab-api` |
+| 食品检验系统 | `8081` | `3001` | `zhuhaiyizhong-api` |
 
 食品检验系统端口说明：
 
@@ -306,13 +306,13 @@ pm2 -v
 | 冲突类型 | 风险 | 食品系统约定 |
 |---|---|---|
 | 端口冲突 | 服务无法启动或请求转发错误 | 前端 `8081`，API `3001` |
-| PM2 名称冲突 | 误停止或误重启其他系统 | `foodtestlab-api` |
+| PM2 名称冲突 | 误停止或误重启其他系统 | `zhuhaiyizhong-api` |
 | Nginx 配置覆盖 | 覆盖 RDPMS 配置导致旧系统不可访问 | 保留 `8080` 与 `8081` 两个 server |
-| 数据库路径冲突 | 数据串库或误删 | `D:\foodtestlab\data\foodtestlab.db` |
-| 前端构建目录冲突 | 静态资源互相覆盖 | `C:\foodtestlab\dist` |
+| 数据库路径冲突 | 数据串库或误删 | `D:\珠海一中\foodtestlab.db` |
+| 前端构建目录冲突 | 静态资源互相覆盖 | `C:\zhuhaiyizhong\dist` |
 | 环境变量冲突 | API 端口、数据库路径错误 | 使用独立 `.env` 和 `backend\.env` |
 | 日志混淆 | 排查困难 | PM2 进程名和日志分别管理 |
-| 部署脚本误操作 | 误停止其他系统 | 仅操作 `foodtestlab-api` |
+| 部署脚本误操作 | 误停止其他系统 | 仅操作 `zhuhaiyizhong-api` |
 
 部署或修改 Nginx 配置时，必须确认 RDPMS 的 `8080` server block 未被删除。
 
@@ -321,13 +321,13 @@ pm2 -v
 1. 食品系统端口不得与 RDPMS 端口冲突；
 2. 食品系统前端端口和 API 端口不得相同；
 3. 食品系统 PM2 名称不得使用 `rdpms-backend`；
-4. 食品系统默认 PM2 名称为 `foodtestlab-api`。
+4. 食品系统默认 PM2 名称为 `zhuhaiyizhong-api`。
 
 正常提示示例：
 
 ```text
 端口矩阵通过：食品系统 8081/3001 与 RDPMS 8080/3000 已隔离
-PM2 名称检查通过：foodtestlab-api 与 rdpms-backend 已隔离
+PM2 名称检查通过：zhuhaiyizhong-api 与 rdpms-backend 已隔离
 ```
 
 ---
@@ -349,7 +349,7 @@ PM2 名称检查通过：foodtestlab-api 与 rdpms-backend 已隔离
 生产环境下，浏览器应访问：
 
 ```text
-http://公网IP:8081
+http://公网IP:8082
 ```
 
 后端 API 端口 `3001` 不建议直接暴露到公网，应仅由 Nginx 在本机反向代理访问。
@@ -363,7 +363,7 @@ http://公网IP:8081
 当前腾讯云生产部署使用：
 
 ```bash
-runon_tencentcloud
+ZhuHaiYiZhong
 ```
 
 该分支用于维护腾讯云 Windows Server 部署适配内容，包括：
@@ -379,8 +379,8 @@ runon_tencentcloud
 ### 9.2 使用原则
 
 1. 日常功能开发可在主分支或功能分支进行；
-2. 涉及腾讯云部署的改动，应合并至 `runon_tencentcloud`；
-3. 服务器部署默认拉取 `runon_tencentcloud`；
+2. 涉及腾讯云部署的改动，应合并至 `ZhuHaiYiZhong`；
+3. 服务器部署默认拉取 `ZhuHaiYiZhong`；
 4. 不建议直接在服务器上修改业务代码；
 5. 如因紧急问题直接修改服务器代码，应及时回传至 Git 仓库；
 6. 部署前应确认当前分支、远程地址和最近提交记录。
@@ -388,7 +388,7 @@ runon_tencentcloud
 ### 9.3 分支检查命令
 
 ```powershell
-cd C:\foodtestlab
+cd C:\zhuhaiyizhong
 git branch
 git status
 git log --oneline -5
@@ -398,7 +398,7 @@ git remote -v
 预期当前分支为：
 
 ```text
-runon_tencentcloud
+ZhuHaiYiZhong
 ```
 
 ---
@@ -411,8 +411,8 @@ runon_tencentcloud
 
 | 文件 | 说明 |
 |---|---|
-| `C:\foodtestlab\.env` | 根目录环境变量 |
-| `C:\foodtestlab\backend\.env` | 后端运行时环境变量 |
+| `C:\zhuhaiyizhong\.env` | 根目录环境变量 |
+| `C:\zhuhaiyizhong\backend\.env` | 后端运行时环境变量 |
 
 `deploy.ps1` 会检查根目录 `.env`。如果 `backend/.env` 不存在，会将根目录 `.env` 复制到后端目录。
 
@@ -424,15 +424,15 @@ NODE_ENV=production
 PORT=3001
 SERVE_STATIC=false
 
-CORS_ORIGIN=http://公网IP:8081
+CORS_ORIGIN=http://公网IP:8082
 
 JWT_SECRET=<请替换为生产环境随机强密钥>
 JWT_EXPIRES_IN=7d
 JWT_EXPIRE=7d
 
-DATABASE_URL="file:D:/foodtestlab/data/foodtestlab.db"
+DATABASE_URL="file:D:/珠海一中/foodtestlab.db"
 
-API_BASE_URL=http://127.0.0.1:3001
+API_BASE_URL=http://127.0.0.1:3002
 API_TIMEOUT=30000
 
 CACHE_ENABLED=true
@@ -462,12 +462,12 @@ MOCK_API=false
 | `NODE_ENV` | `production` | 生产环境标识 |
 | `PORT` | `3001` | 后端 Express 监听端口 |
 | `SERVE_STATIC` | `false` | 静态资源由 Nginx 托管 |
-| `CORS_ORIGIN` | `http://公网IP:8081` | 允许访问后端的前端来源 |
+| `CORS_ORIGIN` | `http://公网IP:8082` | 允许访问后端的前端来源 |
 | `JWT_SECRET` | 随机强密钥 | 生产环境必须修改 |
 | `JWT_EXPIRES_IN` | `7d` | Token 有效期 |
 | `JWT_EXPIRE` | `7d` | 兼容当前后端读取字段 |
-| `DATABASE_URL` | `file:D:/foodtestlab/data/foodtestlab.db` | 生产 SQLite 数据库路径 |
-| `API_BASE_URL` | `http://127.0.0.1:3001` | 后端本机地址 |
+| `DATABASE_URL` | `file:D:/珠海一中/foodtestlab.db` | 生产 SQLite 数据库路径 |
+| `API_BASE_URL` | `http://127.0.0.1:3002` | 后端本机地址 |
 | `DEBUG_MODE` | `false` | 生产关闭调试 |
 | `MOCK_API` | `false` | 生产关闭模拟 API |
 
@@ -482,7 +482,7 @@ Prisma + SQLite
 生产数据库文件为：
 
 ```text
-D:\foodtestlab\data\foodtestlab.db
+D:\珠海一中\foodtestlab.db
 ```
 
 早期文档中出现的 PostgreSQL 配置仅作为后续扩展规划或历史示例，不作为当前腾讯云 Windows Server 正式部署依据。
@@ -495,7 +495,7 @@ D:\foodtestlab\data\foodtestlab.db
 
 | 类别 | 检查项 | 命令或说明 |
 |---|---|---|
-| Git | 当前分支为 `runon_tencentcloud` | `git branch` |
+| Git | 当前分支为 `ZhuHaiYiZhong` | `git branch` |
 | Git | 工作区无未提交修改 | `git status` |
 | Git | 确认最近提交 | `git log --oneline -5` |
 | 环境 | Node 可用 | `node -v` |
@@ -504,9 +504,9 @@ D:\foodtestlab\data\foodtestlab.db
 | 环境 | Git 可用 | `git --version` |
 | Nginx | nginx.exe 存在 | `Test-Path C:\nginx\nginx.exe` |
 | Nginx | 配置语法正确 | `C:\nginx\nginx.exe -t` |
-| 数据库 | 部署前备份 SQLite | 复制 `D:\foodtestlab\data\foodtestlab.db` |
-| 端口 | 8081 未被异常占用 | `netstat -ano | findstr ":8081"` |
-| 端口 | 3001 未被异常占用 | `netstat -ano | findstr ":3001"` |
+| 数据库 | 部署前备份 SQLite | 复制 `D:\珠海一中\foodtestlab.db` |
+| 端口 | 8081 未被异常占用 | `netstat -ano | findstr ":8082"` |
+| 端口 | 3001 未被异常占用 | `netstat -ano | findstr ":3002"` |
 | 双系统 | RDPMS 端口仍为 8080/3000 | 检查 Nginx 和 PM2 |
 | 安全 | `.env` 不使用默认 JWT_SECRET | 检查 `backend\.env` |
 | 安全 | 3001 未公网开放 | 检查腾讯云安全组 |
@@ -516,7 +516,7 @@ D:\foodtestlab\data\foodtestlab.db
 ```powershell
 $backupDir = "D:\foodtestlab\backup"
 New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
-Copy-Item "D:\foodtestlab\data\foodtestlab.db" "$backupDir\foodtestlab-$(Get-Date -Format yyyyMMdd-HHmmss).db"
+Copy-Item "D:\珠海一中\foodtestlab.db" "$backupDir\foodtestlab-$(Get-Date -Format yyyyMMdd-HHmmss).db"
 ```
 
 ---
@@ -526,13 +526,13 @@ Copy-Item "D:\foodtestlab\data\foodtestlab.db" "$backupDir\foodtestlab-$(Get-Dat
 ### 12.1 脚本位置
 
 ```text
-C:\foodtestlab\deploy.ps1
+C:\zhuhaiyizhong\deploy.ps1
 ```
 
 执行方式：
 
 ```powershell
-cd C:\foodtestlab
+cd C:\zhuhaiyizhong
 .\deploy.ps1
 ```
 
@@ -546,39 +546,39 @@ powershell -ExecutionPolicy Bypass -File .\deploy.ps1
 
 | 参数 | 默认值 |
 |---|---|
-| Git 仓库 | `https://github.com/ArthurUker/Tianjiabing_foodtestlab.git` |
-| 部署分支 | `runon_tencentcloud` |
-| 项目根目录 | `C:\foodtestlab` |
-| 后端目录 | `C:\foodtestlab\backend` |
-| 前端目录 | `C:\foodtestlab` |
+| Git 仓库 | `https://github.com/ArthurUker/ZhuHaiYiZhong_foodtestlab.git` |
+| 部署分支 | `ZhuHaiYiZhong` |
+| 项目根目录 | `C:\zhuhaiyizhong` |
+| 后端目录 | `C:\zhuhaiyizhong\backend` |
+| 前端目录 | `C:\zhuhaiyizhong` |
 | Nginx 目录 | `C:\nginx` |
-| Nginx WebRoot | `C:\foodtestlab\dist` |
+| Nginx WebRoot | `C:\zhuhaiyizhong\dist` |
 | 前端端口 | `8081` |
 | API 端口 | `3001` |
-| PM2 进程名 | `foodtestlab-api` |
+| PM2 进程名 | `zhuhaiyizhong-api` |
 | 数据目录 | `D:\foodtestlab\data` |
 
 ### 12.3 可通过环境变量覆盖的参数
 
 | 环境变量 | 默认值 | 说明 |
 |---|---|---|
-| `DEPLOY_BRANCH` | `runon_tencentcloud` | 部署分支 |
-| `REPO_ROOT` | `C:\foodtestlab` | 项目根目录 |
-| `BACKEND_PATH` | `C:\foodtestlab\backend` | 后端目录 |
-| `FRONTEND_PATH` | `C:\foodtestlab` | 前端目录 |
+| `DEPLOY_BRANCH` | `ZhuHaiYiZhong` | 部署分支 |
+| `REPO_ROOT` | `C:\zhuhaiyizhong` | 项目根目录 |
+| `BACKEND_PATH` | `C:\zhuhaiyizhong\backend` | 后端目录 |
+| `FRONTEND_PATH` | `C:\zhuhaiyizhong` | 前端目录 |
 | `NGINX_ROOT` | `C:\nginx` | Nginx 目录 |
 | `FRONTEND_PORT` | `8081` | 前端访问端口 |
 | `API_PORT` | `3001` | 后端 API 端口 |
-| `PM2_APP_NAME` | `foodtestlab-api` | PM2 进程名 |
+| `PM2_APP_NAME` | `zhuhaiyizhong-api` | PM2 进程名 |
 | `DATA_PATH` | `D:\foodtestlab\data` | 数据库目录 |
 
 示例：
 
 ```powershell
-$env:DEPLOY_BRANCH="runon_tencentcloud"
+$env:DEPLOY_BRANCH="ZhuHaiYiZhong"
 $env:FRONTEND_PORT="8081"
 $env:API_PORT="3001"
-$env:PM2_APP_NAME="foodtestlab-api"
+$env:PM2_APP_NAME="zhuhaiyizhong-api"
 .\deploy.ps1
 ```
 
@@ -592,7 +592,7 @@ $env:PM2_APP_NAME="foodtestlab-api"
 4. 检查 `C:\nginx\nginx.exe`；
 5. 检查食品系统与 RDPMS 系统端口隔离；
 6. 检查 Git 仓库；
-7. 非 Git 仓库时克隆 `runon_tencentcloud` 分支；
+7. 非 Git 仓库时克隆 `ZhuHaiYiZhong` 分支；
 8. 已有 Git 仓库时停止 PM2 后端并拉取最新代码；
 9. 检查和复制 `.env`；
 10. 安装后端依赖；
@@ -638,7 +638,7 @@ deploy-20260616-120000.log
 种子数据初始化完成
 前端构建验证通过：dist/index.html 存在
 nginx: configuration file C:\nginx/conf/nginx.conf test is successful
-API 健康检查通过：http://127.0.0.1:3001/api/health 状态码: 200
+API 健康检查通过：http://127.0.0.1:3002/api/health 状态码: 200
 食品检验系统部署完成
 ```
 
@@ -651,26 +651,26 @@ API 健康检查通过：http://127.0.0.1:3001/api/health 状态码: 200
 | 类别 | 检查项 | 验收方式 |
 |---|---|---|
 | PM2 | 食品系统进程在线 | `pm2 list` |
-| 后端 | 本机健康检查通过 | `http://127.0.0.1:3001/api/health` |
+| 后端 | 本机健康检查通过 | `http://127.0.0.1:3002/api/health` |
 | Nginx | 配置语法正确 | `C:\nginx\nginx.exe -t` |
-| 前端 | 页面可访问 | `http://公网IP:8081` |
-| API | 公网 API 可访问 | `http://公网IP:8081/api/health` |
+| 前端 | 页面可访问 | `http://公网IP:8082` |
+| API | 公网 API 可访问 | `http://公网IP:8082/api/health` |
 | 登录 | `admin` 可登录 | `admin / 8888` |
 | 安全 | 登录后修改 admin 密码 | 人工确认 |
 | 双系统 | RDPMS 不受影响 | `http://公网IP:8080` |
-| 数据库 | SQLite 文件存在 | `D:\foodtestlab\data\foodtestlab.db` |
-| 日志 | 无明显启动错误 | `pm2 logs foodtestlab-api` |
+| 数据库 | SQLite 文件存在 | `D:\珠海一中\foodtestlab.db` |
+| 日志 | 无明显启动错误 | `pm2 logs zhuhaiyizhong-api` |
 
 本机健康检查命令：
 
 ```powershell
-Invoke-WebRequest -Uri "http://127.0.0.1:3001/api/health" -UseBasicParsing
+Invoke-WebRequest -Uri "http://127.0.0.1:3002/api/health" -UseBasicParsing
 ```
 
 浏览器访问：
 
 ```text
-http://公网IP:8081
+http://公网IP:8082
 ```
 
 ---
@@ -695,7 +695,7 @@ http://公网IP:8081
 后端目录：
 
 ```powershell
-cd C:\foodtestlab\backend
+cd C:\zhuhaiyizhong\backend
 ```
 
 常用命令：
@@ -721,7 +721,7 @@ npm run seed
 生产环境通过 PM2 启动：
 
 ```powershell
-pm2 start server.js --name foodtestlab-api --cwd C:\foodtestlab\backend --time
+pm2 start server.js --name zhuhaiyizhong-api --cwd C:\zhuhaiyizhong\backend --time
 ```
 
 ### 14.3 依赖安装
@@ -729,7 +729,7 @@ pm2 start server.js --name foodtestlab-api --cwd C:\foodtestlab\backend --time
 部署脚本逻辑：
 
 ```powershell
-cd C:\foodtestlab\backend
+cd C:\zhuhaiyizhong\backend
 
 if (Test-Path "package-lock.json") {
     npm ci
@@ -769,7 +769,7 @@ login.html
 前端构建产物目录：
 
 ```text
-C:\foodtestlab\dist
+C:\zhuhaiyizhong\dist
 ```
 
 ### 15.2 根目录 package.json 关键命令
@@ -777,7 +777,7 @@ C:\foodtestlab\dist
 根目录：
 
 ```powershell
-cd C:\foodtestlab
+cd C:\zhuhaiyizhong
 ```
 
 常用命令：
@@ -802,7 +802,7 @@ npm start
 构建完成后应确认：
 
 ```text
-C:\foodtestlab\dist\index.html
+C:\zhuhaiyizhong\dist\index.html
 ```
 
 存在。
@@ -810,7 +810,7 @@ C:\foodtestlab\dist\index.html
 验证命令：
 
 ```powershell
-Test-Path C:\foodtestlab\dist\index.html
+Test-Path C:\zhuhaiyizhong\dist\index.html
 ```
 
 ---
@@ -828,13 +828,13 @@ SQLite
 数据库文件路径：
 
 ```text
-D:\foodtestlab\data\foodtestlab.db
+D:\珠海一中\foodtestlab.db
 ```
 
 Prisma 连接字符串：
 
 ```env
-DATABASE_URL="file:D:/foodtestlab/data/foodtestlab.db"
+DATABASE_URL="file:D:/珠海一中/foodtestlab.db"
 ```
 
 ### 16.2 Prisma datasource 配置
@@ -870,7 +870,7 @@ PostgreSQL production
 | `backend/prisma/seed.js` | 种子数据初始化脚本 |
 | `backend/prisma/dedupe-test-records.js` | 检测记录去重脚本 |
 | `backend/prisma/foodtestlab.db` | 开发环境数据库文件 |
-| `D:\foodtestlab\data\foodtestlab.db` | 生产环境数据库文件 |
+| `D:\珠海一中\foodtestlab.db` | 生产环境数据库文件 |
 
 ### 16.4 数据模型总览
 
@@ -964,7 +964,7 @@ pending / completed / failed / archived
 部署脚本会执行：
 
 ```powershell
-cd C:\foodtestlab\backend
+cd C:\zhuhaiyizhong\backend
 npx prisma generate
 npx prisma db push --accept-data-loss
 node prisma/seed.js
@@ -995,7 +995,7 @@ npx prisma db push --accept-data-loss
 ### 17.1 seed.js 执行位置
 
 ```text
-C:\foodtestlab\backend\prisma\seed.js
+C:\zhuhaiyizhong\backend\prisma\seed.js
 ```
 
 部署脚本会在后端目录执行：
@@ -1169,10 +1169,10 @@ http {
     }
 
     server {
-        listen 8081;
+        listen 8082;
         server_name _;
 
-        root  C:/foodtestlab/dist;
+        root  C:/zhuhaiyizhong/dist;
         index index.html;
 
         location / {
@@ -1180,7 +1180,7 @@ http {
         }
 
         location /api/ {
-            proxy_pass         http://127.0.0.1:3001;
+            proxy_pass         http://127.0.0.1:3002;
             proxy_http_version 1.1;
             proxy_set_header   Host              $host;
             proxy_set_header   X-Real-IP         $remote_addr;
@@ -1195,12 +1195,12 @@ http {
 
 | 配置 | 说明 |
 |---|---|
-| `listen 8081` | 食品检验系统公网访问端口 |
-| `root C:/foodtestlab/dist` | 食品系统前端构建产物目录 |
+| `listen 8082` | 食品检验系统公网访问端口 |
+| `root C:/zhuhaiyizhong/dist` | 食品系统前端构建产物目录 |
 | `index index.html` | 默认入口文件 |
 | `try_files $uri $uri/ /index.html` | 支持前端路由刷新 |
 | `location /api/` | API 反向代理入口 |
-| `proxy_pass http://127.0.0.1:3001` | 转发到本机食品系统后端 |
+| `proxy_pass http://127.0.0.1:3002` | 转发到本机食品系统后端 |
 | `proxy_read_timeout 60s` | API 读取超时时间 |
 | `gzip on` | 启用 gzip 压缩 |
 | `server_name _` | 接收任意 Host |
@@ -1234,17 +1234,17 @@ Get-Content C:\nginx\logs\access.log -Tail 100
 
 | 系统 | PM2 进程名 |
 |---|---|
-| 食品检验系统 | `foodtestlab-api` |
+| 食品检验系统 | `zhuhaiyizhong-api` |
 | RDPMS | `rdpms-backend` |
 
 ### 20.2 常用命令
 
 ```powershell
 pm2 list
-pm2 logs foodtestlab-api
-pm2 restart foodtestlab-api --update-env
-pm2 stop foodtestlab-api
-pm2 describe foodtestlab-api
+pm2 logs zhuhaiyizhong-api
+pm2 restart zhuhaiyizhong-api --update-env
+pm2 stop zhuhaiyizhong-api
+pm2 describe zhuhaiyizhong-api
 pm2 save
 ```
 
@@ -1253,7 +1253,7 @@ pm2 save
 正常情况下：
 
 ```text
-foodtestlab-api    online
+zhuhaiyizhong-api    online
 rdpms-backend      online
 ```
 
@@ -1262,8 +1262,8 @@ rdpms-backend      online
 如服务器重启后 PM2 进程未恢复，可执行：
 
 ```powershell
-cd C:\foodtestlab\backend
-pm2 start server.js --name foodtestlab-api --cwd C:\foodtestlab\backend --time
+cd C:\zhuhaiyizhong\backend
+pm2 start server.js --name zhuhaiyizhong-api --cwd C:\zhuhaiyizhong\backend --time
 pm2 save
 ```
 
@@ -1312,8 +1312,8 @@ pm2 resurrect
 或重新启动：
 
 ```powershell
-cd C:\foodtestlab\backend
-pm2 start server.js --name foodtestlab-api --cwd C:\foodtestlab\backend --time
+cd C:\zhuhaiyizhong\backend
+pm2 start server.js --name zhuhaiyizhong-api --cwd C:\zhuhaiyizhong\backend --time
 pm2 save
 ```
 
@@ -1326,19 +1326,19 @@ pm2 save
 ### 22.1 本机 API 健康检查
 
 ```powershell
-Invoke-WebRequest -Uri "http://127.0.0.1:3001/api/health" -UseBasicParsing
+Invoke-WebRequest -Uri "http://127.0.0.1:3002/api/health" -UseBasicParsing
 ```
 
 ### 22.2 公网 API 健康检查
 
 ```text
-http://公网IP:8081/api/health
+http://公网IP:8082/api/health
 ```
 
 ### 22.3 前端页面访问
 
 ```text
-http://公网IP:8081
+http://公网IP:8082
 ```
 
 ### 22.4 登录接口
@@ -1375,16 +1375,16 @@ POST /api/auth/login
 ### 23.1 拉取代码
 
 ```powershell
-cd C:\foodtestlab
+cd C:\zhuhaiyizhong
 git fetch origin
-git checkout runon_tencentcloud
-git reset --hard origin/runon_tencentcloud
+git checkout ZhuHaiYiZhong
+git reset --hard origin/ZhuHaiYiZhong
 ```
 
 ### 23.2 安装后端依赖
 
 ```powershell
-cd C:\foodtestlab\backend
+cd C:\zhuhaiyizhong\backend
 npm ci
 ```
 
@@ -1403,13 +1403,13 @@ New-Item -ItemType Directory -Path D:\foodtestlab\data -Force
 确认 `backend\.env`：
 
 ```env
-DATABASE_URL="file:D:/foodtestlab/data/foodtestlab.db"
+DATABASE_URL="file:D:/珠海一中/foodtestlab.db"
 ```
 
 ### 23.4 Prisma 同步
 
 ```powershell
-cd C:\foodtestlab\backend
+cd C:\zhuhaiyizhong\backend
 npx prisma generate
 npx prisma db push --accept-data-loss
 node prisma/seed.js
@@ -1418,21 +1418,21 @@ node prisma/seed.js
 ### 23.5 启动后端
 
 ```powershell
-cd C:\foodtestlab\backend
-pm2 start server.js --name foodtestlab-api --cwd C:\foodtestlab\backend --time
+cd C:\zhuhaiyizhong\backend
+pm2 start server.js --name zhuhaiyizhong-api --cwd C:\zhuhaiyizhong\backend --time
 pm2 save
 ```
 
 如进程已存在：
 
 ```powershell
-pm2 restart foodtestlab-api --update-env
+pm2 restart zhuhaiyizhong-api --update-env
 ```
 
 ### 23.6 构建前端
 
 ```powershell
-cd C:\foodtestlab
+cd C:\zhuhaiyizhong
 npm ci
 npm run build
 ```
@@ -1440,7 +1440,7 @@ npm run build
 验证：
 
 ```powershell
-Test-Path C:\foodtestlab\dist\index.html
+Test-Path C:\zhuhaiyizhong\dist\index.html
 ```
 
 ### 23.7 检查 Nginx
@@ -1454,13 +1454,13 @@ cd C:\nginx
 ### 23.8 验证服务
 
 ```powershell
-Invoke-WebRequest -Uri "http://127.0.0.1:3001/api/health" -UseBasicParsing
+Invoke-WebRequest -Uri "http://127.0.0.1:3002/api/health" -UseBasicParsing
 ```
 
 浏览器访问：
 
 ```text
-http://公网IP:8081
+http://公网IP:8082
 ```
 
 ---
@@ -1474,23 +1474,23 @@ http://公网IP:8081
 ```powershell
 $backupDir = "D:\foodtestlab\backup"
 New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
-Copy-Item "D:\foodtestlab\data\foodtestlab.db" "$backupDir\foodtestlab-$(Get-Date -Format yyyyMMdd-HHmmss).db"
+Copy-Item "D:\珠海一中\foodtestlab.db" "$backupDir\foodtestlab-$(Get-Date -Format yyyyMMdd-HHmmss).db"
 ```
 
 ### 24.2 恢复数据库
 
 ```powershell
-pm2 stop foodtestlab-api
+pm2 stop zhuhaiyizhong-api
 
-Copy-Item "D:\foodtestlab\backup\foodtestlab-备份时间.db" "D:\foodtestlab\data\foodtestlab.db" -Force
+Copy-Item "D:\foodtestlab\backup\foodtestlab-备份时间.db" "D:\珠海一中\foodtestlab.db" -Force
 
-pm2 restart foodtestlab-api --update-env
+pm2 restart zhuhaiyizhong-api --update-env
 ```
 
 ### 24.3 恢复后验证
 
 ```powershell
-Invoke-WebRequest -Uri "http://127.0.0.1:3001/api/health" -UseBasicParsing
+Invoke-WebRequest -Uri "http://127.0.0.1:3002/api/health" -UseBasicParsing
 ```
 
 ---
@@ -1502,7 +1502,7 @@ Invoke-WebRequest -Uri "http://127.0.0.1:3001/api/health" -UseBasicParsing
 查看最近提交：
 
 ```powershell
-cd C:\foodtestlab
+cd C:\zhuhaiyizhong
 git log --oneline -10
 ```
 
@@ -1523,9 +1523,9 @@ git reset --hard <commit_id>
 如果本次部署涉及数据库结构或数据变更，应同步恢复部署前备份的数据库文件。
 
 ```powershell
-pm2 stop foodtestlab-api
-Copy-Item "D:\foodtestlab\backup\foodtestlab-备份时间.db" "D:\foodtestlab\data\foodtestlab.db" -Force
-pm2 restart foodtestlab-api --update-env
+pm2 stop zhuhaiyizhong-api
+Copy-Item "D:\foodtestlab\backup\foodtestlab-备份时间.db" "D:\珠海一中\foodtestlab.db" -Force
+pm2 restart zhuhaiyizhong-api --update-env
 ```
 
 ---
@@ -1548,19 +1548,19 @@ pm2 restart foodtestlab-api --update-env
 
 ```powershell
 pm2 list
-pm2 logs foodtestlab-api
-Test-Path D:\foodtestlab\data\foodtestlab.db
-Get-Content C:\foodtestlab\backend\.env
+pm2 logs zhuhaiyizhong-api
+Test-Path D:\珠海一中\foodtestlab.db
+Get-Content C:\zhuhaiyizhong\backend\.env
 ```
 
 修复参考：
 
 ```powershell
-cd C:\foodtestlab\backend
+cd C:\zhuhaiyizhong\backend
 npx prisma generate
 npx prisma db push --accept-data-loss
 node prisma/seed.js
-pm2 restart foodtestlab-api --update-env
+pm2 restart zhuhaiyizhong-api --update-env
 ```
 
 ### 26.2 公网 `/api/health` 返回 502
@@ -1576,9 +1576,9 @@ pm2 restart foodtestlab-api --update-env
 
 ```powershell
 pm2 list
-pm2 logs foodtestlab-api
-netstat -ano | findstr ":3001"
-Invoke-WebRequest -Uri "http://127.0.0.1:3001/api/health" -UseBasicParsing
+pm2 logs zhuhaiyizhong-api
+netstat -ano | findstr ":3002"
+Invoke-WebRequest -Uri "http://127.0.0.1:3002/api/health" -UseBasicParsing
 ```
 
 ### 26.3 页面能打开，但接口 404
@@ -1657,8 +1657,8 @@ cd C:\nginx
 排查：
 
 ```powershell
-Test-Path C:\foodtestlab\dist\index.html
-Get-ChildItem C:\foodtestlab\dist
+Test-Path C:\zhuhaiyizhong\dist\index.html
+Get-ChildItem C:\zhuhaiyizhong\dist
 Get-Content C:\nginx\logs\error.log -Tail 100
 ```
 
@@ -1674,7 +1674,7 @@ Get-Content C:\nginx\logs\error.log -Tail 100
 
 ```powershell
 Test-Path D:\foodtestlab\data
-Test-Path D:\foodtestlab\data\foodtestlab.db
+Test-Path D:\珠海一中\foodtestlab.db
 ```
 
 如目录不存在：
@@ -1686,7 +1686,7 @@ New-Item -ItemType Directory -Path D:\foodtestlab\data -Force
 重新同步：
 
 ```powershell
-cd C:\foodtestlab\backend
+cd C:\zhuhaiyizhong\backend
 npx prisma generate
 npx prisma db push --accept-data-loss
 node prisma/seed.js
@@ -1705,10 +1705,10 @@ node prisma/seed.js
 排查步骤：
 
 ```powershell
-cd C:\foodtestlab\backend
+cd C:\zhuhaiyizhong\backend
 node prisma/seed.js
-pm2 restart foodtestlab-api --update-env
-pm2 logs foodtestlab-api
+pm2 restart zhuhaiyizhong-api --update-env
+pm2 logs zhuhaiyizhong-api
 ```
 
 注意：由于 `seed.js` 对已存在账号会跳过，因此如果 `admin` 密码已被修改，再次执行 `seed.js` 不会恢复为 `8888`。
@@ -1716,8 +1716,8 @@ pm2 logs foodtestlab-api
 ### 26.9 端口冲突
 
 ```powershell
-netstat -ano | findstr ":8081"
-netstat -ano | findstr ":3001"
+netstat -ano | findstr ":8082"
+netstat -ano | findstr ":3002"
 netstat -ano | findstr ":8080"
 netstat -ano | findstr ":3000"
 ```
@@ -1731,7 +1731,7 @@ netstat -ano | findstr ":3000"
 检查：
 
 ```powershell
-cd C:\foodtestlab
+cd C:\zhuhaiyizhong
 git remote -v
 git branch
 git status
@@ -1781,16 +1781,16 @@ cd C:\nginx
 
 ```powershell
 pm2 list
-netstat -ano | findstr ":3001"
-netstat -ano | findstr ":8081"
-Invoke-WebRequest -Uri "http://127.0.0.1:3001/api/health" -UseBasicParsing
+netstat -ano | findstr ":3002"
+netstat -ano | findstr ":8082"
+Invoke-WebRequest -Uri "http://127.0.0.1:3002/api/health" -UseBasicParsing
 ```
 
 如 PM2 进程不存在：
 
 ```powershell
-cd C:\foodtestlab\backend
-pm2 start server.js --name foodtestlab-api --cwd C:\foodtestlab\backend --time
+cd C:\zhuhaiyizhong\backend
+pm2 start server.js --name zhuhaiyizhong-api --cwd C:\zhuhaiyizhong\backend --time
 pm2 save
 ```
 
@@ -1803,7 +1803,7 @@ C:\nginx\nginx.exe
 最后访问：
 
 ```text
-http://公网IP:8081
+http://公网IP:8082
 ```
 
 ---
@@ -1817,7 +1817,7 @@ http://公网IP:8081
 | 确认当前分支 | `git branch` |
 | 确认工作区状态 | `git status` |
 | 确认远程提交 | `git log --oneline -5` |
-| 备份数据库 | 复制 `D:\foodtestlab\data\foodtestlab.db` |
+| 备份数据库 | 复制 `D:\珠海一中\foodtestlab.db` |
 | 确认环境变量 | 检查 `backend\.env` |
 | 确认磁盘空间 | 检查 C 盘和 D 盘 |
 | 确认 RDPMS 不受影响 | 检查端口 `8080/3000` |
@@ -1828,10 +1828,10 @@ http://公网IP:8081
 | 检查项 | 命令或说明 |
 |---|---|
 | PM2 状态 | `pm2 list` |
-| 后端日志 | `pm2 logs foodtestlab-api` |
-| 本机健康检查 | `http://127.0.0.1:3001/api/health` |
-| 公网健康检查 | `http://公网IP:8081/api/health` |
-| 前端页面 | `http://公网IP:8081` |
+| 后端日志 | `pm2 logs zhuhaiyizhong-api` |
+| 本机健康检查 | `http://127.0.0.1:3002/api/health` |
+| 公网健康检查 | `http://公网IP:8082/api/health` |
+| 前端页面 | `http://公网IP:8082` |
 | 登录接口 | `POST /api/user/login` |
 | 初始账号检查 | `admin / 8888`，首次登录后应修改密码 |
 | Nginx 配置 | `C:\nginx\nginx.exe -t` |
@@ -1870,7 +1870,7 @@ http://公网IP:8081
 | Prometheus / Grafana | 当前未部署 |
 | React 前端 | 当前为原生 HTML + JavaScript ES Modules |
 | 应用端口 3000 | 食品系统 API 端口为 `3001` |
-| 前端 localhost:3000 | 生产前端为 `http://公网IP:8081` |
+| 前端 localhost:3000 | 生产前端为 `http://公网IP:8082` |
 | `admin@foodlab.com` | 当前 seed.js 使用 `admin@foodlab.local` |
 | `/api/login` | 当前正式登录接口为 `/api/user/login` |
 | Supabase 数据存储 | 当前已迁移为 Prisma + SQLite |
@@ -1884,7 +1884,7 @@ http://公网IP:8081
 ### 31.1 一键部署
 
 ```powershell
-cd C:\foodtestlab
+cd C:\zhuhaiyizhong
 .\deploy.ps1
 ```
 
@@ -1892,9 +1892,9 @@ cd C:\foodtestlab
 
 ```powershell
 pm2 list
-pm2 logs foodtestlab-api
-pm2 restart foodtestlab-api --update-env
-pm2 stop foodtestlab-api
+pm2 logs zhuhaiyizhong-api
+pm2 restart zhuhaiyizhong-api --update-env
+pm2 stop zhuhaiyizhong-api
 pm2 save
 ```
 
@@ -1910,13 +1910,13 @@ C:\nginx\nginx.exe
 ### 31.4 健康检查
 
 ```powershell
-Invoke-WebRequest -Uri "http://127.0.0.1:3001/api/health" -UseBasicParsing
+Invoke-WebRequest -Uri "http://127.0.0.1:3002/api/health" -UseBasicParsing
 ```
 
 ### 31.5 Prisma
 
 ```powershell
-cd C:\foodtestlab\backend
+cd C:\zhuhaiyizhong\backend
 npx prisma generate
 npx prisma db push --accept-data-loss
 node prisma/seed.js
@@ -1925,15 +1925,15 @@ node prisma/seed.js
 ### 31.6 前端构建
 
 ```powershell
-cd C:\foodtestlab
+cd C:\zhuhaiyizhong
 npm run build
 ```
 
 ### 31.7 端口检查
 
 ```powershell
-netstat -ano | findstr ":8081"
-netstat -ano | findstr ":3001"
+netstat -ano | findstr ":8082"
+netstat -ano | findstr ":3002"
 netstat -ano | findstr ":8080"
 netstat -ano | findstr ":3000"
 ```
@@ -1941,7 +1941,7 @@ netstat -ano | findstr ":3000"
 ### 31.8 日志查看
 
 ```powershell
-pm2 logs foodtestlab-api
+pm2 logs zhuhaiyizhong-api
 Get-Content C:\nginx\logs\error.log -Tail 100
 Get-Content C:\nginx\logs\access.log -Tail 100
 ```

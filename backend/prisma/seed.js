@@ -28,7 +28,7 @@ async function main() {
     await ensureUser(
       {
         username: 'admin',
-        email: 'admin@foodlab.local',
+        email: 'admin@zhuhaiyizhong.edu.cn',
         full_name: 'Administrator',
         phone: null,
         role: 'admin',

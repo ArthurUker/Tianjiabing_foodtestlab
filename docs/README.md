@@ -1,8 +1,8 @@
-# 田家炳中学食品安全检验系统
+# 珠海一中食品安全检验系统
 
 ## 1. 项目简介
 
-**田家炳中学食品安全检验系统** 是面向学校食品安全快速检测场景开发的轻量化信息管理系统，主要用于记录、管理和追踪食堂相关检测数据，包括：
+**珠海一中食品安全检验系统** 是面向学校食品安全快速检测场景开发的轻量化信息管理系统，主要用于记录、管理和追踪食堂相关检测数据，包括：
 
 - 餐具洁净度检测；
 - 果蔬农药残留检测；
@@ -47,7 +47,7 @@
 当前主要部署分支为：
 
 ```bash
-runon_tencentcloud
+ZhuHaiYiZhong
 ```
 
 涉及腾讯云服务器部署、生产环境修复或线上功能更新时，原则上应优先基于该分支进行开发、提交和部署。
@@ -61,34 +61,34 @@ runon_tencentcloud
 | 项目 | 当前配置 |
 |---|---|
 | 部署环境 | 腾讯云 Windows Server |
-| 部署分支 | `runon_tencentcloud` |
-| 项目目录 | `C:\foodtestlab` |
+| 部署分支 | `ZhuHaiYiZhong` |
+| 项目目录 | `C:\zhuhaiyizhong` |
 | 前端托管 | Nginx 静态资源托管 |
-| 前端访问端口 | `8081` |
+| 前端访问端口 | `8082` |
 | 后端服务 | Node.js + Express |
-| 后端 API 端口 | `3001` |
-| PM2 进程名 | `foodtestlab-api` |
+| 后端 API 端口 | `3002` |
+| PM2 进程名 | `zhuhaiyizhong-api` |
 | 数据库 | Prisma + SQLite |
-| 生产数据库文件 | `D:\foodtestlab\data\foodtestlab.db` |
+| 生产数据库文件 | `D:\珠海一中\foodtestlab.db` |
 | API 前缀 | `/api` |
 | 正式登录接口 | `POST /api/user/login` |
 
 生产访问方式：
 
 ```text
-http://公网IP:8081
+http://公网IP:8082
 ```
 
 本机 API 健康检查：
 
 ```text
-http://127.0.0.1:3001/api/health
+http://127.0.0.1:3002/api/health
 ```
 
 公网 API 健康检查：
 
 ```text
-http://公网IP:8081/api/health
+http://公网IP:8082/api/health
 ```
 
 > 说明：早期文档中出现的 PostgreSQL、Docker、Kubernetes、Redis、Prometheus、Grafana、React、端口 3000 等内容，均不代表当前腾讯云生产部署状态。当前部署与运维请以 `DEPLOYMENT_GUIDE.md` 为准。
@@ -137,7 +137,7 @@ http://公网IP:8081/api/health
 当前生产数据库文件：
 
 ```text
-D:\foodtestlab\data\foodtestlab.db
+D:\珠海一中\foodtestlab.db
 ```
 
 当前 Prisma datasource：
@@ -152,7 +152,7 @@ datasource db {
 当前生产环境推荐连接字符串：
 
 ```env
-DATABASE_URL="file:D:/foodtestlab/data/foodtestlab.db"
+DATABASE_URL="file:D:/珠海一中/foodtestlab.db"
 ```
 
 如后续正式切换 PostgreSQL，应同步修改：
@@ -354,7 +354,7 @@ JWT_EXPIRES_IN=7d
 说明：
 
 - 当前开发和生产均可使用 SQLite；
-- 生产环境 `DATABASE_URL` 应指向 `D:/foodtestlab/data/foodtestlab.db`；
+- 生产环境 `DATABASE_URL` 应指向 `D:/珠海一中/foodtestlab.db`；
 - `JWT_SECRET` 必须在生产环境中替换为强随机字符串；
 - `.env` 不应提交到 Git 仓库。
 
@@ -421,7 +421,7 @@ DEPLOYMENT_GUIDE.md
 生产部署快速命令：
 
 ```powershell
-cd C:\foodtestlab
+cd C:\zhuhaiyizhong
 .\deploy.ps1
 ```
 
@@ -429,13 +429,13 @@ cd C:\foodtestlab
 
 ```powershell
 pm2 list
-Invoke-WebRequest -Uri "http://127.0.0.1:3001/api/health" -UseBasicParsing
+Invoke-WebRequest -Uri "http://127.0.0.1:3002/api/health" -UseBasicParsing
 ```
 
 浏览器访问：
 
 ```text
-http://公网IP:8081
+http://公网IP:8082
 ```
 
 ---
@@ -446,7 +446,7 @@ http://公网IP:8081
 
 | 分支 | 用途 |
 |---|---|
-| `runon_tencentcloud` | 腾讯云部署和生产环境适配分支 |
+| `ZhuHaiYiZhong` | 腾讯云部署和生产环境适配分支 |
 | `main` 或 `master` | 如存在，通常作为主干或归档分支，具体以仓库实际情况为准 |
 
 ### 11.2 提交前检查
@@ -590,20 +590,20 @@ docs/archive/
 不建议在前端代码中硬编码：
 
 ```text
-http://localhost:3001
-http://公网IP:3001
+http://localhost:3002
+http://公网IP:3002
 ```
 
 当前生产环境通过 Nginx 将：
 
 ```text
-http://公网IP:8081/api/*
+http://公网IP:8082/api/*
 ```
 
 反向代理至：
 
 ```text
-http://127.0.0.1:3001/api/*
+http://127.0.0.1:3002/api/*
 ```
 
 ### 14.3 修改数据库结构

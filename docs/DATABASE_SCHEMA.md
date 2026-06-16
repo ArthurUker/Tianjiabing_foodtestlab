@@ -1,7 +1,7 @@
 # 食品安全检测系统 - 数据库结构说明
 
 **文档名称**：`DATABASE_SCHEMA.md`  
-**系统名称**：食品安全检验管理系统 Pro / 田家炳中学食品安全检验系统  
+**系统名称**：食品安全检验管理系统 Pro / 珠海一中食品安全检验系统  
 **当前部署环境**：腾讯云 Windows Server  
 **当前生产数据库**：SQLite  
 **ORM**：Prisma  
@@ -23,7 +23,7 @@ SQLite
 当前生产数据库文件位于：
 
 ```text
-D:\foodtestlab\data\foodtestlab.db
+D:\珠海一中\foodtestlab.db
 ```
 
 当前 Prisma datasource 配置为：
@@ -38,7 +38,7 @@ datasource db {
 推荐生产环境 `DATABASE_URL` 为：
 
 ```env
-DATABASE_URL="file:D:/foodtestlab/data/foodtestlab.db"
+DATABASE_URL="file:D:/珠海一中/foodtestlab.db"
 ```
 
 需要特别说明：
@@ -58,7 +58,7 @@ DATABASE_URL="file:D:/foodtestlab/data/foodtestlab.db"
 |---|---|
 | ORM | Prisma |
 | 当前生产数据库 | SQLite |
-| 生产数据库文件 | `D:\foodtestlab\data\foodtestlab.db` |
+| 生产数据库文件 | `D:\珠海一中\foodtestlab.db` |
 | Prisma Schema | `backend/prisma/schema.prisma` |
 | 种子数据脚本 | `backend/prisma/seed.js` |
 | 数据库同步方式 | `npx prisma db push --accept-data-loss` |
@@ -70,7 +70,7 @@ DATABASE_URL="file:D:/foodtestlab/data/foodtestlab.db"
 当前生产环境初始化或同步数据库时，推荐使用：
 
 ```powershell
-cd C:\foodtestlab\backend
+cd C:\zhuhaiyizhong\backend
 npx prisma generate
 npx prisma db push --accept-data-loss
 node prisma/seed.js
@@ -79,7 +79,7 @@ node prisma/seed.js
 生产环境执行数据库结构同步前，应先备份：
 
 ```text
-D:\foodtestlab\data\foodtestlab.db
+D:\珠海一中\foodtestlab.db
 ```
 
 ---
@@ -135,7 +135,7 @@ datasource db {
 当前生产环境推荐 `.env` 配置：
 
 ```env
-DATABASE_URL="file:D:/foodtestlab/data/foodtestlab.db"
+DATABASE_URL="file:D:/珠海一中/foodtestlab.db"
 ```
 
 ### 4.2 数据库选型说明
@@ -151,7 +151,7 @@ DATABASE_URL="file:D:/foodtestlab/data/foodtestlab.db"
 在后端目录执行：
 
 ```powershell
-cd C:\foodtestlab\backend
+cd C:\zhuhaiyizhong\backend
 ```
 
 生成 Prisma Client：
@@ -571,7 +571,7 @@ model Backup {
 当前生产环境最重要的备份对象是 SQLite 数据库文件：
 
 ```text
-D:\foodtestlab\data\foodtestlab.db
+D:\珠海一中\foodtestlab.db
 ```
 
 推荐备份目录：
@@ -906,7 +906,7 @@ backend/prisma/seed.js
 > 如需初始化或同步当前生产数据库，应使用：
 >
 > ```powershell
-> cd C:\foodtestlab\backend
+> cd C:\zhuhaiyizhong\backend
 > npx prisma generate
 > npx prisma db push --accept-data-loss
 > node prisma/seed.js
@@ -1562,7 +1562,7 @@ PostgreSQL RLS 可作为未来迁移 PostgreSQL 后的数据库层安全增强�
 当前生产数据库文件：
 
 ```text
-D:\foodtestlab\data\foodtestlab.db
+D:\珠海一中\foodtestlab.db
 ```
 
 安全要求：
@@ -1577,7 +1577,7 @@ D:\foodtestlab\data\foodtestlab.db
 不应将数据库放在：
 
 ```text
-C:\foodtestlab\dist
+C:\zhuhaiyizhong\dist
 C:\nginx\html
 ```
 

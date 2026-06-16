@@ -1,9 +1,9 @@
 # 食品安全检测系统架构说明
 
 **文档名称**：`ARCHITECTURE.md`  
-**系统名称**：食品安全检验管理系统 Pro / 田家炳中学食品安全检验系统  
-**项目名称**：`tianjiabing-foodtestlab`  
-**当前部署分支**：`runon_tencentcloud`  
+**系统名称**：食品安全检验管理系统 Pro / 珠海一中食品安全检验系统  
+**项目名称**：`zhuhaiyizhong-foodtestlab`  
+**当前部署分支**：`ZhuHaiYiZhong`  
 **当前生产环境**：腾讯云 Windows Server  
 **文档版本**：v1.3  
 **更新时间**：2026-06-16  
@@ -117,16 +117,16 @@ backend/prisma/schema.prisma
 | 项目 | 当前配置 |
 |---|---|
 | 部署环境 | 腾讯云 Windows Server |
-| 部署分支 | `runon_tencentcloud` |
-| 项目根目录 | `C:\foodtestlab` |
+| 部署分支 | `ZhuHaiYiZhong` |
+| 项目根目录 | `C:\zhuhaiyizhong` |
 | 前端托管 | Nginx 静态资源托管 |
 | 前端访问端口 | `8081` |
 | 后端服务 | Node.js + Express |
 | 后端 API 端口 | `3001` |
-| PM2 进程名 | `foodtestlab-api` |
+| PM2 进程名 | `zhuhaiyizhong-api` |
 | ORM | Prisma |
 | 数据库 | SQLite |
-| 生产数据库文件 | `D:\foodtestlab\data\foodtestlab.db` |
+| 生产数据库文件 | `D:\珠海一中\foodtestlab.db` |
 | 正式 API 前缀 | `/api` |
 | 正式登录接口 | `POST /api/user/login` |
 
@@ -191,10 +191,10 @@ backend/prisma/schema.prisma
 
 ```mermaid
 flowchart TD
-    User[用户浏览器] -->|http://公网IP:8081| Nginx[Nginx 监听 8081]
+    User[用户浏览器] -->|http://公网IP:8082| Nginx[Nginx 监听 8081]
 
     subgraph Frontend_Server [前端静态资源层]
-        Nginx -->|静态托管| Static[C:/foodtestlab/dist]
+        Nginx -->|静态托管| Static[C:/zhuhaiyizhong/dist]
         Static --> Index[index.html]
         Static --> Login[login.html]
         Index --> JS[JavaScript ES Modules]
@@ -203,20 +203,20 @@ flowchart TD
     end
 
     subgraph Backend_Server [Node.js 后端服务层]
-        Nginx -->|/api/* 反向代理| Express[Express API 127.0.0.1:3001]
+        Nginx -->|/api/* 反向代理| Express[Express API 127.0.0.1:3002]
         Express --> Middleware[中间件: CORS / JSON / JWT / 权限 / 错误处理]
         Middleware --> Routes[API 路由层]
         Routes --> Controllers[业务逻辑层]
     end
 
     subgraph Data_Layer [数据访问与持久化层]
-        Controllers -->|Prisma Client| SQLite[(SQLite: D:/foodtestlab/data/foodtestlab.db)]
+        Controllers -->|Prisma Client| SQLite[(SQLite: D:/珠海一中/foodtestlab.db)]
         Controllers --> Audit[AuditLog 审计日志]
         Controllers --> Backup[Backup 备份元数据]
         Controllers --> SystemLog[SystemLog 系统日志]
     end
 
-    PM2[PM2: foodtestlab-api] --> Express
+    PM2[PM2: zhuhaiyizhong-api] --> Express
 ```
 
 ### 4.2 生产请求链路
@@ -226,19 +226,19 @@ flowchart TD
 ```text
 用户浏览器
   ↓
-http://公网IP:8081
+http://公网IP:8082
   ↓
 Nginx
-  ├── /               → C:\foodtestlab\dist\index.html
-  ├── /login.html     → C:\foodtestlab\dist\login.html
-  ├── /js /css 等     → C:\foodtestlab\dist 静态资源
-  └── /api/*          → http://127.0.0.1:3001/api/*
+  ├── /               → C:\zhuhaiyizhong\dist\index.html
+  ├── /login.html     → C:\zhuhaiyizhong\dist\login.html
+  ├── /js /css 等     → C:\zhuhaiyizhong\dist 静态资源
+  └── /api/*          → http://127.0.0.1:3002/api/*
                          ↓
                        Express 后端
                          ↓
                        Prisma Client
                          ↓
-                       D:\foodtestlab\data\foodtestlab.db
+                       D:\珠海一中\foodtestlab.db
 ```
 
 ### 4.3 双系统共存关系
@@ -250,12 +250,12 @@ flowchart LR
     Internet[公网访问] --> Nginx[Nginx]
 
     Nginx -->|8081| FoodFrontend[食品系统前端]
-    Nginx -->|/api -> 3001| FoodAPI[foodtestlab-api]
+    Nginx -->|/api -> 3001| FoodAPI[zhuhaiyizhong-api]
 
     Nginx -->|8080| RDPMSFrontend[RDPMS 前端]
     Nginx -->|/api -> 3000| RDPMSAPI[rdpms-backend]
 
-    FoodAPI --> FoodDB[(D:/foodtestlab/data/foodtestlab.db)]
+    FoodAPI --> FoodDB[(D:/珠海一中/foodtestlab.db)]
     RDPMSAPI --> RDPMSDB[(RDPMS 独立数据库)]
 ```
 
@@ -269,22 +269,22 @@ flowchart LR
 
 | 配置项 | 当前路径或配置 |
 |---|---|
-| 项目根目录 | `C:\foodtestlab` |
-| 前端构建目录 | `C:\foodtestlab\dist` |
-| 后端代码目录 | `C:\foodtestlab\backend` |
-| 后端入口文件 | `C:\foodtestlab\backend\server.js` |
+| 项目根目录 | `C:\zhuhaiyizhong` |
+| 前端构建目录 | `C:\zhuhaiyizhong\dist` |
+| 后端代码目录 | `C:\zhuhaiyizhong\backend` |
+| 后端入口文件 | `C:\zhuhaiyizhong\backend\server.js` |
 | 数据存放目录 | `D:\foodtestlab\data` |
-| SQLite 数据库文件 | `D:\foodtestlab\data\foodtestlab.db` |
+| SQLite 数据库文件 | `D:\珠海一中\foodtestlab.db` |
 | 建议备份目录 | `D:\foodtestlab\backup` |
 | Nginx 安装目录 | `C:\nginx` |
 | Nginx 配置文件 | `C:\nginx\conf\nginx.conf` |
-| 部署脚本 | `C:\foodtestlab\deploy.ps1` |
+| 部署脚本 | `C:\zhuhaiyizhong\deploy.ps1` |
 
 ### 5.2 端口与进程隔离
 
 | 系统名称 | 前端端口 | API 端口 | PM2 进程名 |
 |---|---:|---:|---|
-| 食品检验系统 | `8081` | `3001` | `foodtestlab-api` |
+| 食品检验系统 | `8081` | `3001` | `zhuhaiyizhong-api` |
 | RDPMS 系统 | `8080` | `3000` | `rdpms-backend` |
 
 部署和维护时必须避免：
@@ -301,10 +301,10 @@ flowchart LR
 
 ```nginx
 server {
-    listen 8081;
+    listen 8082;
     server_name _;
 
-    root  C:/foodtestlab/dist;
+    root  C:/zhuhaiyizhong/dist;
     index index.html;
 
     location / {
@@ -312,7 +312,7 @@ server {
     }
 
     location /api/ {
-        proxy_pass         http://127.0.0.1:3001;
+        proxy_pass         http://127.0.0.1:3002;
         proxy_http_version 1.1;
         proxy_set_header   Host              $host;
         proxy_set_header   X-Real-IP         $remote_addr;
@@ -336,15 +336,15 @@ server {
 当前一键部署脚本为：
 
 ```text
-C:\foodtestlab\deploy.ps1
+C:\zhuhaiyizhong\deploy.ps1
 ```
 
 部署脚本主要负责：
 
 1. 检查 Git、Node.js、npm、PM2、Nginx；
 2. 检查端口 `8081` 和 `3001`；
-3. 检查 PM2 进程名 `foodtestlab-api`；
-4. 拉取 `runon_tencentcloud` 分支；
+3. 检查 PM2 进程名 `zhuhaiyizhong-api`；
+4. 拉取 `ZhuHaiYiZhong` 分支；
 5. 检查 `.env`；
 6. 安装后端依赖；
 7. 创建 `D:\foodtestlab\data`；
@@ -365,7 +365,7 @@ C:\foodtestlab\deploy.ps1
 生产环境执行数据库同步前应备份：
 
 ```text
-D:\foodtestlab\data\foodtestlab.db
+D:\珠海一中\foodtestlab.db
 ```
 
 ---
@@ -391,7 +391,7 @@ D:\foodtestlab\data\foodtestlab.db
 典型结构如下：
 
 ```text
-C:\foodtestlab
+C:\zhuhaiyizhong
 ├── index.html
 ├── login.html
 ├── js
@@ -480,7 +480,7 @@ backend/server.js
 生产环境由 PM2 启动：
 
 ```powershell
-pm2 start server.js --name foodtestlab-api --cwd C:\foodtestlab\backend --time
+pm2 start server.js --name zhuhaiyizhong-api --cwd C:\zhuhaiyizhong\backend --time
 ```
 
 ### 7.3 后端分层
@@ -543,7 +543,7 @@ pm2 start server.js --name foodtestlab-api --cwd C:\foodtestlab\backend --time
 生产数据库连接字符串：
 
 ```env
-DATABASE_URL="file:D:/foodtestlab/data/foodtestlab.db"
+DATABASE_URL="file:D:/珠海一中/foodtestlab.db"
 ```
 
 ---
@@ -563,7 +563,7 @@ DATABASE_URL="file:D:/foodtestlab/data/foodtestlab.db"
 当前生产数据库文件：
 
 ```text
-D:\foodtestlab\data\foodtestlab.db
+D:\珠海一中\foodtestlab.db
 ```
 
 当前 Prisma datasource：
@@ -777,7 +777,7 @@ ipAddress
 Nginx 将 `/api/` 请求代理到：
 
 ```text
-http://127.0.0.1:3001
+http://127.0.0.1:3002
 ```
 
 ### 9.2 API 地址规范
@@ -794,8 +794,8 @@ http://127.0.0.1:3001
 不建议在前端硬编码：
 
 ```text
-http://localhost:3001
-http://公网IP:3001
+http://localhost:3002
+http://公网IP:3002
 ```
 
 原因：
@@ -925,7 +925,7 @@ localStorage 不是正式数据库。
 权威数据源为：
 
 ```text
-D:\foodtestlab\data\foodtestlab.db
+D:\珠海一中\foodtestlab.db
 ```
 
 localStorage 中的缓存仅用于前端展示和临时状态管理。涉及正式检测记录、用户、审计日志、备份元数据时，应以后端数据库为准。
@@ -1072,7 +1072,7 @@ admin / manager / operator / viewer / user
   ↓
 前端 AuthService 调用 POST /api/user/login
   ↓
-Nginx 将 /api 请求转发至 127.0.0.1:3001
+Nginx 将 /api 请求转发至 127.0.0.1:3002
   ↓
 Express 后端接收请求
   ↓
@@ -1144,7 +1144,7 @@ Prisma 写入 TestRecord / TestItem
 当前生产环境核心备份对象为：
 
 ```text
-D:\foodtestlab\data\foodtestlab.db
+D:\珠海一中\foodtestlab.db
 ```
 
 推荐备份流程：
@@ -1164,11 +1164,11 @@ D:\foodtestlab\data\foodtestlab.db
 推荐恢复流程：
 
 ```text
-停止 foodtestlab-api
+停止 zhuhaiyizhong-api
   ↓
-将备份数据库复制回 D:\foodtestlab\data\foodtestlab.db
+将备份数据库复制回 D:\珠海一中\foodtestlab.db
   ↓
-重启 foodtestlab-api
+重启 zhuhaiyizhong-api
   ↓
 执行 /api/health
   ↓
@@ -1228,14 +1228,14 @@ Authorization: Bearer <token>
 数据库文件不应放在：
 
 ```text
-C:\foodtestlab\dist
+C:\zhuhaiyizhong\dist
 C:\nginx\html
 ```
 
 当前推荐：
 
 ```text
-D:\foodtestlab\data\foodtestlab.db
+D:\珠海一中\foodtestlab.db
 ```
 
 ### 14.6 默认账号安全
@@ -1280,13 +1280,13 @@ npm run build
 构建产物：
 
 ```text
-C:\foodtestlab\dist
+C:\zhuhaiyizhong\dist
 ```
 
 Nginx WebRoot：
 
 ```text
-C:/foodtestlab/dist
+C:/zhuhaiyizhong/dist
 ```
 
 ### 15.3 后端生产运行
@@ -1294,15 +1294,15 @@ C:/foodtestlab/dist
 生产环境 PM2 启动：
 
 ```powershell
-cd C:\foodtestlab\backend
-pm2 start server.js --name foodtestlab-api --time
+cd C:\zhuhaiyizhong\backend
+pm2 start server.js --name zhuhaiyizhong-api --time
 pm2 save
 ```
 
 重启：
 
 ```powershell
-pm2 restart foodtestlab-api --update-env
+pm2 restart zhuhaiyizhong-api --update-env
 ```
 
 ### 15.4 一键部署运行
@@ -1310,7 +1310,7 @@ pm2 restart foodtestlab-api --update-env
 推荐部署命令：
 
 ```powershell
-cd C:\foodtestlab
+cd C:\zhuhaiyizhong
 .\deploy.ps1
 ```
 
@@ -1318,13 +1318,13 @@ cd C:\foodtestlab
 
 ```powershell
 pm2 list
-Invoke-WebRequest -Uri "http://127.0.0.1:3001/api/health" -UseBasicParsing
+Invoke-WebRequest -Uri "http://127.0.0.1:3002/api/health" -UseBasicParsing
 ```
 
 浏览器访问：
 
 ```text
-http://公网IP:8081
+http://公网IP:8082
 ```
 
 ---
@@ -1336,13 +1336,13 @@ http://公网IP:8081
 本地健康检查：
 
 ```text
-http://127.0.0.1:3001/api/health
+http://127.0.0.1:3002/api/health
 ```
 
 公网健康检查：
 
 ```text
-http://公网IP:8081/api/health
+http://公网IP:8082/api/health
 ```
 
 ### 16.2 PM2 运维
@@ -1356,13 +1356,13 @@ pm2 list
 查看日志：
 
 ```powershell
-pm2 logs foodtestlab-api
+pm2 logs zhuhaiyizhong-api
 ```
 
 重启食品系统：
 
 ```powershell
-pm2 restart foodtestlab-api --update-env
+pm2 restart zhuhaiyizhong-api --update-env
 ```
 
 不建议使用：
@@ -1399,7 +1399,7 @@ Get-Content C:\nginx\logs\access.log -Tail 100
 
 | 问题 | 可能原因 | 优先排查 |
 |---|---|---|
-| 502 Bad Gateway | 后端未启动、端口错误、进程崩溃 | `pm2 list`、`pm2 logs foodtestlab-api` |
+| 502 Bad Gateway | 后端未启动、端口错误、进程崩溃 | `pm2 list`、`pm2 logs zhuhaiyizhong-api` |
 | 401 Unauthorized | Token 缺失、过期、JWT_SECRET 变化 | 清理 localStorage 后重新登录 |
 | 403 Forbidden | 用户权限不足 | 检查角色和接口权限 |
 | 页面刷新 404 | Nginx 缺少 SPA fallback | 检查 `try_files` |
@@ -1488,29 +1488,29 @@ Get-Content C:\nginx\logs\access.log -Tail 100
 | 项目 | 当前配置 |
 |---|---|
 | 部署环境 | 腾讯云 Windows Server |
-| 项目目录 | `C:\foodtestlab` |
-| 前端目录 | `C:\foodtestlab\dist` |
-| 后端目录 | `C:\foodtestlab\backend` |
+| 项目目录 | `C:\zhuhaiyizhong` |
+| 前端目录 | `C:\zhuhaiyizhong\dist` |
+| 后端目录 | `C:\zhuhaiyizhong\backend` |
 | 数据目录 | `D:\foodtestlab\data` |
-| 数据库文件 | `D:\foodtestlab\data\foodtestlab.db` |
+| 数据库文件 | `D:\珠海一中\foodtestlab.db` |
 | 前端端口 | `8081` |
 | API 端口 | `3001` |
-| PM2 进程名 | `foodtestlab-api` |
+| PM2 进程名 | `zhuhaiyizhong-api` |
 | Nginx 配置 | `C:\nginx\conf\nginx.conf` |
-| 部署脚本 | `C:\foodtestlab\deploy.ps1` |
-| 部署分支 | `runon_tencentcloud` |
+| 部署脚本 | `C:\zhuhaiyizhong\deploy.ps1` |
+| 部署分支 | `ZhuHaiYiZhong` |
 
 ### 18.2 常用命令
 
 ```powershell
-cd C:\foodtestlab
+cd C:\zhuhaiyizhong
 .\deploy.ps1
 ```
 
 ```powershell
 pm2 list
-pm2 logs foodtestlab-api
-pm2 restart foodtestlab-api --update-env
+pm2 logs zhuhaiyizhong-api
+pm2 restart zhuhaiyizhong-api --update-env
 ```
 
 ```powershell
@@ -1520,7 +1520,7 @@ cd C:\nginx
 ```
 
 ```powershell
-Invoke-WebRequest -Uri "http://127.0.0.1:3001/api/health" -UseBasicParsing
+Invoke-WebRequest -Uri "http://127.0.0.1:3002/api/health" -UseBasicParsing
 ```
 
 ### 18.3 初始账号

@@ -1,5 +1,5 @@
 {
-  "name": "tianjiabing-foodtestlab",
+  "name": "zhuhaiyizhong-foodtestlab",
   "version": "3.1.0",
   "description": "食品安全检验管理系统 - Pro版本",
   "main": "backend/server.js",
