@@ -1,20 +1,23 @@
 ﻿# =========================================================
-# 自我更新检查（必须在所有逻辑之前）
+# 自我更新检查（必须在所有逻辑之前，包括 Transcript）
 # =========================================================
-$selfPath   = $PSCommandPath
-$repoForSelf = "C:\ZhuHaiYiZhong"
-$branchForSelf = "ZhuHaiYiZhong"
+$selfPath      = $PSCommandPath
+$selfRepoRoot  = "C:\ZhuHaiYiZhong"
+$selfBranch    = "ZhuHaiYiZhong"
 
-if (Test-Path (Join-Path $repoForSelf ".git")) {
+if (Test-Path (Join-Path $selfRepoRoot ".git")) {
     $hashBefore = (Get-FileHash $selfPath -Algorithm MD5).Hash
 
-    git -C $repoForSelf fetch origin $branchForSelf 2>&1 | Out-Null
-    git -C $repoForSelf reset --hard "origin/$branchForSelf" 2>&1 | Out-Null
+    git -C $selfRepoRoot fetch origin $selfBranch 2>&1 | Out-Null
+    git -C $selfRepoRoot reset --hard "origin/$selfBranch" 2>&1 | Out-Null
 
     $hashAfter = (Get-FileHash $selfPath -Algorithm MD5).Hash
 
     if ($hashBefore -ne $hashAfter) {
-        Write-Host "deploy.ps1 已更新，切换到新版本执行..." -ForegroundColor Yellow
+        Write-Host "deploy.ps1 已更新，修正编码后切换到新版本执行..." -ForegroundColor Yellow
+        # 确保新版文件是 UTF-8 with BOM，兼容 PowerShell 5.1
+        $newContent = [System.IO.File]::ReadAllText($selfPath, [System.Text.UTF8Encoding]::new($false))
+        [System.IO.File]::WriteAllText($selfPath, $newContent, [System.Text.UTF8Encoding]::new($true))
         & $selfPath @args
         exit $LASTEXITCODE
     }
@@ -102,7 +105,7 @@ if (-not (Test-Path $nginxExe))  { Fail "未找到 nginx.exe: $nginxExe" }
 
 Write-Host "Node 版本: $(node -v)"
 Write-Host "npm  版本: $(npm -v)"
-Write-Host "PM2  版本: $(pm2.cmd -v 2>$null)"
+Write-Host "PM2  版本: $(npx pm2 --no-update-notifier -v 2>$null)"
 
 # =========================================================
 # 3. 三系统隔离检查
@@ -151,7 +154,7 @@ if (-not (Test-Path (Join-Path $repoRoot ".git"))) {
     Write-Host "当前远程仓库: $remoteUrl"
 
     Log "停止珠海一中 PM2 后端，释放文件锁"
-    pm2.cmd stop $pm2AppName 2>$null
+    npx pm2 --no-update-notifier stop $pm2AppName 2>$null
     Start-Sleep -Seconds 2
 
     Log "拉取最新代码（带网络重试机制）"
@@ -303,20 +306,20 @@ if (Test-Path "prisma") {
 
 Log "PM2 启动或重启珠海一中后端"
 
-$pm2Output = pm2.cmd list 2>$null | Out-String
+$pm2Output = npx pm2 --no-update-notifier list 2>$null | Out-String
 
 if ($pm2Output -match [regex]::Escape($pm2AppName)) {
-    pm2.cmd restart $pm2AppName --update-env
+    npx pm2 --no-update-notifier restart $pm2AppName --update-env
 } else {
-    if      (Test-Path "src/index.js")  { pm2.cmd start src/index.js  --name $pm2AppName --cwd $backendPath --time }
-    elseif  (Test-Path "dist/index.js") { pm2.cmd start dist/index.js --name $pm2AppName --cwd $backendPath --time }
-    elseif  (Test-Path "dist/main.js")  { pm2.cmd start dist/main.js  --name $pm2AppName --cwd $backendPath --time }
-    elseif  (Test-Path "server.js")     { pm2.cmd start server.js     --name $pm2AppName --cwd $backendPath --time }
-    else                                { pm2.cmd start npm           --name $pm2AppName --cwd $backendPath -- start }
+    if      (Test-Path "src/index.js")  { npx pm2 --no-update-notifier start src/index.js  --name $pm2AppName --cwd $backendPath --time }
+    elseif  (Test-Path "dist/index.js") { npx pm2 --no-update-notifier start dist/index.js --name $pm2AppName --cwd $backendPath --time }
+    elseif  (Test-Path "dist/main.js")  { npx pm2 --no-update-notifier start dist/main.js  --name $pm2AppName --cwd $backendPath --time }
+    elseif  (Test-Path "server.js")     { npx pm2 --no-update-notifier start server.js     --name $pm2AppName --cwd $backendPath --time }
+    else                                { npx pm2 --no-update-notifier start npm           --name $pm2AppName --cwd $backendPath -- start }
 }
 
 if ($LASTEXITCODE -ne 0) { Fail "PM2 启动或重启后端失败" }
-pm2.cmd save
+npx pm2 --no-update-notifier save
 
 # =========================================================
 # 8. API 健康检查（在前端构建之前，趁后端启动窗口期检查）
@@ -342,7 +345,7 @@ for ($i = 1; $i -le 30; $i++) {
 }
 
 if (-not $healthOk) {
-    Warn "健康检查超时（60 秒）。服务可能仍在启动，继续执行前端构建，请稍后检查: pm2 logs $pm2AppName"
+    Warn "健康检查超时（60 秒）。服务可能仍在启动，继续执行前端构建，请稍后检查: npx pm2 logs $pm2AppName"
 }
 
 # =========================================================
@@ -501,8 +504,8 @@ Log "珠海一中食品检验系统部署完成"
 Ok ("耗时: {0} 秒" -f [math]::Round($elapsed.TotalSeconds, 1))
 Write-Host ""
 Write-Host "请继续检查以下项目:" -ForegroundColor Cyan
-Write-Host "1. PM2 状态:     pm2.cmd list"
-Write-Host "2. 后端日志:     pm2.cmd logs $pm2AppName"
+Write-Host "1. PM2 状态:     npx pm2 --no-update-notifier list"
+Write-Host "2. 后端日志:     npx pm2 --no-update-notifier logs $pm2AppName"
 Write-Host "3. 健康检查:     Invoke-WebRequest -Uri `"$healthUrl`" -UseBasicParsing"
 Write-Host "4. 公网访问:     http://你的公网IP:$frontendPort"
 Write-Host "5. 部署日志:     $logFile"
