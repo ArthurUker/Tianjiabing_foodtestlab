@@ -11,6 +11,7 @@ import { createUserRoutes } from './routes/userRoutes.js'
 import { createAuditRoutes } from './routes/auditRoutes.js'
 import { createValidationMiddleware, rateLimit, sanitizeText } from './middleware/validationMiddleware.js'
 import idempotencyMiddleware from './middleware/idempotencyMiddleware.js'
+import { createAuthMiddleware } from './middleware/authMiddleware.js'
 
 dotenv.config()
 
@@ -34,6 +35,9 @@ const prisma = new PrismaClient()
 
 // Initialize UserManager with Prisma
 const userManager = new UserManager(prisma, JWT_SECRET)
+
+// Initialize unified auth middleware
+const { authenticateUser: _authUser, authorizeAdmin: _authAdmin, authorizeRoles } = createAuthMiddleware(userManager)
 
 function parseAllowedOrigins() {
     if (!process.env.CORS_ORIGIN) {
@@ -205,24 +209,16 @@ function buildDeterministicRecordCode(tableName, payload) {
     return `RC-${tableName}-${hash}`
 }
 
-// Middleware: Authenticate User
+// Middleware: Authenticate User（统一从 authMiddleware.js 导入，兼容 req.userId / req.userRole）
 export function authenticateUser(req, res, next) {
-    const authHeader = req.headers['authorization']
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return res.status(401).json({ error: 'Missing or invalid Authorization header' })
-    }
-
-    const token = authHeader.split(' ')[1]
-    const verification = userManager.verifyToken(token)
-
-    if (!verification.valid) {
-        return res.status(401).json({ error: 'Invalid token', details: verification.error })
-    }
-
-    req.userId = verification.user.userId
-    req.userRole = verification.user.role
-    next()
+    _authUser(req, res, () => {
+        // 向后兼容：同时挂载 req.userId 和 req.userRole
+        if (req.user) {
+            req.userId = req.user.userId
+            req.userRole = req.user.role
+        }
+        next()
+    })
 }
 
 // Security Middleware
@@ -285,7 +281,7 @@ const userRoutes = createUserRoutes(userManager)
 app.use('/api/user', userRoutes)
 
 // ====== Audit Logs Routes ======
-const auditRoutes = createAuditRoutes(prisma, JWT_SECRET)
+const auditRoutes = createAuditRoutes(prisma, userManager)
 app.use('/api/audit-logs', auditRoutes)
 
 // ====== Test Records API ======

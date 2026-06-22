@@ -5,35 +5,13 @@
 
 import express from 'express'
 import jwt from 'jsonwebtoken'
+import { createAuthMiddleware } from '../middleware/authMiddleware.js'
 
 export function createUserRoutes(userManager) {
     const router = express.Router()
 
-    // ====== Authentication Middleware ======
-
-    function authenticateUser(req, res, next) {
-        const authHeader = req.headers.authorization
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            return res.status(401).json({ error: '❌ 缺少授权令牌' })
-        }
-
-        const token = authHeader.substring(7)
-        const verification = userManager.verifyToken(token)
-        
-        if (!verification.valid) {
-            return res.status(401).json({ error: '❌ 令牌无效或已过期' })
-        }
-
-        req.user = verification.user
-        next()
-    }
-
-    function authorizeAdmin(req, res, next) {
-        if (req.user.role !== 'admin' && req.user.role !== 'manager') {
-            return res.status(403).json({ error: '❌ 权限不足' })
-        }
-        next()
-    }
+    // ====== Authentication Middleware（统一从 authMiddleware.js 导入）======
+    const { authenticateUser, authorizeAdmin } = createAuthMiddleware(userManager)
 
     // ====== Public Routes ======
 
