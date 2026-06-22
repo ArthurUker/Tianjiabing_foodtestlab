@@ -667,4 +667,4 @@ https://raw.githubusercontent.com/ArthurUker/Tianjiabing_foodtestlab/ZhuHaiYiZho
 | `P0-09` | auth.verify() 对编辑操作完全不做权限校验 | 3h | ⬜ 待处理 | - |
 | `P0-10` | 根目录 package.json 缺少 type:module 及 Prisma 依赖 | 1h | ⬜ 待处理 | - |
 
-> P1 / P2 / DOCS 各项详情见 `docs/fix/FIX_PLAN.md` 对应章节。
+> P1 / P2 / DOCS 各项详情见 `docs/fix/FIX_PLAN.md` 对应章节。<!-- END_OF_FILE | SHA: 8034b991 | SIZE: 42696 | UPDATED: 2026-06-22 -->
