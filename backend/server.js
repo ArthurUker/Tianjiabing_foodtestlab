@@ -12,6 +12,7 @@ import { createAuditRoutes } from './routes/auditRoutes.js'
 import { createValidationMiddleware, rateLimit, sanitizeText } from './middleware/validationMiddleware.js'
 import idempotencyMiddleware from './middleware/idempotencyMiddleware.js'
 import { createAuthMiddleware } from './middleware/authMiddleware.js'
+import { createSyncRoutes } from './routes/syncRoutes.js'
 
 dotenv.config()
 
@@ -283,6 +284,10 @@ app.use('/api/user', userRoutes)
 // ====== Audit Logs Routes ======
 const auditRoutes = createAuditRoutes(prisma, userManager)
 app.use('/api/audit-logs', auditRoutes)
+
+// ====== Sync Routes ======
+const syncRoutes = createSyncRoutes(prisma, userManager)
+app.use('/api/sync', syncRoutes)
 
 // ====== Test Records API ======
 
