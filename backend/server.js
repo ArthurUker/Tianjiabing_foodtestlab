@@ -21,7 +21,11 @@ const app = express()
 const PORT = process.env.PORT || 3002
 const serveStatic = process.env.SERVE_STATIC === 'true'
 const allowCorsWildcard = process.env.CORS_ORIGIN === '*'
-const JWT_SECRET = process.env.JWT_SECRET || 'local-dev-jwt-secret'
+const JWT_SECRET = process.env.JWT_SECRET
+if (!JWT_SECRET) {
+  console.error('[FATAL] JWT_SECRET is not set. Server startup aborted.')
+  process.exit(1)
+}
 const RATE_LIMIT_MAX_REQUESTS = Number(process.env.RATE_LIMIT_MAX_REQUESTS || 1000)
 const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || (60 * 1000))
 

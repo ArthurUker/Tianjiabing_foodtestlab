@@ -37,8 +37,8 @@ export function createUserRoutes(userManager) {
 
     // ====== Public Routes ======
 
-    // 用户注册
-    router.post('/register', async (req, res) => {
+    // 用户注册（需 admin 权限）
+    router.post('/register', authenticateUser, authorizeAdmin, async (req, res) => {
         try {
             const { username, phone, password, fullName } = req.body
 

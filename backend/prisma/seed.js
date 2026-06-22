@@ -1,6 +1,11 @@
 import { PrismaClient } from '@prisma/client'
 import bcryptjs from 'bcryptjs'
 
+// 需在 .env 中配置 SEED_ADMIN_PASSWORD / SEED_OPERATOR_PASSWORD / SEED_VIEWER_PASSWORD
+const adminPassword = process.env.SEED_ADMIN_PASSWORD || 'Zhuhai@2026!Admin'
+const operatorPassword = process.env.SEED_OPERATOR_PASSWORD || 'Zhuhai@2026!Operator'
+const viewerPassword = process.env.SEED_VIEWER_PASSWORD || 'Zhuhai@2026!Viewer'
+
 const prisma = new PrismaClient()
 
 async function main() {
@@ -34,7 +39,7 @@ async function main() {
         role: 'admin',
         status: 'active'
       },
-      '8888'
+      adminPassword
     )
 
     await ensureUser(
@@ -46,7 +51,7 @@ async function main() {
         role: 'operator',
         status: 'active'
       },
-      'operator123'
+      operatorPassword
     )
 
     await ensureUser(
@@ -58,7 +63,7 @@ async function main() {
         role: 'viewer',
         status: 'active'
       },
-      'viewer123'
+      viewerPassword
     )
   } catch (err) {
     console.error(`❌ 初始化默认账户失败: ${err.message}`)
@@ -75,9 +80,9 @@ async function main() {
 
   console.log('✨ 数据库初始化完成！')
   console.log('\n📝 初始账户（仅首次创建）:')
-  console.log('  - admin / 8888 (管理员)')
-  console.log('  - operator / operator123 (测试员)')
-  console.log('  - viewer / viewer123 (查看员)\n')
+  console.log('  - admin (管理员)')
+  console.log('  - operator (测试员)')
+  console.log('  - viewer (查看员)\n')
 }
 
 main()
