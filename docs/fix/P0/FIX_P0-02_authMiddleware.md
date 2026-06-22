@@ -7,8 +7,8 @@
 | **影响文件** | `backend/server.js, userRoutes.js, auditRoutes.js` |
 | **预估工时** | 3h |
 | **关联问题** | P0-01, P0-04 |
-| **状态** | ⬜ 待处理 |
-| **完成日期** | - |
+| **状态** | ✅ 已完成 |
+| **完成日期** | 2026-06-22 |
 
 ---
 
@@ -49,4 +49,7 @@
 
 ## 6. 备注
 
-> 无。
+> 已通过 Monica 代码审阅（2026-06-22）。修复质量优秀。
+> 新建 authMiddleware.js 采用工厂函数模式，成功统一三处分散实现（userRoutes.js、auditRoutes.js、server.js）。
+> server.js 中使用 _authUser/_authAdmin 别名，为 P0-01 syncRoutes 重写预留接口。
+> 遗留：userRoutes.js 中冗余的 import jwt 可在 P2 阶段清理（不影响功能）。
