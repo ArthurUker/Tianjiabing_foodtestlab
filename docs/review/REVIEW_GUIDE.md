@@ -4,7 +4,7 @@
 **系统名称**：食品安全检验管理系统 Pro（珠海一中食品安全检验系统）
 **仓库地址**：https://github.com/ArthurUker/Tianjiabing_foodtestlab/tree/ZhuHaiYiZhong
 **审阅开始日期**：2026-06-22
-**文档版本**：v0.6（2026-06-22 第六轮更新）
+**文档版本**：v0.7（2026-06-22 第七轮更新）
 **文档用途**：每次新对话开始时，将本文件提供给 AI，以快速恢复审阅上下文，无需重新读取全部代码。
 
 ---
@@ -43,7 +43,7 @@
 | 初始测试员账号 | `operator` / `operator123` |
 | 初始查看员账号 | `viewer` / `viewer123` |
 
-### 1.3 完整项目目录结构（v0.6 最终版）
+### 1.3 完整项目目录结构（v0.7 更新）
 
 ```
 项目根目录/
@@ -72,8 +72,8 @@
 │   ├── core/
 │   │   ├── Auth.js                       ✅ 已审阅
 │   │   ├── Router.js                     ✅ 已审阅
-│   │   ├── Storage.js                    ✅ 已审阅（_getHeaders 截断，待确认）
-│   │   └── AdaptiveUploadQueue.js        ✅ 已审阅（部分截断）
+│   │   ├── Storage.js                    ✅ 已审阅（v0.7 完整确认：_getHeaders 正常注入 Bearer Token；_canSyncWithServer 存在 temp-token- 前缀伪造风险）
+│   │   └── AdaptiveUploadQueue.js        ✅ 已审阅（v0.7 完整确认：_makeFingerprint 完整；_isRecentlyCompleted 末尾轻微截断不影响逻辑；_doRequest URL 硬编码问题已记录为 P1-24）
 │   ├── modules/
 │   │   ├── AuditLog.js                   ✅ 已审阅
 │   │   ├── BackupRestore.js              ✅ 已审阅
@@ -207,8 +207,8 @@ StorageService.save() / update() / delete()
 | `login.html` | ✅ | 100% | **"以访客身份进入"按钮是 P0-07 快速访问的入口** |
 | `js/core/Auth.js` | ✅ | 100% | **与 AuthService.js 同名；编辑操作无权限校验** |
 | `js/core/Router.js` | ✅ | ~85% | 权限控制仅靠 CSS 隐藏、全局暴露 window.router |
-| `js/core/Storage.js` | ✅ | ~80% | 核心数据层；`_getHeaders()` 截断待确认（P0-08）|
-| `js/core/AdaptiveUploadQueue.js` | ✅ | ~70% | 指纹去重、自适应节流；`_getHeaders` 由外部注入 |
+| `js/core/Storage.js` | ✅ | 100% | **v0.7 完整确认**：`_getHeaders()` 正常注入 Bearer Token；`_canSyncWithServer()` 存在 `temp-token-` 前缀伪造风险（P0-08 确认）|
+| `js/core/AdaptiveUploadQueue.js` | ✅ | ~95% | **v0.7 完整确认**：指纹去重、自适应节流逻辑完整；`_doRequest()` URL 硬编码（P1-24 新增）；`_isRecentlyCompleted()` 末尾轻微截断，不影响逻辑 |
 | `js/modules/AuditLog.js` | ✅ | ~70% | 正确通过 AuditLogService 查询后端 |
 | `js/modules/BackupRestore.js` | ✅ | ~60% | 备份恢复依赖无效的 syncRoutes |
 | `js/modules/Dashboard.js` | ✅ | ~70% | `loadDashboardData` 挂载到 `window` |
@@ -235,7 +235,7 @@ StorageService.save() / update() / delete()
 
 ---
 
-## 3. 已发现问题清单（完整版 v0.6）
+## 3. 已发现问题清单（完整版 v0.7）
 
 ### 🔴 P0 — 高危问题（建议 1~3 天内处理）
 
@@ -272,11 +272,11 @@ StorageService.save() / update() / delete()
 - **问题**：`login.html` 中"以访客身份进入"按钮直接触发快速访问；Token 为本地伪随机字符串，后端从不验证
 - **修复建议**：快速访问必须经后端签发临时 Token，或完全移除此功能；至少在 `login.html` 中添加明确的权限说明
 
-#### P0-08：`Storage.js` 数据写入的 `_getHeaders()` 实现截断，Token 注入待确认
-- **位置**：`js/core/Storage.js`（代码截断）
-- **现状**：`AdaptiveUploadQueue` 的 `getHeaders` 由外部注入，`Storage.js` 传入 `() => this._getHeaders()`，但 `_getHeaders()` 方法体在读取到的代码范围内未出现
-- **风险**：若未正确注入 `Authorization: Bearer {token}`，所有数据上传均被后端 401 拒绝，进入无限重试循环
-- **状态**：⚠️ 待下一轮完整读取 Storage.js 后半段确认
+#### P0-08：`Storage.js` `_canSyncWithServer()` 的 `temp-token-` 前缀校验可被客户端伪造
+- **位置**：`js/core/Storage.js`，`_canSyncWithServer()` 方法
+- **v0.7 确认**：`_getHeaders()` 实现完整正常（`Authorization: Bearer <token>`，管理员 `auth_token` 优先，fallback `guest_token`）；真实问题在于 `_canSyncWithServer()` 通过 `token.startsWith('temp-token-')` 判断是否允许同步，该前缀字符串可由客户端任意伪造，无服务端验证
+- **风险**：攻击者构造 `temp-token-` 开头的伪造 Token，可绕过同步阻断逻辑，触发未经授权的数据上传
+- **修复建议**：移除前缀字符串判断；改为向后端 `/api/user/verify-token` 发起验证请求，或依赖后端 401 响应作为唯一阻断机制
 
 #### P0-09：`js/core/Auth.js` 的 `auth.verify()` 对编辑操作完全不做权限校验
 - **位置**：`js/core/Auth.js`，`verify()` 方法；被 Tableware、GenericTest、Pathogen、UserManagement 调用
@@ -342,8 +342,9 @@ StorageService.save() / update() / delete()
 #### P1-18：`Pathogen.js` 快速访问模式下访客可访问病原体检测模块，与权限矩阵矛盾
 - **修复建议**：将权限检查改为 `if (isGuest || isQuickAccess) { return; }`
 
-#### P1-19：`AdaptiveUploadQueue` 的 `_completedFingerprints` 缓存上限 500 条，淘汰策略未确认
-- **修复建议**：确认 `_evictOldFingerprints()` 的淘汰策略；建议使用 LRU 或按 TTL 清理
+#### P1-19：`AdaptiveUploadQueue` 的 `_completedFingerprints` 缓存上限 500 条，淘汰策略为 FIFO
+- **v0.7 确认**：`_markCompleted()` 中当缓存达到 `_maxFingerprintCache`（500）上限时，通过 `this._completedFingerprints.keys().next().value` 取出 Map 中最旧的键并删除，为**FIFO 策略**（非 LRU）；在高频写入场景下，最近完成的指纹可能因 FIFO 淘汰而被重新入队，导致重复上传
+- **修复建议**：改为按 TTL（`_fingerprintTTL`，默认 60s）批量清理过期条目，替代固定上限 FIFO 淘汰
 
 #### P1-20：`Dashboard.js` 将 `loadDashboardData` 挂载到 `window` 全局，且实例化 5 个 StorageService
 - **修复建议**：使用 `CustomEvent` 替代全局函数；合并多个 StorageService 的同步请求
@@ -367,6 +368,11 @@ StorageService.save() / update() / delete()
   - 后端 `validationMiddleware` 的规则集未完整读取（~40%），无法确认是否覆盖相同字段
   - 若两端校验规则不一致，攻击者可绕过前端校验直接向后端发送非法数据
 - **修复建议**：建立统一的校验规则配置文件，前后端共享；或至少确保后端校验是前端的超集
+
+#### P1-24：`AdaptiveUploadQueue._doRequest()` URL 硬编码，绕过 `StorageService` 的 `apiBaseUrl` 配置（v0.7 新增）
+- **位置**：`js/core/AdaptiveUploadQueue.js`，`_doRequest()` 方法
+- **问题**：`_doRequest()` 中所有请求 URL 均硬编码为 `/api/records/${item.collection}`，完全忽略 `StorageService` 构造时通过 `getHeaders` 回调传入的 `apiBaseUrl` 配置；若未来 API 前缀变更或需要多环境部署，`AdaptiveUploadQueue` 的请求将无法跟随配置变更
+- **修复建议**：在 `AdaptiveUploadQueue` 构造函数中新增 `getBaseUrl` 回调选项，`StorageService` 初始化时传入 `() => this.apiBaseUrl`；`_doRequest()` 改为 `` `${this._getBaseUrl()}/${item.collection}` ``
 
 ---
 
@@ -478,8 +484,8 @@ StorageService.save() / update() / delete()
 #### P3-07：`Storage.js` 离线优先架构在多设备场景下存在数据冲突风险
 - **建议**：引入乐观锁（`updated_at` 版本号校验）或 CRDT 策略
 
-#### P3-08：`AdaptiveUploadQueue.js` 代码截断，队列核心逻辑（错误处理、淘汰策略）未完整审阅
-- **建议**：如有需要可补充读取完整代码
+#### P3-08：`AdaptiveUploadQueue.js` `_isRecentlyCompleted()` 末尾轻微截断
+- **v0.7 更新**：截断位于末尾 TTL 比较逻辑（`if (Date.now() - ts > this._fingerprintTTL)`），逻辑可完整推断，不影响审阅结论；如需精确确认可补充读取
 
 #### P3-09：`pathogenRisk.js` 风险分级阈值（Ct < 20 / 20-30 / 30-35 / ≥35）未注明来源标准
 - **位置**：`js/utils/pathogenRisk.js`
@@ -497,11 +503,11 @@ StorageService.save() / update() / delete()
 
 | 优先级 | 数量 | 核心主题 |
 |--------|------|----------|
-| 🔴 P0 高危 | 9 项 | syncRoutes 无认证、JWT 弱密钥、认证不一致、注册无保护、seed 密码明文、快速访问绕过、Storage Token 待确认、record_code 幂等失效、Auth.js 编辑无权限校验 |
-| 🟠 P1 重要 | 23 项 | 路由冲突、内存幂等、两套审计机制、缓存一致性、重复数据根因、病原体权限漏洞、Auth 类名冲突、示例数据 ID 格式、前后端校验不同步等 |
+| 🔴 P0 高危 | 9 项 | syncRoutes 无认证、JWT 弱密钥、认证不一致、注册无保护、seed 密码明文、快速访问绕过、temp-token 前缀伪造、record_code 幂等失效、Auth.js 编辑无权限校验 |
+| 🟠 P1 重要 | 24 项 | 路由冲突、内存幂等、两套审计机制、缓存一致性、重复数据根因、病原体权限漏洞、Auth 类名冲突、示例数据 ID 格式、前后端校验不同步、AdaptiveUploadQueue URL 硬编码等 |
 | 🟡 P2 优化 | 20 项 | 限流、JSON 容错、全局暴露、CDN 完整性、UINotification XSS、FormValidator 缺少防护规则等 |
 | 🔵 P3 长期 | 10 项 | 数据库迁移、Token 安全、多设备冲突、Ct 阈值来源、URL 路由状态管理等 |
-| **合计** | **62 项** | |
+| **合计** | **63 项** | |
 
 ---
 
@@ -512,22 +518,19 @@ StorageService.save() / update() / delete()
 核心业务文件已全部审阅完毕。下一轮可聚焦以下方向：
 
 ```
-# 1. 确认 P0-08（Storage Token 注入）- 读取 Storage.js 完整版
-# 在已读内容末尾处继续读取，重点查找 _getHeaders() 方法
-
-# 2. 次要 HTML 页面（如存在）
+# 1. 次要 HTML 页面（如存在）
 https://raw.githubusercontent.com/ArthurUker/Tianjiabing_foodtestlab/ZhuHaiYiZhong/guest.html
 
-# 3. package.json - 确认依赖版本和 scripts
+# 2. package.json - 确认依赖版本和 scripts
 https://raw.githubusercontent.com/ArthurUker/Tianjiabing_foodtestlab/ZhuHaiYiZhong/backend/package.json
 
-# 4. 转入修复阶段：按 P0 → P1 → P2 优先级逐项输出修复方案
+# 3. 转入修复阶段：按 P0 → P1 → P2 优先级逐项输出修复方案
 ```
 
 ### 5.2 建议转入修复方案输出阶段
 
 > 核心文件审阅已基本完成（覆盖率 ~90%）。建议下一步转入**修复方案输出**阶段：
-> 
+>
 > - 按 P0 → P1 → P2 优先级，逐项输出具体代码修复方案
 > - 每次对话选取 3~5 个问题，提供可直接应用的代码 diff
 > - 修复完成后在本文档对应条目标记 `✅ 已修复`
@@ -575,3 +578,4 @@ https://raw.githubusercontent.com/ArthurUker/Tianjiabing_foodtestlab/ZhuHaiYiZho
 | 2026-06-22 | v0.4 | 新增 Storage.js、AuditLogService、AuditLog、BackupRestore、UserManagement、ExportService、dedupe-test-records 审阅；问题总数 48 项 |
 | 2026-06-22 | v0.5 | 新增 Auth.js、AdaptiveUploadQueue、Tableware、GenericTest、Pathogen、Dashboard、GuestDashboard 审阅；问题总数 56 项 |
 | 2026-06-22 | v0.6 | 新增 pathogenRisk.js（✅正常）、FormValidator.js、SampleDataGenerator.js、UINotification.js（XSS风险）、UIHelper.js、index.html、login.html 审阅；核心文件覆盖率达 ~90%；新增 UINotification XSS（P2-18）、FormValidator 防护缺失（P2-20）、示例数据 ID 格式（P1-22）等；问题总数扩展至 62 项；建议转入修复方案输出阶段 |
+| 2026-06-22 | v0.7 | 完整确认 Storage.js（_getHeaders 正常，P0-08 精确定位为 temp-token- 前缀伪造）和 AdaptiveUploadQueue.js（P1-19 淘汰策略确认为 FIFO）；新增 P1-24（_doRequest URL 硬编码）；问题总数 63 项 |
