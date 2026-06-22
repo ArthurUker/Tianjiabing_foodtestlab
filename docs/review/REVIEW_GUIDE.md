@@ -4,7 +4,7 @@
 **系统名称**：食品安全检验管理系统 Pro（珠海一中食品安全检验系统）
 **仓库地址**：https://github.com/ArthurUker/Tianjiabing_foodtestlab/tree/ZhuHaiYiZhong
 **审阅开始日期**：2026-06-22
-**文档版本**：v0.7（2026-06-22 第七轮更新）
+**文档版本**：v0.8（2026-06-22 第八轮更新）
 **文档用途**：每次新对话开始时，将本文件提供给 AI，以快速恢复审阅上下文，无需重新读取全部代码。
 
 ---
@@ -20,8 +20,8 @@
 | 文档处理 | Mammoth.js / jsPDF / html2canvas | Word 解析、PDF 导出 |
 | 后端 | Node.js + Express.js | REST API |
 | ORM | Prisma Client | 数据库建模与访问 |
-| 数据库 | SQLite（生产）| 单文件，路径 `D:\ZhuHaiYiZhong-data\zhuhaiyizhong.db` |
-| 认证 | JWT Bearer Token + bcryptjs | Token 有效期 7 天（`JWT_EXPIRES_IN=7d`） |
+| 数据库 | SQLite（生产）| 单文件，路径待确认（见 §1.2 注意事项）|
+| 认证 | JWT Bearer Token + bcryptjs | Token 有效期 7 天（`JWT_EXPIRES_IN=7d`）|
 | 进程守护 | PM2（进程名 `zhuhaiyizhong-api`）| |
 | 反向代理 | Nginx | 前端端口 8082，后端 API 端口 3002 |
 | 部署环境 | 腾讯云 Windows Server | 部署分支 `ZhuHaiYiZhong` |
@@ -36,22 +36,30 @@
 | 前端访问端口 | `8082` |
 | 后端 API 端口 | `3002` |
 | PM2 进程名 | `zhuhaiyizhong-api` |
-| 数据库文件 | `D:\ZhuHaiYiZhong-data\zhuhaiyizhong.db` |
+| 数据库文件 | ⚠️ **路径存在歧义，见下方说明（P1-26）** |
 | API 前缀 | `/api` |
 | 登录接口 | `POST /api/user/login` |
 | 初始管理员账号 | `admin` / `8888`（seed.js 写死，⚠️ 已公开）|
 | 初始测试员账号 | `operator` / `operator123` |
 | 初始查看员账号 | `viewer` / `viewer123` |
 
-### 1.3 完整项目目录结构（v0.7 更新）
+> ⚠️ **数据库路径歧义（P1-26）**：
+> - `docs/` 系统文档记录：`D:\珠海一中\foodtestlab.db`
+> - 本文档 v0.7 记录：`D:\ZhuHaiYiZhong-data\zhuhaiyizhong.db`
+> - **两个路径不一致，请以生产服务器 `.env` 中的 `DATABASE_URL` 实际值为准，并统一所有文档。**
+
+### 1.3 完整项目目录结构（v0.8 更新）
 
 ```
 项目根目录/
 ├── .babelrc / .gitignore / .npmrc / .vscode/
 ├── .env.example                          ✅ 已审阅
+├── package.json                          ✅ 已审阅（v0.8 新增）⚠️ 僵尸文件：缺少 "type":"module" 和 prisma 依赖，webpack 已无用
 ├── index.html                            ✅ 已审阅（主页面）
 ├── login.html                            ✅ 已审阅（登录页）
+├── guest.html                            ❌ 文件不存在（404 已确认）
 ├── backend/
+│   ├── package.json                      ✅ 已审阅（v0.8 新增）✅ 正确配置 "type":"module" 和 prisma 依赖
 │   ├── server.js                         ✅ 已审阅
 │   ├── config/telemetry.js               ✅ 已审阅
 │   ├── middleware/
@@ -66,7 +74,8 @@
 │       ├── auditRoutes.js                ✅ 已审阅
 │       ├── syncRoutes.js                 ✅ 已审阅（严重问题）
 │       └── userRoutes.js                 ✅ 已审阅
-├── docs/review/REVIEW_GUIDE.md           ✅ 本文件
+├── docs/
+│   └── review/REVIEW_GUIDE.md            ✅ 本文件
 ├── js/
 │   ├── main.js                           ✅ 已审阅（部分）
 │   ├── core/
@@ -98,10 +107,10 @@
 │       ├── SampleDataGenerator.js        ✅ 已审阅
 │       ├── UIHelper.js                   ✅ 已审阅
 │       └── UINotification.js             ✅ 已审阅
-└── [其他 HTML 页面]                       ❌ 未读取（如 guest.html 等）
+└── [工程配置文件]                         ❌ 未读取（.babelrc、webpack.config.js 等，优先级低）
 ```
 
-> **审阅覆盖率**：核心业务文件已全部覆盖。主要未读取项为次要 HTML 页面。
+> **审阅覆盖率**：核心业务文件已全部覆盖（~95%）。`guest.html` 已确认不存在。剩余未读取项为低优先级工程配置文件。
 
 ### 1.4 系统核心数据流架构
 
@@ -185,6 +194,19 @@ StorageService.save() / update() / delete()
 | `guest-dashboard` | 访客中心 | `GuestDashboard.js` |
 | `backup-restore` | 备份与恢复 | `BackupRestore.js` |
 
+### 1.9 package.json 双文件架构说明（v0.8 新增）
+
+> ⚠️ 项目存在两个 `package.json`，职责边界模糊，是历史遗留问题。
+
+| 文件 | 定位 | 状态 |
+|------|------|------|
+| `/package.json`（根目录）| 原为前端工程工具配置容器（Webpack、Jest、Cypress）| ⚠️ **僵尸文件**：前端已改为原生 HTML，webpack 无用；缺少 `"type":"module"` 和 `prisma` 依赖；版本号 `3.1.0` 与后端不同步 |
+| `/backend/package.json` | 后端 Node.js 运行时依赖 | ✅ **生产部署入口**：正确配置 `"type":"module"`、`prisma ^5.10.0`、`express ^4.22.1` 等 |
+
+**演进路径**：项目早期前后端统一管理，后端独立到 `backend/` 后新建了自己的 `package.json`，根目录文件未随之清理，形成双文件并存的历史遗留状态。
+
+**结论**：生产部署应始终在 `backend/` 目录下执行 `npm install` 和 `npm start`，根目录 `package.json` 需清理或明确标注用途（见 P0-10）。
+
 ---
 
 ## 2. 已审阅文件清单
@@ -202,9 +224,12 @@ StorageService.save() / update() / delete()
 | `backend/prisma/seed.js` | ✅ | 100% | **admin 密码 `8888` 明文写入公开仓库** |
 | `backend/prisma/dedupe-test-records.js` | ✅ | 100% | 证实历史重复数据问题 |
 | `backend/config/telemetry.js` | ✅ | 100% | CommonJS 语法、未集成到主进程 |
+| `backend/package.json` | ✅ | 100% | ✅ 正确配置；依赖版本与根目录不同步（P1-25）|
+| `/package.json`（根目录）| ✅ | 100% | ⚠️ 僵尸文件；缺少 `"type":"module"` 和 prisma（P0-10）；webpack 已无用 |
 | `.env.example` | ✅ | 100% | JWT_SECRET 示例值为弱字符串 |
 | `index.html` | ✅ | 100% | 主页面结构完整；模块 ID 与 JS 模块对应关系已梳理 |
 | `login.html` | ✅ | 100% | **"以访客身份进入"按钮是 P0-07 快速访问的入口** |
+| `guest.html` | ❌ | — | **文件不存在（404 已确认）** |
 | `js/core/Auth.js` | ✅ | 100% | **与 AuthService.js 同名；编辑操作无权限校验** |
 | `js/core/Router.js` | ✅ | ~85% | 权限控制仅靠 CSS 隐藏、全局暴露 window.router |
 | `js/core/Storage.js` | ✅ | 100% | **v0.7 完整确认**：`_getHeaders()` 正常注入 Bearer Token；`_canSyncWithServer()` 存在 `temp-token-` 前缀伪造风险（P0-08 确认）|
@@ -231,11 +256,12 @@ StorageService.save() / update() / delete()
 | `js/utils/UIHelper.js` | ✅ | 100% | 导航切换逻辑简单；无安全问题 |
 | `js/utils/UINotification.js` | ✅ | ~90% | **`innerHTML` 直接插入 message，存在 XSS 风险** |
 | `js/main.js` | ✅ | ~50% | 大量 window.* 全局暴露 |
-| `[其他 HTML 页面]` | ❌ | — | guest.html 等次要页面未读取 |
+| `docs/` 目录 | ✅ | 部分 | 数据库路径与本文档记录不一致（P1-26）|
+| `[工程配置文件]` | ❌ | — | `.babelrc`、`webpack.config.js` 等未读取（优先级低）|
 
 ---
 
-## 3. 已发现问题清单（完整版 v0.7）
+## 3. 已发现问题清单（完整版 v0.8）
 
 ### 🔴 P0 — 高危问题（建议 1~3 天内处理）
 
@@ -282,6 +308,14 @@ StorageService.save() / update() / delete()
 - **位置**：`js/core/Auth.js`，`verify()` 方法；被 Tableware、GenericTest、Pathogen、UserManagement 调用
 - **问题**：仅当操作名包含"删除"时弹 `confirm()`；编辑操作直接执行回调，`viewer` 角色可随意编辑数据
 - **修复建议**：`verify()` 中增加 `permissionService.hasPermission()` 校验；后端 PUT 接口同时校验操作者权限
+
+#### P0-10：根目录 `package.json` 缺少 `"type": "module"` 且无 Prisma 依赖，生产部署存在启动崩溃风险（v0.8 新增）
+- **位置**：`/package.json`（根目录）
+- **问题**：
+  - 缺少 `"type": "module"`，在根目录执行 `npm start` 时 Node.js 以 CommonJS 解析 ES Module 代码，直接崩溃
+  - 完全缺少 `prisma` 和 `@prisma/client` 依赖，根目录 `npm install` 后无法运行数据库操作
+  - `webpack` 依赖已无用（前端已改为原生 HTML），增加无效安装体积
+- **修复建议**：明确根目录 `package.json` 定位为工程工具配置，`start` 脚本改为 `cd backend && npm start`；清理无用的 `webpack` 依赖；在 `README` 中明确标注两个 `package.json` 的职责边界
 
 ---
 
@@ -374,6 +408,18 @@ StorageService.save() / update() / delete()
 - **问题**：`_doRequest()` 中所有请求 URL 均硬编码为 `/api/records/${item.collection}`，完全忽略 `StorageService` 构造时通过 `getHeaders` 回调传入的 `apiBaseUrl` 配置；若未来 API 前缀变更或需要多环境部署，`AdaptiveUploadQueue` 的请求将无法跟随配置变更
 - **修复建议**：在 `AdaptiveUploadQueue` 构造函数中新增 `getBaseUrl` 回调选项，`StorageService` 初始化时传入 `() => this.apiBaseUrl`；`_doRequest()` 改为 `` `${this._getBaseUrl()}/${item.collection}` ``
 
+#### P1-25：两套 `package.json` 依赖版本不同步，开发与生产环境行为存在差异（v0.8 新增）
+- **位置**：`/package.json` vs `backend/package.json`
+- **问题**：`express`（`^4.18.2` vs `^4.22.1`）、`dotenv`（`^16.0.3` vs `^16.6.1`）、`cors`（`^2.8.5` vs `^2.8.6`）、`jsonwebtoken`（`^9.0.0` vs `^9.0.2`）版本均存在差异；`nodemon` 与 `node --watch` 混用
+- **修复建议**：统一依赖版本；明确 `backend/package.json` 为唯一生产部署入口
+
+#### P1-26：生产数据库路径在 `docs/` 文档与本文档记录不一致（v0.8 新增）
+- **位置**：`docs/` 系统文档 vs 本文档 §1.2
+- **`docs/` 记录**：`D:\珠海一中\foodtestlab.db`
+- **本文档 v0.7 记录**：`D:\ZhuHaiYiZhong-data\zhuhaiyizhong.db`
+- **风险**：若 `.env` 中 `DATABASE_URL` 配置了错误路径，Prisma 将无法找到数据库文件，系统完全无法读写数据
+- **修复建议**：**立即确认生产服务器 `.env` 中的 `DATABASE_URL` 实际值**，并统一所有文档记录
+
 ---
 
 ### 🟡 P2 — 优化建议（建议 2 周内处理）
@@ -459,6 +505,16 @@ StorageService.save() / update() / delete()
   - 脚本注入检测（`<script>`, `javascript:`）
 - **修复建议**：添加 `noHtml` 和 `noScript` 验证规则；与后端 `validationMiddleware.js` 的 `escapeHtml` 逻辑对齐
 
+#### P2-21：Jest 测试框架与 ES Module 后端代码兼容性未验证（v0.8 新增）
+- **位置**：根目录 `package.json` + `.babelrc`
+- **问题**：Jest 默认不支持 ES Module，需要 Babel 转译；当前 `.babelrc` 配置是否完整覆盖后端代码未确认；`test:backend` 脚本使用 glob 模式在 Windows 环境下行为与 Linux 不同，可能导致测试文件找不到
+- **修复建议**：在 `jest.config.js` 中添加 `transform` 配置，或改用 `--experimental-vm-modules` 运行 Jest
+
+#### P2-22：Cypress E2E 测试脚本在 Windows Server 生产环境无法运行（v0.8 新增）
+- **位置**：根目录 `package.json`，`test:e2e` 系列脚本
+- **问题**：腾讯云 Windows Server 无 headless 浏览器环境，`cypress run` 会直接失败
+- **修复建议**：E2E 测试仅在本地开发环境运行；CI/CD 流程中跳过 Cypress；或改用 Playwright headless 模式
+
 ---
 
 ### 🔵 P3 — 长期优化（规划阶段）
@@ -503,11 +559,11 @@ StorageService.save() / update() / delete()
 
 | 优先级 | 数量 | 核心主题 |
 |--------|------|----------|
-| 🔴 P0 高危 | 9 项 | syncRoutes 无认证、JWT 弱密钥、认证不一致、注册无保护、seed 密码明文、快速访问绕过、temp-token 前缀伪造、record_code 幂等失效、Auth.js 编辑无权限校验 |
-| 🟠 P1 重要 | 24 项 | 路由冲突、内存幂等、两套审计机制、缓存一致性、重复数据根因、病原体权限漏洞、Auth 类名冲突、示例数据 ID 格式、前后端校验不同步、AdaptiveUploadQueue URL 硬编码等 |
-| 🟡 P2 优化 | 20 项 | 限流、JSON 容错、全局暴露、CDN 完整性、UINotification XSS、FormValidator 缺少防护规则等 |
-| 🔵 P3 长期 | 10 项 | 数据库迁移、Token 安全、多设备冲突、Ct 阈值来源、URL 路由状态管理等 |
-| **合计** | **63 项** | |
+| 🔴 P0 高危 | **10 项** | syncRoutes 无认证、JWT 弱密钥、认证不一致、注册无保护、seed 密码明文、快速访问绕过、temp-token 前缀伪造、record_code 幂等失效、Auth.js 编辑无权限校验、根目录 package.json 启动崩溃风险 |
+| 🟠 P1 重要 | **26 项** | 路由冲突、内存幂等、两套审计机制、缓存一致性、重复数据根因、病原体权限漏洞、Auth 类名冲突、示例数据 ID 格式、前后端校验不同步、URL 硬编码、双 package.json 版本不同步、数据库路径歧义 |
+| 🟡 P2 优化 | **22 项** | 限流、JSON 容错、全局暴露、CDN 完整性、UINotification XSS、FormValidator 防护缺失、Jest/ES Module 兼容性、Cypress 环境问题 |
+| 🔵 P3 长期 | **10 项** | 数据库迁移、Token 安全、多设备冲突、Ct 阈值来源、URL 路由状态管理等 |
+| **合计** | **68 项** | |
 
 ---
 
@@ -515,21 +571,19 @@ StorageService.save() / update() / delete()
 
 ### 5.1 下一轮建议任务（核心文件已全覆盖）
 
-核心业务文件已全部审阅完毕。下一轮可聚焦以下方向：
+核心业务文件已全部审阅完毕（覆盖率 ~95%）。`guest.html` 已确认不存在。下一轮可聚焦以下方向：
 
 ```
-# 1. 次要 HTML 页面（如存在）
-https://raw.githubusercontent.com/ArthurUker/Tianjiabing_foodtestlab/ZhuHaiYiZhong/guest.html
+# 1. 工程配置文件（优先级低，可选）
+https://raw.githubusercontent.com/ArthurUker/Tianjiabing_foodtestlab/ZhuHaiYiZhong/.babelrc
+https://raw.githubusercontent.com/ArthurUker/Tianjiabing_foodtestlab/ZhuHaiYiZhong/webpack.config.js
 
-# 2. package.json - 确认依赖版本和 scripts
-https://raw.githubusercontent.com/ArthurUker/Tianjiabing_foodtestlab/ZhuHaiYiZhong/backend/package.json
-
-# 3. 转入修复阶段：按 P0 → P1 → P2 优先级逐项输出修复方案
+# 2. 转入修复阶段：按 P0 → P1 → P2 优先级逐项输出修复方案
 ```
 
 ### 5.2 建议转入修复方案输出阶段
 
-> 核心文件审阅已基本完成（覆盖率 ~90%）。建议下一步转入**修复方案输出**阶段：
+> 核心文件审阅已基本完成（覆盖率 ~95%）。建议下一步转入**修复方案输出**阶段：
 >
 > - 按 P0 → P1 → P2 优先级，逐项输出具体代码修复方案
 > - 每次对话选取 3~5 个问题，提供可直接应用的代码 diff
@@ -579,3 +633,4 @@ https://raw.githubusercontent.com/ArthurUker/Tianjiabing_foodtestlab/ZhuHaiYiZho
 | 2026-06-22 | v0.5 | 新增 Auth.js、AdaptiveUploadQueue、Tableware、GenericTest、Pathogen、Dashboard、GuestDashboard 审阅；问题总数 56 项 |
 | 2026-06-22 | v0.6 | 新增 pathogenRisk.js（✅正常）、FormValidator.js、SampleDataGenerator.js、UINotification.js（XSS风险）、UIHelper.js、index.html、login.html 审阅；核心文件覆盖率达 ~90%；新增 UINotification XSS（P2-18）、FormValidator 防护缺失（P2-20）、示例数据 ID 格式（P1-22）等；问题总数扩展至 62 项；建议转入修复方案输出阶段 |
 | 2026-06-22 | v0.7 | 完整确认 Storage.js（_getHeaders 正常，P0-08 精确定位为 temp-token- 前缀伪造）和 AdaptiveUploadQueue.js（P1-19 淘汰策略确认为 FIFO）；新增 P1-24（_doRequest URL 硬编码）；问题总数 63 项 |
+| 2026-06-22 | v0.8 | 新增 /package.json 和 backend/package.json 双文件审阅；确认 guest.html 文件不存在（404）；读取 docs/ 目录发现数据库路径歧义；新增 §1.9 双文件架构说明；新增 P0-10（根目录 package.json 启动崩溃风险）、P1-25（双 package.json 版本不同步）、P1-26（数据库路径歧义）、P2-21（Jest/ES Module 兼容性）、P2-22（Cypress 环境问题）；问题总数 63 → **68 项**；核心文件覆盖率 ~95%；建议正式转入修复阶段 |
