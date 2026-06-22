@@ -4,7 +4,7 @@
 **系统名称**：食品安全检验管理系统 Pro（珠海一中食品安全检验系统）
 **仓库地址**：https://github.com/ArthurUker/Tianjiabing_foodtestlab/tree/ZhuHaiYiZhong
 **审阅开始日期**：2026-06-22
-**文档版本**：v0.3（2026-06-22 第三轮更新）
+**文档版本**：v0.4（2026-06-22 第四轮更新）
 **文档用途**：每次新对话开始时，将本文件提供给 AI，以快速恢复审阅上下文，无需重新读取全部代码。
 
 ---
@@ -26,6 +26,7 @@
 | 反向代理 | Nginx | 前端端口 8082，后端 API 端口 3002 |
 | 部署环境 | 腾讯云 Windows Server | 部署分支 `ZhuHaiYiZhong` |
 | 可观测性 | OpenTelemetry + Jaeger + Prometheus | `backend/config/telemetry.js`（CommonJS，未集成到主进程）|
+| 前端数据层 | `StorageService` + `AdaptiveUploadQueue` | 离线优先架构，localStorage 缓存 + 异步上传队列 |
 
 ### 1.2 生产部署口径
 
@@ -38,73 +39,92 @@
 | 数据库文件 | `D:\ZhuHaiYiZhong-data\zhuhaiyizhong.db` |
 | API 前缀 | `/api` |
 | 登录接口 | `POST /api/user/login` |
-| 初始管理员账号 | `admin` / `8888`（seed.js 写死）|
+| 初始管理员账号 | `admin` / `8888`（seed.js 写死，⚠️ 已公开）|
 | 初始测试员账号 | `operator` / `operator123` |
 | 初始查看员账号 | `viewer` / `viewer123` |
 
-### 1.3 完整项目目录结构（v0.3 补全）
+### 1.3 完整项目目录结构（v0.4 补全）
 
 ```
 项目根目录/
-├── .babelrc                              # Babel 配置
-├── .env.example                          # 环境变量示例 ✅ 已审阅
+├── .babelrc
+├── .env.example                          ✅ 已审阅
 ├── .gitignore
 ├── .npmrc
-├── .vscode/
-│   └── settings.json
+├── .vscode/settings.json
 ├── backend/
-│   ├── README.md
-│   ├── package.json
-│   ├── package-lock.json
-│   ├── server.js                         # 主入口 ✅ 已审阅
+│   ├── server.js                         ✅ 已审阅
 │   ├── config/
-│   │   └── telemetry.js                  # OpenTelemetry 配置 ✅ 已审阅
+│   │   └── telemetry.js                  ✅ 已审阅
 │   ├── middleware/
-│   │   ├── idempotencyMiddleware.js       # 幂等性中间件 ✅ 已审阅
-│   │   └── validationMiddleware.js        # 输入验证/XSS防护 ✅ 已审阅
+│   │   ├── idempotencyMiddleware.js       ✅ 已审阅
+│   │   └── validationMiddleware.js        ✅ 已审阅
 │   ├── modules/
-│   │   └── UserManager.js                # 用户注册/登录/权限 ✅ 已审阅
+│   │   └── UserManager.js                ✅ 已审阅
 │   ├── prisma/
-│   │   ├── schema.prisma                 # 数据库模型 ✅ 已审阅
-│   │   ├── seed.js                       # 种子数据初始化 ✅ 已审阅
-│   │   └── dedupe-test-records.js        # 检测记录去重脚本 ❌ 未读取
+│   │   ├── schema.prisma                 ✅ 已审阅
+│   │   ├── seed.js                       ✅ 已审阅
+│   │   └── dedupe-test-records.js        ✅ 已审阅
 │   └── routes/
-│       ├── auditRoutes.js                # /api/audit-logs/* ✅ 已审阅
-│       ├── syncRoutes.js                 # /api/sync/* ✅ 已审阅（严重问题）
-│       └── userRoutes.js                 # /api/user/* ✅ 已审阅
-├── docs/
-│   └── review/
-│       └── REVIEW_GUIDE.md               # 本文件
+│       ├── auditRoutes.js                ✅ 已审阅
+│       ├── syncRoutes.js                 ✅ 已审阅（严重问题）
+│       └── userRoutes.js                 ✅ 已审阅
+├── docs/review/REVIEW_GUIDE.md           ✅ 本文件
 ├── js/
-│   ├── main.js                           # 前端主入口 ✅ 已审阅（部分）
+│   ├── main.js                           ✅ 已审阅（部分）
 │   ├── core/
-│   │   └── Router.js                     # 路由与权限守卫 ✅ 已审阅
+│   │   ├── Router.js                     ✅ 已审阅
+│   │   ├── Storage.js                    ✅ 已审阅（核心数据层）
+│   │   └── AdaptiveUploadQueue.js        ❌ 未读取（Storage.js 依赖）
 │   ├── modules/
-│   │   ├── AuditLog.js                   # 审计日志模块 ❌ 未读取
-│   │   ├── BackupRestore.js              # 备份还原模块 ❌ 未读取
-│   │   ├── Dashboard.js                  # 数据看板模块 ❌ 未读取
-│   │   ├── GenericTest.js                # 通用检测模块 ❌ 未读取
-│   │   ├── GuestDashboard.js             # 访客看板模块 ❌ 未读取
-│   │   ├── Pathogen.js                   # 病原体检测模块 ❌ 未读取
-│   │   ├── Tableware.js                  # 餐具检测模块 ❌ 未读取
-│   │   └── UserManagement.js             # 用户管理模块 ❌ 未读取
+│   │   ├── AuditLog.js                   ✅ 已审阅
+│   │   ├── BackupRestore.js              ✅ 已审阅
+│   │   ├── Dashboard.js                  ❌ 未读取
+│   │   ├── GenericTest.js                ❌ 未读取
+│   │   ├── GuestDashboard.js             ❌ 未读取
+│   │   ├── Pathogen.js                   ❌ 未读取
+│   │   ├── Tableware.js                  ❌ 未读取
+│   │   └── UserManagement.js             ✅ 已审阅
 │   ├── services/
-│   │   ├── AuthService.js                # 认证服务 ✅ 已审阅
-│   │   ├── ExportService.js              # 导出服务 ❌ 未读取
-│   │   ├── GuestAuthService.js           # 访客认证服务 ✅ 已审阅
-│   │   ├── PermissionService.js          # 权限管理服务 ✅ 已审阅
-│   │   └── SessionManager.js             # 会话管理服务 ✅ 已审阅
+│   │   ├── AuditLogService.js            ✅ 已审阅（新发现）
+│   │   ├── AuthService.js                ✅ 已审阅
+│   │   ├── ExportService.js              ✅ 已审阅
+│   │   ├── GuestAuthService.js           ✅ 已审阅
+│   │   ├── PermissionService.js          ✅ 已审阅
+│   │   └── SessionManager.js             ✅ 已审阅
 │   └── utils/
-│       ├── AuditLogger.js                # 前端审计日志工具 ✅ 已审阅
-│       ├── FormValidator.js              # 表单验证工具 ❌ 未完整读取
-│       ├── NetworkHelper.js              # 网络请求封装 ✅ 已审阅
-│       ├── SampleDataGenerator.js        # 示例数据生成器 ❌ 未读取
-│       ├── UIHelper.js                   # UI 工具 ❌ 未读取
-│       └── UINotification.js             # UI 通知组件 ❌ 未读取
-└── [HTML 页面文件]                        # index.html / login.html 等 ❌ 未读取
+│       ├── AuditLogger.js                ✅ 已审阅
+│       ├── FormValidator.js              ❌ 未完整读取
+│       ├── NetworkHelper.js              ✅ 已审阅
+│       ├── SampleDataGenerator.js        ❌ 未读取
+│       ├── UIHelper.js                   ❌ 未读取
+│       └── UINotification.js             ❌ 未读取
+└── [HTML 页面文件]                        ❌ 未读取
 ```
 
-### 1.4 关键接口速查
+### 1.4 系统核心数据流架构（v0.4 新增）
+
+```
+用户操作
+    │
+    ▼
+StorageService.save() / update() / delete()
+    │
+    ├─► 立即写入 localStorage（cache_{tableName}）
+    │       └─► 返回带 _status:'pending' 的临时记录（tempId）
+    │
+    └─► 加入 AdaptiveUploadQueue（pending_{tableName}）
+            │
+            ▼
+        异步批量上传 → POST/PUT/DELETE /api/records/{type}
+            │
+            ├─► 成功：用服务端 record_code 替换 tempId，_status='synced'
+            └─► 失败：指数退避重试，写入 globalBackoffKey
+```
+
+> ⚠️ **架构风险**：`getAll()` 先返回本地缓存再触发后台同步，用户始终优先看到本地数据。若同步失败，本地数据与服务端永久不一致，且用户无感知。
+
+### 1.5 关键接口速查
 
 | 接口 | 方法 | 权限 | 说明 |
 |------|------|------|------|
@@ -117,18 +137,17 @@
 | `/api/user/:id/role` | POST | Admin | 修改角色 |
 | `/api/audit-logs` | GET/POST | 已登录 | 审计日志 |
 | `/api/audit-logs/stats/summary` | GET | Admin⚠️ | 路由冲突风险 |
+| `/api/audit-logs/stats/:date` | GET | 已登录 | 按日期统计（AuditLogService 调用）|
 | `/api/sync/users` | POST | 无认证⚠️ | 用户同步（危险） |
 | `/api/sync/testRecords` | POST | 无认证⚠️ | 记录同步（危险） |
-| `/api/records/:type` | GET/POST/PUT/DELETE | 已登录 | 检测记录 CRUD |
+| `/api/records/:type` | GET/POST/PUT/DELETE | 已登录 | 检测记录 CRUD（Storage.js 核心调用）|
 | `/api/auth/refresh` | POST | 公开 | Token 刷新⚠️ 后端未实现 |
 | `/api/guest/register` | POST | 公开 | 访客注册 |
 | `/api/guest/login` | POST | 公开 | 访客登录 |
 | `/api/guest/verify-token` | POST | 访客Token | 访客 Token 验证 |
 | `/api/guest-export-request/submit` | POST | 访客Token | 提交导出申请 |
-| `/api/guest-export-request/my-requests` | GET | 访客Token | 查询申请记录 |
-| `/api/guest-export-request/check-permission` | GET | 访客Token | 检查导出权限 |
 
-### 1.5 角色权限矩阵（来自 PermissionService.js）
+### 1.6 角色权限矩阵（来自 PermissionService.js）
 
 | 权限 | admin | manager | operator | viewer | guest |
 |------|:-----:|:-------:|:--------:|:------:|:-----:|
@@ -149,116 +168,111 @@
 
 | 文件 | 审阅状态 | 完整度 | 主要发现 |
 |------|----------|--------|----------|
-| `backend/server.js` | ✅ 已审阅 | ~80% | 双重 record_code 逻辑、硬编码 IP、弱密钥 fallback |
-| `backend/prisma/schema.prisma` | ✅ 已审阅 | 100% | Cascade 删除风险、Guest 模型冗余 |
-| `backend/routes/userRoutes.js` | ✅ 已审阅 | ~90% | 认证中间件重复定义、注册接口无保护 |
-| `backend/routes/auditRoutes.js` | ✅ 已审阅 | ~90% | 路由注册顺序冲突、认证实现不一致 |
-| `backend/routes/syncRoutes.js` | ✅ 已审阅 | ~85% | **严重：无认证保护、CommonJS 语法、不操作数据库** |
-| `backend/middleware/validationMiddleware.js` | ✅ 已审阅 | ~40% | escapeMap 编码疑似错误 |
-| `backend/middleware/idempotencyMiddleware.js` | ✅ 已审阅 | 100% | 内存存储、PM2 重启后失效 |
-| `backend/modules/UserManager.js` | ✅ 已审阅 | ~75% | 自动生成虚假 email、密码强度校验弱 |
-| `backend/prisma/seed.js` | ✅ 已审阅 | 100% | **admin 初始密码为 `8888`（极弱）、明文写入代码** |
-| `backend/config/telemetry.js` | ✅ 已审阅 | 100% | CommonJS 语法（与项目 ES Module 不一致）、未集成到主进程 |
-| `.env.example` | ✅ 已审阅 | 100% | `JWT_SECRET` 示例值为弱字符串、数据库路径与 server.js 不一致 |
-| `js/services/AuthService.js` | ✅ 已审阅 | ~90% | Token 存 localStorage（XSS 风险）、refreshToken 后端未实现 |
-| `js/services/GuestAuthService.js` | ✅ 已审阅 | 100% | 快速访问模式绕过认证、Token 为伪随机字符串 |
-| `js/services/PermissionService.js` | ✅ 已审阅 | ~80% | 权限缓存不失效、动态 import 与同步返回逻辑混用 |
-| `js/services/SessionManager.js` | ✅ 已审阅 | ~70% | 会话全存内存、IP 地址硬编码 `127.0.0.1`、syncToBackend 调用未知接口 |
-| `js/core/Router.js` | ✅ 已审阅 | ~85% | 权限控制仅靠前端 CSS 隐藏、全局暴露 window.router |
-| `js/utils/AuditLogger.js` | ✅ 已审阅 | 100% | **审计日志仅存 localStorage，不上报后端，无法持久追溯** |
-| `js/utils/NetworkHelper.js` | ✅ 已审阅 | ~90% | 网络检查 URL 硬编码 Google（内网不可达）、无认证 Token 注入 |
-| `js/main.js` | ✅ 已审阅 | ~50% | 大量 window.* 全局暴露、快速访问模式直接渲染缓存数据 |
-| `backend/prisma/dedupe-test-records.js` | ❌ 未读取 | — | — |
-| `js/modules/AuditLog.js` | ❌ 未读取 | — | — |
-| `js/modules/BackupRestore.js` | ❌ 未读取 | — | — |
-| `js/modules/Dashboard.js` | ❌ 未读取 | — | — |
-| `js/modules/GenericTest.js` | ❌ 未读取 | — | — |
-| `js/modules/GuestDashboard.js` | ❌ 未读取 | — | — |
-| `js/modules/Pathogen.js` | ❌ 未读取 | — | — |
-| `js/modules/Tableware.js` | ❌ 未读取 | — | — |
-| `js/modules/UserManagement.js` | ❌ 未读取 | — | — |
-| `js/services/ExportService.js` | ❌ 未读取 | — | — |
-| `js/utils/SampleDataGenerator.js` | ❌ 未读取 | — | — |
-| `js/utils/UIHelper.js` | ❌ 未读取 | — | — |
-| `js/utils/UINotification.js` | ❌ 未读取 | — | — |
-| `index.html` / `login.html` 等 | ❌ 未读取 | — | — |
+| `backend/server.js` | ✅ | ~80% | 双重 record_code 逻辑、硬编码 IP、弱密钥 fallback |
+| `backend/prisma/schema.prisma` | ✅ | 100% | Cascade 删除风险、Guest 模型冗余 |
+| `backend/routes/userRoutes.js` | ✅ | ~90% | 认证中间件重复定义、注册接口无保护 |
+| `backend/routes/auditRoutes.js` | ✅ | ~90% | 路由注册顺序冲突、认证实现不一致 |
+| `backend/routes/syncRoutes.js` | ✅ | ~85% | **严重：无认证、CommonJS 语法、不操作数据库** |
+| `backend/middleware/validationMiddleware.js` | ✅ | ~40% | escapeMap 编码疑似错误 |
+| `backend/middleware/idempotencyMiddleware.js` | ✅ | 100% | 内存存储、PM2 重启后失效 |
+| `backend/modules/UserManager.js` | ✅ | ~75% | 自动生成虚假 email、密码强度校验弱 |
+| `backend/prisma/seed.js` | ✅ | 100% | **admin 密码 `8888` 明文写入公开仓库** |
+| `backend/prisma/dedupe-test-records.js` | ✅ | 100% | 证实历史重复数据问题；指纹算法与 Storage.js 一致 |
+| `backend/config/telemetry.js` | ✅ | 100% | CommonJS 语法、未集成到主进程 |
+| `.env.example` | ✅ | 100% | JWT_SECRET 示例值为弱字符串 |
+| `js/services/AuthService.js` | ✅ | ~90% | Token 存 localStorage、refreshToken 后端未实现 |
+| `js/services/GuestAuthService.js` | ✅ | 100% | 快速访问模式绕过认证、Token 为伪随机字符串 |
+| `js/services/PermissionService.js` | ✅ | ~80% | 权限缓存不失效、异步/同步混用 |
+| `js/services/SessionManager.js` | ✅ | ~70% | 会话全存内存、IP 硬编码、syncToBackend 调用未知接口 |
+| `js/services/AuditLogService.js` | ✅ | 100% | **正确实现：真正上报后端 `/api/audit-logs`** |
+| `js/services/ExportService.js` | ✅ | ~60% | 依赖 StorageService 读取本地缓存数据导出，无服务端数据校验 |
+| `js/core/Router.js` | ✅ | ~85% | 权限控制仅靠 CSS 隐藏、全局暴露 window.router |
+| `js/core/Storage.js` | ✅ | ~80% | **核心数据层；离线优先架构；getAll() 优先返回缓存；去重指纹机制** |
+| `js/core/AdaptiveUploadQueue.js` | ❌ | — | Storage.js 核心依赖，未读取 |
+| `js/modules/AuditLog.js` | ✅ | ~70% | 正确通过 AuditLogService 查询后端，UI 完整 |
+| `js/modules/BackupRestore.js` | ✅ | ~60% | **引用 AuditLogService（正确）；syncRoutes 无认证问题在此暴露** |
+| `js/modules/UserManagement.js` | ✅ | ~60% | 前端 CRUD 无二次权限校验；删除操作无确认弹窗保护（截断） |
+| `js/utils/AuditLogger.js` | ✅ | 100% | **仅写 localStorage，不上报后端（与 AuditLogService 职责重叠）** |
+| `js/utils/NetworkHelper.js` | ✅ | ~90% | 网络检查 URL 硬编码 Google |
+| `js/main.js` | ✅ | ~50% | 大量 window.* 全局暴露、快速访问模式渲染缓存数据 |
+| `js/modules/Dashboard.js` | ❌ | — | — |
+| `js/modules/GenericTest.js` | ❌ | — | — |
+| `js/modules/GuestDashboard.js` | ❌ | — | — |
+| `js/modules/Pathogen.js` | ❌ | — | — |
+| `js/modules/Tableware.js` | ❌ | — | — |
+| `js/utils/SampleDataGenerator.js` | ❌ | — | — |
+| `js/utils/UIHelper.js` | ❌ | — | — |
+| `js/utils/UINotification.js` | ❌ | — | — |
+| `index.html` / `login.html` 等 | ❌ | — | — |
 
 ---
 
-## 3. 已发现问题清单（完整版 v0.3）
+## 3. 已发现问题清单（完整版 v0.4）
 
 ### 🔴 P0 — 高危问题（建议 1~3 天内处理）
 
 #### P0-01：`syncRoutes.js` 三重严重问题并发
 - **位置**：`backend/routes/syncRoutes.js`
-- **问题**：
-  1. **无认证**：`POST /api/sync/users`、`POST /api/sync/testRecords`、`POST /api/sync/batch` 均无 JWT 认证中间件
-  2. **伪同步**：处理逻辑中完全没有调用 `prisma`，数据从未写入数据库，仅在内存 `syncLog` 数组中记录
-  3. **模块规范错误**：使用 `require()` (CommonJS)，项目为 `"type": "module"`，运行时直接崩溃
-- **修复建议**：改写为 ES Module、添加 `authenticateUser` 中间件、接入 Prisma 真正写库
+- **问题**：① 无认证保护；② 不操作数据库（伪同步）；③ CommonJS 语法在 ES Module 项目中运行时崩溃
+- **修复建议**：改写为 ES Module、添加认证中间件、接入 Prisma
 
 #### P0-02：`authenticateUser` 中间件三处实现不一致
 - **位置**：`server.js`、`userRoutes.js`、`auditRoutes.js`
-- **问题**：三处挂载字段名不同（`req.userId`/`req.userRole` vs `req.user` 对象），下游代码混用导致 `undefined` 引用错误
+- **问题**：挂载字段名不同（`req.userId`/`req.userRole` vs `req.user` 对象），下游混用导致 `undefined`
 - **修复建议**：抽取为独立 `middleware/authMiddleware.js`，统一导出
 
 #### P0-03：JWT 密钥 fallback 为弱明文字符串
 - **位置**：`backend/server.js`
-- **代码**：`const JWT_SECRET = process.env.JWT_SECRET || 'local-dev-jwt-secret'`
-- **修复建议**：未配置时直接 `process.exit(1)`，拒绝启动
+- **修复建议**：未配置时 `process.exit(1)`，拒绝启动
 
 #### P0-04：`POST /api/user/register` 完全公开，无需授权
 - **位置**：`backend/routes/userRoutes.js`
 - **修复建议**：添加 `authenticateUser` + `authorizeAdmin` 中间件
 
-#### P0-05：`seed.js` 初始管理员密码为 `8888`，且明文写入代码
+#### P0-05：`seed.js` 初始管理员密码 `8888` 明文写入公开 GitHub 仓库
 - **位置**：`backend/prisma/seed.js`
-- **问题**：
-  - `admin` 初始密码为 `8888`（4位纯数字，极弱）
-  - 密码明文写在代码文件中，已提交至 GitHub 公开仓库
-  - `operator` / `viewer` 账号密码同样明文可见
-- **修复建议**：
-  - 通过环境变量注入初始密码：`process.env.ADMIN_INIT_PASSWORD`
-  - 强制要求首次登录修改密码
-  - 立即在生产环境修改 admin 密码
+- **问题**：`admin/8888`、`operator/operator123`、`viewer/viewer123` 均已公开
+- **修复建议**：通过环境变量注入初始密码；立即在生产环境修改所有账号密码
 
 #### P0-06：`record_code` 双重生成逻辑并存，幂等性失效
 - **位置**：`backend/server.js`
-- **问题**：`Date.now()` 方案与 `buildDeterministicRecordCode()` 并存，前端重试时产生重复记录
+- **问题**：`Date.now()` 方案与 `buildDeterministicRecordCode()` 并存，前端重试产生重复记录
+- **关联**：`dedupe-test-records.js` 的存在证实此问题已在生产环境发生
 - **修复建议**：统一使用 `buildDeterministicRecordCode()`
 
-#### P0-07：快速访问模式（Quick Access）完全绕过认证，Token 为伪随机字符串
-- **位置**：`js/services/GuestAuthService.js`，`quickAccessAsViewer()` 方法
+#### P0-07：快速访问模式（Quick Access）完全绕过认证
+- **位置**：`js/services/GuestAuthService.js`
+- **问题**：Token 为本地伪随机字符串，后端从不验证；两行 localStorage 操作即可进入系统
+- **修复建议**：快速访问必须经后端签发临时 Token，或完全移除此功能
+
+#### P0-08：`Storage.js` 数据写入无认证 Token，后端可能拒绝所有上传请求
+- **位置**：`js/core/Storage.js`，`_getHeaders()` 方法（代码被截断，未完整读取）
 - **问题**：
-  - 无需任何凭证，调用 `quickAccessAsViewer()` 即可生成本地 `guest_token`（格式：`temp-token-{timestamp}-{random}`）
-  - 该 Token 不经过后端验证，Router.js 中 `isQuickAccess` 检查仅读取 localStorage 中的 `is_quick_access` 字段
-  - 任何人打开浏览器控制台执行 `localStorage.setItem('guest_token', 'anything'); localStorage.setItem('current_guest', '{"is_quick_access":true}')` 即可进入系统
-  - `main.js` 中 `window.renderQuickAccessData()` 直接渲染 localStorage 缓存数据，无任何服务端校验
-- **修复建议**：快速访问模式必须经过后端签发临时 Token，或完全移除此功能
+  - `AdaptiveUploadQueue` 的 `getHeaders` 回调调用 `this._getHeaders()`，但该方法在读取到的代码中未出现
+  - 若 `_getHeaders()` 未正确注入 `Authorization: Bearer {token}`，则所有 `POST/PUT/DELETE /api/records/:type` 请求均会因 401 被后端拒绝
+  - 拒绝后进入重试队列，造成无限重试循环，消耗内存和网络资源
+- **修复建议**：确认 `_getHeaders()` 实现；确保每次请求从 `authService.getToken()` 动态获取最新 Token
 
 ---
 
 ### 🟠 P1 — 重要问题（建议 1 周内处理）
 
 #### P1-01：`auditRoutes.js` 路由注册顺序冲突
-- **问题**：`GET /:logId` 在 `GET /stats/summary` 之前注册，`summary` 被识别为 `logId`
 - **修复建议**：静态路由移到动态参数路由之前
 
 #### P1-02：`idempotencyMiddleware` 使用内存存储，PM2 重启后全部失效
 - **修复建议**：中期替换为 Redis；短期对 `cleanup` 加节流
 
 #### P1-03：`UserManager.registerUser()` 自动生成虚假 email
-- **修复建议**：注册时不自动生成 `@foodlab.local` 邮箱，允许 `email` 为 `null`
+- **修复建议**：注册时不自动生成 `@foodlab.local` 邮箱
 
 #### P1-04：密码强度校验过弱（仅 `length >= 6`）
 - **修复建议**：最小长度 8 位，要求包含数字和字母
 
-#### P1-05：`AuthService.refreshToken()` 调用后端不存在的接口
-- **位置**：`js/services/AuthService.js`，调用 `/api/auth/refresh`
-- **修复建议**：后端实现接口，或前端移除 refresh 逻辑改为过期后跳转登录
+#### P1-05：`AuthService.refreshToken()` 调用后端不存在的接口 `/api/auth/refresh`
+- **修复建议**：后端实现接口，或前端移除 refresh 逻辑
 
 #### P1-06：前端权限控制完全依赖 CSS `hidden` 类，可被 DevTools 绕过
-- **位置**：`js/core/Router.js`，`updateNavigationByPermission()`
 - **修复建议**：所有敏感操作必须在后端 API 层进行权限校验
 
 #### P1-07：`Router.js` 将自身暴露到 `window.router` 全局作用域
@@ -267,51 +281,59 @@
 #### P1-08：`TestRecord` 的 `onDelete: Cascade` 可能导致检测数据意外丢失
 - **修复建议**：改为 `onDelete: Restrict` 或 `SetNull`
 
-#### P1-09：`AuditLogger.js` 审计日志仅存 localStorage，不上报后端
-- **位置**：`js/utils/AuditLogger.js`
+#### P1-09：系统存在两套并行审计日志机制，职责边界混乱
+- **位置**：`js/utils/AuditLogger.js`（仅写 localStorage）vs `js/services/AuditLogService.js`（正确上报后端）
 - **问题**：
-  - 所有前端操作日志（登录、登出、创建、删除、导出等）仅写入 `localStorage`，以 `audit_YYYY-MM-DD` 为 key
-  - 用户清除浏览器数据后日志全部丢失
-  - 换设备或换浏览器后无法查看历史日志
-  - 最多保留 30 天，超期自动删除
-  - 后端 `AuditLog` 表形同虚设（前端不写入）
-  - `AuthService.login()` 调用 `logOperation('login', 'system', ...)` 仅写本地
-- **修复建议**：`logOperation()` 在写 localStorage 的同时，异步 POST 到 `/api/audit-logs`
+  - `AuditLogger.js` 被 `AuthService`、`Storage.js`、`UserManagement.js` 等核心模块调用，但日志仅存本地
+  - `AuditLogService.js` 被 `BackupRestore.js`、`AuditLog.js` 调用，正确上报后端
+  - 两套机制并存，导致后端 `AuditLog` 表中**缺失登录、数据写入、用户管理等关键操作记录**
+  - `AuditLog.js` 模块展示的日志是不完整的，可能误导管理员
+- **修复建议**：
+  - 统一使用 `AuditLogService.logOperation()` 作为唯一审计入口
+  - 废弃 `AuditLogger.js` 的 localStorage 写入逻辑，或将其改为调用 `AuditLogService`
+  - 将 `AuthService.login()`、`Storage.save()`、`UserManagement` 的操作日志全部切换到 `AuditLogService`
 
 #### P1-10：`PermissionService` 权限缓存永不失效
-- **位置**：`js/services/PermissionService.js`
-- **问题**：
-  - `permissionCache` 为 `Map`，用户角色变更后缓存不自动清除
-  - 管理员在后台修改某用户角色后，该用户当前会话的权限不会立即更新
-  - `getCurrentUserPermissions()` 中混用了异步 `import()` 和同步 `return`，异步分支的返回值被丢弃
-- **修复建议**：
-  - 在 `authService.login()` / `logout()` 时调用 `permissionCache.clear()`
-  - 修复异步/同步混用逻辑，统一为同步判断
+- **修复建议**：在 login/logout 时调用 `permissionCache.clear()`；修复异步/同步混用逻辑
 
-#### P1-11：`SessionManager` 会话全存内存，IP 地址硬编码，`syncToBackend` 调用未知接口
-- **位置**：`js/services/SessionManager.js`
-- **问题**：
-  - `this.sessions` 为内存数组，页面刷新后全部清空，会话管理形同虚设
-  - `getClientIP()` 直接返回硬编码 `'127.0.0.1'`，无法获取真实 IP
-  - `syncToBackend('add', session)` 和 `syncToBackend('remove', session)` 方法调用了未在后端路由中定义的接口（疑似 `/api/sessions`），会静默失败
-  - `startDeviceDetection()` 方法被调用但未在读取到的代码中定义（可能在截断部分）
-- **修复建议**：
-  - 会话信息应存储在后端数据库
-  - 真实 IP 从后端 JWT payload 或请求头中获取
-  - 确认 `syncToBackend` 的目标接口是否存在
+#### P1-11：`SessionManager` 会话全存内存，IP 硬编码，`syncToBackend` 调用未知接口
+- **修复建议**：会话信息存储后端；真实 IP 从后端获取；确认 syncToBackend 目标接口
 
 #### P1-12：`telemetry.js` 使用 CommonJS，且未集成到主进程
-- **位置**：`backend/config/telemetry.js`
-- **问题**：
-  - 使用 `require()` 语法，在 `"type": "module"` 项目中无法直接 `import`
-  - `server.js` 中未 `import` 此文件，Jaeger/Prometheus 监控实际未启用
-  - `package.json` 中未安装 `@opentelemetry/*` 依赖（待确认）
-- **修复建议**：改写为 ES Module 或重命名为 `.cjs`；确认是否需要启用监控
+- **修复建议**：改写为 ES Module 或重命名 `.cjs`；确认是否需要启用监控
 
 #### P1-13：`CORS_ORIGIN` 在 `.env.example` 中未包含生产 IP，与 `server.js` 硬编码不一致
-- **位置**：`.env.example` vs `backend/server.js`
-- **问题**：`.env.example` 中 `CORS_ORIGIN` 仅含 `localhost`，而 `server.js` 硬编码了生产服务器 IP `159.75.106.179:8082`
-- **修复建议**：`.env.example` 中补充生产 IP 示例；`server.js` 中移除所有硬编码 IP
+- **修复建议**：`.env.example` 补充生产 IP 示例；`server.js` 移除所有硬编码 IP
+
+#### P1-14：`Storage.js` 的 `getAll()` 优先返回本地缓存，数据一致性无保障
+- **位置**：`js/core/Storage.js`，`getAll()` 方法
+- **问题**：
+  - `getAll()` 立即返回 `_getLocalCacheData()`，然后异步触发 `_syncFromApi()`
+  - 若后台同步失败（网络异常、Token 过期、服务器重启），本地缓存永远不更新
+  - 用户在不同设备登录时看到的数据可能完全不同
+  - `ExportService.js` 直接调用 `storage[type].getAll()` 生成导出报告，可能导出过期数据
+- **修复建议**：
+  - 增加缓存时效标记（`cache_timestamp`），超过阈值（如 5 分钟）时强制等待服务端数据
+  - 在 UI 层展示数据同步状态（"最后同步时间"）
+  - 导出前强制触发一次同步并等待完成
+
+#### P1-15：`dedupe-test-records.js` 证实生产环境曾出现大量重复数据，根因未根治
+- **位置**：`backend/prisma/dedupe-test-records.js`
+- **问题**：
+  - 该脚本的存在说明重复数据问题已在生产环境爆发，需要专项脚本清理
+  - 根因是 P0-06（`record_code` 双重生成）+ `Storage.js` 的本地去重仅在单设备单会话有效
+  - 多设备同时提交相同记录时，本地去重失效，后端幂等性又因 `Date.now()` 方案无法保证
+- **修复建议**：根治 P0-06；在数据库层对 `record_code` 字段添加 `@unique` 约束
+
+#### P1-16：`BackupRestore.js` 的备份/恢复操作直接读写 `syncRoutes`（无认证接口）
+- **位置**：`js/modules/BackupRestore.js`
+- **问题**：备份恢复的数据同步依赖 `syncRoutes`，而 `syncRoutes` 既无认证又不写数据库（P0-01），备份恢复功能实际上完全无效
+- **修复建议**：待 P0-01 修复后，同步更新 BackupRestore 的调用逻辑
+
+#### P1-17：`UserManagement.js` 前端删除操作无二次确认，且无后端权限二次校验
+- **位置**：`js/modules/UserManagement.js`（代码截断，基于已读部分推断）
+- **问题**：删除用户按钮直接触发 API 调用，无确认弹窗；前端仅依赖 `router.isAdmin()` 判断权限（CSS 隐藏方案）
+- **修复建议**：添加确认弹窗；后端 `DELETE /api/user/:id` 必须校验调用者角色
 
 ---
 
@@ -320,21 +342,17 @@
 #### P2-01：`rateLimit` 默认值过高，登录接口无专项限流
 - **修复建议**：`POST /api/user/login` 单独限流 10 次/分钟/IP
 
-#### P2-02：检测记录 CRUD 操作未自动写入审计日志
+#### P2-02：检测记录 CRUD 操作未自动写入审计日志（后端层面）
 - **修复建议**：记录 CRUD 成功响应后统一调用 `prisma.auditLog.create()`
 
 #### P2-03：`UserManager.loginUser()` 失败登录日志未确认写入数据库
 - **修复建议**：确认 `logFailedLogin` 是否写入 `AuditLog` 表
 
 #### P2-04：`AuthService.getUser()` 对 `JSON.parse` 无容错处理
-- **修复建议**：
-  ```js
-  try { return userStr ? JSON.parse(userStr) : null }
-  catch { this.clearAuth(); return null }
-  ```
+- **修复建议**：添加 try/catch，异常时调用 `clearAuth()`
 
 #### P2-05：`Router.init()` 每次调用都实例化新的 `GuestAuthService`
-- **修复建议**：构造函数中初始化单例 `this.guestAuthService = new GuestAuthService()`
+- **修复建议**：构造函数中初始化单例
 
 #### P2-06：`/api/health` 与 `/health` 重复定义
 - **修复建议**：统一保留 `/api/health`
@@ -346,25 +364,32 @@
 - **修复建议**：添加 `created_user User? @relation(...)` 关联
 
 #### P2-09：`NetworkHelper.checkConnection()` 硬编码 Google URL，内网环境不可达
-- **位置**：`js/utils/NetworkHelper.js`
-- **代码**：`checkConnection(url = 'https://www.google.com/favicon.ico')`
-- **问题**：学校内网环境无法访问 Google，网络检查永远返回 `false`，可能触发离线模式误判
 - **修复建议**：改为检查自身后端健康接口 `/api/health`
 
 #### P2-10：`main.js` 大量函数通过 `window.*` 全局暴露，扩大攻击面
-- **位置**：`js/main.js`
-- **问题**：`window.renderQuickAccessData`、`window.handleNavigation`、`window.loadDashboardData`、`window.initAuditLog` 等均挂载到全局，XSS 注入后可直接调用
 - **修复建议**：使用自定义事件（`CustomEvent`）替代全局函数调用
 
 #### P2-11：`GuestAuthService.getCurrentGuest()` 对 `JSON.parse` 无容错处理
-- **位置**：`js/services/GuestAuthService.js`
-- **代码**：`return guest ? JSON.parse(guest) : null`
-- **修复建议**：同 P2-04，添加 try/catch
+- **修复建议**：添加 try/catch
 
-#### P2-12：`seed.js` 中测试账号（`operator`/`viewer`）在生产环境应禁用或删除
-- **位置**：`backend/prisma/seed.js`
-- **问题**：`operator123`、`viewer123` 为弱密码，测试账号不应存在于生产环境
-- **修复建议**：通过 `NODE_ENV` 判断，生产环境仅创建 `admin` 账号，且密码从环境变量读取
+#### P2-12：`seed.js` 中测试账号在生产环境应禁用
+- **修复建议**：通过 `NODE_ENV` 判断，生产环境仅创建 admin 账号
+
+#### P2-13：`Storage.js` 的 `tempId` 使用 `Date.now()` + `Math.random()`，多标签页可能碰撞
+- **位置**：`js/core/Storage.js`，`save()` 方法
+- **代码**：`const tempId = \`temp_\${Date.now()}_\${Math.random().toString(36).slice(2, 9)}\``
+- **问题**：同一毫秒内多标签页同时提交时，`Date.now()` 相同，`Math.random()` 碰撞概率约 1/78 亿，极低但非零；更重要的是 tempId 与服务端 `record_code` 的替换逻辑若失败，会留下永久 `_status:'pending'` 的僵尸记录
+- **修复建议**：使用 `crypto.randomUUID()` 生成 tempId；增加僵尸记录清理机制
+
+#### P2-14：`ExportService.js` 导出数据完全来自本地缓存，可能导出过期或未同步数据
+- **位置**：`js/services/ExportService.js`
+- **问题**：`this.storage[type].getAll()` 返回本地缓存，若缓存未同步则导出数据与数据库不一致
+- **修复建议**：导出前调用强制同步，或直接从后端 API 拉取数据用于导出
+
+#### P2-15：`AuditLogService.getStats()` 调用 `/api/audit-logs/stats/:date`，与路由冲突（P1-01）
+- **位置**：`js/services/AuditLogService.js`
+- **问题**：`/api/audit-logs/stats/2026-06-22` 中的 `stats` 会被 `GET /:logId` 路由捕获（P1-01 的具体表现）
+- **修复建议**：修复 P1-01 路由顺序后，此问题自动解决
 
 ---
 
@@ -388,9 +413,12 @@
 #### P3-06：`GuestAuthService` 与 `User` 认证体系完全独立，维护成本高
 - **建议**：将 `guest` 合并为 `User.role` 中的一个角色，统一认证流程
 
-#### P3-07：`dedupe-test-records.js` 的存在说明系统曾出现重复数据问题，根因未解决
-- **位置**：`backend/prisma/dedupe-test-records.js`
-- **建议**：读取该文件确认去重逻辑，结合 P0-06 的 `record_code` 双重生成问题一并根治
+#### P3-07：`Storage.js` 离线优先架构在多设备场景下存在数据冲突风险
+- **问题**：多设备同时编辑同一条记录时，后提交的设备会覆盖先提交的修改（Last-Write-Wins），无冲突检测机制
+- **建议**：引入乐观锁（`updated_at` 版本号校验）或 CRDT 策略
+
+#### P3-08：`AdaptiveUploadQueue.js` 未读取，队列核心逻辑未审阅
+- **建议**：下一轮优先读取，重点关注并发控制、错误处理、内存泄漏风险
 
 ---
 
@@ -398,11 +426,11 @@
 
 | 优先级 | 数量 | 核心主题 |
 |--------|------|----------|
-| 🔴 P0 高危 | 7 项 | syncRoutes 无认证、JWT 弱密钥、认证不一致、注册无保护、seed 密码明文、快速访问绕过认证 |
-| 🟠 P1 重要 | 13 项 | 路由冲突、内存幂等、虚假 email、密码强度、refresh 接口缺失、审计日志不上报、权限缓存不失效、SessionManager 失效等 |
-| 🟡 P2 优化 | 12 项 | 限流策略、审计日志、JSON 容错、重复实例化、Google URL 硬编码、全局函数暴露等 |
-| 🔵 P3 长期 | 7 项 | 数据库迁移、Token 安全存储、API 版本控制、去重根因等 |
-| **合计** | **39 项** | |
+| 🔴 P0 高危 | 8 项 | syncRoutes 无认证、JWT 弱密钥、认证不一致、注册无保护、seed 密码明文、快速访问绕过、Storage 无 Token、record_code 幂等失效 |
+| 🟠 P1 重要 | 17 项 | 路由冲突、内存幂等、两套审计机制、缓存数据一致性、重复数据根因、备份恢复失效等 |
+| 🟡 P2 优化 | 15 项 | 限流、JSON 容错、全局暴露、tempId 碰撞、导出数据过期等 |
+| 🔵 P3 长期 | 8 项 | 数据库迁移、Token 安全、多设备冲突、队列审阅等 |
+| **合计** | **48 项** | |
 
 ---
 
@@ -411,19 +439,20 @@
 ### 5.1 下一轮需读取的文件（优先级排序）
 
 ```
-# 高优先级：业务模块（涉及数据写入和权限控制）
-https://raw.githubusercontent.com/ArthurUker/Tianjiabing_foodtestlab/ZhuHaiYiZhong/js/modules/UserManagement.js
-https://raw.githubusercontent.com/ArthurUker/Tianjiabing_foodtestlab/ZhuHaiYiZhong/js/modules/BackupRestore.js
-https://raw.githubusercontent.com/ArthurUker/Tianjiabing_foodtestlab/ZhuHaiYiZhong/js/services/ExportService.js
+# 最高优先级：Storage 核心依赖（影响所有数据写入）
+https://raw.githubusercontent.com/ArthurUker/Tianjiabing_foodtestlab/ZhuHaiYiZhong/js/core/AdaptiveUploadQueue.js
 
-# 中优先级：数据层和工具
-https://raw.githubusercontent.com/ArthurUker/Tianjiabing_foodtestlab/ZhuHaiYiZhong/backend/prisma/dedupe-test-records.js
-https://raw.githubusercontent.com/ArthurUker/Tianjiabing_foodtestlab/ZhuHaiYiZhong/js/modules/AuditLog.js
-https://raw.githubusercontent.com/ArthurUker/Tianjiabing_foodtestlab/ZhuHaiYiZhong/js/utils/SampleDataGenerator.js
+# 高优先级：业务检测模块（涉及数据写入）
+https://raw.githubusercontent.com/ArthurUker/Tianjiabing_foodtestlab/ZhuHaiYiZhong/js/modules/Tableware.js
+https://raw.githubusercontent.com/ArthurUker/Tianjiabing_foodtestlab/ZhuHaiYiZhong/js/modules/GenericTest.js
+https://raw.githubusercontent.com/ArthurUker/Tianjiabing_foodtestlab/ZhuHaiYiZhong/js/modules/Pathogen.js
 
-# 低优先级：UI 层
+# 中优先级：看板与访客模块
 https://raw.githubusercontent.com/ArthurUker/Tianjiabing_foodtestlab/ZhuHaiYiZhong/js/modules/Dashboard.js
 https://raw.githubusercontent.com/ArthurUker/Tianjiabing_foodtestlab/ZhuHaiYiZhong/js/modules/GuestDashboard.js
+
+# 低优先级：工具类
+https://raw.githubusercontent.com/ArthurUker/Tianjiabing_foodtestlab/ZhuHaiYiZhong/js/utils/SampleDataGenerator.js
 ```
 
 ### 5.2 审阅维度清单（每轮对话参考）
@@ -449,11 +478,12 @@ https://raw.githubusercontent.com/ArthurUker/Tianjiabing_foodtestlab/ZhuHaiYiZho
 本次审阅上下文见附件 REVIEW_GUIDE.md（docs/review/REVIEW_GUIDE.md）。
 
 本轮任务：
-1. 读取"第5.1节-待审阅文件"中的下一批文件（使用 raw.githubusercontent.com 链接）
-2. 按"第5.2节-审阅维度清单"进行分析
-3. 将新发现的问题追加到本文档"第3节-已发现问题清单"中
-4. 更新"第2节-已审阅文件清单"的状态
-5. 输出更新后的完整 REVIEW_GUIDE.md
+1. 首先读取 GitHub 上的 REVIEW_GUIDE.md 确认版本
+2. 读取"第5.1节-待审阅文件"中的下一批文件（使用 raw.githubusercontent.com 链接）
+3. 按"第5.2节-审阅维度清单"进行分析
+4. 将新发现的问题追加到本文档"第3节-已发现问题清单"中
+5. 更新"第2节-已审阅文件清单"的状态
+6. 输出更新后的完整 REVIEW_GUIDE.md
 ```
 
 ---
@@ -462,6 +492,7 @@ https://raw.githubusercontent.com/ArthurUker/Tianjiabing_foodtestlab/ZhuHaiYiZho
 
 | 日期 | 版本 | 变更内容 |
 |------|------|----------|
-| 2026-06-22 | v0.1 | 初始创建，完成后端核心文件审阅（server.js、schema.prisma、userRoutes.js、auditRoutes.js） |
-| 2026-06-22 | v0.2 | 新增 UserManager.js、idempotencyMiddleware.js、syncRoutes.js、AuthService.js、Router.js 审阅结果；问题总数 29 项 |
-| 2026-06-22 | v0.3 | 补全完整项目目录树；新增 GuestAuthService.js、PermissionService.js、SessionManager.js、AuditLogger.js、NetworkHelper.js、main.js（部分）、seed.js、telemetry.js、.env.example 审阅结果；新增 P0-05（seed 密码明文）、P0-07（快速访问绕过认证）等关键问题；问题总数扩展至 39 项 |
+| 2026-06-22 | v0.1 | 初始创建，完成后端核心文件审阅 |
+| 2026-06-22 | v0.2 | 新增 UserManager、idempotencyMiddleware、syncRoutes、AuthService、Router 审阅；问题总数 29 项 |
+| 2026-06-22 | v0.3 | 补全完整目录树；新增 GuestAuthService、PermissionService、SessionManager、AuditLogger、NetworkHelper、main.js、seed.js、telemetry.js、.env.example 审阅；问题总数 39 项 |
+| 2026-06-22 | v0.4 | 新增 Storage.js（核心数据层）、AdaptiveUploadQueue（待读）、AuditLogService、AuditLog、BackupRestore、UserManagement、ExportService、dedupe-test-records 审阅；发现两套审计机制并存、离线缓存一致性、重复数据根因等关键问题；问题总数扩展至 48 项 |
