@@ -4,7 +4,7 @@
 **系统名称**：食品安全检验管理系统 Pro（珠海一中食品安全检验系统）
 **仓库地址**：https://github.com/ArthurUker/Tianjiabing_foodtestlab/tree/ZhuHaiYiZhong
 **审阅开始日期**：2026-06-22
-**文档版本**：v0.8（2026-06-22 第八轮更新）
+**文档版本**：v0.9（2026-06-23 第九轮更新）
 **文档用途**：每次新对话开始时，将本文件提供给 AI，以快速恢复审阅上下文，无需重新读取全部代码。
 
 ---
@@ -39,9 +39,9 @@
 | 数据库文件 | ⚠️ **路径存在歧义，见下方说明（P1-26）** |
 | API 前缀 | `/api` |
 | 登录接口 | `POST /api/user/login` |
-| 初始管理员账号 | `admin` / `8888`（seed.js 写死，⚠️ 已公开）|
-| 初始测试员账号 | `operator` / `operator123` |
-| 初始查看员账号 | `viewer` / `viewer123` |
+| 初始管理员账号 | `admin` / 由 `.env` 中 `SEED_ADMIN_PASSWORD` 配置（✅ P0-05 已修复，明文 fallback 已删除）|
+| 初始测试员账号 | `operator` / 由 `.env` 中 `SEED_OPERATOR_PASSWORD` 配置（✅ P0-05 已修复）|
+| 初始查看员账号 | `viewer` / 由 `.env` 中 `SEED_VIEWER_PASSWORD` 配置（✅ P0-05 已修复）|
 
 > ⚠️ **数据库路径歧义（P1-26）**：
 > - `docs/` 系统文档记录：`D:\珠海一中\foodtestlab.db`

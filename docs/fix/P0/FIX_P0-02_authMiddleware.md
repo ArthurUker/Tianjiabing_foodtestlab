@@ -53,3 +53,4 @@
 > 新建 authMiddleware.js 采用工厂函数模式，成功统一三处分散实现（userRoutes.js、auditRoutes.js、server.js）。
 > server.js 中使用 _authUser/_authAdmin 别名，为 P0-01 syncRoutes 重写预留接口。
 > 遗留：userRoutes.js 中冗余的 import jwt 可在 P2 阶段清理（不影响功能）。
+> 遗留补修（2026-06-23）：确认 userRoutes.js 已移除直接 `import jwt`，引入 `createAuthMiddleware` 统一处理认证，删除文件内重复定义的 `authenticateUser` / `authorizeAdmin` 函数，所有路由的 `authorizeAdmin` 替换为 `authorizeRoles('admin', 'manager')`。经 Monica 读取 GitHub 远端 `ZhuHaiYiZhong` 分支核验通过。

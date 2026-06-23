@@ -50,3 +50,4 @@
 ## 6. 备注
 
 > 已通过 Monica 代码审阅（2026-06-22）。修复质量良好，额外实现幂等性保护（账号已存在时跳过创建）。
+> 遗留补修（2026-06-23）：确认 seed.js 中三处明文密码 fallback（`|| 'Zhuhai@2026!Admin'` 等）已完全删除，`process.exit(1)` 守卫逻辑已添加；`.env.example` 已补充 `SEED_ADMIN_PASSWORD`、`SEED_OPERATOR_PASSWORD`、`SEED_VIEWER_PASSWORD` 配置说明。经 Monica 读取 GitHub 远端 `ZhuHaiYiZhong` 分支 Raw 文件核验通过（commit cd8f471）。
