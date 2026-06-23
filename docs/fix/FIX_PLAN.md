@@ -1,9 +1,9 @@
 # 食品安全检验管理系统 Pro — 修复计划总进度看板
 
 **文档路径**：`docs/fix/FIX_PLAN.md`
-**基于审阅版本**：REVIEW_GUIDE.md **v0.8**
+**基于审阅版本**：REVIEW_GUIDE.md **v0.10**
 **计划制定日期**：2026-06-22
-**文档版本**：**v1.6**（2026-06-23 更新，P0-06 / P0-08 / P0-10 修复完成）
+**文档版本**：**v1.7**（2026-06-23 更新，同步 REVIEW_GUIDE v0.10；P0 完成率 80%）
 
 > 本文件为修复工作的**总索引和进度看板**。
 > 每个问题的详细描述、修复代码、验收标准见对应子文件。
@@ -21,6 +21,7 @@
 | v1.4 | 2026-06-22 | Code Buddy / Monica | P0-01 修复完成，状态更新为 ✅；经 Monica 代码审阅通过 |
 | v1.5 | 2026-06-23 | Code Buddy / Monica | P0-02 遗留补修（userRoutes.js 统一认证中间件）、P0-05 遗留补修（seed.js 移除 fallback 明文密码 + .env.example 补充 SEED_*_PASSWORD 说明）核验通过；经 Monica 远端 GitHub 核验 |
 | v1.6 | 2026-06-23 | Code Buddy / Monica | P0-06 修复完成（record_code 统一为 buildDeterministicRecordCode，schema.prisma 添加 @unique 约束）；P0-08 修复完成（移除 temp-token- 前缀判断）；P0-10 修复完成（根目录 package.json start 脚本修正，添加 type:module）；状态更新为 ✅ |
+| v1.7 | 2026-06-23 | Monica | 同步 REVIEW_GUIDE 至 v0.10；基于审阅版本字段更新；P0 完成率更新为 80%（8/10） |
 
 ---
 

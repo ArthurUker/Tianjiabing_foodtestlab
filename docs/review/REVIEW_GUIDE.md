@@ -4,7 +4,7 @@
 **系统名称**：食品安全检验管理系统 Pro（珠海一中食品安全检验系统）
 **仓库地址**：https://github.com/ArthurUker/Tianjiabing_foodtestlab/tree/ZhuHaiYiZhong
 **审阅开始日期**：2026-06-22
-**文档版本**：v0.9（2026-06-23 第九轮更新）
+**文档版本**：v0.10（2026-06-23 第十轮更新）
 **文档用途**：每次新对话开始时，将本文件提供给 AI，以快速恢复审阅上下文，无需重新读取全部代码。
 
 ---
@@ -54,7 +54,7 @@
 项目根目录/
 ├── .babelrc / .gitignore / .npmrc / .vscode/
 ├── .env.example                          ✅ 已审阅
-├── package.json                          ✅ 已审阅（v0.8 新增）⚠️ 僵尸文件：缺少 "type":"module" 和 prisma 依赖，webpack 已无用
+├── package.json                          ✅ 已审阅（v0.8 新增）✅ P0-10 已修复：已添加 "type":"module"，start 脚本改为 cd backend && npm start
 ├── index.html                            ✅ 已审阅（主页面）
 ├── login.html                            ✅ 已审阅（登录页）
 ├── guest.html                            ❌ 文件不存在（404 已确认）
@@ -81,7 +81,7 @@
 │   ├── core/
 │   │   ├── Auth.js                       ✅ 已审阅
 │   │   ├── Router.js                     ✅ 已审阅
-│   │   ├── Storage.js                    ✅ 已审阅（v0.7 完整确认：_getHeaders 正常注入 Bearer Token；_canSyncWithServer 存在 temp-token- 前缀伪造风险）
+│   │   ├── Storage.js                    ✅ 已审阅（v0.7 完整确认：_getHeaders 正常注入 Bearer Token；✅ P0-08 已修复：_canSyncWithServer temp-token- 前缀判断已移除，改为依赖后端 401 阻断）
 │   │   └── AdaptiveUploadQueue.js        ✅ 已审阅（v0.7 完整确认：_makeFingerprint 完整；_isRecentlyCompleted 末尾轻微截断不影响逻辑；_doRequest URL 硬编码问题已记录为 P1-24）
 │   ├── modules/
 │   │   ├── AuditLog.js                   ✅ 已审阅
@@ -111,6 +111,30 @@
 ```
 
 > **审阅覆盖率**：核心业务文件已全部覆盖（~95%）。`guest.html` 已确认不存在。剩余未读取项为低优先级工程配置文件。
+
+### 1.10 GitHub 文件读取 CDN 缓存问题与解决方案（v0.10 新增）
+
+> **问题背景**：`raw.githubusercontent.com` 通过 Fastly CDN 分发文件，缓存 TTL 不固定（通常 5 分钟，高负载时更长）。在 `git push` 后立即读取，AI 可能仍拿到旧版本缓存内容，导致核验结论基于过期数据。
+
+> **解决方案**：在所有 `raw.githubusercontent.com` 链接末尾追加时间戳参数 `?t={unix_timestamp}`，CDN 将其视为全新请求，强制回源拉取最新内容。
+
+**标准读取 URL 格式：**
+
+```
+https://raw.githubusercontent.com/ArthurUker/Tianjiabing_foodtestlab/ZhuHaiYiZhong/{文件路径}?t={当前Unix时间戳}
+```
+
+**示例：**
+```
+# 旧方式（受 CDN 缓存影响，可能读到旧版本）
+https://raw.githubusercontent.com/.../FIX_PLAN.md
+
+# 新方式（强制绕过缓存，始终读取最新版本）
+https://raw.githubusercontent.com/.../FIX_PLAN.md?t=1750669200
+```
+
+> **执行规则**：Monica 在每次新对话中读取任何 GitHub 文件时，自动附加当前时间戳参数，无需郭博额外操作。时间戳每次不同即可，无需精确对应当前时刻。
+
 
 ### 1.4 系统核心数据流架构
 
@@ -634,23 +658,25 @@ https://raw.githubusercontent.com/ArthurUker/Tianjiabing_foodtestlab/ZhuHaiYiZho
 | 2026-06-22 | v0.6 | 新增 pathogenRisk.js（✅正常）、FormValidator.js、SampleDataGenerator.js、UINotification.js（XSS风险）、UIHelper.js、index.html、login.html 审阅；核心文件覆盖率达 ~90%；新增 UINotification XSS（P2-18）、FormValidator 防护缺失（P2-20）、示例数据 ID 格式（P1-22）等；问题总数扩展至 62 项；建议转入修复方案输出阶段 |
 | 2026-06-22 | v0.7 | 完整确认 Storage.js（_getHeaders 正常，P0-08 精确定位为 temp-token- 前缀伪造）和 AdaptiveUploadQueue.js（P1-19 淘汰策略确认为 FIFO）；新增 P1-24（_doRequest URL 硬编码）；问题总数 63 项 |
 | 2026-06-22 | v0.8 | 新增 /package.json 和 backend/package.json 双文件审阅；确认 guest.html 文件不存在（404）；读取 docs/ 目录发现数据库路径歧义；新增 §1.9 双文件架构说明；新增 P0-10（根目录 package.json 启动崩溃风险）、P1-25（双 package.json 版本不同步）、P1-26（数据库路径歧义）、P2-21（Jest/ES Module 兼容性）、P2-22（Cypress 环境问题）；问题总数 63 → **68 项**；核心文件覆盖率 ~95%；建议正式转入修复阶段 |
+| 2026-06-23 | v0.9 | P0-02 遗留补修（userRoutes.js 统一认证中间件）、P0-05 遗留补修（seed.js 移除 fallback 明文密码）核验通过；修复执行进度同步至 FIX_PLAN v1.5 |
+| 2026-06-23 | v0.10 | P0-06（record_code 幂等性）、P0-08（temp-token- 前缀伪造）、P0-10（根目录 package.json）修复完成并核验通过；新增 §1.10 GitHub CDN 缓存问题解决方案（?t=时间戳强制回源）；修复执行进度同步至 FIX_PLAN v1.7；P0 完成率 80% |
 
 ---
 
 ## 修复执行进度
 
 > **说明**：本章节记录基于 `docs/fix/FIX_PLAN.md` 的修复执行状态，由 Monica 在每批修复完成后同步更新。
-> 最后同步时间：**2026-06-22 17:27**｜对应 FIX_PLAN 版本：**v1.4**
+> 最后同步时间：**2026-06-23 15:35**｜对应 FIX_PLAN 版本：**v1.7**
 
 ### 总体进度
 
 | 类别 | 总数 | ✅ 已完成 | ⬜ 待处理 | 完成率 |
 |------|------|----------|----------|--------|
-| 🔴 P0 高危 | 10 | 5 | 5 | 50% |
+| 🔴 P0 高危 | 10 | 8 | 2 | 80% |
 | 🟡 P1 重要 | 26 | 0 | 26 | 0% |
 | 🟢 P2 优化 | 22 | 0 | 22 | 0% |
 | 📄 DOCS 文档 | 4 | 0 | 4 | 0% |
-| **合计** | **62** | **5** | **57** | **8%** |
+| **合计** | **62** | **8** | **54** | **13%** |
 
 ### P0 高危问题修复状态（10 项）
 
@@ -661,10 +687,10 @@ https://raw.githubusercontent.com/ArthurUker/Tianjiabing_foodtestlab/ZhuHaiYiZho
 | `P0-03` | JWT 密钥 fallback 为弱明文字符串 | 0.5h | ✅ 已完成 | 2026-06-22 |
 | `P0-04` | POST /api/user/register 完全公开无需授权 | 0.5h | ✅ 已完成 | 2026-06-22 |
 | `P0-05` | seed.js 初始密码明文写入公开仓库 | 1h | ✅ 已完成 | 2026-06-22 |
-| `P0-06` | record_code 双重生成逻辑导致幂等性失效 | 3h | ⬜ 待处理 | - |
+| `P0-06` | record_code 双重生成逻辑导致幂等性失效 | 3h | ✅ 已完成 | 2026-06-23 |
 | `P0-07` | 快速访问模式完全绕过后端认证 | 4h | ⬜ 待处理 | - |
-| `P0-08` | Storage.js temp-token- 前缀可被客户端伪造 | 1h | ⬜ 待处理 | - |
+| `P0-08` | Storage.js temp-token- 前缀可被客户端伪造 | 1h | ✅ 已完成 | 2026-06-23 |
 | `P0-09` | auth.verify() 对编辑操作完全不做权限校验 | 3h | ⬜ 待处理 | - |
-| `P0-10` | 根目录 package.json 缺少 type:module 及 Prisma 依赖 | 1h | ⬜ 待处理 | - |
+| `P0-10` | 根目录 package.json 缺少 type:module 及 Prisma 依赖 | 1h | ✅ 已完成 | 2026-06-23 |
 
 > P1 / P2 / DOCS 各项详情见 `docs/fix/FIX_PLAN.md` 对应章节。<!-- END_OF_FILE | SHA: 8034b991 | SIZE: 42696 | UPDATED: 2026-06-22 -->
