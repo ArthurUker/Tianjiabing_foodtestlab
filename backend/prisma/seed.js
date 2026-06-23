@@ -2,9 +2,15 @@ import { PrismaClient } from '@prisma/client'
 import bcryptjs from 'bcryptjs'
 
 // 需在 .env 中配置 SEED_ADMIN_PASSWORD / SEED_OPERATOR_PASSWORD / SEED_VIEWER_PASSWORD
-const adminPassword = process.env.SEED_ADMIN_PASSWORD || 'Zhuhai@2026!Admin'
-const operatorPassword = process.env.SEED_OPERATOR_PASSWORD || 'Zhuhai@2026!Operator'
-const viewerPassword = process.env.SEED_VIEWER_PASSWORD || 'Zhuhai@2026!Viewer'
+const adminPassword = process.env.SEED_ADMIN_PASSWORD
+const operatorPassword = process.env.SEED_OPERATOR_PASSWORD
+const viewerPassword = process.env.SEED_VIEWER_PASSWORD
+
+if (!adminPassword || !operatorPassword || !viewerPassword) {
+  console.error('[FATAL] 缺少必要的环境变量：SEED_ADMIN_PASSWORD、SEED_OPERATOR_PASSWORD、SEED_VIEWER_PASSWORD 必须全部在 .env 中配置。')
+  console.error('[FATAL] 请参考 .env.example 完成配置后再执行 seed。')
+  process.exit(1)
+}
 
 const prisma = new PrismaClient()
 
