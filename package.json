@@ -1,5 +1,6 @@
 {
   "name": "zhuhaiyizhong-foodtestlab",
+  "type": "module",
   "version": "3.1.0",
   "description": "食品安全检验管理系统 - Pro版本",
   "main": "backend/server.js",
@@ -16,7 +17,7 @@
     "test:e2e:headless": "cypress run --headless --browser chrome",
     "test:e2e:report": "cypress run --reporter mochawesome",
     "test:all": "jest --coverage && cypress run",
-    "start": "node backend/server.js",
+    "start": "cd backend && npm start",
     "dev": "nodemon backend/server.js",
     "lint": "eslint .",
     "format": "prettier --write .",

@@ -201,7 +201,7 @@ export class StorageService {
     _canSyncWithServer() {
         const token = this._getAuthToken();
         if (!token) return false;
-        return !token.startsWith('temp-token-');
+        return true;
     }
 
     async _syncFromApi(force = false) {

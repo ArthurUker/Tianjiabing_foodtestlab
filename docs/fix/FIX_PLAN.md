@@ -3,7 +3,7 @@
 **文档路径**：`docs/fix/FIX_PLAN.md`
 **基于审阅版本**：REVIEW_GUIDE.md **v0.8**
 **计划制定日期**：2026-06-22
-**文档版本**：**v1.5**（2026-06-23 更新，P0-02 / P0-05 遗留补修核验完成）
+**文档版本**：**v1.6**（2026-06-23 更新，P0-06 / P0-08 / P0-10 修复完成）
 
 > 本文件为修复工作的**总索引和进度看板**。
 > 每个问题的详细描述、修复代码、验收标准见对应子文件。
@@ -20,6 +20,7 @@
 | v1.3 | 2026-06-22 | Code Buddy / Monica | P0-02 修复完成，状态更新为 ✅；经 Monica 代码审阅通过 |
 | v1.4 | 2026-06-22 | Code Buddy / Monica | P0-01 修复完成，状态更新为 ✅；经 Monica 代码审阅通过 |
 | v1.5 | 2026-06-23 | Code Buddy / Monica | P0-02 遗留补修（userRoutes.js 统一认证中间件）、P0-05 遗留补修（seed.js 移除 fallback 明文密码 + .env.example 补充 SEED_*_PASSWORD 说明）核验通过；经 Monica 远端 GitHub 核验 |
+| v1.6 | 2026-06-23 | Code Buddy / Monica | P0-06 修复完成（record_code 统一为 buildDeterministicRecordCode，schema.prisma 添加 @unique 约束）；P0-08 修复完成（移除 temp-token- 前缀判断）；P0-10 修复完成（根目录 package.json start 脚本修正，添加 type:module）；状态更新为 ✅ |
 
 ---
 
@@ -85,11 +86,11 @@ P1-26（数据库路径歧义确认）
 | `P0-03` | JWT 密钥 fallback 为弱明文字符串 | 0.5h | ✅ 已完成 | 2026-06-22 |
 | `P0-04` | POST /api/user/register 完全公开无需授权 | 0.5h | ✅ 已完成 | 2026-06-22 |
 | `P0-05` | seed.js 初始密码明文写入公开仓库 | 1h | ✅ 已完成 | 2026-06-23（遗留补修核验通过） |
-| `P0-06` | record_code 双重生成逻辑导致幂等性失效 | 3h | ⬜ 待处理 | - |
+| `P0-06` | record_code 双重生成逻辑导致幂等性失效 | 3h | ✅ 已完成 | 2026-06-23 |
 | `P0-07` | 快速访问模式完全绕过后端认证 | 4h | ⬜ 待处理 | - |
-| `P0-08` | Storage.js _canSyncWithServer() temp-token- 前缀可被客户端伪造 | 1h | ⬜ 待处理 | - |
+| `P0-08` | Storage.js _canSyncWithServer() temp-token- 前缀可被客户端伪造 | 1h | ✅ 已完成 | 2026-06-23 |
 | `P0-09` | auth.verify() 对编辑操作完全不做权限校验 | 3h | ⬜ 待处理 | - |
-| `P0-10` | 根目录 package.json 缺少 "type":"module" 且无 Prisma 依赖，生产部署存在启动崩溃风险 | 1h | ⬜ 待处理 | - |
+| `P0-10` | 根目录 package.json 缺少 "type":"module" 且无 Prisma 依赖，生产部署存在启动崩溃风险 | 1h | ✅ 已完成 | 2026-06-23 |
 
 ---
 

@@ -296,9 +296,10 @@ app.post('/api/test-records', authenticateUser, async (req, res) => {
     try {
         const { test_type, test_name, sample_info, result_data } = req.body
 
+        const recordCode = buildDeterministicRecordCode(test_type || 'generic', req.body)
         const record = await prisma.testRecord.create({
             data: {
-                record_code: `REC-${Date.now()}`,
+                record_code: recordCode,
                 test_type: test_type || 'generic',
                 test_name,
                 sample_info: JSON.stringify(sample_info || {}),
