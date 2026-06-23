@@ -4,19 +4,18 @@
  */
 
 import express from 'express'
-import jwt from 'jsonwebtoken'
 import { createAuthMiddleware } from '../middleware/authMiddleware.js'
 
 export function createUserRoutes(userManager) {
     const router = express.Router()
 
     // ====== Authentication Middleware（统一从 authMiddleware.js 导入）======
-    const { authenticateUser, authorizeAdmin } = createAuthMiddleware(userManager)
+    const { authenticateUser, authorizeRoles } = createAuthMiddleware(userManager)
 
     // ====== Public Routes ======
 
     // 用户注册（需 admin 权限）
-    router.post('/register', authenticateUser, authorizeAdmin, async (req, res) => {
+    router.post('/register', authenticateUser, authorizeRoles('admin', 'manager'), async (req, res) => {
         try {
             const { username, phone, password, fullName } = req.body
 
@@ -124,7 +123,7 @@ export function createUserRoutes(userManager) {
     // ====== Admin Routes ======
 
     // 获取所有用户列表
-    router.get('/list', authenticateUser, authorizeAdmin, async (req, res) => {
+    router.get('/list', authenticateUser, authorizeRoles('admin', 'manager'), async (req, res) => {
         try {
             const { limit = 100, offset = 0 } = req.query
             const result = await userManager.getUserList(parseInt(limit), parseInt(offset))
@@ -135,7 +134,7 @@ export function createUserRoutes(userManager) {
     })
 
     // 禁用用户
-    router.post('/:userId/disable', authenticateUser, authorizeAdmin, async (req, res) => {
+    router.post('/:userId/disable', authenticateUser, authorizeRoles('admin', 'manager'), async (req, res) => {
         try {
             const result = await userManager.disableUser(req.params.userId)
             res.json(result)
@@ -145,7 +144,7 @@ export function createUserRoutes(userManager) {
     })
 
     // 启用用户
-    router.post('/:userId/enable', authenticateUser, authorizeAdmin, async (req, res) => {
+    router.post('/:userId/enable', authenticateUser, authorizeRoles('admin', 'manager'), async (req, res) => {
         try {
             const result = await userManager.enableUser(req.params.userId)
             res.json(result)
@@ -155,7 +154,7 @@ export function createUserRoutes(userManager) {
     })
 
     // 修改用户角色
-    router.post('/:userId/role', authenticateUser, authorizeAdmin, async (req, res) => {
+    router.post('/:userId/role', authenticateUser, authorizeRoles('admin', 'manager'), async (req, res) => {
         try {
             const { newRole } = req.body
 
@@ -171,7 +170,7 @@ export function createUserRoutes(userManager) {
     })
 
     // 重置用户密码（管理员操作）
-    router.post('/:userId/reset-password', authenticateUser, authorizeAdmin, async (req, res) => {
+    router.post('/:userId/reset-password', authenticateUser, authorizeRoles('admin', 'manager'), async (req, res) => {
         try {
             const { newPassword } = req.body
 
@@ -187,7 +186,7 @@ export function createUserRoutes(userManager) {
     })
 
     // 兼容前端历史路径: /reset-password/:userId
-    router.post('/reset-password/:userId', authenticateUser, authorizeAdmin, async (req, res) => {
+    router.post('/reset-password/:userId', authenticateUser, authorizeRoles('admin', 'manager'), async (req, res) => {
         try {
             const { newPassword } = req.body
 
@@ -203,7 +202,7 @@ export function createUserRoutes(userManager) {
     })
 
     // 管理员更新指定用户信息
-    router.put('/:userId', authenticateUser, authorizeAdmin, async (req, res) => {
+    router.put('/:userId', authenticateUser, authorizeRoles('admin', 'manager'), async (req, res) => {
         try {
             const payload = req.body || {}
             const normalizedUpdates = {
@@ -223,7 +222,7 @@ export function createUserRoutes(userManager) {
     })
 
     // 删除用户
-    router.delete('/:userId', authenticateUser, authorizeAdmin, async (req, res) => {
+    router.delete('/:userId', authenticateUser, authorizeRoles('admin', 'manager'), async (req, res) => {
         try {
             const result = await userManager.deleteUser(req.params.userId)
             res.json(result)
