@@ -222,6 +222,17 @@ export function authenticateUser(req, res, next) {
     })
 }
 
+// Middleware: Require Editor or Above（P0-09）
+function requireEditorOrAbove(req, res, next) {
+    const role = req.user?.role ?? req.userRole
+    if (!role || role === 'guest' || role === 'viewer') {
+        return res.status(403).json({
+            error: '❌ 访客无写入权限，请以正式账号登录后操作'
+        })
+    }
+    next()
+}
+
 // Security Middleware
 app.use(rateLimit(RATE_LIMIT_MAX_REQUESTS, RATE_LIMIT_WINDOW_MS))
 
@@ -577,7 +588,7 @@ app.post('/api/records/:tableName/bulk-upsert', authenticateUser, async (req, re
     }
 })
 
-app.put('/api/records/:tableName/:id', authenticateUser, async (req, res) => {
+app.put('/api/records/:tableName/:id', authenticateUser, requireEditorOrAbove, async (req, res) => {
     try {
         const testType = normalizeRecordType(req.params.tableName)
         if (!testType) {
@@ -625,7 +636,7 @@ app.put('/api/records/:tableName/:id', authenticateUser, async (req, res) => {
     }
 })
 
-app.delete('/api/records/:tableName/:id', authenticateUser, async (req, res) => {
+app.delete('/api/records/:tableName/:id', authenticateUser, requireEditorOrAbove, async (req, res) => {
     try {
         const testType = normalizeRecordType(req.params.tableName)
         if (!testType) {
@@ -723,7 +734,7 @@ app.get('/api/test-records/:id', authenticateUser, async (req, res) => {
 })
 
 // 更新测试记录
-app.put('/api/test-records/:id', authenticateUser, async (req, res) => {
+app.put('/api/test-records/:id', authenticateUser, requireEditorOrAbove, async (req, res) => {
     try {
         const { id } = req.params
         const { test_name, status, result_data } = req.body
@@ -753,7 +764,7 @@ app.put('/api/test-records/:id', authenticateUser, async (req, res) => {
 })
 
 // 删除测试记录
-app.delete('/api/test-records/:id', authenticateUser, async (req, res) => {
+app.delete('/api/test-records/:id', authenticateUser, requireEditorOrAbove, async (req, res) => {
     try {
         const { id } = req.params
 
