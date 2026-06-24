@@ -1,6 +1,6 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§2 已审阅文件清单 + §3 P0 问题详情
-> **最后更新**：v0.10（2026-06-23）
+> **最后更新**：v0.11（2026-06-24）
 
 ---
 
@@ -87,22 +87,39 @@
 - **位置**：`backend/server.js`
 - **关联**：`dedupe-test-records.js` 证实此问题已在生产环境发生
 - **修复建议**：统一使用 `buildDeterministicRecordCode()`；数据库层对 `record_code` 添加 `@unique` 约束
+- **状态**：✅ 已完成（2026-06-23 核验通过）
 
 #### P0-07：快速访问模式（Quick Access）完全绕过认证
 - **位置**：`js/services/GuestAuthService.js` + `login.html`（入口按钮）
 - **问题**：`login.html` 中"以访客身份进入"按钮直接触发快速访问；Token 为本地伪随机字符串，后端从不验证
 - **修复建议**：快速访问必须经后端签发临时 Token，或完全移除此功能；至少在 `login.html` 中添加明确的权限说明
+- **修复路径（已执行）**：
+  1. `backend/server.js` — 新增 `POST /api/guest/quick-access`，后端签发 2h 限权 JWT
+  2. `js/services/GuestAuthService.js` — `quickAccessAsViewer()` 改为 `async`，调用后端接口，移除本地伪造 token 逻辑
+  3. `js/core/Router.js` — 删除 `isQuickAccess` 独立判断变量，`isAuthenticated` 统一为 `isUserAuthenticated || isGuestAuthenticated`
+  4. `login.html` — 调用方已正确使用 `await`
+- **状态**：✅ 已完成（2026-06-24 四端全链核验通过）
+- **附注**：`login.html` 中访客失败提示轻微错位（显示在管理员区域），已记录至 P2
 
 #### P0-08：`Storage.js` `_canSyncWithServer()` 的 `temp-token-` 前缀校验可被客户端伪造
 - **位置**：`js/core/Storage.js`，`_canSyncWithServer()` 方法
 - **v0.7 确认**：`_getHeaders()` 实现完整正常（`Authorization: Bearer <token>`，管理员 `auth_token` 优先，fallback `guest_token`）；真实问题在于 `_canSyncWithServer()` 通过 `token.startsWith('temp-token-')` 判断是否允许同步，该前缀字符串可由客户端任意伪造，无服务端验证
 - **风险**：攻击者构造 `temp-token-` 开头的伪造 Token，可绕过同步阻断逻辑，触发未经授权的数据上传
 - **修复建议**：移除前缀字符串判断；改为向后端 `/api/user/verify-token` 发起验证请求，或依赖后端 401 响应作为唯一阻断机制
+- **状态**：✅ 已完成（2026-06-23 核验通过）
 
 #### P0-09：`js/core/Auth.js` 的 `auth.verify()` 对编辑操作完全不做权限校验
 - **位置**：`js/core/Auth.js`，`verify()` 方法；被 Tableware、GenericTest、Pathogen、UserManagement 调用
 - **问题**：仅当操作名包含"删除"时弹 `confirm()`；编辑操作直接执行回调，`viewer` 角色可随意编辑数据
 - **修复建议**：`verify()` 中增加 `permissionService.hasPermission()` 校验；后端 PUT 接口同时校验操作者权限
+- **修复方向**：
+  - 目标文件：`backend/server.js`（仅此一个文件）
+  - 在 `PUT /api/records/:tableName/:id` 与 `DELETE /api/records/:tableName/:id`
+    路由中，于 `authenticateUser` 之后追加 `requireEditorOrAbove` 中间件
+  - 新增 `requireEditorOrAbove()` 函数：检查 `req.user.guest_type` 字段，
+    访客直接返回 403；普通用户校验 role 为 `admin` 或 `editor`
+  - 详见 `docs/fix/FIX_PLAN.md` → P0-09 节
+- **状态**：🔲 待启动（下一个目标）
 
 #### P0-10：根目录 `package.json` 缺少 `"type": "module"` 且无 Prisma 依赖，生产部署存在启动崩溃风险（v0.8 新增）
 - **位置**：`/package.json`（根目录）
@@ -111,3 +128,4 @@
   - 完全缺少 `prisma` 和 `@prisma/client` 依赖，根目录 `npm install` 后无法运行数据库操作
   - `webpack` 依赖已无用（前端已改为原生 HTML），增加无效安装体积
 - **修复建议**：明确根目录 `package.json` 定位为工程工具配置，`start` 脚本改为 `cd backend && npm start`；清理无用的 `webpack` 依赖；在 `README` 中明确标注两个 `package.json` 的职责边界
+- **状态**：✅ 已完成（2026-06-23 核验通过）
