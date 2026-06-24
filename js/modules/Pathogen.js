@@ -1,5 +1,5 @@
 import { StorageService } from '../core/Storage.js';
-import { auth } from '../core/Auth.js';
+import { operationGuard } from '../core/Auth.js';
 import { FormValidator } from '../utils/FormValidator.js';
 import { UINotification } from '../utils/UINotification.js';
 import { NetworkHelper } from '../utils/NetworkHelper.js';
@@ -58,7 +58,7 @@ export function initPathogen() {
     document.getElementById('pathogenRecords')?.addEventListener('click', (e) => {
         const deleteBtn = e.target.closest('.btn-delete');
         if (deleteBtn) {
-            auth.verify('删除病原体检测记录', (user) => {
+            operationGuard.verify('删除病原体检测记录', (user) => {
                 handleDeleteRecord(deleteBtn.dataset.id);
             });
             return;
@@ -66,7 +66,7 @@ export function initPathogen() {
 
         const editBtn = e.target.closest('.btn-edit');
         if (editBtn) {
-            auth.verify('编辑病原体检测记录', (user) => {
+            operationGuard.verify('编辑病原体检测记录', (user) => {
                 handleEditRecord(editBtn.dataset.id, user);
             });
             return;

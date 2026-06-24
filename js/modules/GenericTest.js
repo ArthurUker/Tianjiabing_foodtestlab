@@ -1,5 +1,5 @@
 import { StorageService } from '../core/Storage.js';
-import { auth } from '../core/Auth.js';
+import { operationGuard } from '../core/Auth.js';
 import { FormValidator } from '../utils/FormValidator.js';
 import { UINotification } from '../utils/UINotification.js';
 import { NetworkHelper } from '../utils/NetworkHelper.js';
@@ -48,7 +48,7 @@ export class GenericTestModule {
         document.getElementById(this.tableId)?.addEventListener('click', (e) => {
             const deleteBtn = e.target.closest('.btn-delete');
             if (deleteBtn) {
-                auth.verify('删除检测记录', () => {
+                operationGuard.verify('删除检测记录', () => {
                     this.handleDeleteRecord(deleteBtn.dataset.id);
                 });
                 return;
@@ -56,7 +56,7 @@ export class GenericTestModule {
 
             const editBtn = e.target.closest('.btn-edit');
             if (editBtn) {
-                auth.verify('编辑/整改记录', (user) => {
+                operationGuard.verify('编辑/整改记录', (user) => {
                     this.handleEditRecord(editBtn.dataset.id, user);
                 });
                 return;

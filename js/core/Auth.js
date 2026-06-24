@@ -2,7 +2,7 @@
  * 身份认证服务模块 (Authentication Service)
  * 负责处理用户身份识别和敏感操作的权限校验
  */
-export class AuthService {
+export class OperationGuard {
     /**
      * 核心功能：敏感操作权限控制
      * - 删除操作：弹出二次确认对话框，确认后执行
@@ -34,4 +34,4 @@ export class AuthService {
 }
 
 // 导出单例对象，确保整个应用共用同一个认证状态
-export const auth = new AuthService();
+export const operationGuard = new OperationGuard();
