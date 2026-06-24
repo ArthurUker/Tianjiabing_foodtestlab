@@ -450,24 +450,34 @@
         const guestEnterBtn = document.getElementById('guestEnterBtn');
         const guestErrorMessage = document.getElementById('guestErrorMessage');
         const guestErrorText = document.getElementById('guestErrorText');
+        const guestEnterBtnDefaultHtml = guestEnterBtn ? guestEnterBtn.innerHTML : '';
 
-        function enterAsGuest() {
+        async function enterAsGuest() {
             if (!enableGuestEntry) {
-                return;
+                return false;
             }
-            guestAuthService.quickAccessAsViewer();
-            window.location.href = './index.html';
+            const ok = await guestAuthService.quickAccessAsViewer();
+            if (ok) {
+                window.location.href = './index.html';
+                return true;
+            }
+            showError('快速访问失败，请稍后重试');
+            return false;
         }
 
         if (guestEnterBtn) {
-            guestEnterBtn.addEventListener('click', function() {
+            guestEnterBtn.addEventListener('click', async function() {
                 if (!enableGuestEntry) {
                     showError('访客入口已暂时关闭，请使用管理员账号登录');
                     return;
                 }
                 this.disabled = true;
                 this.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>正在进入...';
-                enterAsGuest();
+                const success = await enterAsGuest();
+                if (!success) {
+                    this.disabled = false;
+                    this.innerHTML = guestEnterBtnDefaultHtml;
+                }
             });
         }
 

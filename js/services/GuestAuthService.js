@@ -163,33 +163,28 @@ export class GuestAuthService {
     }
 
     /**
-     * 快速访问模式 - 无需登录直接进入只读数据查看
-     * 创建一个临时的访客 session
-     * @returns {boolean}
+     * 快速访问模式 - 调用后端接口获取真实 JWT（P0-07 修复）
+     * @returns {Promise<boolean>}
      */
-    quickAccessAsViewer() {
-        // 生成临时访客信息
-        const tempGuest = {
-            id: 'temp-' + Date.now(),
-            username: '临时查看用户',
-            email: 'temp@viewer.local',
-            guest_type: 'viewer',
-            has_export_permission: false,
-            status: 'active',
-            is_quick_access: true  // 标记为快速访问
-        };
-
-        // 生成简单的临时令牌（不使用 btoa）
-        const tempToken = 'temp-token-' + Date.now() + '-' + Math.random().toString(36).substring(2, 11);
-
-        // 保存到 localStorage
-        localStorage.setItem('guest_token', tempToken);
-        localStorage.setItem('current_guest', JSON.stringify(tempGuest));
-
-        console.log('✅ 快速访问模式已激活 - 进入只读数据查看');
-        console.log('Token:', tempToken);
-        console.log('Guest:', JSON.stringify(tempGuest));
-        return true;
+    async quickAccessAsViewer() {
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/api/guest/quick-access`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            })
+            if (!response.ok) return false
+            const data = await response.json()
+            if (data.token) {
+                localStorage.setItem('guest_token', data.token)
+                localStorage.setItem('current_guest', JSON.stringify(data.guest))
+                console.log('✅ 快速访问模式已激活（后端签发 JWT）')
+                return true
+            }
+            return false
+        } catch (error) {
+            console.error('❌ 快速访问网络错误:', error)
+            return false
+        }
     }
 
     /**

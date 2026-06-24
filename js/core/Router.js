@@ -32,14 +32,12 @@ export class Router {
         const guestAuthService = new GuestAuthService();
         const isUserAuthenticated = authService.isAuthenticated();
         const isGuestAuthenticated = guestAuthService.isLoggedIn();
-        const isQuickAccess = guestAuthService.isQuickAccessMode();  // ✨ 检查快速访问模式
-        const isAuthenticated = isUserAuthenticated || isGuestAuthenticated || isQuickAccess;
+        const isAuthenticated = isUserAuthenticated || isGuestAuthenticated;
         
         // 🔍 调试日志
         console.log('🔍 Auth Check:');
         console.log('  - isUserAuthenticated:', isUserAuthenticated);
         console.log('  - isGuestAuthenticated:', isGuestAuthenticated);
-        console.log('  - isQuickAccess:', isQuickAccess);
         console.log('  - guestAuthService.getToken():', guestAuthService.getToken());
         console.log('  - guestAuthService.getCurrentGuest():', guestAuthService.getCurrentGuest());
         console.log('  - Final isAuthenticated:', isAuthenticated);

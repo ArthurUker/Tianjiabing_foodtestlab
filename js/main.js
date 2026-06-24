@@ -141,7 +141,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         // ✨ 如果是快速访问模式但还没有访客信息，则自动创建临时访客
         if (isQuickAccessMode && !guestAuthService.isLoggedIn()) {
             console.log('⚡ 快速访问模式已激活 - 自动创建临时访客信息');
-            guestAuthService.quickAccessAsViewer();
+            await guestAuthService.quickAccessAsViewer();
         }
         
         // ✨ 在快速访问模式下初始化示例数据
