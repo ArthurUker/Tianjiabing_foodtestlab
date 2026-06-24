@@ -4,7 +4,7 @@
 **系统名称**：食品安全检验管理系统 Pro（珠海一中食品安全检验系统）
 **仓库地址**：https://github.com/ArthurUker/Tianjiabing_foodtestlab/tree/ZhuHaiYiZhong
 **审阅开始日期**：2026-06-22
-**文档版本**：v0.10（2026-06-23 重构为索引文件）
+**文档版本**：v0.11（2026-06-24 新增 FIX_PLAN 导航；P0-07 闭环）
 **文档用途**：每次新对话开始时，将本文件提供给 AI，AI 按需读取对应子文件，无需加载全部内容。
 
 > ⚠️ **本文件已于 v0.10 重构为纯索引。** 原完整内容已按章节拆分至以下子文件，请按需读取。
@@ -23,6 +23,7 @@
 | [RG_03d_ISSUES_P3.md](./RG_03d_ISSUES_P3.md) | §3 P3/DOCS 问题详情 + §4 优先级汇总 | 需要 P3/DOCS 问题详情时读取 |
 | [RG_04_PROGRESS.md](./RG_04_PROGRESS.md) | §3 修复执行进度看板（各项状态表、完成率） | 核验进度时读取 |
 | [RG_05_CHANGELOG.md](./RG_05_CHANGELOG.md) | §4 文档变更记录 + 附录 | 需要历史记录时读取 |
+| [../fix/FIX_PLAN.md](../fix/FIX_PLAN.md) | 修复计划 + AI 操作约束规则 | 执行任何修复前必读；Copilot 每次操作前加载 |
 
 ---
 
