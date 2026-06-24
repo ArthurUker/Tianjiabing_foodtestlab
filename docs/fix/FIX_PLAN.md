@@ -3,10 +3,27 @@
 **文档路径**：`docs/fix/FIX_PLAN.md`
 **基于审阅版本**：REVIEW_GUIDE.md **v0.10**
 **计划制定日期**：2026-06-22
-**文档版本**：**v1.8**（2026-06-24 更新；P0-07 修复完成；P0 完成率 90%）
+**文档版本**：**v1.9**（2026-06-24 更新；P0 完成率 90%）
 
 > 本文件为修复工作的**总索引和进度看板**。
 > 每个问题的详细描述、修复代码、验收标准见对应子文件。
+
+---
+
+## ⚠️ AI 修复操作约束规则（所有 AI 工具必读）
+
+> 适用范围：GitHub Copilot、Claude 等所有 AI 辅助工具。
+> **执行任何修复前，必须完整阅读本节规则。**
+
+| 规则 | 说明 |
+|------|------|
+| 🚫 禁止全文重写 | 任何文件均不得整体替换；每次改动必须是最小化 diff |
+| 📍 定位优先 | 每处改动须提供精确定位依据（函数名/注释关键字/行号范围之一） |
+| 📋 改动范围声明 | 提交前用 `git diff --name-only` 核验，确保与声明一致 |
+| 🔒 禁止副作用 | 修复单一问题时，不得顺带修改无关逻辑、重命名变量或调整代码风格 |
+| ✅ 测试前置 | 每个修复须提供人工验证步骤（后端提供 curl 命令，前端提供 Console 验证步骤） |
+| 📝 提交规范 | 格式：`fix(P0-XX): 描述`，不超过 50 字；不同编号禁止合并提交 |
+| ⚠️ 超范围确认 | 若需修改超过文件 30% 的内容，须先向人工确认，不得自行执行 |
 
 ---
 
@@ -88,11 +105,67 @@ P1-26（数据库路径歧义确认）
 | `P0-03` | JWT 密钥 fallback 为弱明文字符串 | 0.5h | ✅ 已完成 | 2026-06-22 |
 | `P0-04` | POST /api/user/register 完全公开无需授权 | 0.5h | ✅ 已完成 | 2026-06-22 |
 | `P0-05` | seed.js 初始密码明文写入公开仓库 | 1h | ✅ 已完成 | 2026-06-23（遗留补修核验通过） |
-| `P0-06` | record_code 双重生成逻辑导致幂等性失效 | 3h | ✅ 已完成 | 2026-06-23 |
-| `P0-07` | 快速访问模式完全绕过后端认证 | 4h | ✅ 已完成 | 2026-06-24 |
-| `P0-08` | Storage.js _canSyncWithServer() temp-token- 前缀可被客户端伪造 | 1h | ✅ 已完成 | 2026-06-23 |
+| `P0-06` | record_code 双重生成逻辑导致幂等性失效 | 3h | **状态**：✅ 已完成（2026-06-23） | 2026-06-23 |
+| `P0-07` | 快速访问模式完全绕过后端认证 | 4h | **状态**：✅ 已完成（2026-06-24，四端全链核验通过） | 2026-06-24 |
+| `P0-08` | Storage.js _canSyncWithServer() temp-token- 前缀可被客户端伪造 | 1h | **状态**：✅ 已完成（2026-06-23） | 2026-06-23 |
 | `P0-09` | auth.verify() 对编辑操作完全不做权限校验 | 3h | ⬜ 待处理 | - |
-| `P0-10` | 根目录 package.json 缺少 "type":"module" 且无 Prisma 依赖，生产部署存在启动崩溃风险 | 1h | ✅ 已完成 | 2026-06-23 |
+| `P0-10` | 根目录 package.json 缺少 "type":"module" 且无 Prisma 依赖，生产部署存在启动崩溃风险 | 1h | **状态**：✅ 已完成（2026-06-23） | 2026-06-23 |
+
+#### 修复指令（Copilot 执行）
+
+**目标文件**：`backend/server.js`（仅此一个文件）
+
+**步骤 1 — 新增中间件函数**
+定位：搜索 `export function authenticateUser` 函数定义，在该函数结束的 `}` 之后插入：
+```javascript
+// P0-09: 角色校验中间件 — 仅允许 admin / editor，拒绝访客写操作
+function requireEditorOrAbove(req, res, next) {
+  if (req.user && req.user.guest_type) {
+    return res.status(403).json({
+      error: '访客无写操作权限',
+      code: 'GUEST_WRITE_FORBIDDEN'
+    })
+  }
+  if (req.userRole && req.userRole !== 'admin' && req.userRole !== 'editor') {
+    return res.status(403).json({
+      error: '权限不足，需要编辑员或管理员权限',
+      code: 'INSUFFICIENT_ROLE'
+    })
+  }
+  next()
+}
+```
+
+**步骤 2 — 修改 PUT 路由**
+定位：搜索 `app.put('/api/records/:tableName/:id', authenticateUser,`
+仅将 `authenticateUser,` 替换为 `authenticateUser, requireEditorOrAbove,`
+其余参数和函数体一字不改。
+
+**步骤 3 — 修改 DELETE 路由**
+定位：搜索 `app.delete('/api/records/:tableName/:id', authenticateUser,`
+仅将 `authenticateUser,` 替换为 `authenticateUser, requireEditorOrAbove,`
+其余参数和函数体一字不改。
+
+**步骤 4 — 验证**
+```bash
+# 获取访客 token
+GUEST_TOKEN=$(curl -s -X POST http://localhost:3002/api/guest/quick-access \
+  -H "Content-Type: application/json" | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+
+# 用访客 token 调用写接口，预期返回 403
+curl -X PUT http://localhost:3002/api/records/tableware/test-id \
+  -H "Authorization: Bearer $GUEST_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"testDate":"2026-06-24"}'
+# 预期响应: { "error": "访客无写操作权限", "code": "GUEST_WRITE_FORBIDDEN" }
+```
+
+**步骤 5 — 提交**
+```bash
+git add backend/server.js
+git commit -m "fix(P0-09): PUT/DELETE写操作接口增加角色校验，拒绝访客写入"
+git push origin ZhuHaiYiZhong
+```
 
 ---
 
