@@ -48,6 +48,7 @@ const { authenticateUser: _authUser, authorizeAdmin: _authAdmin, authorizeRoles 
 
 function parseAllowedOrigins() {
     if (!process.env.CORS_ORIGIN) {
+        // P1-13: 移除硬编码生产 IP，生产环境必须通过 CORS_ORIGIN 环境变量配置
         return [
             'http://localhost:3000',
             'http://localhost:3002',
@@ -55,8 +56,7 @@ function parseAllowedOrigins() {
             'http://localhost:5173',
             'http://127.0.0.1:5500',
             'http://127.0.0.1:3000',
-            'http://127.0.0.1:8082',
-            'http://159.75.106.179:8082'
+            'http://127.0.0.1:8082'
         ]
     }
 
