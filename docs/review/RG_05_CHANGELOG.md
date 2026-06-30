@@ -1,6 +1,6 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§4 文档变更记录 + 附录
-> **最后更新**：v0.21（2026-06-30）
+> **最后更新**：v0.22（2026-06-30）
 
 ---
 
@@ -51,3 +51,8 @@
 - 核验确认前端 SessionManager.sessions 为内存数组，但已有 TTL（30 分钟）+ 最大并发会话数（5），非"无过期机制"；后端 JWT 无状态，重启不丢失登录态
 - 硬编码 IP（后端 CORS fallback / 前端 LOCAL_API_URL / getClientIP 模拟值）已通过 CORS_ORIGIN 环境变量 / window.__API_BASE_URL / 同源 fallback 管理，采用 C4 路径仅在 SessionManager.js 添加注释
 - 技术债 TD-P2-15：Redis 会话存储迁移评估已登记（含 inactive 会话清理 + 后端 session API 实现 + 统一配置中心）
+
+## v0.22 — P1-12 闭环
+- fix(P1-12): telemetry.js ESM化，消除CJS/ESM不兼容（58f5a2d）
+- 核验发现 @opentelemetry/* 7个依赖未安装，server.js 集成 deferred
+- 技术债 TD-P2-16：OTel 完整集成（依赖安装 + 基础设施 + --import 启动方式）已登记

@@ -1,6 +1,6 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§3 修复执行进度看板
-> **最后更新**：v0.21（2026-06-30）｜对应 FIX_PLAN 版本：v1.12
+> **最后更新**：v0.22（2026-06-30）｜对应 FIX_PLAN 版本：v1.12
 
 ---
 
@@ -23,15 +23,17 @@
 
 > **P1-11 闭环（2026-06-30）**：核验确认前端 `SessionManager.sessions` 为内存数组，但**已具备 TTL（30 分钟）与最大并发会话数（5）**，非"无过期机制"；后端认证为 JWT 无状态，重启不丢失登录态。硬编码 IP（后端 CORS fallback、前端 `LOCAL_API_URL`、`getClientIP` 模拟值）已通过 `CORS_ORIGIN` 环境变量 / `window.__API_BASE_URL` / 同源 fallback 管理，采用 C4 路径仅在 `SessionManager.js` 添加注释。技术债 TD-P2-15（Redis 会话存储迁移 + inactive 会话清理 + 后端 session API 实现）登记。详见 [FIX_P1-11_sessionMemoryAndHardcodedIP.md](../fix/P1/FIX_P1-11_sessionMemoryAndHardcodedIP.md)。
 
+> **P1-12 闭环（2026-06-30）**：`backend/config/telemetry.js` 全部 8 个 `require()` 改为 `import`、`module.exports` 改为 `export default`，消除 CJS/ESM 不兼容（与项目 `type:module` 统一）。核验发现 `@opentelemetry/*` 7 个依赖从未安装、Jaeger/Prometheus 基础设施未部署，直接集成会导致 server.js 启动崩溃，故 server.js 集成（C2）deferred。技术债 TD-P2-16（OTel 完整集成：依赖安装 + 基础设施部署 + `--import` 启动方式）登记。详见 [FIX_P1-12_telemetryCommonJS.md](../fix/P1/FIX_P1-12_telemetryCommonJS.md)。
+
 ### 总体进度
 
 | 类别 | 总数 | ✅ 已完成 | ⬜ 待处理 | 完成率 |
 |------|------|----------|----------|--------|
 | P0（安全/高危） | 10 | 10 | 0 | 100% |
-| 🟡 P1 重要 | 26 | 11 | 15 | 42.3% |
+| 🟡 P1 重要 | 26 | 12 | 14 | 46.2% |
 | 🟢 P2 优化 | 22 | 0 | 22 | 0% |
 | 📄 DOCS 文档 | 4 | 0 | 4 | 0% |
-| **合计** | **62** | **21** | **41** | **33.9%** |
+| **合计** | **62** | **22** | **40** | **35.5%** |
 
 ### P0 高危问题修复状态（10 项）
 
