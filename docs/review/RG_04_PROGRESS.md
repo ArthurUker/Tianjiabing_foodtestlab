@@ -1,6 +1,6 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§3 修复执行进度看板
-> **最后更新**：v0.20（2026-06-30）｜对应 FIX_PLAN 版本：v1.12
+> **最后更新**：v0.21（2026-06-30）｜对应 FIX_PLAN 版本：v1.12
 
 ---
 
@@ -21,15 +21,17 @@
 
 > **P1-10 闭环（2026-06-30）**：`PermissionService` 权限缓存添加 5 分钟 TTL（构造函数 `PERMISSION_CACHE_TTL`、读取过期检查、写入携带 `cachedAt` 时间戳），解决缓存永不失效。核验发现 `clearCache()` 依赖的 `permissionChanged` 事件全仓 0 派发，实为死代码；C2 主动清除因目标文件不在预检范围且架构上无法跨会话触达被变更用户客户端，未实施。技术债 TD-P2-14（Redis/LRU Cache 替代）、TD-P1-10a（permissionChanged 派发缺失）登记。详见 [FIX_P1-10_permissionCacheTTL.md](../fix/P1/FIX_P1-10_permissionCacheTTL.md)。
 
+> **P1-11 闭环（2026-06-30）**：核验确认前端 `SessionManager.sessions` 为内存数组，但**已具备 TTL（30 分钟）与最大并发会话数（5）**，非"无过期机制"；后端认证为 JWT 无状态，重启不丢失登录态。硬编码 IP（后端 CORS fallback、前端 `LOCAL_API_URL`、`getClientIP` 模拟值）已通过 `CORS_ORIGIN` 环境变量 / `window.__API_BASE_URL` / 同源 fallback 管理，采用 C4 路径仅在 `SessionManager.js` 添加注释。技术债 TD-P2-15（Redis 会话存储迁移 + inactive 会话清理 + 后端 session API 实现）登记。详见 [FIX_P1-11_sessionMemoryAndHardcodedIP.md](../fix/P1/FIX_P1-11_sessionMemoryAndHardcodedIP.md)。
+
 ### 总体进度
 
 | 类别 | 总数 | ✅ 已完成 | ⬜ 待处理 | 完成率 |
 |------|------|----------|----------|--------|
 | P0（安全/高危） | 10 | 10 | 0 | 100% |
-| 🟡 P1 重要 | 26 | 10 | 16 | 38.5% |
+| 🟡 P1 重要 | 26 | 11 | 15 | 42.3% |
 | 🟢 P2 优化 | 22 | 0 | 22 | 0% |
 | 📄 DOCS 文档 | 4 | 0 | 4 | 0% |
-| **合计** | **62** | **20** | **42** | **32.3%** |
+| **合计** | **62** | **21** | **41** | **33.9%** |
 
 ### P0 高危问题修复状态（10 项）
 
