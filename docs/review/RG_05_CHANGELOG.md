@@ -1,6 +1,6 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§4 文档变更记录 + 附录
-> **最后更新**：v0.17（2026-06-30）
+> **最后更新**：v0.18（2026-06-30）
 
 ---
 
@@ -29,3 +29,8 @@
 - fix(P1-07): 移除 window.router 冗余全局挂载（7d14930）
 - 删除 14 行冗余代码（4 处赋值 + 4 处日志 + 3 处注释 + 空 if 块）
 - 技术债 TD-P2-10 登记：main.js 中 7 类 window.xxx 全局挂载
+
+## v0.18 — P1-08 闭环
+- fix(P1-08): schema.prisma L67 onDelete Cascade→Restrict（76e86ae）
+- UserManager.deleteUser() 添加前置 testRecord.count 检查
+- 技术债 TD-P2-11（软删除）、TD-P2-12（AuditLog合规）已登记

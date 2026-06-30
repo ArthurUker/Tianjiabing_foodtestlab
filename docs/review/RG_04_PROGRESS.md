@@ -1,6 +1,6 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§3 修复执行进度看板
-> **最后更新**：v0.17（2026-06-30）｜对应 FIX_PLAN 版本：v1.12
+> **最后更新**：v0.18（2026-06-30）｜对应 FIX_PLAN 版本：v1.12
 
 ---
 
@@ -15,15 +15,17 @@
 
 > **P1-07 闭环（2026-06-30）**：移除 `window.router` 冗余全局挂载（4 处赋值 + 4 处日志 + 3 处注释 + 空 if 块，共 14 行）。经核验 `window.router` 从未被读取调用，所有调用方通过 import 获取单例，移除后功能零影响。技术债 P2-10 登记（main.js 中 7 类其他全局挂载）。详见 [FIX_P1-07_windowRouterExposure.md](../fix/P1/FIX_P1-07_windowRouterExposure.md)。
 
+> **P1-08 闭环（2026-06-30）**：`schema.prisma` L67 `TestRecord.created_user` 的 `onDelete: Cascade` 改为 `Restrict`，防止删用户时级联删除检测记录；`UserManager.deleteUser()` 添加前置 `testRecord.count` 检查，存在记录时抛出业务错误。技术债 TD-P2-11（软删除）、TD-P2-12（AuditLog 合规）登记。详见 [FIX_P1-08_cascadeDeleteRisk.md](../fix/P1/FIX_P1-08_cascadeDeleteRisk.md)。
+
 ### 总体进度
 
 | 类别 | 总数 | ✅ 已完成 | ⬜ 待处理 | 完成率 |
 |------|------|----------|----------|--------|
 | P0（安全/高危） | 10 | 10 | 0 | 100% |
-| 🟡 P1 重要 | 26 | 7 | 19 | 26.9% |
+| 🟡 P1 重要 | 26 | 8 | 18 | 30.8% |
 | 🟢 P2 优化 | 22 | 0 | 22 | 0% |
 | 📄 DOCS 文档 | 4 | 0 | 4 | 0% |
-| **合计** | **62** | **17** | **45** | **27.4%** |
+| **合计** | **62** | **18** | **44** | **29.0%** |
 
 ### P0 高危问题修复状态（10 项）
 
