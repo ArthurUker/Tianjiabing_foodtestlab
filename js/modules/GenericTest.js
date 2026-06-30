@@ -4,6 +4,7 @@ import { FormValidator } from '../utils/FormValidator.js';
 import { UINotification } from '../utils/UINotification.js';
 import { NetworkHelper } from '../utils/NetworkHelper.js';
 import { GuestAuthService } from '../services/GuestAuthService.js';
+import { permissionService } from '../services/PermissionService.js';
 
 export class GenericTestModule {
     constructor(config) {
@@ -48,6 +49,11 @@ export class GenericTestModule {
         document.getElementById(this.tableId)?.addEventListener('click', (e) => {
             const deleteBtn = e.target.closest('.btn-delete');
             if (deleteBtn) {
+                // P1-06: 按钮点击层权限前置拦截（视觉层隐藏不可信）
+                if (!permissionService.hasPermission('records:delete')) {
+                  UINotification.error('权限不足：您没有删除记录的权限');
+                  return;
+                }
                 operationGuard.verify('删除检测记录', () => {
                     this.handleDeleteRecord(deleteBtn.dataset.id);
                 });
@@ -248,8 +254,13 @@ export class GenericTestModule {
     }
 
     async handleDeleteRecord(recordId) {
+        // P1-06: 事件处理层纵深防御（防止函数被其他路径直接调用）
+        if (!permissionService.hasPermission('records:delete')) {
+          UINotification.error('权限不足：您没有删除记录的权限');
+          return;
+        }
         const confirmed = await UINotification.confirm(
-            '删除该记录吗？此操作不可恢复！',
+            '确定要永久删除此记录吗？此操作不可恢复。',
             '确认删除'
         );
         
