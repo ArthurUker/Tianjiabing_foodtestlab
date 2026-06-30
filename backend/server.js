@@ -1,3 +1,9 @@
+// P1-09: 存在 3 套审计日志机制并存，见 TD-P2-13
+//   ① 后端 DB（UserManager.logLogin/logFailedLogin）— 仅登录日志，缺 ip_address
+//   ② 后端 DB API（POST /api/audit-logs ← 前端 AuditLogService）— 通用操作，字段完整
+//   ③ 前端 localStorage（AuditLogger.logOperation ← Storage.js）— 本地离线日志
+// 无同表重复写入；字段不一致待统一审计接口设计（TD-P2-13）
+
 import express from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
