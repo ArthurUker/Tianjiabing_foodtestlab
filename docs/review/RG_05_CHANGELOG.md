@@ -1,6 +1,6 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§4 文档变更记录 + 附录
-> **最后更新**：v0.22（2026-06-30）
+> **最后更新**：v0.23（2026-06-30）
 
 ---
 
@@ -56,3 +56,9 @@
 - fix(P1-12): telemetry.js ESM化，消除CJS/ESM不兼容（58f5a2d）
 - 核验发现 @opentelemetry/* 7个依赖未安装，server.js 集成 deferred
 - 技术债 TD-P2-16：OTel 完整集成（依赖安装 + 基础设施 + --import 启动方式）已登记
+
+## v0.23 — P1-13 闭环
+- fix(P1-13): 移除server.js硬编码生产IP，.env.example补充生产IP示例（f8cf588）
+- `backend/server.js` `parseAllowedOrigins()` fallback 列表移除 `http://159.75.106.179:8082`（保留 localhost 开发地址）
+- `.env.example` `CORS_ORIGIN` 补充生产 IP 示例，与 `.env` 运行时配置对齐
+- 技术债 TD-P2-17：部署配置文件（pm2/nginx）硬编码生产 IP + `.env` 中 `CORS_ORIGINS`（复数）无效配置清理，已登记

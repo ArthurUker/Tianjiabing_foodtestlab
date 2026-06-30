@@ -1,6 +1,6 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§3 修复执行进度看板
-> **最后更新**：v0.22（2026-06-30）｜对应 FIX_PLAN 版本：v1.12
+> **最后更新**：v0.23（2026-06-30）｜对应 FIX_PLAN 版本：v1.12
 
 ---
 
@@ -25,15 +25,17 @@
 
 > **P1-12 闭环（2026-06-30）**：`backend/config/telemetry.js` 全部 8 个 `require()` 改为 `import`、`module.exports` 改为 `export default`，消除 CJS/ESM 不兼容（与项目 `type:module` 统一）。核验发现 `@opentelemetry/*` 7 个依赖从未安装、Jaeger/Prometheus 基础设施未部署，直接集成会导致 server.js 启动崩溃，故 server.js 集成（C2）deferred。技术债 TD-P2-16（OTel 完整集成：依赖安装 + 基础设施部署 + `--import` 启动方式）登记。详见 [FIX_P1-12_telemetryCommonJS.md](../fix/P1/FIX_P1-12_telemetryCommonJS.md)。
 
+> **P1-13 闭环（2026-06-30）**：`backend/server.js` `parseAllowedOrigins()` fallback 列表移除硬编码生产 IP `159.75.106.179:8082`（保留 localhost 开发地址）；`.env.example` `CORS_ORIGIN` 补充生产 IP 示例。核验发现 `deploy/pm2/ecosystem.config.cjs` 硬编码 `CORS_ORIGIN: 'http://159.75.106.179:8081'`（端口 8081 与实际 8082 不一致）、`deploy/nginx` 配置硬编码生产 IP、`.env` 同时定义 `CORS_ORIGIN`（单数，已用）和 `CORS_ORIGINS`（复数，未用）。技术债 TD-P2-17（部署配置 IP 硬编码 + 无效 CORS_ORIGINS 复数配置清理）登记。详见 [FIX_P1-13_corsOrigin.md](../fix/P1/FIX_P1-13_corsOrigin.md)。
+
 ### 总体进度
 
 | 类别 | 总数 | ✅ 已完成 | ⬜ 待处理 | 完成率 |
 |------|------|----------|----------|--------|
 | P0（安全/高危） | 10 | 10 | 0 | 100% |
-| 🟡 P1 重要 | 26 | 12 | 14 | 46.2% |
+| 🟡 P1 重要 | 26 | 13 | 13 | 50.0% |
 | 🟢 P2 优化 | 22 | 0 | 22 | 0% |
 | 📄 DOCS 文档 | 4 | 0 | 4 | 0% |
-| **合计** | **62** | **22** | **40** | **35.5%** |
+| **合计** | **62** | **23** | **39** | **37.1%** |
 
 ### P0 高危问题修复状态（10 项）
 
