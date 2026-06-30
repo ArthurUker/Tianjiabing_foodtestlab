@@ -1,6 +1,6 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§3 修复执行进度看板
-> **最后更新**：v0.13（2026-06-30）｜对应 FIX_PLAN 版本：v1.12
+> **最后更新**：v0.15（2026-06-30）｜对应 FIX_PLAN 版本：v1.12
 
 ---
 
@@ -8,6 +8,8 @@
 
 > **说明**：本章节记录基于 `docs/fix/FIX_PLAN.md` 的修复执行状态，由 Monica 在每批修复完成后同步更新。
 > 最后同步时间：**2026-06-30**｜对应 FIX_PLAN 版本：**v1.12**
+
+> **补丁登记（2026-06-30）**：P0-09b 闭环——3 条 POST 创建类写入路由补挂 `requireEditorOrAbove`，7 条写路由权限全覆盖。P0-09b 为 P0-09 补丁子项，P0 总数仍计 10 项，不破坏 62 题基线。详见 [FIX_P0-09b_postWriteGuard.md](../fix/P0/FIX_P0-09b_postWriteGuard.md)。
 
 ### 总体进度
 

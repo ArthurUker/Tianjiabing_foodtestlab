@@ -48,6 +48,18 @@
 - [x] 访客令牌调用 PUT /api/records/:tableName/:id 应返回 403
 - [ ] 正式账号写操作未被误拦
 
-## 6. 备注
+## 6. 写操作语义区分（2026-06-30 补记）
+
+原 P0-09 规格"4 条写路由"实指 **PUT/DELETE** 4 条（更新/删除类写入）。POST 创建类写入（3 条）的权限缺口在原规格中未被识别，由 **P0-09b** 补齐。
+
+| 写操作语义 | 方法 | 路由数 | 覆盖项 |
+|-----------|:----:|:----:|------|
+| 创建 | POST | 3 | P0-09b（`/api/test-records`、`/api/records/:tableName`、`/api/records/:tableName/bulk-upsert`） |
+| 更新 | PUT | 2 | P0-09（`/api/records/:tableName/:id`、`/api/test-records/:id`） |
+| 删除 | DELETE | 2 | P0-09（`/api/records/:tableName/:id`、`/api/test-records/:id`） |
+
+详见 [FIX_P0-09b_postWriteGuard.md](./FIX_P0-09b_postWriteGuard.md)。
+
+## 7. 备注
 
 实现与 FIX_PLAN 原始规格（仅允许 admin/editor）的宽松差异需在 P1 阶段复核确认是否为预期设计。
