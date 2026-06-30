@@ -1,6 +1,6 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§4 文档变更记录 + 附录
-> **最后更新**：v0.18（2026-06-30）
+> **最后更新**：v0.19（2026-06-30）
 
 ---
 
@@ -34,3 +34,8 @@
 - fix(P1-08): schema.prisma L67 onDelete Cascade→Restrict（76e86ae）
 - UserManager.deleteUser() 添加前置 testRecord.count 检查
 - 技术债 TD-P2-11（软删除）、TD-P2-12（AuditLog合规）已登记
+
+## v0.19 — P1-09 闭环
+- fix(P1-09): 登记三套审计日志机制并存技术债TD-P2-13（cad5b7d）
+- 核验确认 3 套机制（后端DB登录日志/后端DB API通用操作/前端localStorage离线日志），无同表重复写入，采用 C3 路径仅登记
+- 技术债 TD-P2-13：统一审计日志接口设计已登记

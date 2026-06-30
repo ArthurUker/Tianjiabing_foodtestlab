@@ -1,6 +1,6 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§3 修复执行进度看板
-> **最后更新**：v0.18（2026-06-30）｜对应 FIX_PLAN 版本：v1.12
+> **最后更新**：v0.19（2026-06-30）｜对应 FIX_PLAN 版本：v1.12
 
 ---
 
@@ -17,15 +17,17 @@
 
 > **P1-08 闭环（2026-06-30）**：`schema.prisma` L67 `TestRecord.created_user` 的 `onDelete: Cascade` 改为 `Restrict`，防止删用户时级联删除检测记录；`UserManager.deleteUser()` 添加前置 `testRecord.count` 检查，存在记录时抛出业务错误。技术债 TD-P2-11（软删除）、TD-P2-12（AuditLog 合规）登记。详见 [FIX_P1-08_cascadeDeleteRisk.md](../fix/P1/FIX_P1-08_cascadeDeleteRisk.md)。
 
+> **P1-09 闭环（2026-06-30）**：核验确认存在 3 套审计日志机制（后端 DB 登录日志 / 后端 DB API 通用操作 / 前端 localStorage 离线日志），无同表重复写入，采用 C3 路径仅在 `server.js` 顶部登记技术债注释。技术债 TD-P2-13（统一审计接口设计）登记。详见 [FIX_P1-09_duplicateAuditLog.md](../fix/P1/FIX_P1-09_duplicateAuditLog.md)。
+
 ### 总体进度
 
 | 类别 | 总数 | ✅ 已完成 | ⬜ 待处理 | 完成率 |
 |------|------|----------|----------|--------|
 | P0（安全/高危） | 10 | 10 | 0 | 100% |
-| 🟡 P1 重要 | 26 | 8 | 18 | 30.8% |
+| 🟡 P1 重要 | 26 | 9 | 17 | 34.6% |
 | 🟢 P2 优化 | 22 | 0 | 22 | 0% |
 | 📄 DOCS 文档 | 4 | 0 | 4 | 0% |
-| **合计** | **62** | **18** | **44** | **29.0%** |
+| **合计** | **62** | **19** | **43** | **30.6%** |
 
 ### P0 高危问题修复状态（10 项）
 
