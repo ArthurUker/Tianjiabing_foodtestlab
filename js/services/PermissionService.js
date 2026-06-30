@@ -9,6 +9,8 @@ export class PermissionService {
     constructor() {
         this.permissionCache = new Map();
         this.rolePermissionMap = this.initRolePermissions();
+        // P1-10: 权限缓存 TTL（5 分钟），防止权限变更后缓存永不失效
+        this.PERMISSION_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
     }
 
     /**
@@ -93,9 +95,13 @@ export class PermissionService {
             return [];
         }
 
-        // 检查缓存
+        // 检查缓存（P1-10: 增加 TTL 过期检查，过期则清除并回源）
         if (this.permissionCache.has(user.id)) {
-            return this.permissionCache.get(user.id);
+            const cached = this.permissionCache.get(user.id);
+            if (cached && (Date.now() - cached.cachedAt) < this.PERMISSION_CACHE_TTL) {
+                return cached.permissions;
+            }
+            this.permissionCache.delete(user.id); // 过期则清除
         }
 
         // 获取用户权限
@@ -104,12 +110,13 @@ export class PermissionService {
         // 如果用户有自定义权限，合并处理
         if (user.permissions && Array.isArray(user.permissions)) {
             const combinedPermissions = [...new Set([...permissions, ...user.permissions])];
-            this.permissionCache.set(user.id, combinedPermissions);
+            // P1-10: 缓存写入时记录时间戳
+            this.permissionCache.set(user.id, { permissions: combinedPermissions, cachedAt: Date.now() });
             return combinedPermissions;
         }
 
-        // 缓存权限
-        this.permissionCache.set(user.id, permissions);
+        // 缓存权限（P1-10: 记录时间戳）
+        this.permissionCache.set(user.id, { permissions: permissions, cachedAt: Date.now() });
         return permissions;
     }
 
