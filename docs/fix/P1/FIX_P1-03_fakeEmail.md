@@ -7,46 +7,38 @@
 | **影响文件** | `backend/modules/UserManager.js` |
 | **预估工时** | 0.5h |
 | **关联问题** | - |
-| **状态** | ⬜ 待处理 |
-| **完成日期** | - |
+| **状态** | ✅ 已完成 |
+| **完成日期** | 2026-06-29 |
 
 ---
 
 ## 1. 问题描述
 
-<!-- 详细描述问题的现象、触发条件、影响范围 -->
-
-> 待填写。
+`registerUser()` 注册时自动生成 `@foodlab.local` 虚假邮箱，污染用户数据。
 
 ## 2. 根因分析
 
-<!-- 分析问题产生的根本原因，定位到具体代码行 -->
-
-> 待填写。
+`UserManager.registerUser()` 中 email 字段使用 `${username}@foodlab.local` 拼接生成。
 
 ## 3. 修复方案
 
-### 方案 A（推荐）
+### 方案 A（已实施）
 
-```diff
-// 待填写
-```
+`registerUser()` 中 email 字段改为 `null`，移除 `@foodlab.local` 自动生成逻辑。
 
-### 方案 B（备选）
-
-> 暂无备选方案。
+- 修改文件：`backend/modules/UserManager.js`
+- 修改位置：`registerUser()` 第 68 行 `email: null`
 
 ## 4. 验收标准
 
-- [ ] 验收条件 1
-- [ ] 验收条件 2
-- [ ] 验收条件 3
+- [x] `registerUser()` 中 `email: null`
+- [x] `UserManager.js` 中无 `foodlab.local` 自动生成逻辑（grep 返回 0 匹配）
 
 ## 5. 回归测试要点
 
-- [ ] 测试点 1
-- [ ] 测试点 2
+- [x] 新注册用户 email 字段为 null
+- [ ] 前端用户列表显示不因 email 为 null 报错
 
 ## 6. 备注
 
-> 无。
+`seed.js` 和 `backend/sql/03_set_admin_password.sql` 中仍有 `foodlab.local` 引用，属于种子数据/初始化脚本，不在注册逻辑中，不影响本修复。

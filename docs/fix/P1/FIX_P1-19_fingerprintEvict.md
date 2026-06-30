@@ -7,46 +7,41 @@
 | **影响文件** | `js/core/AdaptiveUploadQueue.js` |
 | **预估工时** | 1h |
 | **关联问题** | - |
-| **状态** | ⬜ 待处理 |
-| **完成日期** | - |
+| **状态** | ✅ 已完成 |
+| **完成日期** | 2026-06-29 |
 
 ---
 
 ## 1. 问题描述
 
-<!-- 详细描述问题的现象、触发条件、影响范围 -->
-
-> 待填写。
+指纹缓存原使用 FIFO 固定上限淘汰策略，高频场景下可能因缓存被淘汰导致重复上传。
 
 ## 2. 根因分析
 
-<!-- 分析问题产生的根本原因，定位到具体代码行 -->
-
-> 待填写。
+`AdaptiveUploadQueue._markCompleted()` 在达到 `maxFingerprintCache` 时使用 shift-based FIFO 淘汰最早记录，未考虑 TTL。
 
 ## 3. 修复方案
 
-### 方案 A（推荐）
+### 方案 A（已实施）
 
-```diff
-// 待填写
-```
+新增 `_cleanupExpiredFingerprints()` 方法（第 257–263 行），遍历 Map 逐项按 TTL 过期删除；`_markCompleted()` 调用 TTL 清理替代 FIFO 淘汰。
 
-### 方案 B（备选）
-
-> 暂无备选方案。
+- 修改文件：`js/core/AdaptiveUploadQueue.js`
+- 修改位置：
+  - `_cleanupExpiredFingerprints()`（第 257–263 行）
+  - `_markCompleted()`（第 265–269 行，注释标注 "P1-19: 使用 TTL 批量过期清理，替代固定上限 FIFO 淘汰"）
 
 ## 4. 验收标准
 
-- [ ] 验收条件 1
-- [ ] 验收条件 2
-- [ ] 验收条件 3
+- [x] `_cleanupExpiredFingerprints()` 存在并遍历 Map 逐项过期删除
+- [x] 代码中无 shift-based eviction 逻辑
+- [x] `_markCompleted()` 调用 TTL 清理
 
 ## 5. 回归测试要点
 
-- [ ] 测试点 1
-- [ ] 测试点 2
+- [x] 确认 FIFO 淘汰已移除
+- [ ] 高频上传场景下指纹缓存按 TTL 自动清理
 
 ## 6. 备注
 
-> 无。
+`_maxFingerprintCache` 配置项保留但不再用于 FIFO 淘汰，可在后续清理中移除。
