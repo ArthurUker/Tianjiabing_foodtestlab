@@ -1,16 +1,22 @@
 /**
+ * P1-12: telemetry.js 已改为 ESM（与项目 type:module 统一）
+ * 注意：@opentelemetry/* 依赖尚未安装，此文件当前不可执行。
+ * 集成到主进程（server.js）待 TD-P2-16 完成后实施。
+ * 正确集成方式：node --import ./config/telemetry.js server.js
+ *
  * OpenTelemetry 配置
  * 用于应用的可观测性和性能监控
  */
 
-const { NodeSDK } = require('@opentelemetry/sdk-node');
-const { getNodeAutoInstrumentations } = require('@opentelemetry/auto-instrumentations-node');
-const { PeriodicExportingMetricReader } = require('@opentelemetry/sdk-metrics');
-const { PrometheusExporter } = require('@opentelemetry/exporter-prometheus');
-const { BatchSpanProcessor } = require('@opentelemetry/sdk-trace-node');
-const { JaegerExporter } = require('@opentelemetry/exporter-trace-jaeger');
-const { Resource } = require('@opentelemetry/resources');
-const { SemanticResourceAttributes } = require('@opentelemetry/semantic-conventions');
+// P1-12: 改为 ESM，与项目 type:module 统一（依赖未安装，集成 deferred，见 TD-P2-16）
+import { NodeSDK } from '@opentelemetry/sdk-node';
+import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
+import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
+import { PrometheusExporter } from '@opentelemetry/exporter-prometheus';
+import { BatchSpanProcessor } from '@opentelemetry/sdk-trace-node';
+import { JaegerExporter } from '@opentelemetry/exporter-trace-jaeger';
+import { Resource } from '@opentelemetry/resources';
+import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions';
 
 // 配置资源信息
 const resource = Resource.default().merge(
@@ -82,4 +88,4 @@ process.on('SIGTERM', () => {
     });
 });
 
-module.exports = sdk;
+export default sdk;
