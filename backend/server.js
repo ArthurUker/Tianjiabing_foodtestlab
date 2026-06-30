@@ -334,7 +334,7 @@ app.use('/api/sync', syncRoutes)
 // ====== Test Records API ======
 
 // 创建测试记录
-app.post('/api/test-records', authenticateUser, async (req, res) => {
+app.post('/api/test-records', authenticateUser, requireEditorOrAbove, async (req, res) => {
     try {
         const { test_type, test_name, sample_info, result_data } = req.body
 
@@ -437,7 +437,7 @@ app.get('/api/records/:tableName', authenticateUser, async (req, res) => {
     }
 })
 
-app.post('/api/records/:tableName', authenticateUser, async (req, res) => {
+app.post('/api/records/:tableName', authenticateUser, requireEditorOrAbove, async (req, res) => {
     try {
         const testType = normalizeRecordType(req.params.tableName)
         if (!testType) {
@@ -505,7 +505,7 @@ app.post('/api/records/:tableName', authenticateUser, async (req, res) => {
     }
 })
 
-app.post('/api/records/:tableName/bulk-upsert', authenticateUser, async (req, res) => {
+app.post('/api/records/:tableName/bulk-upsert', authenticateUser, requireEditorOrAbove, async (req, res) => {
     try {
         const testType = normalizeRecordType(req.params.tableName)
         if (!testType) {
