@@ -401,6 +401,14 @@ export class UserManager {
 
     async deleteUser(userId) {
         try {
+            // P1-08: 删除前检查是否存在关联 TestRecord
+            const recordCount = await this.prisma.testRecord.count({
+              where: { created_by: userId }
+            });
+            if (recordCount > 0) {
+              throw new Error(`无法删除用户：该用户存在 ${recordCount} 条检测记录，请先转移或归档记录后再删除`);
+            }
+
             await this.prisma.user.delete({
                 where: { id: userId }
             })

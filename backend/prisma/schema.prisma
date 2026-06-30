@@ -64,7 +64,7 @@ model TestRecord {
   version       Int      @default(0)
   completed_at  DateTime?
 
-  created_user  User     @relation(fields: [created_by], references: [id], onDelete: Cascade)
+  created_user  User     @relation(fields: [created_by], references: [id], onDelete: Restrict) // P1-08: 改为 Restrict，防止删用户时级联删除检测记录
   test_items    TestItem[]
   attachments   Attachment[]
 
@@ -119,7 +119,7 @@ model Guest {
   created_at    DateTime @default(now())
   updated_at    DateTime @updatedAt
 
-  created_user  User     @relation(fields: [created_by], references: [id], onDelete: Cascade)
+  created_user  User     @relation(fields: [created_by], references: [id], onDelete: Restrict) // P1-08: 改为 Restrict，防止删用户时级联删除检测记录
 
   @@index([created_by])
 }
