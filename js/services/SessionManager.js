@@ -9,6 +9,13 @@ import { UINotification } from '../utils/UINotification.js';
 export class SessionManager {
     constructor() {
         this.moduleName = '会话管理';
+        // P1-11: 会话存储为内存数组（运行时），已有 TTL 与最大会话数限制，无需额外修改。
+        //   - 会话超时：sessionTimeout = 30 分钟无活动自动登出（见 checkSessionExpiry）
+        //   - 最大并发：maxConcurrentSessions = 5（见 enforceMaxSessions）
+        //   - 后端认证为 JWT 无状态（UserManager.verifyToken），重启不丢失登录态
+        //   - syncToBackend / syncSessions 为 TODO 占位，后端 session API 未实现
+        //   - 遗留：inactive 会话不从数组移除（removeSession 仅改 status），长期运行可能内存增长 → TD-P2-15 评估
+        //   - getClientIP() 返回模拟 127.0.0.1（见下方注释），非配置硬编码
         this.sessions = [];
         this.maxConcurrentSessions = 5; // 最多允许同时活跃会话数
         this.sessionTimeout = 30 * 60 * 1000; // 30 分钟无活动自动登出
@@ -89,7 +96,9 @@ export class SessionManager {
      * 获取客户端 IP (模拟)
      */
     getClientIP() {
-        // 实际应从后端获取真实 IP
+        // P1-11: 127.0.0.1 为模拟占位值，非配置硬编码 IP。
+        //   实际应从后端获取真实 IP（后端 session API 待实现，见 syncToBackend TODO）。
+        //   后端 CORS allowedOrigins 与前端 AuthService LOCAL_API_URL 已通过环境变量/全局变量管理（见 FIX_P1-11 文档）。
         return '127.0.0.1';
     }
 
