@@ -11,10 +11,6 @@ export class Router {
     constructor() {
         this.currentPage = null;
         this.isInitialized = false;
-        
-        // 🎯 暴露自己到全局作用域（用于调试和事件处理）
-        window.router = this;
-        console.log('✅ Router 已暴露到 window.router');
     }
 
     /**
@@ -434,10 +430,6 @@ export class Router {
      * 初始化所有路由相关功能
      */
     setupAll() {
-        // 🎯 暴露自己到全局作用域
-        window.router = this;
-        console.log('✅ setupAll() - window.router 已暴露');
-        
         // 设置登出按钮
         this.setupLogoutButton();
 
@@ -465,9 +457,3 @@ export class Router {
 
 // 导出单例
 export const router = new Router();
-
-// 🎯 立即暴露到全局作用域
-if (typeof window !== 'undefined') {
-    window.router = router;
-    console.log('✅ Router.js - window.router 已立即暴露');
-}

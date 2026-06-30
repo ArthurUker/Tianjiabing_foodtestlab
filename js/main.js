@@ -154,11 +154,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.log('🔧 Router 初始化中...');
         await router.init();
         router.setupAll();
-        
-        // 🎯 暴露 router 到全局作用域（用于调试和登出功能）
-        window.router = router;
-        console.log('✅ Router 初始化完成, window.router 已暴露');
-        
+
         // 1. UI 初始化 (它会自动处理侧边栏点击切换)
         console.log('🔧 UIHelper.setupNavigation 调用中...');
         
