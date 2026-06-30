@@ -3,9 +3,16 @@
 
 const store = new Map();
 const TTL = 24 * 60 * 60 * 1000; // 24 hours
+const CLEANUP_INTERVAL = 5 * 60 * 1000; // 5 minutes
+let lastCleanupAt = 0;
 
 function cleanup() {
   const now = Date.now();
+  if (now - lastCleanupAt < CLEANUP_INTERVAL) {
+    return;
+  }
+
+  lastCleanupAt = now;
   for (const [k, v] of store.entries()) {
     if (now - v.timestamp > TTL) store.delete(k);
   }

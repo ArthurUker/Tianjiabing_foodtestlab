@@ -170,18 +170,18 @@ export class AuthService {
      */
     async refreshToken() {
         try {
-            const refreshToken = this.getRefreshToken();
-            
-            if (!refreshToken) {
-                throw new Error('没有可用的刷新 Token');
+            const currentToken = this.getToken();
+
+            if (!currentToken) {
+                throw new Error('没有可用的访问令牌');
             }
 
-            const response = await fetch(`${this.apiBaseUrl}/api/auth/refresh`, {
+            const response = await fetch(`${this.apiBaseUrl}/api/user/refresh-token`, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ refreshToken })
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${currentToken}`
+                }
             });
 
             const data = await response.json();
@@ -489,7 +489,7 @@ export class AuthService {
 }
 
 // 自动检测 API 基础 URL
-const LOCAL_API_URL = 'http://localhost:3001';
+const LOCAL_API_URL = 'http://localhost:3002';
 
 export function getApiBaseUrl() {
     // 允许通过全局变量覆盖，便于灰度或特殊环境调试。

@@ -14,6 +14,26 @@ export class UserManager {
 
     // ====== User Registration ======
 
+    isStrongPassword(password) {
+        if (!password) {
+            return false
+        }
+        return /^(?=.*[A-Za-z])(?=.*\d).{8,}$/.test(password)
+    }
+
+    buildAccessToken(user) {
+        return jwt.sign(
+            {
+                userId: user.id,
+                username: user.username,
+                email: user.email,
+                role: user.role
+            },
+            this.jwtSecret,
+            { expiresIn: '7d' }
+        )
+    }
+
     async registerUser(username, phone, password, fullName) {
         try {
             // 1. 验证输入
@@ -42,11 +62,10 @@ export class UserManager {
             const passwordHash = await bcryptjs.hash(password, 10)
 
             // 5. 创建用户
-            const autoEmail = `${username}@foodlab.local`
             const newUser = await this.prisma.user.create({
                 data: {
                     username,
-                    email: autoEmail,
+                    email: null,
                     phone: phone || null,
                     password_hash: passwordHash,
                     full_name: fullName,
@@ -102,16 +121,7 @@ export class UserManager {
             }
 
             // 4. 生成JWT Token
-            const token = jwt.sign(
-                {
-                    userId: user.id,
-                    username: user.username,
-                    email: user.email,
-                    role: user.role
-                },
-                this.jwtSecret,
-                { expiresIn: '7d' }
-            )
+            const token = this.buildAccessToken(user)
 
             // 5. 更新最后登录时间
             await this.updateLastLogin(user.id)
@@ -160,8 +170,8 @@ export class UserManager {
             }
 
             // 3. 验证新密码
-            if (newPassword.length < 6) {
-                throw new Error('新密码至少6个字符')
+            if (!this.isStrongPassword(newPassword)) {
+                throw new Error('新密码至少8个字符，且必须包含字母和数字')
             }
 
             // 4. 加密新密码
@@ -191,8 +201,8 @@ export class UserManager {
     async resetPassword(userId, newPassword) {
         try {
             // 验证新密码
-            if (newPassword.length < 6) {
-                throw new Error('密码至少6个字符')
+            if (!this.isStrongPassword(newPassword)) {
+                throw new Error('密码至少8个字符，且必须包含字母和数字')
             }
 
             // 加密新密码
@@ -494,8 +504,8 @@ export class UserManager {
             errors.push('手机号格式无效（请输入11位手机号）')
         }
 
-        if (!password || password.length < 6) {
-            errors.push('密码至少6个字符')
+        if (!this.isStrongPassword(password)) {
+            errors.push('密码至少8个字符，且必须包含字母和数字')
         }
 
         if (!fullName || fullName.trim() === '') {

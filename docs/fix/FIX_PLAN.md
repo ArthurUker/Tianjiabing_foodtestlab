@@ -3,7 +3,7 @@
 **文档路径**：`docs/fix/FIX_PLAN.md`
 **基于审阅版本**：REVIEW_GUIDE.md **v0.10**
 **计划制定日期**：2026-06-22
-**文档版本**：**v1.9**（2026-06-24 更新；P0 完成率 90%）
+**文档版本**：**v1.11**（2026-06-29 更新；完成 P1-03/P1-19 节点）
 
 > 本文件为修复工作的**总索引和进度看板**。
 > 每个问题的详细描述、修复代码、验收标准见对应子文件。
@@ -40,6 +40,8 @@
 | v1.6 | 2026-06-23 | Code Buddy / Monica | P0-06 修复完成（record_code 统一为 buildDeterministicRecordCode，schema.prisma 添加 @unique 约束）；P0-08 修复完成（移除 temp-token- 前缀判断）；P0-10 修复完成（根目录 package.json start 脚本修正，添加 type:module）；状态更新为 ✅ |
 | v1.7 | 2026-06-23 | Monica | 同步 REVIEW_GUIDE 至 v0.10；基于审阅版本字段更新；P0 完成率更新为 80%（8/10） |
 | v1.8 | 2026-06-24 | Copilot | P0-07 修复完成（后端新增 /api/guest/quick-access 接口签发真实 JWT，GuestAuthService.quickAccessAsViewer 改为 async，Router.js 移除客户端快速访问旁路，login.html / main.js 调用点改为 await）；P0 完成率更新为 90%（9/10） |
+| v1.10 | 2026-06-29 | Copilot | 完成 P1-02（幂等中间件 cleanup 节流）、P1-04（密码强度提升为至少8位且包含字母+数字）、P1-05（新增 `/api/user/refresh-token` 并对齐前端刷新路径）；P1 完成率更新为 11.5%（3/26） |
+| v1.11 | 2026-06-29 | Copilot | 完成 P1-03（注册逻辑移除自动虚假邮箱，改为 `email: null`）与 P1-19（AdaptiveUploadQueue 指纹缓存改为 TTL 批量过期清理，移除 FIFO 淘汰策略）；P1 完成率更新为 19.2%（5/26） |
 
 ---
 
@@ -174,10 +176,10 @@ git push origin ZhuHaiYiZhong
 | ID | 问题描述 | 预估工时 | 状态 | 完成日期 |
 |----|---------|---------|------|---------|
 | `P1-01` | auditRoutes.js 路由注册顺序冲突 | 0.5h | ⬜ 待处理 | - |
-| `P1-02` | 幂等性中间件使用内存存储，PM2重启后全部失效 | 2h | ⬜ 待处理 | - |
-| `P1-03` | UserManager 注册时自动生成虚假 email | 0.5h | ⬜ 待处理 | - |
-| `P1-04` | 密码强度校验过弱（仅要求 length >= 6） | 1h | ⬜ 待处理 | - |
-| `P1-05` | AuthService.refreshToken() 调用后端不存在的接口 | 2h | ⬜ 待处理 | - |
+| `P1-02` | 幂等性中间件使用内存存储，PM2重启后全部失效 | 2h | ✅ 已完成（短期节流方案） | 2026-06-29 |
+| `P1-03` | UserManager 注册时自动生成虚假 email | 0.5h | ✅ 已完成 | 2026-06-29 |
+| `P1-04` | 密码强度校验过弱（仅要求 length >= 6） | 1h | ✅ 已完成 | 2026-06-29 |
+| `P1-05` | AuthService.refreshToken() 调用后端不存在的接口 | 2h | ✅ 已完成 | 2026-06-29 |
 | `P1-06` | 前端权限控制完全依赖 CSS hidden，可被 DevTools 绕过 | 3h | ⬜ 待处理 | - |
 | `P1-07` | Router.js 将自身暴露到 window.router 全局作用域 | 0.5h | ⬜ 待处理 | - |
 | `P1-08` | TestRecord 的 onDelete:Cascade 可能导致数据意外丢失 | 1h | ⬜ 待处理 | - |
@@ -191,7 +193,7 @@ git push origin ZhuHaiYiZhong
 | `P1-16` | BackupRestore.js 备份恢复依赖无效的 syncRoutes | 2h | ⬜ 待处理 | - |
 | `P1-17` | UserManagement 删除操作无二次确认且无后端权限校验 | 1h | ⬜ 待处理 | - |
 | `P1-18` | 访客可访问病原体检测模块，与权限矩阵矛盾 | 0.5h | ⬜ 待处理 | - |
-| `P1-19` | AdaptiveUploadQueue 指纹缓存淘汰策略为 FIFO，高频场景下可能重复上传 | 1h | ⬜ 待处理 | - |
+| `P1-19` | AdaptiveUploadQueue 指纹缓存淘汰策略为 FIFO，高频场景下可能重复上传 | 1h | ✅ 已完成（TTL 清理方案） | 2026-06-29 |
 | `P1-20` | Dashboard.js 全局函数挂载 + 5个StorageService实例 | 2h | ⬜ 待处理 | - |
 | `P1-21` | Auth.js 与 AuthService.js 类名完全相同导致混淆 | 1h | ⬜ 待处理 | - |
 | `P1-22` | SampleDataGenerator 示例数据 ID 格式与 StorageService 不兼容 | 1h | ⬜ 待处理 | - |

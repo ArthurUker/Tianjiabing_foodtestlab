@@ -254,21 +254,25 @@ export class AdaptiveUploadQueue {
     return `${collection}-${recordId || 'new'}-${Date.now()}-${Math.random().toString(36).slice(2,7)}`;
   }
 
-  _markCompleted(fingerprint) {
-    if (this._completedFingerprints.size >= this._maxFingerprintCache) {
-      const oldestKey = this._completedFingerprints.keys().next().value;
-      this._completedFingerprints.delete(oldestKey);
+  _cleanupExpiredFingerprints(now = Date.now()) {
+    for (const [fp, ts] of this._completedFingerprints.entries()) {
+      if (now - ts > this._fingerprintTTL) {
+        this._completedFingerprints.delete(fp);
+      }
     }
-    this._completedFingerprints.set(fingerprint, Date.now());
+  }
+
+  _markCompleted(fingerprint) {
+    const now = Date.now();
+    // P1-19: 使用 TTL 批量过期清理，替代固定上限 FIFO 淘汰。
+    this._cleanupExpiredFingerprints(now);
+    this._completedFingerprints.set(fingerprint, now);
   }
 
   _isRecentlyCompleted(fingerprint) {
+    this._cleanupExpiredFingerprints();
     const ts = this._completedFingerprints.get(fingerprint);
     if (!ts) return false;
-    if (Date.now() - ts > this._fingerprintTTL) {
-      this._completedFingerprints.delete(fingerprint);
-      return false;
-    }
     return true;
   }
 

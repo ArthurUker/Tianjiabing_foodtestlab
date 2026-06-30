@@ -70,6 +70,33 @@ export function createUserRoutes(userManager) {
         })
     })
 
+    // 刷新访问令牌（沿用现有访问令牌进行续期）
+    router.post('/refresh-token', authenticateUser, async (req, res) => {
+        try {
+            const profileResult = await userManager.getUserProfile(req.user.userId)
+            const dbUser = profileResult?.data
+
+            if (!dbUser || dbUser.status !== 'active') {
+                return res.status(401).json({ error: '❌ 用户状态无效，无法刷新令牌' })
+            }
+
+            const token = userManager.buildAccessToken({
+                id: dbUser.id,
+                username: dbUser.username,
+                email: dbUser.email,
+                role: dbUser.role
+            })
+
+            res.json({
+                success: true,
+                token,
+                expiresIn: 7 * 24 * 3600
+            })
+        } catch (error) {
+            res.status(401).json({ error: `❌ 令牌刷新失败: ${error.message}` })
+        }
+    })
+
     // ====== Protected Routes ======
 
     // 获取当前用户信息
@@ -105,8 +132,8 @@ export function createUserRoutes(userManager) {
                 return res.status(400).json({ error: '❌ 缺少密码信息' })
             }
 
-            if (newPassword.length < 6) {
-                return res.status(400).json({ error: '❌ 新密码至少6个字符' })
+            if (!userManager.isStrongPassword(newPassword)) {
+                return res.status(400).json({ error: '❌ 新密码至少8个字符，且必须包含字母和数字' })
             }
 
             const result = await userManager.changePassword(
@@ -174,8 +201,8 @@ export function createUserRoutes(userManager) {
         try {
             const { newPassword } = req.body
 
-            if (!newPassword || newPassword.length < 6) {
-                return res.status(400).json({ error: '❌ 新密码至少6个字符' })
+            if (!userManager.isStrongPassword(newPassword)) {
+                return res.status(400).json({ error: '❌ 新密码至少8个字符，且必须包含字母和数字' })
             }
 
             const result = await userManager.resetPassword(req.params.userId, newPassword)
@@ -190,8 +217,8 @@ export function createUserRoutes(userManager) {
         try {
             const { newPassword } = req.body
 
-            if (!newPassword || newPassword.length < 6) {
-                return res.status(400).json({ error: '❌ 新密码至少6个字符' })
+            if (!userManager.isStrongPassword(newPassword)) {
+                return res.status(400).json({ error: '❌ 新密码至少8个字符，且必须包含字母和数字' })
             }
 
             const result = await userManager.resetPassword(req.params.userId, newPassword)

@@ -12,17 +12,13 @@ export class ConfigManager {
         this.initialized = false
     }
 
-    /**
-        refreshUrl: '/api/auth/refresh',
-     */
     registerDefaults(defaults) {
         this.defaults = {
             ...this.defaults,
-    // 数据源占位：迁移到腾讯云后，前端只应通过后端 API 访问数据
-    dataSource: {
-        baseUrl: '/api',
-        mode: 'backend-proxy'
-    },
+            ...defaults
+        }
+        return this
+    }
 
     /**
      * 设置环境特定配置
@@ -219,7 +215,7 @@ export const DEFAULT_CONFIG = {
 
     // API
     api: {
-        baseUrl: 'http://localhost:3001',
+        baseUrl: 'http://localhost:3002',
         timeout: 30000,
         retryAttempts: 3,
         retryDelay: 1000
@@ -228,7 +224,7 @@ export const DEFAULT_CONFIG = {
     // 认证
     auth: {
         tokenKey: 'auth_token',
-        refreshUrl: '/api/auth/refresh',
+        refreshUrl: '/api/user/refresh-token',
         tokenRefreshInterval: 10 * 60 * 1000 // 10分钟
     },
 
@@ -271,7 +267,7 @@ export const ENVIRONMENT_CONFIG = {
         debug: true,
         logLevel: 'debug',
         api: {
-            baseUrl: 'http://localhost:3001',
+            baseUrl: 'http://localhost:3002',
             timeout: 60000
         },
         features: {
