@@ -1,6 +1,6 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§4 文档变更记录 + 附录
-> **最后更新**：v0.33（2026-07-01）
+> **最后更新**：v0.34（2026-07-01）
 
 ---
 
@@ -126,3 +126,10 @@
 - 核验发现 `fieldValidators`/`validateField` 全后端无路由调用方，实为死代码，本次仅补齐规则集，零行为影响；`dateNotFuture` 在前端被活跃使用（GenericTest.js:965、Tableware.js:650 的 testDate schema）
 - 未采用"统一校验规则配置文件前后端共享"方案（前端原生 JS 无构建步骤，共享模块引入成本高，超出最小改动原则）
 - 技术债 TD-P2-27：`validateField` 中间件接入具体写入路由（POST /api/records/:tableName、POST /api/test-records）以实际生效字段格式校验 + 前端参数化规则 `minLength`/`maxLength` 后端结构支持，已登记
+
+## v0.34 — P1-24 闭环
+- fix(P1-24): AdaptiveUploadQueue._doRequest() URL 改用 getBaseUrl 回调跟随 apiBaseUrl（2a229a3）
+- `js/core/AdaptiveUploadQueue.js` 构造函数新增 `getBaseUrl` 回调选项（默认返回 `/api/records`），`_doRequest()` 四类 URL 前缀由硬编码 `/api/records/` 改为 `${this._getBaseUrl()}/`
+- `js/core/Storage.js` 实例化 `AdaptiveUploadQueue` 时传入 `getBaseUrl: () => this.apiBaseUrl`，使上传队列请求跟随 `StorageService.apiBaseUrl` 配置
+- 默认配置下拼接结果与原硬编码完全一致，行为零变化；唯一消费方为 `Storage.js`，无遗漏调用方
+- 技术债 TD-P2-28：`AdaptiveUploadQueue._fetchLatest()`（409 冲突恢复路径）同样硬编码 `/api/records/`，本次仅按 RG_03b 明确范围修复 `_doRequest()`，`_fetchLatest()` 后续一并迁移，已登记

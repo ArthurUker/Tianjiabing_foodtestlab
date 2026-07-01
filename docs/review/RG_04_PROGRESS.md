@@ -1,6 +1,6 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§3 修复执行进度看板
-> **最后更新**：v0.33（2026-07-01）｜对应 FIX_PLAN 版本：v1.12
+> **最后更新**：v0.34（2026-07-01）｜对应 FIX_PLAN 版本：v1.12
 
 ---
 
@@ -47,15 +47,17 @@
 
 > **P1-23 闭环（2026-07-01）**：`backend/middleware/validationMiddleware.js` 的 `fieldValidators` 对象补充 `dateNotFuture` 与 `idCard` 两条验证器（`date` 之后），正则与前端 `FormValidator` 完全对齐，使后端规则集达到前端超集要求。核验发现 `fieldValidators`/`validateField` 全后端无路由调用方（`server.js:18` 仅导入 `createValidationMiddleware, rateLimit, sanitizeText`），实为死代码，本次仅补齐规则集，零行为影响。`dateNotFuture` 在前端被活跃使用（GenericTest.js:965、Tableware.js:650 的 testDate schema）。未采用"统一校验规则配置文件共享"方案（前端原生 JS 无构建步骤，共享模块引入成本高）。技术债 TD-P2-27（`validateField` 接入具体写入路由 + 参数化规则 `minLength`/`maxLength` 结构支持）登记。详见 [FIX_P1-23_validatorSync.md](../fix/P1/FIX_P1-23_validatorSync.md)。
 
+> **P1-24 闭环（2026-07-01）**：`js/core/AdaptiveUploadQueue.js` 构造函数新增 `getBaseUrl` 回调选项（默认返回 `/api/records` 保持向后兼容），`_doRequest()` 四类 URL（POST/PUT/DELETE/fallback）前缀由硬编码 `/api/records/` 改为 `${this._getBaseUrl()}/`，跟随 `StorageService.apiBaseUrl` 配置；`js/core/Storage.js` 实例化 `AdaptiveUploadQueue` 时传入 `getBaseUrl: () => this.apiBaseUrl`。默认配置下拼接结果与原硬编码完全一致，行为零变化。技术债 TD-P2-28（`_fetchLatest()` 同样硬编码 `/api/records/`，本次仅按 RG_03b 明确范围修复 `_doRequest()`）登记。详见 [FIX_P1-24_uploadQueueBaseUrl.md](../fix/P1/FIX_P1-24_uploadQueueBaseUrl.md)。
+
 ### 总体进度
 
 | 类别 | 总数 | ✅ 已完成 | ⬜ 待处理 | 完成率 |
 |------|------|----------|----------|--------|
 | P0（安全/高危） | 10 | 10 | 0 | 100% |
-| 🟡 P1 重要 | 26 | 23 | 3 | 88.5% |
+| 🟡 P1 重要 | 26 | 24 | 2 | 92.3% |
 | 🟢 P2 优化 | 22 | 0 | 22 | 0% |
 | 📄 DOCS 文档 | 4 | 0 | 4 | 0% |
-| **合计** | **62** | **33** | **29** | **53.2%** |
+| **合计** | **62** | **34** | **28** | **54.8%** |
 
 ### P0 高危问题修复状态（10 项）
 
