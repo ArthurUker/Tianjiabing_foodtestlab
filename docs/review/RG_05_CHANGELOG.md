@@ -1,6 +1,6 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§4 文档变更记录 + 附录
-> **最后更新**：v0.30（2026-07-01）
+> **最后更新**：v0.31（2026-07-01）
 
 ---
 
@@ -99,6 +99,13 @@
 - 核验确认 `js/core/AdaptiveUploadQueue.js` `_markCompleted()` 已调用 `_cleanupExpiredFingerprints()` 按 `_fingerprintTTL`（默认 60s）批量清理过期指纹，替代原 `keys().next().value` FIFO 固定上限淘汰；`_isRecentlyCompleted()` 读取时同步触发清理
 - 代码修复由先前合并提交 `7f69286`（`fix(P1-02/03/04/05/19)`）完成，本次为文档闭环，代码无变更
 - 技术债 TD-P2-23：`_maxFingerprintCache`（默认 500）配置项在 P1-19 修复后不再参与淘汰决策，仅为遗留字段，建议后续清理移除，已登记
+
+## v0.31 — P1-21 闭环
+- fix(P1-21): rename Auth.js class to OperationGuard, update all call sites（956e015，先前提交，本次文档闭环）
+- `js/core/Auth.js` 类名 `Auth` → `OperationGuard`、单例 `auth` → `operationGuard`，消除与 `js/services/AuthService.js`（类 `AuthService`、单例 `authService`）的类名/单例名冲突
+- 3 个消费方（Pathogen/GenericTest/Tableware）的 import 与 6 处 `verify()` 调用同步更新；全项目无残留 `auth.verify` / `auth.getCurrentUser` 旧调用
+- 运行时行为零变化：`OperationGuard.verify()` / `getCurrentUser()` 方法签名与实现未变，仅类名/单例名变更
+- 技术债 TD-P2-25：`js/core/Auth.js` 文件名未跟随类名更新为 `OperationGuard.js`，建议后续与 P2 系列优化合并重命名文件，已登记
 
 ## v0.30 — P1-20 闭环
 - fix(P1-20): Dashboard 全局函数改 CustomEvent + 合并 sync 事件防抖（5381c27）

@@ -1,6 +1,6 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§3 修复执行进度看板
-> **最后更新**：v0.30（2026-07-01）｜对应 FIX_PLAN 版本：v1.12
+> **最后更新**：v0.31（2026-07-01）｜对应 FIX_PLAN 版本：v1.12
 
 ---
 
@@ -41,15 +41,17 @@
 
 > **P1-20 闭环（2026-07-01）**：`js/modules/Dashboard.js` 移除 `window.loadDashboardData` / `window.initDashboard` 全局挂载，改为 `dashboard:refresh` CustomEvent 监听；5 个 StorageService 的 sync 事件合并为 200ms 防抖刷新（原并发同步触发最多 5 次看板刷新）。`js/main.js` `handleNavigation()` 导航到看板时改为 `dispatchEvent(new CustomEvent('dashboard:refresh'))`。技术债 TD-P2-24（`SampleDataGenerator.js` L262 `window.loadDashboardData` 引用清理，有 `dataChanged` 事件后备无崩溃）登记。详见 [FIX_P1-20_dashboardGlobal.md](../fix/P1/FIX_P1-20_dashboardGlobal.md)。
 
+> **P1-21 闭环（2026-07-01）**：`js/core/Auth.js` 类名 `Auth` → `OperationGuard`、单例 `auth` → `operationGuard`，消除与 `js/services/AuthService.js`（类 `AuthService`、单例 `authService`）的类名/单例名冲突。3 个消费方（Pathogen/GenericTest/Tableware）的 import 与 6 处 `verify()` 调用同步更新。代码修复由先前提交 `956e015` 完成，本次为文档闭环，代码无变更。技术债 TD-P2-25（`Auth.js` 文件名未跟随类名更新为 `OperationGuard.js`）登记。详见 [FIX_P1-21_authClassRename.md](../fix/P1/FIX_P1-21_authClassRename.md)。
+
 ### 总体进度
 
 | 类别 | 总数 | ✅ 已完成 | ⬜ 待处理 | 完成率 |
 |------|------|----------|----------|--------|
 | P0（安全/高危） | 10 | 10 | 0 | 100% |
-| 🟡 P1 重要 | 26 | 20 | 6 | 76.9% |
+| 🟡 P1 重要 | 26 | 21 | 5 | 80.8% |
 | 🟢 P2 优化 | 22 | 0 | 22 | 0% |
 | 📄 DOCS 文档 | 4 | 0 | 4 | 0% |
-| **合计** | **62** | **30** | **32** | **48.4%** |
+| **合计** | **62** | **31** | **31** | **50.0%** |
 
 ### P0 高危问题修复状态（10 项）
 
