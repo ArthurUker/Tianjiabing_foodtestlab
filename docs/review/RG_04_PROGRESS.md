@@ -1,6 +1,6 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§3 修复执行进度看板
-> **最后更新**：v0.31（2026-07-01）｜对应 FIX_PLAN 版本：v1.12
+> **最后更新**：v0.32（2026-07-01）｜对应 FIX_PLAN 版本：v1.12
 
 ---
 
@@ -43,15 +43,17 @@
 
 > **P1-21 闭环（2026-07-01）**：`js/core/Auth.js` 类名 `Auth` → `OperationGuard`、单例 `auth` → `operationGuard`，消除与 `js/services/AuthService.js`（类 `AuthService`、单例 `authService`）的类名/单例名冲突。3 个消费方（Pathogen/GenericTest/Tableware）的 import 与 6 处 `verify()` 调用同步更新。代码修复由先前提交 `956e015` 完成，本次为文档闭环，代码无变更。技术债 TD-P2-25（`Auth.js` 文件名未跟随类名更新为 `OperationGuard.js`）登记。详见 [FIX_P1-21_authClassRename.md](../fix/P1/FIX_P1-21_authClassRename.md)。
 
+> **P1-22 闭环（2026-07-01）**：`js/utils/SampleDataGenerator.js` 5 个 init 函数共 12 条示例数据 ID 由整数（1/2/3）改为 `temp_sample_{n}` 格式，兼容 `StorageService._isTempId()` 规则，避免同步合并阶段（`Storage.js` L246-261）整数 ID 记录被丢弃。未采用 `crypto.randomUUID()` 方案（UUID 不以 `temp_` 开头，同步时仍会被丢弃）。TD-P2-24 遗留死代码 `initDashboard()`（引用已移除的 `window.loadDashboardData`）一并清理。技术债 TD-P2-26（快速访问模式禁用同步的彻底方案评估）登记。详见 [FIX_P1-22_sampleDataId.md](../fix/P1/FIX_P1-22_sampleDataId.md)。
+
 ### 总体进度
 
 | 类别 | 总数 | ✅ 已完成 | ⬜ 待处理 | 完成率 |
 |------|------|----------|----------|--------|
 | P0（安全/高危） | 10 | 10 | 0 | 100% |
-| 🟡 P1 重要 | 26 | 21 | 5 | 80.8% |
+| 🟡 P1 重要 | 26 | 22 | 4 | 84.6% |
 | 🟢 P2 优化 | 22 | 0 | 22 | 0% |
 | 📄 DOCS 文档 | 4 | 0 | 4 | 0% |
-| **合计** | **62** | **31** | **31** | **50.0%** |
+| **合计** | **62** | **32** | **30** | **51.6%** |
 
 ### P0 高危问题修复状态（10 项）
 

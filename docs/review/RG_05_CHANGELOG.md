@@ -1,6 +1,6 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§4 文档变更记录 + 附录
-> **最后更新**：v0.31（2026-07-01）
+> **最后更新**：v0.32（2026-07-01）
 
 ---
 
@@ -112,3 +112,10 @@
 - `js/modules/Dashboard.js` 移除 `window.loadDashboardData` / `window.initDashboard` 全局挂载，改为 `dashboard:refresh` CustomEvent 监听；5 个 StorageService 的 sync 事件合并为 200ms 防抖刷新（原并发同步触发最多 5 次看板刷新）
 - `js/main.js` `handleNavigation()` 导航到看板时 `window.loadDashboardData()` 改为 `dispatchEvent(new CustomEvent('dashboard:refresh'))`
 - 技术债 TD-P2-24：`SampleDataGenerator.js` L262 仍引用 `window.loadDashboardData`（修复后为 undefined 走 catch 分支，由同文件 `dataChanged` 事件后备触发刷新，功能不丢失但产生误导性日志），建议与 P1-22 合并清理，已登记
+
+## v0.32 — P1-22 闭环
+- fix(P1-22): SampleDataGenerator示例数据ID改temp_sample格式兼容StorageService同步，清理TD-P2-24死代码（85ead3f）
+- `js/utils/SampleDataGenerator.js` 5 个 init 函数共 12 条示例数据 ID 由整数改为 `temp_sample_{n}` 格式，以 `temp_` 前缀兼容 `StorageService._isTempId()` 规则，避免同步合并阶段被丢弃
+- 未采用 `crypto.randomUUID()` 方案（UUID 不以 `temp_` 开头，同步时仍会被丢弃，未解决根因）
+- TD-P2-24 遗留死代码 `initDashboard()`（引用 P1-20 已移除的 `window.loadDashboardData`，从未被调用）一并清理
+- 技术债 TD-P2-26：快速访问模式禁用 StorageService 同步的彻底方案评估（RG_03b 备选方案），避免示例数据与真实同步逻辑耦合，已登记
