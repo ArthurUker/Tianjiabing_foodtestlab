@@ -79,3 +79,10 @@
 - fix(P1-16): 代码无变更，BackupRestore.js 已由先前重构迁移至 /api/records/*（fd84875 / 6144b6c / 3a0f35a）
 - 核验确认 `js/modules/BackupRestore.js` 全文件无 `/api/sync` 调用；`handleCloudRestore` → `GET /api/records/:tableName`；`uploadRestoredDataToServer` → `POST /api/records/:tableName/bulk-upsert`；`checkSyncStatus` → `GET /api/health`；bulk-upsert 响应解析与 server 返回结构匹配
 - 技术债 TD-P2-20：① `BackupRestore.js:505` `token.startsWith('temp-token-')` 为 P0-08 后死代码（temp-token- 前缀已废弃），建议清理；② `OfflineModeManager.js:232` 仍调用 `/api/sync/${storeName}`，需评估迁移至 /api/records/* 或移除，已登记
+
+## v0.27 — P1-17 闭环
+- fix(P1-17): 删除用户防自删+防最后admin+前端两步确认（3bd9689）
+- 后端 `backend/routes/userRoutes.js` DELETE 路由新增两项前置校验：① 防止管理员删除自身账号（`req.user.userId === req.params.userId` → 400）；② 防止删除最后一个 active admin 导致系统锁死（`prisma.user.count` ≤ 1 → 400）
+- 前端 `js/modules/UserManagement.js` `deleteUser()` 原生单步 `confirm()` 升级为两步确认并显示被删用户名，降低误删风险
+- 原描述"无二次确认/无后端权限校验"经核验已在前期工作中覆盖（前端已有 confirm、后端已有 authenticateUser+authorizeRoles），本次按扩展语义补齐纵深防护
+- 技术债 TD-P2-21：评估将 UserManagement 删除操作升级为模态对话框（Modal）替代原生 confirm()，提升 UX 一致性，已登记

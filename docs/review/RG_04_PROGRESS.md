@@ -1,6 +1,6 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§3 修复执行进度看板
-> **最后更新**：v0.26（2026-07-01）｜对应 FIX_PLAN 版本：v1.12
+> **最后更新**：v0.27（2026-07-01）｜对应 FIX_PLAN 版本：v1.12
 
 ---
 
@@ -33,15 +33,17 @@
 
 > **P1-16 闭环（2026-07-01）**：核验确认 `js/modules/BackupRestore.js` 已由先前重构提交（`fd84875` / `6144b6c` / `3a0f35a`）完全迁移至 `/api/records/*` 和 `/api/health` 端点，全文件无 `/api/sync` 调用，问题已由先前重构解决，代码无变更。`handleCloudRestore` → `GET /api/records/:tableName`；`uploadRestoredDataToServer` → `POST /api/records/:tableName/bulk-upsert`；`checkSyncStatus` → `GET /api/health`；bulk-upsert 响应解析与 server 返回结构匹配。技术债 TD-P2-20（`BackupRestore.js:505` temp-token- 死代码 + `OfflineModeManager.js:232` /api/sync 迁移评估）登记。详见 [FIX_P1-16_backupRestore.md](../fix/P1/FIX_P1-16_backupRestore.md)。
 
+> **P1-17 闭环（2026-07-01）**：原描述"无二次确认/无后端权限校验"经核验已在前期工作中覆盖（前端已有 `confirm()`、后端已有 `authenticateUser + authorizeRoles`），按审阅方确认的扩展语义补齐三项纵深防护：① 后端 `userRoutes.js` DELETE 路由防止管理员删除自身账号；② 后端防止删除最后一个 active admin 导致系统锁死（`prisma.user.count` ≤ 1 拦截）；③ 前端 `UserManagement.js` `deleteUser()` 单步 `confirm()` 升级为两步确认并显示用户名。技术债 TD-P2-21（Modal 替代原生 confirm() 评估）登记。详见 [FIX_P1-17_userDeleteGuard.md](../fix/P1/FIX_P1-17_userDeleteGuard.md)。
+
 ### 总体进度
 
 | 类别 | 总数 | ✅ 已完成 | ⬜ 待处理 | 完成率 |
 |------|------|----------|----------|--------|
 | P0（安全/高危） | 10 | 10 | 0 | 100% |
-| 🟡 P1 重要 | 26 | 16 | 10 | 61.5% |
+| 🟡 P1 重要 | 26 | 17 | 9 | 65.4% |
 | 🟢 P2 优化 | 22 | 0 | 22 | 0% |
 | 📄 DOCS 文档 | 4 | 0 | 4 | 0% |
-| **合计** | **62** | **26** | **36** | **41.9%** |
+| **合计** | **62** | **27** | **35** | **43.5%** |
 
 ### P0 高危问题修复状态（10 项）
 
