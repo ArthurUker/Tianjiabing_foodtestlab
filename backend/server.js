@@ -345,6 +345,21 @@ app.post('/api/test-records', authenticateUser, requireEditorOrAbove, async (req
         const { test_type, test_name, sample_info, result_data } = req.body
 
         const recordCode = buildDeterministicRecordCode(test_type || 'generic', req.body)
+
+        // P1-15: 前置幂等检查，重复提交返回已有记录（与 /api/records/:tableName 一致）
+        const existing = await prisma.testRecord.findUnique({
+            where: { record_code: recordCode }
+        })
+
+        if (existing) {
+            return res.json({
+                success: true,
+                deduplicated: true,
+                data: existing,
+                message: '记录已存在，已按幂等策略返回现有数据'
+            })
+        }
+
         const record = await prisma.testRecord.create({
             data: {
                 record_code: recordCode,
@@ -363,6 +378,26 @@ app.post('/api/test-records', authenticateUser, requireEditorOrAbove, async (req
             message: '测试记录创建成功'
         })
     } catch (error) {
+        // P1-15: P2002 唯一约束冲突（并发重复写入）：按幂等策略返回已有记录
+        if (error.code === 'P2002' || (error.message && error.message.includes('Unique constraint'))) {
+            try {
+                const existing = await prisma.testRecord.findUnique({
+                    where: { record_code: buildDeterministicRecordCode(req.body?.test_type || 'generic', req.body || {}) }
+                })
+                if (existing) {
+                    return res.json({ success: true, deduplicated: true, data: existing, message: '记录已存在（并发写入），已按幂等策略返回现有数据' })
+                }
+            } catch (_) { /* fallthrough */ }
+        }
+        // P1-15: P2003 外键约束失败（created_by 用户不存在）：返回 422 而非 500
+        if (error.code === 'P2003' || (error.message && error.message.includes('Foreign key constraint'))) {
+            console.error('❌ Foreign key constraint failed:', error.message, '\nuserId:', req.userId)
+            return res.status(422).json({
+                error: '关联用户不存在，请重新登录',
+                details: error.message,
+                code: 'INVALID_USER'
+            })
+        }
         console.error('❌ Error creating test record:', error)
         res.status(500).json({
             error: '创建失败',
