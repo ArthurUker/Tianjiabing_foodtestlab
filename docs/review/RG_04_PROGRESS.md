@@ -1,6 +1,6 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§3 修复执行进度看板
-> **最后更新**：v0.28（2026-07-01）｜对应 FIX_PLAN 版本：v1.12
+> **最后更新**：v0.29（2026-07-01）｜对应 FIX_PLAN 版本：v1.12
 
 ---
 
@@ -37,15 +37,17 @@
 
 > **P1-18 闭环（2026-07-01）**：`js/modules/Pathogen.js` `initPathogen()` 访客守卫由 `if (isGuest && !isQuickAccess)` 收紧为 `if (isGuest || isQuickAccess)`，拦截全部访客（含快速访问模式），不再为访客初始化病原体模块/加载数据/绑定事件，与权限矩阵 `guest` 角色无 `module:pathogen` 对齐。权限矩阵本身经核验正确（`PermissionService.js:57-63` 故意排除 `module:pathogen`），矛盾根因为守卫条件放行快速访问访客。技术债 TD-P2-22（`handleNavigation`/`UIHelper.setupNavigation` 导航层缺 `module:xxx` 权限校验，与 P1-06 CSS 绕过同源）登记。详见 [FIX_P1-18_pathogenGuestAccess.md](../fix/P1/FIX_P1-18_pathogenGuestAccess.md)。
 
+> **P1-19 闭环（2026-07-01）**：核验确认 `js/core/AdaptiveUploadQueue.js` 指纹缓存淘汰策略已由 FIFO 固定上限改为 TTL 批量过期清理（`_cleanupExpiredFingerprints()` 遍历 Map 按 `_fingerprintTTL` 默认 60s 过期删除，`_markCompleted()` 调用 TTL 清理替代 `keys().next().value` FIFO 淘汰），代码修复由先前提交 `7f69286` 完成（`fix(P1-02/03/04/05/19)`），本次为文档闭环，代码无变更。技术债 TD-P2-23（`_maxFingerprintCache` 遗留配置项清理）登记。详见 [FIX_P1-19_fingerprintEvict.md](../fix/P1/FIX_P1-19_fingerprintEvict.md)。
+
 ### 总体进度
 
 | 类别 | 总数 | ✅ 已完成 | ⬜ 待处理 | 完成率 |
 |------|------|----------|----------|--------|
 | P0（安全/高危） | 10 | 10 | 0 | 100% |
-| 🟡 P1 重要 | 26 | 18 | 8 | 69.2% |
+| 🟡 P1 重要 | 26 | 19 | 7 | 73.1% |
 | 🟢 P2 优化 | 22 | 0 | 22 | 0% |
 | 📄 DOCS 文档 | 4 | 0 | 4 | 0% |
-| **合计** | **62** | **28** | **34** | **45.2%** |
+| **合计** | **62** | **29** | **33** | **46.8%** |
 
 ### P0 高危问题修复状态（10 项）
 

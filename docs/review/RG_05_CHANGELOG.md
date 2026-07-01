@@ -93,3 +93,9 @@
 - 权限矩阵 `guest` 角色本身经核验正确（`PermissionService.js:57-63` 故意排除 `module:pathogen`），矛盾根因为守卫条件 `&& !isQuickAccess` 放行快速访问访客致其仍能初始化模块并加载数据
 - 守卫命中后直接 return，跳过 `loadMammothJS()`/`renderTable()`/`storage.on('sync')` 等数据加载与事件绑定，从数据层阻断访客访问；admin/manager/operator/viewer 行为不变
 - 技术债 TD-P2-22：`main.js handleNavigation()` 与 `UIHelper.setupNavigation()` 导航点击层缺 `module:xxx` 权限校验，访客可经 DevTools 取消隐藏后点击或控制台调用显示空白病原体区域（无数据），与 P1-06 CSS 绕过同源，建议导航层集中化权限拦截，已登记
+
+## v0.29 — P1-19 闭环
+- fix(P1-19): AdaptiveUploadQueue 指纹缓存 FIFO 淘汰改为 TTL 批量过期清理（7f69286，先前提交，本次文档闭环）
+- 核验确认 `js/core/AdaptiveUploadQueue.js` `_markCompleted()` 已调用 `_cleanupExpiredFingerprints()` 按 `_fingerprintTTL`（默认 60s）批量清理过期指纹，替代原 `keys().next().value` FIFO 固定上限淘汰；`_isRecentlyCompleted()` 读取时同步触发清理
+- 代码修复由先前合并提交 `7f69286`（`fix(P1-02/03/04/05/19)`）完成，本次为文档闭环，代码无变更
+- 技术债 TD-P2-23：`_maxFingerprintCache`（默认 500）配置项在 P1-19 修复后不再参与淘汰决策，仅为遗留字段，建议后续清理移除，已登记
