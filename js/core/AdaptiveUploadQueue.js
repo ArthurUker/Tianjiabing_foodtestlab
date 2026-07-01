@@ -33,6 +33,8 @@ export class AdaptiveUploadQueue {
     this._totalSkipped = 0;
     this._onProgress = options.onProgress ?? null;
     this._getHeaders = options.getHeaders ?? (() => ({}));
+    // P1-24: 新增 getBaseUrl 回调，避免 _doRequest() 硬编码 /api/records 前缀
+    this._getBaseUrl = options.getBaseUrl ?? (() => '/api/records');
   }
 
   enqueue(collection, recordId, payload, opts = {}) {
@@ -203,14 +205,16 @@ export class AdaptiveUploadQueue {
   async _doRequest(item) {
     let url;
     let method = item.method || 'PUT';
+    // P1-24: URL 前缀改用 getBaseUrl 回调，跟随 StorageService.apiBaseUrl 配置
+    const baseUrl = this._getBaseUrl();
     if (method === 'POST') {
-      url = `/api/records/${item.collection}`;
+      url = `${baseUrl}/${item.collection}`;
     } else if (method === 'PUT') {
-      url = `/api/records/${item.collection}/${item.recordId}`;
+      url = `${baseUrl}/${item.collection}/${item.recordId}`;
     } else if (method === 'DELETE') {
-      url = `/api/records/${item.collection}/${item.recordId}`;
+      url = `${baseUrl}/${item.collection}/${item.recordId}`;
     } else {
-      url = `/api/records/${item.collection}/${item.recordId || ''}`;
+      url = `${baseUrl}/${item.collection}/${item.recordId || ''}`;
     }
 
     const baseHeaders = this._getHeaders() || {};

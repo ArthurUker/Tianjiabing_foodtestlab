@@ -71,6 +71,8 @@ export class StorageService {
             maxInterval: config.maxInterval || 15000,
             maxConcurrent: config.maxConcurrent || 1,
             getHeaders: () => this._getHeaders(),
+            // P1-24: 传入 apiBaseUrl 回调，使队列请求跟随 StorageService 配置
+            getBaseUrl: () => this.apiBaseUrl,
             onProgress: (status) => {
                 if (status.isPaused) this._setGlobalBackoff(status.currentInterval);
                 this._emit('sync', { type: 'queue_progress', status });
