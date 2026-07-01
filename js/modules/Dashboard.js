@@ -95,13 +95,17 @@ export function initDashboard() {
         // 监听数据变化（用户手动增删改时触发）
         document.addEventListener('dataChanged', loadDashboardData);
         
-        // 暴露到全局，供导航时刷新调用
-        window.loadDashboardData = loadDashboardData;
-        
-        // 服务器同步完成后：先更新食堂选项再刷新看板
+        // P1-20: 使用 CustomEvent 替代 window 全局函数，供导航时刷新调用
+        document.addEventListener('dashboard:refresh', () => loadDashboardData());
+
+        // P1-20: 合并多个 StorageService 的 sync 事件，防抖避免 5 次重复刷新看板
+        let _syncRefreshTimer = null;
         Object.values(services).forEach(s => s.on('sync', () => {
-            initCanteenFilter();
-            loadDashboardData();
+            if (_syncRefreshTimer) clearTimeout(_syncRefreshTimer);
+            _syncRefreshTimer = setTimeout(() => {
+                initCanteenFilter();
+                loadDashboardData();
+            }, 200);
         }));
         
         // 绑定详情链接
@@ -1467,8 +1471,4 @@ function calculateCanteenPassRate(startDate, endDate, selectedCanteen = 'all') {
     return { labels, data };
 }
 
-// 🎯 暴露 initDashboard 到全局作用域
-if (typeof window !== 'undefined') {
-    window.initDashboard = initDashboard;
-    console.log('✅ initDashboard 已暴露到 window 全局作用域');
-}
+// P1-20: 移除 window.initDashboard 全局暴露，main.js 已通过 import 使用

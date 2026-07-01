@@ -107,10 +107,10 @@ window.handleNavigation = function(target) {
                 console.error('❌ 审计日志模块初始化失败:', error);
             }
         }
-        // 切换到看板时强制刷新数据，确保显示各模块最新缓存
-        if (target === 'dashboard' && typeof window.loadDashboardData === 'function') {
+        // P1-20: 使用 CustomEvent 替代 window.loadDashboardData 全局函数调用
+        if (target === 'dashboard') {
             try {
-                window.loadDashboardData();
+                document.dispatchEvent(new CustomEvent('dashboard:refresh'));
             } catch (error) {
                 console.error('❌ 看板刷新失败:', error);
             }
