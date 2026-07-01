@@ -1,6 +1,6 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§4 文档变更记录 + 附录
-> **最后更新**：v0.26（2026-07-01）
+> **最后更新**：v0.28（2026-07-01）
 
 ---
 
@@ -86,3 +86,10 @@
 - 前端 `js/modules/UserManagement.js` `deleteUser()` 原生单步 `confirm()` 升级为两步确认并显示被删用户名，降低误删风险
 - 原描述"无二次确认/无后端权限校验"经核验已在前期工作中覆盖（前端已有 confirm、后端已有 authenticateUser+authorizeRoles），本次按扩展语义补齐纵深防护
 - 技术债 TD-P2-21：评估将 UserManagement 删除操作升级为模态对话框（Modal）替代原生 confirm()，提升 UX 一致性，已登记
+
+## v0.28 — P1-18 闭环
+- fix(P1-18): Pathogen访客守卫收紧，拦截快速访问访客初始化病原体模块（a4aa276）
+- `js/modules/Pathogen.js` `initPathogen()` 访客守卫由 `if (isGuest && !isQuickAccess)` 收紧为 `if (isGuest || isQuickAccess)`，拦截全部访客（含快速访问模式）
+- 权限矩阵 `guest` 角色本身经核验正确（`PermissionService.js:57-63` 故意排除 `module:pathogen`），矛盾根因为守卫条件 `&& !isQuickAccess` 放行快速访问访客致其仍能初始化模块并加载数据
+- 守卫命中后直接 return，跳过 `loadMammothJS()`/`renderTable()`/`storage.on('sync')` 等数据加载与事件绑定，从数据层阻断访客访问；admin/manager/operator/viewer 行为不变
+- 技术债 TD-P2-22：`main.js handleNavigation()` 与 `UIHelper.setupNavigation()` 导航点击层缺 `module:xxx` 权限校验，访客可经 DevTools 取消隐藏后点击或控制台调用显示空白病原体区域（无数据），与 P1-06 CSS 绕过同源，建议导航层集中化权限拦截，已登记
