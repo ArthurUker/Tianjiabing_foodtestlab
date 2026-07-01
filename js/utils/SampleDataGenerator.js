@@ -70,10 +70,11 @@ export function initializeSampleData() {
  */
 function initTableware() {
     const storageKey = 'cache_tableware';
-    
+
+    // P1-22: 示例数据 ID 改用 temp_sample_{n}，兼容 StorageService._isTempId() 规则避免同步时被丢弃
     const sampleData = [
         {
-            id: 1,
+            id: 'temp_sample_1',
             testDate: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
             canteen: '一食堂',
             inspector: '检测员A',
@@ -84,7 +85,7 @@ function initTableware() {
             finalStatus: '合格'
         },
         {
-            id: 2,
+            id: 'temp_sample_2',
             testDate: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
             canteen: '二食堂',
             inspector: '检测员B',
@@ -95,7 +96,7 @@ function initTableware() {
             finalStatus: '合格'
         },
         {
-            id: 3,
+            id: 'temp_sample_3',
             testDate: new Date().toISOString().split('T')[0],
             canteen: '一食堂',
             inspector: '检测员A',
@@ -115,10 +116,11 @@ function initTableware() {
  */
 function initPesticide() {
     const storageKey = 'cache_pesticide';
-    
+
+    // P1-22: 示例数据 ID 改用 temp_sample_{n}，兼容 StorageService._isTempId() 规则避免同步时被丢弃
     const sampleData = [
         {
-            id: 1,
+            id: 'temp_sample_1',
             testDate: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
             canteen: '一食堂',
             vegetable: '青菜',
@@ -127,7 +129,7 @@ function initPesticide() {
             inspector: '检测员C'
         },
         {
-            id: 2,
+            id: 'temp_sample_2',
             testDate: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
             canteen: '二食堂',
             vegetable: '黄瓜',
@@ -136,7 +138,7 @@ function initPesticide() {
             inspector: '检测员D'
         },
         {
-            id: 3,
+            id: 'temp_sample_3',
             testDate: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
             canteen: '一食堂',
             vegetable: '番茄',
@@ -155,10 +157,11 @@ function initPesticide() {
  */
 function initOil() {
     const storageKey = 'cache_oil';
-    
+
+    // P1-22: 示例数据 ID 改用 temp_sample_{n}，兼容 StorageService._isTempId() 规则避免同步时被丢弃
     const sampleData = [
         {
-            id: 1,
+            id: 'temp_sample_1',
             testDate: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
             canteen: '一食堂',
             inspector: '检测员E',
@@ -169,7 +172,7 @@ function initOil() {
             performanceRating: '合格'
         },
         {
-            id: 2,
+            id: 'temp_sample_2',
             testDate: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
             canteen: '二食堂',
             inspector: '检测员F',
@@ -190,10 +193,11 @@ function initOil() {
  */
 function initMeat() {
     const storageKey = 'cache_leanMeat';
-    
+
+    // P1-22: 示例数据 ID 改用 temp_sample_{n}，兼容 StorageService._isTempId() 规则避免同步时被丢弃
     const sampleData = [
         {
-            id: 1,
+            id: 'temp_sample_1',
             testDate: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
             canteen: '一食堂',
             meatType: '猪肉',
@@ -202,7 +206,7 @@ function initMeat() {
             inspector: '检测员G'
         },
         {
-            id: 2,
+            id: 'temp_sample_2',
             testDate: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
             canteen: '二食堂',
             meatType: '鸡蛋',
@@ -221,10 +225,11 @@ function initMeat() {
  */
 function initPathogen() {
     const storageKey = 'cache_pathogen';
-    
+
+    // P1-22: 示例数据 ID 改用 temp_sample_{n}，兼容 StorageService._isTempId() 规则避免同步时被丢弃
     const sampleData = [
         {
-            id: 1,
+            id: 'temp_sample_1',
             testDate: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
             sampleId: 'S001',
             canteen: '一食堂',
@@ -234,7 +239,7 @@ function initPathogen() {
             inspector: '检测员I'
         },
         {
-            id: 2,
+            id: 'temp_sample_2',
             testDate: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
             sampleId: 'S002',
             canteen: '二食堂',
@@ -249,31 +254,5 @@ function initPathogen() {
     console.log('✅ 初始化病原体检测示例数据:', sampleData.length, '条');
 }
 
-/**
- * 初始化仪表板统计
- */
-function initDashboard() {
-    // 数据看板的统计数据会从各个模块的数据中计算，不需要单独初始化
-    console.log('✅ 数据看板将自动计算统计数据');
-    
-    // 强制刷新Dashboard数据（延迟以确保所有数据都已加载）
-    setTimeout(() => {
-        try {
-            const loadDashboardDataFn = window.loadDashboardData;
-            if (typeof loadDashboardDataFn === 'function') {
-                console.log('🔄 强制刷新Dashboard数据...');
-                loadDashboardDataFn();
-            }
-        } catch (e) {
-            console.log('📌 Dashboard尚未初始化或无法直接调用loadDashboardData');
-        }
-        
-        // 尝试通过事件触发
-        try {
-            document.dispatchEvent(new Event('dataChanged'));
-            console.log('📡 已发送dataChanged事件');
-        } catch (e) {
-            console.log('⚠️ 事件发送失败:', e);
-        }
-    }, 300);
-}
+// TD-P2-24: 移除死代码 initDashboard() — 该函数从未被调用（L55 已注释），
+// 且引用的 window.loadDashboardData 已被 P1-20 移除；initializeSampleData() 已自行 dispatch dataChanged 事件
