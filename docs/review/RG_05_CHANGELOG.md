@@ -1,6 +1,6 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§4 文档变更记录 + 附录
-> **最后更新**：v0.23（2026-06-30）
+> **最后更新**：v0.24（2026-07-01）
 
 ---
 
@@ -62,3 +62,9 @@
 - `backend/server.js` `parseAllowedOrigins()` fallback 列表移除 `http://159.75.106.179:8082`（保留 localhost 开发地址）
 - `.env.example` `CORS_ORIGIN` 补充生产 IP 示例，与 `.env` 运行时配置对齐
 - 技术债 TD-P2-17：部署配置文件（pm2/nginx）硬编码生产 IP + `.env` 中 `CORS_ORIGINS`（复数）无效配置清理，已登记
+
+## v0.24 — P1-14 闭环
+- fix(P1-14): Storage新增getAllFresh强制同步方法，解决数据一致性无保障（9c9298d）
+- `js/core/Storage.js` 新增 `getAllFresh()` 异步方法：`await _syncFromApi(true)` 绕过 30 秒冷却强制同步后返回最新缓存
+- 保留 `getAll()` 同步签名不变以兼容 ~30 处现有调用方（Pathogen / GenericTest / Tableware / Dashboard / ExportService），零崩溃风险
+- 技术债 TD-P2-18：`getAll()` 调用方迁移至 `await getAllFresh()` 评估（ExportService / Dashboard 首次加载 / 各模块查询入口），已登记

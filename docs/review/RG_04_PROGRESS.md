@@ -1,6 +1,6 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§3 修复执行进度看板
-> **最后更新**：v0.23（2026-06-30）｜对应 FIX_PLAN 版本：v1.12
+> **最后更新**：v0.24（2026-07-01）｜对应 FIX_PLAN 版本：v1.12
 
 ---
 
@@ -27,15 +27,17 @@
 
 > **P1-13 闭环（2026-06-30）**：`backend/server.js` `parseAllowedOrigins()` fallback 列表移除硬编码生产 IP `159.75.106.179:8082`（保留 localhost 开发地址）；`.env.example` `CORS_ORIGIN` 补充生产 IP 示例。核验发现 `deploy/pm2/ecosystem.config.cjs` 硬编码 `CORS_ORIGIN: 'http://159.75.106.179:8081'`（端口 8081 与实际 8082 不一致）、`deploy/nginx` 配置硬编码生产 IP、`.env` 同时定义 `CORS_ORIGIN`（单数，已用）和 `CORS_ORIGINS`（复数，未用）。技术债 TD-P2-17（部署配置 IP 硬编码 + 无效 CORS_ORIGINS 复数配置清理）登记。详见 [FIX_P1-13_corsOrigin.md](../fix/P1/FIX_P1-13_corsOrigin.md)。
 
+> **P1-14 闭环（2026-07-01）**：`js/core/Storage.js` 新增 `getAllFresh()` 异步方法，调用 `_syncFromApi(true)` 强制绕过 30 秒冷却并 `await` 等待同步完成后返回最新缓存。保留 `getAll()` 同步签名不变以兼容 ~30 处现有调用方（Pathogen / GenericTest / Tableware / Dashboard / ExportService），零崩溃风险。技术债 TD-P2-18（getAll() 调用方迁移至 getAllFresh() 评估）登记。详见 [FIX_P1-14_storageCache.md](../fix/P1/FIX_P1-14_storageCache.md)。
+
 ### 总体进度
 
 | 类别 | 总数 | ✅ 已完成 | ⬜ 待处理 | 完成率 |
 |------|------|----------|----------|--------|
 | P0（安全/高危） | 10 | 10 | 0 | 100% |
-| 🟡 P1 重要 | 26 | 13 | 13 | 50.0% |
+| 🟡 P1 重要 | 26 | 14 | 12 | 53.8% |
 | 🟢 P2 优化 | 22 | 0 | 22 | 0% |
 | 📄 DOCS 文档 | 4 | 0 | 4 | 0% |
-| **合计** | **62** | **23** | **39** | **37.1%** |
+| **合计** | **62** | **24** | **38** | **38.7%** |
 
 ### P0 高危问题修复状态（10 项）
 
