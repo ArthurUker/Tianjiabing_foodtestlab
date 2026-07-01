@@ -20,8 +20,9 @@ export function initPathogen() {
     const isGuest = guestAuthService.isLoggedIn();
     const isQuickAccess = guestAuthService.isQuickAccessMode();
     
-    // 如果是普通访客（非快速访问模式），则无权访问
-    if (isGuest && !isQuickAccess) {
+    // P1-18: 基于权限矩阵，访客（含快速访问模式）无 module:pathogen 权限，禁止初始化病原体模块
+    // 原守卫 if (isGuest && !isQuickAccess) 放行快速访问访客，与权限矩阵矛盾
+    if (isGuest || isQuickAccess) {
         console.warn('⛔ 访客无权访问病原体检测模块');
         UINotification.warning('您无权访问病原体检测模块');
         return; // 访客无权访问，直接返回
