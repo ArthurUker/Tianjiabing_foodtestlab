@@ -1,6 +1,6 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§4 文档变更记录 + 附录
-> **最后更新**：v0.32（2026-07-01）
+> **最后更新**：v0.33（2026-07-01）
 
 ---
 
@@ -119,3 +119,10 @@
 - 未采用 `crypto.randomUUID()` 方案（UUID 不以 `temp_` 开头，同步时仍会被丢弃，未解决根因）
 - TD-P2-24 遗留死代码 `initDashboard()`（引用 P1-20 已移除的 `window.loadDashboardData`，从未被调用）一并清理
 - 技术债 TD-P2-26：快速访问模式禁用 StorageService 同步的彻底方案评估（RG_03b 备选方案），避免示例数据与真实同步逻辑耦合，已登记
+
+## v0.33 — P1-23 闭环
+- fix(P1-23): fieldValidators 补充 dateNotFuture/idCard，后端校验对齐前端超集（ef9ca17）
+- `backend/middleware/validationMiddleware.js` 的 `fieldValidators` 对象补充 `dateNotFuture`（日期不晚于今天）与 `idCard`（18 位中国身份证号正则）两条验证器，正则与前端 `js/utils/FormValidator.js` 完全对齐，使后端规则集成为前端超集
+- 核验发现 `fieldValidators`/`validateField` 全后端无路由调用方，实为死代码，本次仅补齐规则集，零行为影响；`dateNotFuture` 在前端被活跃使用（GenericTest.js:965、Tableware.js:650 的 testDate schema）
+- 未采用"统一校验规则配置文件前后端共享"方案（前端原生 JS 无构建步骤，共享模块引入成本高，超出最小改动原则）
+- 技术债 TD-P2-27：`validateField` 中间件接入具体写入路由（POST /api/records/:tableName、POST /api/test-records）以实际生效字段格式校验 + 前端参数化规则 `minLength`/`maxLength` 后端结构支持，已登记
