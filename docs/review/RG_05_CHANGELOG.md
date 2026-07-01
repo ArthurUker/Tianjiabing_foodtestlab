@@ -1,6 +1,6 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§4 文档变更记录 + 附录
-> **最后更新**：v0.25（2026-07-01）
+> **最后更新**：v0.26（2026-07-01）
 
 ---
 
@@ -74,3 +74,8 @@
 - `backend/server.js` `POST /api/test-records` 补齐 `findUnique` 前置幂等检查 + P2002 并发冲突幂等返回 + P2003 外键约束 422 处理，与 `POST /api/records/:tableName` 实现一致
 - P0-06 已从数据层（确定性 `record_code` + `@unique` 约束）阻止重复，本次补齐接口层幂等处理，根治"重复数据根因未根治"
 - 技术债 TD-P2-19：`POST /api/test-records` 与 `POST /api/records/:tableName` 两套创建接口入参结构不一致（结构化字段 vs 扁平 payload + `buildRecordWriteData`），`record_code` 哈希基础不同，跨接口幂等性统一待评估，已登记
+
+## v0.26 — P1-16 闭环
+- fix(P1-16): 代码无变更，BackupRestore.js 已由先前重构迁移至 /api/records/*（fd84875 / 6144b6c / 3a0f35a）
+- 核验确认 `js/modules/BackupRestore.js` 全文件无 `/api/sync` 调用；`handleCloudRestore` → `GET /api/records/:tableName`；`uploadRestoredDataToServer` → `POST /api/records/:tableName/bulk-upsert`；`checkSyncStatus` → `GET /api/health`；bulk-upsert 响应解析与 server 返回结构匹配
+- 技术债 TD-P2-20：① `BackupRestore.js:505` `token.startsWith('temp-token-')` 为 P0-08 后死代码（temp-token- 前缀已废弃），建议清理；② `OfflineModeManager.js:232` 仍调用 `/api/sync/${storeName}`，需评估迁移至 /api/records/* 或移除，已登记
