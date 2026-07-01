@@ -1,6 +1,6 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§3 修复执行进度看板
-> **最后更新**：v0.29（2026-07-01）｜对应 FIX_PLAN 版本：v1.12
+> **最后更新**：v0.30（2026-07-01）｜对应 FIX_PLAN 版本：v1.12
 
 ---
 
@@ -39,15 +39,17 @@
 
 > **P1-19 闭环（2026-07-01）**：核验确认 `js/core/AdaptiveUploadQueue.js` 指纹缓存淘汰策略已由 FIFO 固定上限改为 TTL 批量过期清理（`_cleanupExpiredFingerprints()` 遍历 Map 按 `_fingerprintTTL` 默认 60s 过期删除，`_markCompleted()` 调用 TTL 清理替代 `keys().next().value` FIFO 淘汰），代码修复由先前提交 `7f69286` 完成（`fix(P1-02/03/04/05/19)`），本次为文档闭环，代码无变更。技术债 TD-P2-23（`_maxFingerprintCache` 遗留配置项清理）登记。详见 [FIX_P1-19_fingerprintEvict.md](../fix/P1/FIX_P1-19_fingerprintEvict.md)。
 
+> **P1-20 闭环（2026-07-01）**：`js/modules/Dashboard.js` 移除 `window.loadDashboardData` / `window.initDashboard` 全局挂载，改为 `dashboard:refresh` CustomEvent 监听；5 个 StorageService 的 sync 事件合并为 200ms 防抖刷新（原并发同步触发最多 5 次看板刷新）。`js/main.js` `handleNavigation()` 导航到看板时改为 `dispatchEvent(new CustomEvent('dashboard:refresh'))`。技术债 TD-P2-24（`SampleDataGenerator.js` L262 `window.loadDashboardData` 引用清理，有 `dataChanged` 事件后备无崩溃）登记。详见 [FIX_P1-20_dashboardGlobal.md](../fix/P1/FIX_P1-20_dashboardGlobal.md)。
+
 ### 总体进度
 
 | 类别 | 总数 | ✅ 已完成 | ⬜ 待处理 | 完成率 |
 |------|------|----------|----------|--------|
 | P0（安全/高危） | 10 | 10 | 0 | 100% |
-| 🟡 P1 重要 | 26 | 19 | 7 | 73.1% |
+| 🟡 P1 重要 | 26 | 20 | 6 | 76.9% |
 | 🟢 P2 优化 | 22 | 0 | 22 | 0% |
 | 📄 DOCS 文档 | 4 | 0 | 4 | 0% |
-| **合计** | **62** | **29** | **33** | **46.8%** |
+| **合计** | **62** | **30** | **32** | **48.4%** |
 
 ### P0 高危问题修复状态（10 项）
 

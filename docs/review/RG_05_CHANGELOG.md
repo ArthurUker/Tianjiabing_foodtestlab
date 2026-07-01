@@ -1,6 +1,6 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§4 文档变更记录 + 附录
-> **最后更新**：v0.28（2026-07-01）
+> **最后更新**：v0.30（2026-07-01）
 
 ---
 
@@ -99,3 +99,9 @@
 - 核验确认 `js/core/AdaptiveUploadQueue.js` `_markCompleted()` 已调用 `_cleanupExpiredFingerprints()` 按 `_fingerprintTTL`（默认 60s）批量清理过期指纹，替代原 `keys().next().value` FIFO 固定上限淘汰；`_isRecentlyCompleted()` 读取时同步触发清理
 - 代码修复由先前合并提交 `7f69286`（`fix(P1-02/03/04/05/19)`）完成，本次为文档闭环，代码无变更
 - 技术债 TD-P2-23：`_maxFingerprintCache`（默认 500）配置项在 P1-19 修复后不再参与淘汰决策，仅为遗留字段，建议后续清理移除，已登记
+
+## v0.30 — P1-20 闭环
+- fix(P1-20): Dashboard 全局函数改 CustomEvent + 合并 sync 事件防抖（5381c27）
+- `js/modules/Dashboard.js` 移除 `window.loadDashboardData` / `window.initDashboard` 全局挂载，改为 `dashboard:refresh` CustomEvent 监听；5 个 StorageService 的 sync 事件合并为 200ms 防抖刷新（原并发同步触发最多 5 次看板刷新）
+- `js/main.js` `handleNavigation()` 导航到看板时 `window.loadDashboardData()` 改为 `dispatchEvent(new CustomEvent('dashboard:refresh'))`
+- 技术债 TD-P2-24：`SampleDataGenerator.js` L262 仍引用 `window.loadDashboardData`（修复后为 undefined 走 catch 分支，由同文件 `dataChanged` 事件后备触发刷新，功能不丢失但产生误导性日志），建议与 P1-22 合并清理，已登记
