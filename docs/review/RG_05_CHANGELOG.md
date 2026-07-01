@@ -1,6 +1,6 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§4 文档变更记录 + 附录
-> **最后更新**：v0.34（2026-07-01）
+> **最后更新**：v0.35（2026-07-01）
 
 ---
 
@@ -133,3 +133,11 @@
 - `js/core/Storage.js` 实例化 `AdaptiveUploadQueue` 时传入 `getBaseUrl: () => this.apiBaseUrl`，使上传队列请求跟随 `StorageService.apiBaseUrl` 配置
 - 默认配置下拼接结果与原硬编码完全一致，行为零变化；唯一消费方为 `Storage.js`，无遗漏调用方
 - 技术债 TD-P2-28：`AdaptiveUploadQueue._fetchLatest()`（409 冲突恢复路径）同样硬编码 `/api/records/`，本次仅按 RG_03b 明确范围修复 `_doRequest()`，`_fetchLatest()` 后续一并迁移，已登记
+
+## v0.35 — P1-25 闭环
+- fix(P1-25): 根package.json依赖版本对齐backend，dev脚本统一走backend入口（55f4321）
+- `/package.json` 的 `cors`/`dotenv`/`express`/`jsonwebtoken` 4 项依赖版本对齐 `backend/package.json`（`^2.8.6`/`^16.6.1`/`^4.22.1`/`^9.0.2`），消除开发与生产环境版本漂移；`bcryptjs` 两端已一致未改
+- `dev` 脚本由 `nodemon backend/server.js` 改为 `cd backend && npm run dev`，与 `start` 脚本模式一致，统一由 backend 承担启动逻辑，消除 `nodemon`/`node --watch` 混用
+- `package-lock.json` 经 `npm install --package-lock-only` 同步，与 manifest 版本范围一致
+- 生产部署走 `backend/package.json`，本次未改 backend 清单，生产零影响；4 项均为向后兼容小版本升级，无破坏性变更
+- 技术债 TD-P2-29：`/package.json` `devDependencies` 中 `nodemon` 在 dev 脚本改走 backend 入口后成为未使用依赖；`engines.node`（`>=14.0.0`）与 backend `node --watch`（需 Node 18.11+）要求不一致，已登记

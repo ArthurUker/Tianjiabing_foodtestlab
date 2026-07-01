@@ -1,6 +1,6 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§3 修复执行进度看板
-> **最后更新**：v0.34（2026-07-01）｜对应 FIX_PLAN 版本：v1.12
+> **最后更新**：v0.35（2026-07-01）｜对应 FIX_PLAN 版本：v1.12
 
 ---
 
@@ -49,15 +49,17 @@
 
 > **P1-24 闭环（2026-07-01）**：`js/core/AdaptiveUploadQueue.js` 构造函数新增 `getBaseUrl` 回调选项（默认返回 `/api/records` 保持向后兼容），`_doRequest()` 四类 URL（POST/PUT/DELETE/fallback）前缀由硬编码 `/api/records/` 改为 `${this._getBaseUrl()}/`，跟随 `StorageService.apiBaseUrl` 配置；`js/core/Storage.js` 实例化 `AdaptiveUploadQueue` 时传入 `getBaseUrl: () => this.apiBaseUrl`。默认配置下拼接结果与原硬编码完全一致，行为零变化。技术债 TD-P2-28（`_fetchLatest()` 同样硬编码 `/api/records/`，本次仅按 RG_03b 明确范围修复 `_doRequest()`）登记。详见 [FIX_P1-24_uploadQueueBaseUrl.md](../fix/P1/FIX_P1-24_uploadQueueBaseUrl.md)。
 
+> **P1-25 闭环（2026-07-01）**：`/package.json` 的 `cors`/`dotenv`/`express`/`jsonwebtoken` 4 项依赖版本对齐 `backend/package.json`（`^2.8.6`/`^16.6.1`/`^4.22.1`/`^9.0.2`），消除开发与生产环境版本漂移；`dev` 脚本由 `nodemon backend/server.js` 改为 `cd backend && npm run dev`，与 `start` 脚本模式一致，统一由 backend 承担启动逻辑，消除 `nodemon`/`node --watch` 混用；`package-lock.json` 经 `npm install --package-lock-only` 同步。`bcryptjs` 两端已一致未改。生产部署走 `backend/package.json`，本次未改 backend 清单，生产零影响。技术债 TD-P2-29（`nodemon` 未使用依赖 + `engines.node` 与 `node --watch` 要求不一致）登记。详见 [FIX_P1-25_packageVersionSync.md](../fix/P1/FIX_P1-25_packageVersionSync.md)。
+
 ### 总体进度
 
 | 类别 | 总数 | ✅ 已完成 | ⬜ 待处理 | 完成率 |
 |------|------|----------|----------|--------|
 | P0（安全/高危） | 10 | 10 | 0 | 100% |
-| 🟡 P1 重要 | 26 | 24 | 2 | 92.3% |
+| 🟡 P1 重要 | 26 | 25 | 1 | 96.2% |
 | 🟢 P2 优化 | 22 | 0 | 22 | 0% |
 | 📄 DOCS 文档 | 4 | 0 | 4 | 0% |
-| **合计** | **62** | **34** | **28** | **54.8%** |
+| **合计** | **62** | **35** | **27** | **56.5%** |
 
 ### P0 高危问题修复状态（10 项）
 
