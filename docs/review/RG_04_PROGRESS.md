@@ -1,6 +1,6 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§3 修复执行进度看板
-> **最后更新**：v0.24（2026-07-01）｜对应 FIX_PLAN 版本：v1.12
+> **最后更新**：v0.25（2026-07-01）｜对应 FIX_PLAN 版本：v1.12
 
 ---
 
@@ -29,15 +29,17 @@
 
 > **P1-14 闭环（2026-07-01）**：`js/core/Storage.js` 新增 `getAllFresh()` 异步方法，调用 `_syncFromApi(true)` 强制绕过 30 秒冷却并 `await` 等待同步完成后返回最新缓存。保留 `getAll()` 同步签名不变以兼容 ~30 处现有调用方（Pathogen / GenericTest / Tableware / Dashboard / ExportService），零崩溃风险。技术债 TD-P2-18（getAll() 调用方迁移至 getAllFresh() 评估）登记。详见 [FIX_P1-14_storageCache.md](../fix/P1/FIX_P1-14_storageCache.md)。
 
+> **P1-15 闭环（2026-07-01）**：`backend/server.js` `POST /api/test-records` 补齐与 `POST /api/records/:tableName` 一致的幂等检查（`findUnique` 前置查询 + P2002 并发冲突幂等返回 + P2003 外键约束 422 处理），根治 P0-06 之后接口层未配套幂等检查导致的重复数据根因。P0-06 已从数据层（确定性 `record_code` + `@unique` 约束）阻止重复，本次补齐接口层幂等处理。技术债 TD-P2-19（两套创建接口入参结构不一致、跨接口幂等性统一）登记。详见 [FIX_P1-15_dedupeRoot.md](../fix/P1/FIX_P1-15_dedupeRoot.md)。
+
 ### 总体进度
 
 | 类别 | 总数 | ✅ 已完成 | ⬜ 待处理 | 完成率 |
 |------|------|----------|----------|--------|
 | P0（安全/高危） | 10 | 10 | 0 | 100% |
-| 🟡 P1 重要 | 26 | 14 | 12 | 53.8% |
+| 🟡 P1 重要 | 26 | 15 | 11 | 57.7% |
 | 🟢 P2 优化 | 22 | 0 | 22 | 0% |
 | 📄 DOCS 文档 | 4 | 0 | 4 | 0% |
-| **合计** | **62** | **24** | **38** | **38.7%** |
+| **合计** | **62** | **25** | **37** | **40.3%** |
 
 ### P0 高危问题修复状态（10 项）
 

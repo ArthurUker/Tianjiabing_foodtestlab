@@ -1,6 +1,6 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§4 文档变更记录 + 附录
-> **最后更新**：v0.24（2026-07-01）
+> **最后更新**：v0.25（2026-07-01）
 
 ---
 
@@ -68,3 +68,9 @@
 - `js/core/Storage.js` 新增 `getAllFresh()` 异步方法：`await _syncFromApi(true)` 绕过 30 秒冷却强制同步后返回最新缓存
 - 保留 `getAll()` 同步签名不变以兼容 ~30 处现有调用方（Pathogen / GenericTest / Tableware / Dashboard / ExportService），零崩溃风险
 - 技术债 TD-P2-18：`getAll()` 调用方迁移至 `await getAllFresh()` 评估（ExportService / Dashboard 首次加载 / 各模块查询入口），已登记
+
+## v0.25 — P1-15 闭环
+- fix(P1-15): /api/test-records 增加幂等检查与P2002/P2003处理，根治重复数据（e821296）
+- `backend/server.js` `POST /api/test-records` 补齐 `findUnique` 前置幂等检查 + P2002 并发冲突幂等返回 + P2003 外键约束 422 处理，与 `POST /api/records/:tableName` 实现一致
+- P0-06 已从数据层（确定性 `record_code` + `@unique` 约束）阻止重复，本次补齐接口层幂等处理，根治"重复数据根因未根治"
+- 技术债 TD-P2-19：`POST /api/test-records` 与 `POST /api/records/:tableName` 两套创建接口入参结构不一致（结构化字段 vs 扁平 payload + `buildRecordWriteData`），`record_code` 哈希基础不同，跨接口幂等性统一待评估，已登记
