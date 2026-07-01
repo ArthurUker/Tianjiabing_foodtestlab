@@ -1,6 +1,6 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§3 修复执行进度看板
-> **最后更新**：v0.35（2026-07-01）｜对应 FIX_PLAN 版本：v1.12
+> **最后更新**：v0.36（2026-07-01）｜对应 FIX_PLAN 版本：v1.12
 
 ---
 
@@ -51,15 +51,17 @@
 
 > **P1-25 闭环（2026-07-01）**：`/package.json` 的 `cors`/`dotenv`/`express`/`jsonwebtoken` 4 项依赖版本对齐 `backend/package.json`（`^2.8.6`/`^16.6.1`/`^4.22.1`/`^9.0.2`），消除开发与生产环境版本漂移；`dev` 脚本由 `nodemon backend/server.js` 改为 `cd backend && npm run dev`，与 `start` 脚本模式一致，统一由 backend 承担启动逻辑，消除 `nodemon`/`node --watch` 混用；`package-lock.json` 经 `npm install --package-lock-only` 同步。`bcryptjs` 两端已一致未改。生产部署走 `backend/package.json`，本次未改 backend 清单，生产零影响。技术债 TD-P2-29（`nodemon` 未使用依赖 + `engines.node` 与 `node --watch` 要求不一致）登记。详见 [FIX_P1-25_packageVersionSync.md](../fix/P1/FIX_P1-25_packageVersionSync.md)。
 
+> **P1-26 闭环（2026-07-01）**：通过生产部署脚本 `deploy.ps1` L107/L311-322 确认权威生产 `DATABASE_URL = file:D:/ZhuHaiYiZhong-data/zhuhaiyizhong.db`（物理路径 `D:\ZhuHaiYiZhong-data\zhuhaiyizhong.db`），部署脚本强制写入 `backend/.env`，`.env.example` L17 模板值与生产一致。REVIEW_GUIDE v0.7 记录（`D:\ZhuHaiYiZhong-data\zhuhaiyizhong.db`）经确认正确；`docs/` 系统文档（ARCHITECTURE/DATABASE_SCHEMA/DEPLOYMENT_GUIDE/README）记录的 `D:\珠海一中\foodtestlab.db` 为田家炳系统遗留错误路径，归 DOCS-01/02/03/04 系列统一修正。`RG_01_SYSTEM.md` §1.2 歧义说明已替换为确认结论。代码无变更（`schema.prisma`/`deploy.ps1`/`.env.example` 均已正确）。技术债 TD-P2-30（docs/ 系统文档路径统一）登记。详见 [FIX_P1-26_databasePathAmbiguity.md](../fix/P1/FIX_P1-26_databasePathAmbiguity.md)。
+
 ### 总体进度
 
 | 类别 | 总数 | ✅ 已完成 | ⬜ 待处理 | 完成率 |
 |------|------|----------|----------|--------|
 | P0（安全/高危） | 10 | 10 | 0 | 100% |
-| 🟡 P1 重要 | 26 | 25 | 1 | 96.2% |
+| 🟡 P1 重要 | 26 | 26 | 0 | 100% 🎉 |
 | 🟢 P2 优化 | 22 | 0 | 22 | 0% |
 | 📄 DOCS 文档 | 4 | 0 | 4 | 0% |
-| **合计** | **62** | **35** | **27** | **56.5%** |
+| **合计** | **62** | **36** | **26** | **58.1%** |
 
 ### P0 高危问题修复状态（10 项）
 

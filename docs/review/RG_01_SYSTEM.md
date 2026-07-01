@@ -1,6 +1,6 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§1 系统背景速查（§1.1 ~ §1.9）
-> **最后更新**：v0.10（2026-06-23）
+> **最后更新**：v0.36（2026-07-01 P1-26 闭环 — 数据库路径歧义确认）
 
 ---
 
@@ -31,17 +31,18 @@
 | 前端访问端口 | `8082` |
 | 后端 API 端口 | `3002` |
 | PM2 进程名 | `zhuhaiyizhong-api` |
-| 数据库文件 | ⚠️ **路径存在歧义，见下方说明（P1-26）** |
+| 数据库文件 | `D:\ZhuHaiYiZhong-data\zhuhaiyizhong.db`（✅ P1-26 已确认） |
 | API 前缀 | `/api` |
 | 登录接口 | `POST /api/user/login` |
 | 初始管理员账号 | `admin` / 由 `.env` 中 `SEED_ADMIN_PASSWORD` 配置（✅ P0-05 已修复，明文 fallback 已删除）|
 | 初始测试员账号 | `operator` / 由 `.env` 中 `SEED_OPERATOR_PASSWORD` 配置（✅ P0-05 已修复）|
 | 初始查看员账号 | `viewer` / 由 `.env` 中 `SEED_VIEWER_PASSWORD` 配置（✅ P0-05 已修复）|
 
-> ⚠️ **数据库路径歧义（P1-26）**：
-> - `docs/` 系统文档记录：`D:\珠海一中\foodtestlab.db`
-> - 本文档 v0.7 记录：`D:\ZhuHaiYiZhong-data\zhuhaiyizhong.db`
-> - **两个路径不一致，请以生产服务器 `.env` 中的 `DATABASE_URL` 实际值为准，并统一所有文档。**
+> ✅ **数据库路径已确认（P1-26 闭环）**：
+> - **生产服务器实际 `DATABASE_URL`**：`file:D:/ZhuHaiYiZhong-data/zhuhaiyizhong.db`（对应物理路径 `D:\ZhuHaiYiZhong-data\zhuhaiyizhong.db`）
+> - **确认依据**：`deploy.ps1` L107（`$dataPath = "D:\ZhuHaiYiZhong-data"`）+ L311-322（部署时强制写入 `backend/.env` 的 `DATABASE_URL`），部署脚本覆盖 `.env.example` 模板值，运行时路径以部署脚本为准
+> - **`.env.example` L17** 记录 `DATABASE_URL="file:D:/ZhuHaiYiZhong-data/zhuhaiyizhong.db"`，与生产实际一致 ✅
+> - **`docs/` 系统文档**（ARCHITECTURE.md / DATABASE_SCHEMA.md / DEPLOYMENT_GUIDE.md / README.md）仍记录田家炳系统遗留路径 `D:\珠海一中\foodtestlab.db`（错误），将在 DOCS-01/02/03/04 系列中统一修正（TD-P2-30）
 
 ### 1.3 完整项目目录结构（v0.8 更新）
 

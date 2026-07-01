@@ -1,6 +1,6 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§4 文档变更记录 + 附录
-> **最后更新**：v0.35（2026-07-01）
+> **最后更新**：v0.36（2026-07-01）
 
 ---
 
@@ -141,3 +141,12 @@
 - `package-lock.json` 经 `npm install --package-lock-only` 同步，与 manifest 版本范围一致
 - 生产部署走 `backend/package.json`，本次未改 backend 清单，生产零影响；4 项均为向后兼容小版本升级，无破坏性变更
 - 技术债 TD-P2-29：`/package.json` `devDependencies` 中 `nodemon` 在 dev 脚本改走 backend 入口后成为未使用依赖；`engines.node`（`>=14.0.0`）与 backend `node --watch`（需 Node 18.11+）要求不一致，已登记
+
+## v0.36 — P1-26 闭环（P1 系列全部完成 🎉）
+- fix(P1-26): 确认生产数据库路径权威值，消除 docs/ 与 REVIEW_GUIDE 记录歧义（代码无变更）
+- 通过生产部署脚本 `deploy.ps1` L107/L311-322 确认权威生产 `DATABASE_URL = file:D:/ZhuHaiYiZhong-data/zhuhaiyizhong.db`（物理路径 `D:\ZhuHaiYiZhong-data\zhuhaiyizhong.db`），部署脚本强制写入 `backend/.env` 覆盖模板值
+- `.env.example` L17 模板值（`file:D:/ZhuHaiYiZhong-data/zhuhaiyizhong.db`）与生产实际一致；REVIEW_GUIDE v0.7 记录经确认正确
+- `docs/` 系统文档（ARCHITECTURE/DATABASE_SCHEMA/DEPLOYMENT_GUIDE/README）记录的 `D:\珠海一中\foodtestlab.db` 为田家炳系统遗留错误路径，归 DOCS-01/02/03/04 系列统一修正
+- `RG_01_SYSTEM.md` §1.2 歧义说明替换为确认结论；代码无变更（`schema.prisma`/`deploy.ps1`/`.env.example` 均已正确）
+- 技术债 TD-P2-30：`docs/` 系统文档数据库路径统一修正（50+ 处），归 DOCS 系列处理，已登记
+- 里程碑：P1 系列 26/26 全部完成，进入 P2 优化阶段
