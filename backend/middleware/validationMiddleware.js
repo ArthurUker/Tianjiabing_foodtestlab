@@ -262,6 +262,21 @@ export const fieldValidators = {
     date: (value) => {
         const dateObj = new Date(value)
         return !isNaN(dateObj.getTime())
+    },
+
+    // P1-23: 与前端 FormValidator.dateNotFuture 对齐，确保后端校验为前端超集
+    dateNotFuture: (value) => {
+        const dateObj = new Date(value)
+        if (isNaN(dateObj.getTime())) {
+            return false
+        }
+        return dateObj <= new Date()
+    },
+
+    // P1-23: 与前端 FormValidator.idCard 对齐，确保后端校验为前端超集
+    idCard: (value) => {
+        const idCardRegex = /^[1-9]\d{5}(18|19|20)\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\d{3}[\dXx]$/
+        return idCardRegex.test(value)
     }
 }
 
