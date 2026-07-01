@@ -251,6 +251,20 @@ export function createUserRoutes(userManager) {
     // 删除用户
     router.delete('/:userId', authenticateUser, authorizeRoles('admin', 'manager'), async (req, res) => {
         try {
+            // P1-17: 防止管理员删除自身账号
+            if (req.user && req.user.userId === req.params.userId) {
+                return res.status(400).json({ error: '❌ 不能删除自己的账号' })
+            }
+
+            // P1-17: 防止删除最后一个 admin 导致系统锁死
+            const targetUser = await userManager.prisma.user.findUnique({ where: { id: req.params.userId } })
+            if (targetUser && targetUser.role === 'admin') {
+                const adminCount = await userManager.prisma.user.count({ where: { role: 'admin', status: 'active' } })
+                if (adminCount <= 1) {
+                    return res.status(400).json({ error: '❌ 无法删除最后一个管理员账号，系统将无法管理' })
+                }
+            }
+
             const result = await userManager.deleteUser(req.params.userId)
             res.json(result)
         } catch (error) {

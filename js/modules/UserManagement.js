@@ -371,7 +371,13 @@ export class UserManagement {
      * 删除用户
      */
     async deleteUser(userId) {
-        if (!confirm('确定要删除这个用户吗？')) return;
+        // P1-17: 升级为两步确认，显示用户名，防止误删
+        const user = this.users?.find(u => String(u.id) === String(userId)) || {}
+        const displayName = user.username || user.name || userId
+        const firstConfirm = confirm(`⚠️ 即将删除用户「${displayName}」\n\n此操作不可撤销，确定要继续吗？`)
+        if (!firstConfirm) return
+        const secondConfirm = confirm(`请再次确认：\n\n确定要永久删除用户「${displayName}」吗？`)
+        if (!secondConfirm) return
 
         try {
             UINotification.loading('正在删除用户...');
