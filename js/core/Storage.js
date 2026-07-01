@@ -86,6 +86,14 @@ export class StorageService {
         return cached;
     }
 
+    // P1-14: 新增强制同步刷新方法，调用方需要最新数据时使用
+    // 解决 getAll() 同步返回本地缓存导致数据一致性无保障的问题
+    // 注意：getAll() 保留同步签名以兼容现有 ~30 处调用方，需服务端最新数据时改用 getAllFresh()
+    async getAllFresh() {
+        await this._syncFromApi(true);
+        return this._getLocalCacheData();
+    }
+
     save(data) {
         const clean = this._sanitizePayload(data || {});
 
