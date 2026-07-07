@@ -323,7 +323,8 @@ function showEditModal(record, currentUser) {
             
             if(loc && rlu) {
                 points.push({ loc, rlu, res });
-                if (!res.includes('合格')) allPassed = false;
+                // 业务口径（2026-07-02）："不合格"也包含"合格"子串，必须排除，否则不合格点位被当作通过
+                if (!res.includes('合格') || res.includes('不合格')) allPassed = false;
             }
         });
 
@@ -417,21 +418,23 @@ function determineResult(rluValue) {
 }
 
 // 修复：调整判断顺序，先判断"不合格"
+// P2-23: 使用显式 && !includes('不合格') 排除，消除判断顺序依赖
 function getResultIcon(result) {
     if (!result) return '';
     if (result.includes('不合格')) return 'fas fa-times-circle'; // 红色叉号
     if (result.includes('警戒')) return 'fas fa-exclamation-circle';
-    if (result.includes('合格')) return 'fas fa-check-circle';
+    if (result.includes('合格') && !result.includes('不合格')) return 'fas fa-check-circle';
     return '';
 }
 
 // 修复：调整判断顺序，先判断"不合格"
+// P2-23: 使用显式 && !includes('不合格') 排除，消除判断顺序依赖
 function updateResultFieldStyle(resultField) {
     const value = resultField.value;
     resultField.className = 'w-full border border-gray-300 p-2 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500';
     if (value.includes('不合格')) resultField.classList.add('bg-red-50', 'text-red-800');
     else if (value.includes('警戒')) resultField.classList.add('bg-yellow-50', 'text-yellow-800');
-    else if (value.includes('合格')) resultField.classList.add('bg-green-50', 'text-green-800');
+    else if (value.includes('合格') && !value.includes('不合格')) resultField.classList.add('bg-green-50', 'text-green-800');
 }
 
 function updateFormStructure() {
@@ -734,8 +737,7 @@ function handleFormSubmit(e) {
 // ✅ 修改：renderTable 函数增加食堂筛选逻辑
 function renderTable() {
     // ✨ 设置调试标志
-    window.renderTableExecuted = (window.renderTableExecuted || 0) + 1;
-    console.log('🎯 renderTable() 被调用 - 第', window.renderTableExecuted, '次');
+    console.log('🎯 renderTable() 被调用');
     
     // ✨ 快速访问模式：直接从localStorage读取，绕过StorageService缓存
     let allRecords;
@@ -762,12 +764,6 @@ function renderTable() {
     }
     
     const tbody = document.getElementById('tablewareRecords');
-    window.lastTableRenderDebug = {
-        called: true,
-        tbodyFound: !!tbody,
-        allRecordsCount: allRecords.length,
-        isQuickAccess: isQuickAccess
-    };
     console.log('🎯 获取tbody元素:', tbody ? 'found' : 'not found', '记录数:', allRecords.length);
     if (!tbody) {
         console.error('❌ tablewareRecords 元素不存在!');
@@ -1018,11 +1014,12 @@ function updatePagination(start, end, total, pages) {
 }
 
 // 修复：调整判断顺序，先判断"不合格"
+// P2-23: 使用显式 && !includes('不合格') 排除，消除判断顺序依赖
 function getResultClass(result) {
     if (!result) return 'bg-gray-100 text-gray-800';
     if (result.includes('不合格')) return 'bg-red-100 text-red-800'; // 红色
     if (result.includes('警戒')) return 'bg-yellow-100 text-yellow-800';
-    if (result.includes('合格')) return 'bg-green-100 text-green-800';
+    if (result.includes('合格') && !result.includes('不合格')) return 'bg-green-100 text-green-800';
     return 'bg-gray-100 text-gray-800';
 }
 
@@ -1205,7 +1202,7 @@ window.showTablewareDetail = function(recordId) {
                                 <tr>
                                     <td class="py-1 w-1/3">${p.loc}</td>
                                     <td class="py-1 w-1/3">RLU: ${p.rlu}</td>
-                                    <td class="py-1 w-1/3 font-bold ${p.res.includes('合格')?'text-green-600':'text-red-600'}">${p.res}</td>
+                                    <td class="py-1 w-1/3 font-bold ${(p.res.includes('合格') && !p.res.includes('不合格'))?'text-green-600':'text-red-600'}">${p.res}</td>
                                 </tr>
                             `).join('')}
                         </table>

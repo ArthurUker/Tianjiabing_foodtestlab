@@ -98,46 +98,6 @@
         document.addEventListener('DOMContentLoaded', () => console.log('📍 页面 DOMContentLoaded 事件触发'));
     </script>
     
-    <!-- ✅ 内联导航处理函数 - 确保被加载 -->
-    <script>
-        window.handleNavigation = function(target) {
-            console.log('📍 handleNavigation 被调用 (内联)，目标:', target);
-            
-            if (!target) return;
-            
-            // 获取所有按钮和内容区域
-            const allBtns = document.querySelectorAll('.nav-btn');
-            const allSections = document.querySelectorAll('.content-section');
-            
-            console.log('  按钮数:', allBtns.length, '内容区数:', allSections.length);
-            
-            // 移除所有激活状态
-            allBtns.forEach(btn => {
-                btn.classList.remove('active', 'bg-blue-700');
-            });
-            allSections.forEach(section => {
-                section.classList.add('hidden');
-            });
-            
-            // 找到目标按钮并激活
-            const targetBtn = Array.from(allBtns).find(btn => btn.getAttribute('data-target') === target);
-            if (targetBtn) {
-                targetBtn.classList.add('active', 'bg-blue-700');
-                console.log('  ✅ 按钮已激活');
-            }
-            
-            // 显示目标内容
-            const targetSection = document.getElementById(target);
-            if (targetSection) {
-                targetSection.classList.remove('hidden');
-                console.log('  ✅ 内容已显示:', target);
-            } else {
-                console.error('  ❌ 无法找到内容区域:', target);
-            }
-        };
-        
-        console.log('✅ handleNavigation 函数已在 HEAD 中定义');
-    </script>
     
     <!-- ✨ 快速访问模式初始化 - 在页面加载最早阶段隐藏编辑功能 -->
     <script>
@@ -270,38 +230,38 @@
                 <p class="text-xs text-gray-400 mt-1">Version 4.0</p>
             </div>
             <nav class="p-2 space-y-1">
-                <button class="nav-btn active w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="dashboard" onclick="window.handleNavigation('dashboard')">
+                <button class="nav-btn active w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="dashboard">
                     <i class="fas fa-tachometer-alt mr-3 w-5"></i>数据看板
                 </button>
-                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="tableware-test" onclick="window.handleNavigation('tableware-test')">
+                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="tableware-test">
                     <i class="fas fa-utensils mr-3 w-5"></i>餐具洁净度
                 </button>
-                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="pesticide-test" onclick="window.handleNavigation('pesticide-test')">
+                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="pesticide-test">
                     <i class="fas fa-seedling mr-3 w-5"></i>果蔬农残
                 </button>
-                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="oil-test" onclick="window.handleNavigation('oil-test')">
+                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="oil-test">
                     <i class="fas fa-oil-can mr-3 w-5"></i>食用油品质
                 </button>
-                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="lean-meat-test" onclick="window.handleNavigation('lean-meat-test')">
+                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="lean-meat-test">
                     <i class="fas fa-drumstick-bite mr-3 w-5"></i>肉、蛋农残检测
                 </button>
-                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="pathogen-test" onclick="window.handleNavigation('pathogen-test')">
+                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="pathogen-test">
                     <i class="fas fa-virus mr-3 w-5"></i>病原体检测
                 </button>
                 
                 <!-- 管理功能 (仅管理员可见) -->
                 <div class="border-t border-gray-700 my-2" data-admin-only></div>
                 <div class="px-4 py-2 text-xs text-gray-400 font-semibold" data-admin-only>管理</div>
-                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="export-data" data-admin-only onclick="window.handleNavigation('export-data')">
+                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="export-data" data-admin-only>
                     <i class="fas fa-file-export mr-3 w-5"></i>数据导出
                 </button>
-                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="backup-restore" data-admin-only onclick="window.handleNavigation('backup-restore')">
+                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="backup-restore" data-admin-only>
                     <i class="fas fa-history mr-3 w-5"></i>数据备份与恢复
                 </button>
-                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="user-management" data-admin-only onclick="window.handleNavigation('user-management')">
+                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="user-management" data-admin-only>
                     <i class="fas fa-users mr-3 w-5"></i>用户管理
                 </button>
-                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="audit-log" data-admin-only onclick="window.handleNavigation('audit-log')">
+                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="audit-log" data-admin-only>
                     <i class="fas fa-history mr-3 w-5"></i>审计日志
                 </button>
             </nav>
@@ -931,15 +891,19 @@
                             if (type === 'tableware') {
                                 records.forEach(r => {
                                     count++;
-                                    if (r.result && r.result.includes('合格')) {
+                                    // 业务口径（2026-07-02业务方裁定）：仅"合格"计为合格，"警戒""不合格"等其余结果均计为不合格
+                                    // 当前表达式已满足该口径：警戒类结果不含"合格"子串，自动归入不合格分支，请勿改为宽松匹配
+                                    if (r.result && r.result.includes('合格') && !r.result.includes('不合格')) {
                                         passCount++;
                                     }
                                 });
                             } else if (type === 'pesticide' || type === 'oil') {
                                 count = records.length;
                                 records.forEach(r => {
-                                    if ((r.result && r.result.includes('合格')) || 
-                                        (r.pestResult && r.pestResult.includes('合格'))) {
+                                    // 业务口径（2026-07-02业务方裁定）：仅"合格"计为合格，"警戒""不合格"等其余结果均计为不合格
+                                    // 当前表达式已满足该口径：警戒类结果不含"合格"子串，自动归入不合格分支，请勿改为宽松匹配
+                                    if ((r.result && r.result.includes('合格') && !r.result.includes('不合格')) || 
+                                        (r.pestResult && r.pestResult.includes('合格') && !r.pestResult.includes('不合格'))) {
                                         passCount++;
                                     }
                                 });

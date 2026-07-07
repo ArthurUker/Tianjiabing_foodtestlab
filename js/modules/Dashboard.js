@@ -708,7 +708,10 @@ function getLeanMeatStatsByType(startDate, endDate, selectedCanteen = 'all') {
             meatTypes[meatType].records.push(r);
             
             const result = (r.result || '').toString().trim();
-            if (result.includes('合格')) {
+            // 业务口径（2026-07-02业务方裁定）：仅"合格"计为合格，"警戒""不合格"等其余结果均计为不合格
+            // 当前表达式已满足该口径：警戒类结果不含"合格"子串，自动归入不合格分支，请勿改为宽松匹配
+            // ⚠️ 注意："不合格"也包含"合格"子串，必须先排除"不合格"，否则会把不合格误判为合格
+            if (result.includes('合格') && !result.includes('不合格')) {
                 meatTypes[meatType].passCount++;
             }
         }
@@ -860,7 +863,10 @@ function getStats(type, startDate, endDate, selectedCanteen = 'all') {
               r.atpPoints.forEach(point => {
                   count++;
                   const result = (point.result || point.res || '').toString().trim();
-                  if (result === '合格' || result.includes('合格')) {
+                  // 业务口径（2026-07-02业务方裁定）：仅"合格"计为合格，"警戒""不合格"等其余结果均计为不合格
+                  // 当前表达式已满足该口径：警戒类结果不含"合格"子串，自动归入不合格分支，请勿改为宽松匹配
+                  // ⚠️ 注意："不合格"也包含"合格"子串，必须先排除"不合格"，否则会把不合格误判为合格
+                  if (result.includes('合格') && !result.includes('不合格')) {
                       passCount++;
                   }
               });
@@ -909,7 +915,10 @@ function getStats(type, startDate, endDate, selectedCanteen = 'all') {
       passCount = sortedRecords.filter(r => {
           const result = (r.result || '').toString().trim();
           const colorLevel = (r.colorLevel || '').toString().trim();
-          return result.includes('合格') || colorLevel === '合格';
+          // 业务口径（2026-07-02业务方裁定）：仅"合格"计为合格，"警戒""不合格"等其余结果均计为不合格
+          // 当前表达式已满足该口径：警戒类结果不含"合格"子串，自动归入不合格分支，请勿改为宽松匹配
+          // ⚠️ 注意："不合格"也包含"合格"子串，必须先排除"不合格"
+          return (result.includes('合格') && !result.includes('不合格')) || colorLevel === '合格';
       }).length;
   }
 
@@ -1084,9 +1093,11 @@ function updateRiskAlerts(stats, leanMeatByType) {
 
 // ================= 图表逻辑 =================
 
+let dashedPointPluginRegistered = false; // P2-10 阶段A：原 window._dashedPointPluginRegistered 本地化，避免全局暴露
+
 function initCharts() {
     const trendCtx = document.getElementById('trendChart')?.getContext('2d');
-    if (window.Chart && !window._dashedPointPluginRegistered) {
+    if (window.Chart && !dashedPointPluginRegistered) {
         const dashedPointPlugin = {
             id: 'dashedPointPlugin',
             afterDatasetsDraw(chart) {
@@ -1114,7 +1125,7 @@ function initCharts() {
             }
         };
         Chart.register(dashedPointPlugin);
-        window._dashedPointPluginRegistered = true;
+        dashedPointPluginRegistered = true;
     }
     if (trendCtx) {
         trendChart = new Chart(trendCtx, {
@@ -1282,7 +1293,10 @@ function calculateCanteenTrends(startDate, endDate, selectedCanteen = 'all') {
               record.atpPoints.forEach(point => {
                   canteenData[canteen][recordDate].total++;
                   const result = (point.result || point.res || '').toString().trim();
-                  if (result === '合格' || result.includes('合格')) {
+                  // 业务口径（2026-07-02业务方裁定）：仅"合格"计为合格，"警戒""不合格"等其余结果均计为不合格
+                  // 当前表达式已满足该口径：警戒类结果不含"合格"子串，自动归入不合格分支，请勿改为宽松匹配
+                  // ⚠️ 注意："不合格"也包含"合格"子串，必须先排除"不合格"
+                  if (result.includes('合格') && !result.includes('不合格')) {
                       canteenData[canteen][recordDate].passed++;
                   }
               });
@@ -1295,7 +1309,10 @@ function calculateCanteenTrends(startDate, endDate, selectedCanteen = 'all') {
               canteenData[canteen][recordDate].total++;
               const result = (record.result || '').toString().trim();
               const colorLevel = (record.colorLevel || '').toString().trim();
-              if (result.includes('合格') || colorLevel === '合格') {
+              // 业务口径（2026-07-02业务方裁定）：仅"合格"计为合格，"警戒""不合格"等其余结果均计为不合格
+              // 当前表达式已满足该口径：警戒类结果不含"合格"子串，自动归入不合格分支，请勿改为宽松匹配
+              // ⚠️ 注意："不合格"也包含"合格"子串，必须先排除"不合格"
+              if ((result.includes('合格') && !result.includes('不合格')) || colorLevel === '合格') {
                   canteenData[canteen][recordDate].passed++;
               }
           }
@@ -1439,7 +1456,10 @@ function calculateCanteenPassRate(startDate, endDate, selectedCanteen = 'all') {
                     record.atpPoints.forEach(point => {
                         stats[canteen].total++;
                         const result = (point.result || point.res || '').toString().trim();
-                        if (result === '合格' || result.includes('合格')) {
+                        // 业务口径（2026-07-02业务方裁定）：仅"合格"计为合格，"警戒""不合格"等其余结果均计为不合格
+                        // 当前表达式已满足该口径：警戒类结果不含"合格"子串，自动归入不合格分支，请勿改为宽松匹配
+                        // ⚠️ 注意："不合格"也包含"合格"子串，必须先排除"不合格"
+                        if (result.includes('合格') && !result.includes('不合格')) {
                             stats[canteen].passed++;
                         }
                     });
@@ -1453,7 +1473,10 @@ function calculateCanteenPassRate(startDate, endDate, selectedCanteen = 'all') {
                 stats[canteen].total++;
                 const result = (record.result || '').toString().trim();
                 const colorLevel = (record.colorLevel || '').toString().trim();
-                if (result.includes('合格') || colorLevel === '合格') {
+                // 业务口径（2026-07-02业务方裁定）：仅"合格"计为合格，"警戒""不合格"等其余结果均计为不合格
+                // 当前表达式已满足该口径：警戒类结果不含"合格"子串，自动归入不合格分支，请勿改为宽松匹配
+                // ⚠️ 注意："不合格"也包含"合格"子串，必须先排除"不合格"
+                if ((result.includes('合格') && !result.includes('不合格')) || colorLevel === '合格') {
                     stats[canteen].passed++;
                 }
             }

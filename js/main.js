@@ -67,8 +67,8 @@ window.renderQuickAccessData = () => {
 
 console.log('✅ main.js 模块加载开始');
 
-// ✅ 全局导航处理函数 - 作为 onclick 属性的备份
-window.handleNavigation = function(target) {
+// P2-10 阶段B：导航处理函数改为模块内函数（不再挂 window，由事件委托调用）
+function handleNavigation(target) {
     console.log('🔧 handleNavigation 被调用，目标:', target);
     
     if (!target) return;
@@ -118,7 +118,19 @@ window.handleNavigation = function(target) {
     } else {
         console.error('❌ 无法找到内容区域:', target);
     }
-};
+}
+
+// 保留 window 挂载以兼容 GuestDashboard.js 动态生成 HTML 的内联调用（详见 P2-10 报告）
+window.handleNavigation = handleNavigation;
+
+// P2-10 阶段B：导航按钮改用事件委托（index.html 静态按钮已移除 onclick）
+const navEl = document.querySelector('nav.space-y-1');
+if (navEl) {
+    navEl.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-target]');
+        if (btn) handleNavigation(btn.dataset.target);
+    });
+}
 
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('✅ DOMContentLoaded 事件触发');
@@ -403,14 +415,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.log('✅✅✅ 所有模块初始化完成！');
         
         // ✨ 快速访问模式：后备数据渲染器
-        window.isQuickAccessModeOnInit = isQuickAccessMode;  // 保存状态用于调试
         console.log('🔍 DEBUG: isQuickAccessMode =', isQuickAccessMode);
         
         if (isQuickAccessMode) {
             console.log('🎯 快速访问模式 - 启用后备数据渲染');
-            window.backupRendererScheduled = true;
             setTimeout(() => {
-                window.backupRendererExecuted = true;
                 console.log('🎯 后备渲染器：2秒后检查表格并填充数据');
                 
                 // 专门处理餐具洁净度
