@@ -37,3 +37,4 @@ backend/prisma/*.db
 backend/.env.local
 .env.local
 backend/prisma/prisma/*.db
+*.bak
