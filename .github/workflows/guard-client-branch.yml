@@ -1,0 +1,36 @@
+name: Guard Client Branch Scope
+
+on:
+  push:
+    branches:
+      - 'deploy/**'
+
+jobs:
+  check-scope:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 检查客户分支未修改或删除 main 上已有的核心代码文件
+        run: |
+          git fetch origin main
+
+          # 只关注"修改"(M)和"删除"(D)，新增文件(A)完全允许
+          VIOLATIONS=$(git diff origin/main...HEAD --diff-filter=MD --name-status)
+
+          if [ -n "$VIOLATIONS" ]; then
+            echo "❌ 客户分支修改或删除了 main 上已有的核心代码文件，违反架构约束："
+            echo ""
+            echo "$VIOLATIONS"
+            echo ""
+            echo "---"
+            echo "架构规则：客户分支（deploy/**）只允许新增部署专属文件（deploy.ps1、nginx 配置等），"
+            echo "不得修改或删除 main 上已有的应用核心代码文件（js/、backend/、css/、html 等）。"
+            echo "如需修复应用代码缺陷，请在 main 分支修复后合并到客户分支，而非直接在客户分支修改。"
+            exit 1
+          fi
+
+          echo "✅ 通过：本分支仅新增文件（部署脚本等），未触碰 main 既有核心代码"
