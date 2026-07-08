@@ -3,7 +3,7 @@
 # =========================================================
 $selfPath      = $PSCommandPath
 $selfRepoRoot  = "C:\ZhuHaiYiZhong"
-$selfBranch    = "ZhuHaiYiZhong"
+$selfBranch    = "deploy/zhuhaiyizhong"
 
 if (Test-Path (Join-Path $selfRepoRoot ".git")) {
     $hashBefore = (Get-FileHash $selfPath -Algorithm MD5).Hash
