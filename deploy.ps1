@@ -399,8 +399,21 @@ if (Test-Path "prisma") {
     npx prisma generate
     if ($LASTEXITCODE -ne 0) { Fail "Prisma generate 失败" }
 
-    npx prisma db push --accept-data-loss
-    if ($LASTEXITCODE -ne 0) { Fail "Prisma db push 失败" }
+    # [FIX 5.2] db push 数据丢失可控：
+    #   默认沿用 --accept-data-loss（保持历史行为，避免自动部署因交互提示卡住）；
+    #   设置环境变量 DEPLOY_ACCEPT_DATA_LOSS=false 进入"观察模式"，不自动接受数据丢失。
+    #   观察模式下若 Prisma 检测到会导致数据丢失的 schema 变更，将在此中止部署并交由人工处理
+    #   （部署过程失败、而非静默丢弃数据），符合"宁可卡住也不裸奔"的原则。
+    $acceptDataLoss = if ($env:DEPLOY_ACCEPT_DATA_LOSS -eq "false") { $false } else { $true }
+    if ($acceptDataLoss) {
+        npx prisma db push --accept-data-loss
+    } else {
+        Write-Host "DEPLOY_ACCEPT_DATA_LOSS=false：以观察模式执行 db push（不自动接受数据丢失）" -ForegroundColor Yellow
+        npx prisma db push
+    }
+    if ($LASTEXITCODE -ne 0) {
+        Fail "Prisma db push 失败（若为观察模式触发，通常是检测到需数据丢失的 schema 变更，请人工确认后再带 --accept-data-loss 重跑）"
+    }
     Ok "数据库 schema 同步完成"
 
     if (Test-Path "prisma\seed.js") {
