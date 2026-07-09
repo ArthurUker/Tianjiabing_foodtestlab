@@ -98,9 +98,13 @@ export class NetworkHelper {
      * @param {string} url - 检查用的 URL，默认 Google favicon
      * @returns {Promise<boolean>} 是否连接成功
      */
-    static async checkConnection(url = 'https://www.google.com/favicon.ico') {
+    static async checkConnection(url = '') {
+        // P2-09: 移除硬编码 Google URL（内网/国内不可达），默认探测当前站点健康检查端点
+        const checkUrl = url || (typeof window !== 'undefined'
+            ? `${window.location.origin}/api/health`
+            : '/api/health')
         try {
-            const response = await this.fetchWithTimeout(url, { timeout: 5000 })
+            const response = await this.fetchWithTimeout(checkUrl, { timeout: 5000 })
             return response.ok
         } catch (error) {
             console.warn('网络连接检查失败:', error.message)

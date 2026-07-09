@@ -103,6 +103,8 @@ export class UserManager {
             })
 
             if (!user) {
+                // P2-03: 用户不存在时也记录失败登录（写入 SystemLog，因 AuditLog 需有效 user_id 外键）
+                await this.logFailedLogin(null, username)
                 throw new Error('用户不存在或密码错误')
             }
 
@@ -557,6 +559,17 @@ export class UserManager {
 
     async logFailedLogin(userId, username) {
         try {
+            // P2-03: userId 为 null 时（用户不存在），AuditLog 需有效 user_id 外键无法写入，改记 SystemLog
+            if (!userId) {
+                await this.prisma.systemLog.create({
+                    data: {
+                        level: 'warn',
+                        message: `登录失败（用户不存在）: ${username}`,
+                        context: JSON.stringify({ username, timestamp: new Date().toISOString() })
+                    }
+                })
+                return
+            }
             await this.prisma.auditLog.create({
                 data: {
                     user_id: userId,

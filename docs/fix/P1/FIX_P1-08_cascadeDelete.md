@@ -1,5 +1,7 @@
 # FIX-P1-08：TestRecord 的 onDelete:Cascade 可能导致数据意外丢失
 
+> ⚠️ **历史空模板标注（TD-P2-31，2026-07-02）**：本文件为历史空模板，问题已通过 `FIX_P1-08_cascadeDeleteRisk.md` 重新登记并实际处理（`schema.prisma` onDelete 改为 Restrict + `UserManager.deleteUser()` 前置检查，2026-06-30 闭环）。本文件保留仅作审计追溯，不代表问题未解决。
+
 | 字段 | 内容 |
 |------|------|
 | **问题 ID** | `P1-08` |

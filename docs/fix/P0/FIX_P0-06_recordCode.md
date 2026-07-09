@@ -1,5 +1,7 @@
 # FIX-P0-06：record_code 双重生成逻辑导致幂等性失效
 
+> ⚠️ **历史空模板标注（TD-P2-31，2026-07-02）**：本文件为历史空模板，问题已通过代码修复闭环（见 `FIX_PLAN.md` v1.6 记录：record_code 统一为 `buildDeterministicRecordCode` + `schema.prisma` 添加 `@unique` 约束，2026-06-23 完成核验）。本文件保留仅作审计追溯，不代表问题未解决。
+
 | 字段 | 内容 |
 |------|------|
 | **问题 ID** | `P0-06` |

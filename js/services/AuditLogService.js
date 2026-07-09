@@ -31,10 +31,12 @@ export class AuditLogService {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`
                 },
+                // P1-28: body 字段名对齐后端解构（resource_type/resource_id），
+                // 方法签名参数名 table_name/record_id 保持不变以零影响 11 处调用方
                 body: JSON.stringify({
                     action,
-                    table_name,
-                    record_id,
+                    resource_type: table_name,
+                    resource_id: record_id,
                     details
                 })
             });
@@ -115,7 +117,12 @@ export class AuditLogService {
                 return { success: false, stats: {}, message: '未登录' };
             }
 
-            const response = await fetch(`${this.apiBaseUrl}/api/audit-logs/stats/${date}`, {
+            // P1-27: URL 从 /stats/${date} 改为 /stats/summary，date 转为 query param 对齐后端
+            const params = new URLSearchParams();
+            if (date) params.append('date', date);
+            const queryString = params.toString() ? '?' + params.toString() : '';
+
+            const response = await fetch(`${this.apiBaseUrl}/api/audit-logs/stats/summary${queryString}`, {
                 method: 'GET',
                 headers: {
                     'Authorization': `Bearer ${token}`
@@ -129,9 +136,10 @@ export class AuditLogService {
                 return { success: false, stats: {}, message: data.error };
             }
 
+            // P1-27: 后端返回 { success, data: {...} }，字段名修正 data.stats → data.data
             return {
                 success: true,
-                stats: data.stats || {}
+                stats: data.data || {}
             };
         } catch (error) {
             console.error('❌ 获取统计异常:', error.message);
@@ -197,8 +205,9 @@ export class AuditLogService {
                 return { success: false, message: '未登录' };
             }
 
+            // P1-27: HTTP 方法从 POST 改为 DELETE，对齐后端 DELETE /api/audit-logs/cleanup
             const response = await fetch(`${this.apiBaseUrl}/api/audit-logs/cleanup`, {
-                method: 'POST',
+                method: 'DELETE',
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }

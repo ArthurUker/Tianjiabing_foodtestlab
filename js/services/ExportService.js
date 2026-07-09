@@ -329,6 +329,43 @@ export class ExportService {
         return { startDate, endDate, canteens, testTypes, meatTypes, title, notes };
     }
 
+    // P2-14: 导出前从服务器同步最新数据，避免使用过期的本地缓存
+    async syncBeforeExport() {
+        const results = {};
+        const types = ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'];
+
+        await Promise.all(types.map(async (type) => {
+            try {
+                // 尝试从后端获取最新数据
+                const token = localStorage.getItem('auth_token') || localStorage.getItem('guest_token');
+                const response = await fetch(`/api/records/${type}?limit=10000`, {
+                    headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.success && Array.isArray(data.data)) {
+                        // 更新本地缓存
+                        this.storage[type]._updateLocalCache(data.data);
+                        results[type] = { success: true, count: data.data.length };
+                    } else {
+                        results[type] = { success: false, fallback: true };
+                    }
+                } else {
+                    results[type] = { success: false, fallback: true };
+                }
+            } catch (error) {
+                console.warn(`⚠️ ${type} 数据同步失败，使用本地缓存:`, error.message);
+                results[type] = { success: false, fallback: true, error: error.message };
+            }
+        }));
+
+        const failedTypes = Object.entries(results).filter(([_, r]) => !r.success).map(([t]) => t);
+        if (failedTypes.length > 0) {
+            console.warn(`⚠️ 以下类型数据未能从服务器同步，将使用本地缓存: ${failedTypes.join(', ')}`);
+        }
+        return results;
+    }
+
     // ✅ 修改：收集数据时增加肉类品种筛选
     collectData(config) {
         const data = {};
@@ -406,6 +443,16 @@ export class ExportService {
         const config = this.getExportConfig();
         console.log('📋 配置信息:', config);
         
+        // P2-14: 先从服务器同步最新数据，再收集本地缓存数据
+        this.syncBeforeExport().then(() => {
+            this._doPreviewReport(config);
+        }).catch(err => {
+            console.warn('⚠️ 服务器同步失败，使用本地缓存生成报告:', err.message);
+            this._doPreviewReport(config);
+        });
+    }
+
+    _doPreviewReport(config) {
         const data = this.collectData(config);
         console.log('📊 收集到的数据:', data);
         
@@ -595,7 +642,10 @@ export class ExportService {
             } else {
                 // ✅ 其他类型：统一使用与数据看板相同的判断逻辑
                 const passCount = records.filter(r => {
-                    return r.result?.includes('合格') || r.colorLevel === '合格';
+                    // 业务口径（2026-07-02业务方裁定）：仅"合格"计为合格，"警戒""不合格"等其余结果均计为不合格
+                    // 当前表达式已满足该口径：警戒类结果不含"合格"子串，自动归入不合格分支，请勿改为宽松匹配
+                    // ⚠️ 注意："不合格"也包含"合格"子串，必须先排除"不合格"
+                    return (r.result?.includes('合格') && !r.result?.includes('不合格')) || r.colorLevel === '合格';
                 }).length;
                 
                 const passRate = total > 0 ? ((passCount / total) * 100).toFixed(0) + '%' : '100%';

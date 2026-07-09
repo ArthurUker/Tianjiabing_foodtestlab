@@ -108,8 +108,152 @@ export function createAuditRoutes(prisma, userManager) {
     })
 
     /**
+     * 获取统计数据
+     * GET /api/audit-logs/stats/summary
+     * （仅管理员可访问）
+     * P1-27: 静态路由前移至 /:logId 之前，遵循 Express 最佳实践
+     */
+    router.get('/stats/summary', authenticateUser, authorizeAdmin, async (req, res) => {
+        try {
+            // P2-25: 支持 date 查询参数按指定日期过滤（格式 YYYY-MM-DD）
+            const { date } = req.query
+            let where = {}
+            if (date) {
+                const start = new Date(date + 'T00:00:00')
+                const end = new Date(date + 'T23:59:59.999')
+                if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+                    where.created_at = { gte: start, lte: end }
+                }
+            }
+
+            const actions = await prisma.auditLog.groupBy({
+                by: ['action'],
+                _count: {
+                    id: true
+                },
+                orderBy: {
+                    _count: {
+                        id: 'desc'
+                    }
+                },
+                where
+            })
+
+            const userActions = await prisma.auditLog.groupBy({
+                by: ['user_id'],
+                _count: {
+                    id: true
+                },
+                orderBy: {
+                    _count: {
+                        id: 'desc'
+                    }
+                },
+                take: 10,
+                where
+            })
+
+            const totalLogs = await prisma.auditLog.count({ where })
+
+            res.json({
+                success: true,
+                data: {
+                    totalLogs,
+                    actionStats: actions,
+                    topUsers: userActions
+                }
+            })
+        } catch (error) {
+            console.error('❌ Error fetching audit stats:', error)
+            res.status(400).json({ error: `❌ 统计失败: ${error.message}` })
+        }
+    })
+
+    /**
+     * 导出审计日志 (CSV)
+     * GET /api/audit-logs/export?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
+     * （仅管理员可访问）
+     * P1-27: 新增导出路由，对齐前端 AuditLogService.exportLogs() 调用
+     */
+    router.get('/export', authenticateUser, authorizeAdmin, async (req, res) => {
+        try {
+            const { start_date, end_date } = req.query
+
+            let where = {}
+            if (start_date || end_date) {
+                where.created_at = {}
+                if (start_date) where.created_at.gte = new Date(start_date)
+                if (end_date) {
+                    const endOfDay = new Date(end_date)
+                    endOfDay.setDate(endOfDay.getDate() + 1)
+                    where.created_at.lt = endOfDay
+                }
+            }
+
+            const logs = await prisma.auditLog.findMany({
+                where,
+                include: {
+                    user: {
+                        select: { username: true, full_name: true }
+                    }
+                },
+                orderBy: { created_at: 'desc' },
+                take: 10000
+            })
+
+            const header = '时间,用户,操作类型,资源类型,资源ID,详情,IP地址\n'
+            const rows = logs.map(log => {
+                const time = new Date(log.created_at).toLocaleString('zh-CN')
+                const user = log.user ? `${log.user.username}(${log.user.full_name || ''})` : log.user_id
+                const details = (log.details || '').replace(/[\n\r,]/g, ' ')
+                const ip = log.ip_address || ''
+                return `${time},${user},${log.action},${log.resource_type || ''},${log.resource_id || ''},${details},${ip}`
+            }).join('\n')
+
+            const csv = '\uFEFF' + header + rows
+
+            res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+            res.setHeader('Content-Disposition', `attachment; filename="audit_logs_${new Date().toISOString().split('T')[0]}.csv"`)
+            res.send(csv)
+        } catch (error) {
+            console.error('❌ Error exporting audit logs:', error)
+            res.status(400).json({ error: `❌ 导出失败: ${error.message}` })
+        }
+    })
+
+    /**
+     * 删除旧日志（仅管理员可操作）
+     * DELETE /api/audit-logs/cleanup?days=30
+     * P1-27: 静态路由前移至 /:logId 之前
+     */
+    router.delete('/cleanup', authenticateUser, authorizeAdmin, async (req, res) => {
+        try {
+            const { days = 30 } = req.query
+            const cutoffDate = new Date()
+            cutoffDate.setDate(cutoffDate.getDate() - parseInt(days))
+
+            const result = await prisma.auditLog.deleteMany({
+                where: {
+                    created_at: {
+                        lt: cutoffDate
+                    }
+                }
+            })
+
+            res.json({
+                success: true,
+                message: `已删除 ${result.count} 条${days}天前的日志`
+            })
+        } catch (error) {
+            console.error('❌ Error cleaning up logs:', error)
+            res.status(400).json({ error: `❌ 清理失败: ${error.message}` })
+        }
+    })
+
+    /**
      * 获取单条日志详情
      * GET /api/audit-logs/:logId
+     * P1-27: 动态参数路由移至所有静态路由之后，遵循 Express 最佳实践
      */
     router.get('/:logId', authenticateUser, async (req, res) => {
         try {
@@ -143,82 +287,6 @@ export function createAuditRoutes(prisma, userManager) {
         } catch (error) {
             console.error('❌ Error fetching audit log:', error)
             res.status(400).json({ error: `❌ 查询失败: ${error.message}` })
-        }
-    })
-
-    /**
-     * 获取统计数据
-     * GET /api/audit-logs/stats/summary
-     * （仅管理员可访问）
-     */
-    router.get('/stats/summary', authenticateUser, authorizeAdmin, async (req, res) => {
-        try {
-            const actions = await prisma.auditLog.groupBy({
-                by: ['action'],
-                _count: {
-                    id: true
-                },
-                orderBy: {
-                    _count: {
-                        id: 'desc'
-                    }
-                }
-            })
-
-            const userActions = await prisma.auditLog.groupBy({
-                by: ['user_id'],
-                _count: {
-                    id: true
-                },
-                orderBy: {
-                    _count: {
-                        id: 'desc'
-                    }
-                },
-                take: 10
-            })
-
-            const totalLogs = await prisma.auditLog.count()
-
-            res.json({
-                success: true,
-                data: {
-                    totalLogs,
-                    actionStats: actions,
-                    topUsers: userActions
-                }
-            })
-        } catch (error) {
-            console.error('❌ Error fetching audit stats:', error)
-            res.status(400).json({ error: `❌ 统计失败: ${error.message}` })
-        }
-    })
-
-    /**
-     * 删除旧日志（仅管理员可操作）
-     * DELETE /api/audit-logs/cleanup?days=30
-     */
-    router.delete('/cleanup', authenticateUser, authorizeAdmin, async (req, res) => {
-        try {
-            const { days = 30 } = req.query
-            const cutoffDate = new Date()
-            cutoffDate.setDate(cutoffDate.getDate() - parseInt(days))
-
-            const result = await prisma.auditLog.deleteMany({
-                where: {
-                    created_at: {
-                        lt: cutoffDate
-                    }
-                }
-            })
-
-            res.json({
-                success: true,
-                message: `已删除 ${result.count} 条${days}天前的日志`
-            })
-        } catch (error) {
-            console.error('❌ Error cleaning up logs:', error)
-            res.status(400).json({ error: `❌ 清理失败: ${error.message}` })
         }
     })
 

@@ -276,7 +276,7 @@ class AuditLog {
                             ${actionLabel}
                         </span>
                     </td>
-                    <td class="px-4 py-3 text-sm text-gray-600">${this.escapeHtml(log.table_name)}</td>
+                    <td class="px-4 py-3 text-sm text-gray-600">${this.escapeHtml(log.resource_type)}</td>
                     <td class="px-4 py-3 text-sm text-gray-600 truncate" title="${log.details || ''}">
                         ${log.details ? this.escapeHtml(log.details) : '-'}
                     </td>

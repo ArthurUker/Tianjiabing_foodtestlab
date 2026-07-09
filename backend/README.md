@@ -1,6 +1,6 @@
 # 🍽️ Food Safety Testing System - Backend API Server
 
-Express.js 后端服务器，为前端提供安全的API接口，隐藏Supabase密钥。
+Express.js 后端服务器，为前端提供安全的 API 接口。当前技术栈：Express + Prisma + SQLite（数据访问），JWT + bcryptjs（认证），PM2（进程管理）。
 
 ---
 
@@ -18,12 +18,11 @@ npm install
 编辑 `.env` 文件：
 
 ```env
-# Supabase
-SUPABASE_URL=https://mqnzaxwvyjtfktzqjugl.supabase.co
-SUPABASE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+# 数据库（Prisma + SQLite）
+DATABASE_URL="file:D:/ZhuHaiYiZhong-data/zhuhaiyizhong.db"
 
 # 服务器
-PORT=3000
+PORT=3002
 NODE_ENV=development
 
 # JWT
@@ -48,8 +47,9 @@ npm run dev
 ```
 ╔════════════════════════════════════════╗
 ║  🍽️  Food Safety Testing API Server   ║
-║  ✅ Running on port 3000               ║
-║  🔒 All Supabase keys are protected    ║
+║  ✅ Running on port 3002               ║
+║  🗄️  Prisma + SQLite ready             ║
+║  🔑 JWT auth enabled                   ║
 ║  📝 Environment: development           ║
 ╚════════════════════════════════════════╝
 ```
@@ -236,19 +236,19 @@ Response:
 
 ## 🔐 安全特性
 
-### 1. API密钥隐藏
+### 1. 数据库访问收敛
 
-Supabase 密钥完全隐藏在后端 `.env` 文件中：
+当前后端通过 Prisma Client 统一访问 SQLite 数据库，连接字符串由后端 `.env` 中的 `DATABASE_URL` 控制，前端不再直接接触数据库：
 
 ```javascript
-// ❌ 不安全 (原始方式)
-const client = createClient(URL, PUBLIC_KEY)
+// ❌ 不安全 (前端直连数据库，已弃用)
+// 旧架构：前端持有连接串/密钥直连数据库，存在泄露风险
 
-// ✅ 安全 (后端方式)
-const client = createClient(
-    process.env.SUPABASE_URL,      // 后端环境变量
-    process.env.SUPABASE_KEY       // 后端环境变量
-)
+// ✅ 安全 (当前后端方式)
+import { PrismaClient } from '@prisma/client'
+const prisma = new PrismaClient()
+// DATABASE_URL 由后端 .env 提供，前端不可见
+const user = await prisma.user.findUnique({ where: { username } })
 ```
 
 ### 2. JWT 认证
@@ -311,7 +311,7 @@ function validateInput(data) {
 ### 测试登录
 
 ```bash
-curl -X POST http://localhost:3000/api/auth/login \
+curl -X POST http://localhost:3002/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"admin","password":"admin123"}'
 ```
@@ -332,14 +332,14 @@ curl -X POST http://localhost:3000/api/auth/login \
 TOKEN="your-token-here"
 
 # 获取记录
-curl -X GET "http://localhost:3000/api/records/tableware_tests?limit=10" \
+curl -X GET "http://localhost:3002/api/records/tableware_tests?limit=10" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
 ### 测试数据创建
 
 ```bash
-curl -X POST http://localhost:3000/api/records/tableware_tests \
+curl -X POST http://localhost:3002/api/records/tableware_tests \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -375,21 +375,22 @@ curl -X POST http://localhost:3000/api/records/tableware_tests \
 
 ## 🔧 故障排除
 
-### 问题：无法连接到Supabase
+### 问题：无法连接到数据库
 
 **症状**：
 ```
-❌ Error: connect ECONNREFUSED
+❌ Error: PrismaClientInitializationError
 ```
 
 **解决**：
-1. 检查 `.env` 中的 SUPABASE_URL
-2. 验证网络连接
-3. 确认Supabase项目是否在线
+1. 检查 `.env` 中的 `DATABASE_URL` 是否指向真实存在的 SQLite 文件
+2. 确认数据目录已创建（生产环境为 `D:\ZhuHaiYiZhong-data`）
+3. 执行 `npx prisma generate` 重新生成 Client
+4. 执行 `npx prisma db push --accept-data-loss` 同步表结构
 
-```bash
-# 测试连接
-curl https://mqnzaxwvyjtfktzqjugl.supabase.co/rest/v1/
+```powershell
+# 确认数据库文件存在（Windows）
+Test-Path D:\ZhuHaiYiZhong-data\zhuhaiyizhong.db
 ```
 
 ### 问题：Token无效
@@ -441,25 +442,27 @@ CORS_ORIGIN=*
 
 ## 🚀 部署
 
-### 部署到Heroku
+当前生产环境为腾讯云 Windows Server，使用 PM2 管理后端进程，Nginx 做反向代理。完整一键部署流程见仓库根目录 `deploy.ps1`。
 
-```bash
-# 1. 登录Heroku
-heroku login
+### 生产环境关键配置
 
-# 2. 创建应用
-heroku create your-app-name
+| 项目 | 生产值 |
+|------|------|
+| 后端端口 | `3002` |
+| 前端/Nginx 端口 | `8082` |
+| PM2 应用名 | `zhuhaiyizhong-api` |
+| 数据库文件 | `D:\ZhuHaiYiZhong-data\zhuhaiyizhong.db` |
+| 仓库根目录 | `C:\ZhuHaiYiZhong` |
 
-# 3. 设置环境变量
-heroku config:set SUPABASE_URL=xxx
-heroku config:set SUPABASE_KEY=xxx
-heroku config:set JWT_SECRET=xxx
+### PM2 启动
 
-# 4. 部署
-git push heroku main
+```powershell
+cd C:\ZhuHaiYiZhong\backend
+npx pm2 start server.js --name zhuhaiyizhong-api --time
+npx pm2 save
 ```
 
-### 部署到Docker
+### Docker（可选）
 
 ```dockerfile
 FROM node:18-alpine
@@ -471,7 +474,7 @@ RUN npm ci --only=production
 
 COPY . .
 
-EXPOSE 3000
+EXPOSE 3002
 
 CMD ["node", "server.js"]
 ```
@@ -479,7 +482,7 @@ CMD ["node", "server.js"]
 构建和运行：
 ```bash
 docker build -t food-api .
-docker run -p 3000:3000 --env-file .env food-api
+docker run -p 3002:3002 --env-file .env food-api
 ```
 
 ---
@@ -525,13 +528,11 @@ app.use((req, res, next) => {
 app.get('/api/user/profile', authenticateUser, async (req, res) => {
     try {
         // 业务逻辑
-        const profile = await supabase
-            .from('users')
-            .select('*')
-            .eq('id', req.user.userId)
-            .single()
+        const profile = await prisma.user.findUnique({
+            where: { id: req.user.userId }
+        })
         
-        res.json({ success: true, data: profile.data })
+        res.json({ success: true, data: profile })
     } catch (error) {
         res.status(500).json({ error: error.message })
     }

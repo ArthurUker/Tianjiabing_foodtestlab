@@ -23,14 +23,26 @@ export class UINotification {
     static show(message, type = 'info', duration = this.defaultDuration) {
         const notification = document.createElement('div')
         notification.className = `fixed top-4 right-4 px-4 py-3 rounded-lg shadow-lg text-white z-50 flex items-center gap-3 animate-fadeInRight ${this.getTypeClass(type)}`
-        notification.innerHTML = `
-            <i class="fas ${this.getIcon(type)} text-lg"></i>
-            <div class="flex-1">${message}</div>
-            <button class="ml-4 text-lg leading-none hover:opacity-80 transition" onclick="this.parentElement.remove()">×</button>
-        `
-        
+
+        // P2-18: 使用 DOM API + textContent 构建，避免 innerHTML 导致的 XSS 风险
+        const icon = document.createElement('i')
+        icon.className = `fas ${this.getIcon(type)} text-lg`
+
+        const content = document.createElement('div')
+        content.className = 'flex-1'
+        content.textContent = message
+
+        const closeBtn = document.createElement('button')
+        closeBtn.className = 'ml-4 text-lg leading-none hover:opacity-80 transition'
+        closeBtn.textContent = '×'
+        closeBtn.addEventListener('click', () => notification.remove())
+
+        notification.appendChild(icon)
+        notification.appendChild(content)
+        notification.appendChild(closeBtn)
+
         document.body.appendChild(notification)
-        
+
         // 自动消失
         if (duration > 0) {
             setTimeout(() => {
@@ -39,7 +51,7 @@ export class UINotification {
                 }
             }, duration)
         }
-        
+
         return notification
     }
     
@@ -80,11 +92,14 @@ export class UINotification {
      */
     static loading(message) {
         this.hideLoading()
-        this.loadingElement = this.show(
-            `<i class="fas fa-spinner fa-spin mr-1"></i>${message}`, 
-            'info', 
-            0
-        )
+        this.loadingElement = this.show(message, 'info', 0)
+        // P2-18: 通过 DOM API 添加 spinner 图标，而非在 message 中拼接 HTML
+        const content = this.loadingElement.querySelector('.flex-1')
+        if (content) {
+            const spinner = document.createElement('i')
+            spinner.className = 'fas fa-spinner fa-spin mr-1'
+            content.insertBefore(spinner, content.firstChild)
+        }
         return this.loadingElement
     }
     
@@ -139,12 +154,13 @@ export class UINotification {
         return new Promise((resolve) => {
             const modal = document.createElement('div')
             modal.className = 'fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center'
+            // P2-18: 结构用 innerHTML（静态安全），动态文本用 textContent 防 XSS
             modal.innerHTML = `
                 <div class="bg-white rounded-lg shadow-xl p-6 max-w-md w-11/12 animate-scaleIn">
                     <h3 class="text-lg font-bold mb-3 text-gray-800">
-                        <i class="fas fa-question-circle text-blue-600 mr-2"></i>${title}
+                        <i class="fas fa-question-circle text-blue-600 mr-2"></i><span class="confirm-title"></span>
                     </h3>
-                    <p class="text-gray-700 mb-6">${message}</p>
+                    <p class="text-gray-700 mb-6 confirm-message"></p>
                     <div class="flex justify-end gap-3">
                         <button class="px-4 py-2 bg-gray-300 text-gray-800 rounded hover:bg-gray-400 transition" id="btnCancel">
                             取消
@@ -155,6 +171,8 @@ export class UINotification {
                     </div>
                 </div>
             `
+            modal.querySelector('.confirm-title').textContent = title
+            modal.querySelector('.confirm-message').textContent = message
             
             document.body.appendChild(modal)
             
@@ -193,20 +211,24 @@ export class UINotification {
         return new Promise((resolve) => {
             const modal = document.createElement('div')
             modal.className = 'fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center'
+            // P2-18: 结构用 innerHTML（静态安全），动态文本用 textContent/DOM API 防 XSS
             modal.innerHTML = `
                 <div class="bg-white rounded-lg shadow-xl p-6 max-w-md w-11/12 animate-scaleIn">
-                    <h3 class="text-lg font-bold mb-3 text-gray-800">${title}</h3>
-                    <p class="text-gray-700 mb-4">${message}</p>
-                    <input type="text" id="promptInput" class="w-full border border-gray-300 rounded px-3 py-2 mb-6 focus:outline-none focus:border-blue-500" value="${defaultValue}">
+                    <h3 class="text-lg font-bold mb-3 text-gray-800 prompt-title"></h3>
+                    <p class="text-gray-700 mb-4 prompt-message"></p>
+                    <input type="text" id="promptInput" class="w-full border border-gray-300 rounded px-3 py-2 mb-6 focus:outline-none focus:border-blue-500">
                     <div class="flex justify-end gap-3">
                         <button class="px-4 py-2 bg-gray-300 text-gray-800 rounded hover:bg-gray-400 transition" id="btnCancel">取消</button>
                         <button class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition" id="btnConfirm">确认</button>
                     </div>
                 </div>
             `
+            modal.querySelector('.prompt-title').textContent = title
+            modal.querySelector('.prompt-message').textContent = message
+            const input = modal.querySelector('#promptInput')
+            input.value = defaultValue
             
             document.body.appendChild(modal)
-            const input = document.getElementById('promptInput')
             input.focus()
             
             const cleanup = () => modal.remove()

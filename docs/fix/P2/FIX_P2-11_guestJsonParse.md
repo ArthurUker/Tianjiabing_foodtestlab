@@ -3,50 +3,52 @@
 | 字段 | 内容 |
 |------|------|
 | **问题 ID** | `P2-11` |
-| **优先级** | 🟡 P2 优化（建议 2~3 周内处理） |
+| **优先级** | 🟡 P2 优化 |
 | **影响文件** | `js/services/GuestAuthService.js` |
 | **预估工时** | 0.5h |
-| **关联问题** | P2-04 |
-| **状态** | ⬜ 待处理 |
-| **完成日期** | - |
+| **关联问题** | P2-04（同族 AuthService JSON.parse 容错） |
+| **状态** | ✅ 已完成（静态验证通过） |
+| **完成日期** | 2026-07-04 |
 
 ---
 
 ## 1. 问题描述
 
-<!-- 详细描述问题的现象、触发条件、影响范围 -->
-
-> 待填写。
+`GuestAuthService.getCurrentGuest()` 直接 `JSON.parse(localStorage.getItem('current_guest'))`，若 `current_guest` 数据损坏，`JSON.parse` 抛出未捕获异常，导致调用方崩溃。
 
 ## 2. 根因分析
 
-<!-- 分析问题产生的根本原因，定位到具体代码行 -->
+`js/services/GuestAuthService.js` 的 `getCurrentGuest()`（原 L120）无 try/catch 包裹，与 P2-04 同族问题。
 
-> 待填写。
+## 3. 修复方案（2026-07-04 实施）
 
-## 3. 修复方案
+包裹 try/catch，损坏时清除脏数据并返回 null：
 
-### 方案 A（推荐）
-
-```diff
-// 待填写
+```javascript
+getCurrentGuest() {
+    const guest = localStorage.getItem('current_guest');
+    if (!guest) return null;
+    try {
+        return JSON.parse(guest);
+    } catch (e) {
+        console.error('❌ current_guest 解析失败，清除损坏数据:', e.message);
+        localStorage.removeItem('current_guest');
+        return null;
+    }
+}
 ```
-
-### 方案 B（备选）
-
-> 暂无备选方案。
 
 ## 4. 验收标准
 
-- [ ] 验收条件 1
-- [ ] 验收条件 2
-- [ ] 验收条件 3
+- [x] 合法 JSON → 返回访客对象
+- [x] 损坏字符串 → 不抛异常，清除 key，返回 null
+- [x] 不存在 → 返回 null
+- [x] 静态验证通过
 
 ## 5. 回归测试要点
 
-- [ ] 测试点 1
-- [ ] 测试点 2
+- [ ] localStorage 写入损坏 `current_guest`，调用 `getCurrentGuest()` 不崩溃且清除脏数据
 
 ## 6. 备注
 
-> 无。
+- 与 P2-04 采用相同修复方案，同属 JSON.parse 容错族。

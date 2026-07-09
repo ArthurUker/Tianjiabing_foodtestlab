@@ -97,6 +97,9 @@ function loadMammothJS() {
     if (window.mammoth) return;
     const script = document.createElement('script');
     script.src = 'https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.21/mammoth.browser.min.js';
+    // P2-16: 添加 SRI 完整性校验，防止 CDN 篡改攻击
+    script.integrity = 'sha512-bGuEL2NBSooMeQLM6bf6Xdywje4PWKegNTuKpghz2xgFXtRjEs4B3X1ql7nghiCvt8gXBAks5S3KN3Jp3Jgtow==';
+    script.crossOrigin = 'anonymous';
     script.async = true;
     document.head.appendChild(script);
 }
@@ -397,7 +400,7 @@ function parseDetectionReport(text) {
         positiveDetails: riskAssessment.positiveDetails,
         riskLevel: riskAssessment.riskLevel,
         riskReason: riskAssessment.riskReason,
-        inspector: inspectorMatch ? inspectorMatch[1] : '系统导入',
+        inspector: inspectorMatch ? inspectorMatch[1] : '(未识别)', // P2-27: 改用明确"未识别"标记，避免伪装成真实检测员
         allTestItems: allTestItems,
         internalControlStatus: internalControlStatus || '无内标数据',
         modificationLogs: [],

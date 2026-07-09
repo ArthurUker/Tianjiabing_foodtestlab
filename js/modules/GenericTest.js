@@ -1111,7 +1111,10 @@ export class GenericTestModule {
 
         tbody.innerHTML = currentRecords.map(r => {
             const result = r.result || r.colorLevel || '未知';
-            const isPass = result === '合格';
+            // P2-24: 列表颜色改为三元判定（合格绿/警戒黄/不合格红），与详情弹窗 showDetailModal 一致
+            const resultColorClass = result === '合格' ? 'bg-green-100 text-green-800'
+                : result === '警戒' ? 'bg-yellow-100 text-yellow-800'
+                : 'bg-red-100 text-red-800';
 
             const remarkInfo = r.remark
                 ? `<div class="text-xs text-gray-500 mt-1" title="${r.remark}">备注: ${r.remark.length > 15 ? r.remark.substring(0, 15) + '...' : r.remark}</div>`
@@ -1142,7 +1145,7 @@ export class GenericTestModule {
                 <td class="border px-4 py-2">${r.canteen}</td>
                 ${dataColumns}
                 <td class="border px-4 py-2">
-                    <span class="px-2 py-1 rounded-full text-xs cursor-pointer btn-detail ${isPass ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}" data-id="${r.id}">
+                    <span class="px-2 py-1 rounded-full text-xs cursor-pointer btn-detail ${resultColorClass}" data-id="${r.id}">
                         ${result}
                     </span>
                     ${remarkInfo}

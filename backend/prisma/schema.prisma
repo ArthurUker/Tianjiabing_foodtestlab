@@ -28,6 +28,7 @@ model User {
   audit_logs    AuditLog[]
   test_records  TestRecord[]
   guests        Guest[]
+  backups       Backup[]
 }
 
 // ========== 审计日志 ==========
@@ -135,6 +136,11 @@ model Backup {
   created_at    DateTime @default(now())
   created_by    String?
   notes         String?
+
+  // P2-08: 关联用户外键约束（created_by 可为空，引用 User.id）
+  created_user  User?    @relation(fields: [created_by], references: [id], onDelete: SetNull)
+
+  @@index([created_by])
 }
 
 // ========== 系统日志 ==========

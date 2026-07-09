@@ -106,7 +106,7 @@ export class StorageService {
             return { ...localDup };
         }
 
-        const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+        const tempId = `temp_${crypto.randomUUID()}`;
         const tempRecord = { ...clean, id: tempId, _status: 'pending' };
 
         this._addToLocalCache(tempRecord);

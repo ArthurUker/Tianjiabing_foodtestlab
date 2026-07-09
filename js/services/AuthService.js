@@ -216,7 +216,14 @@ export class AuthService {
      */
     getUser() {
         const userStr = localStorage.getItem(this.userKey);
-        return userStr ? JSON.parse(userStr) : null;
+        if (!userStr) return null;
+        try {
+            return JSON.parse(userStr);
+        } catch (e) {
+            console.error('❌ current_user 解析失败，清除损坏数据:', e.message);
+            localStorage.removeItem(this.userKey);
+            return null;
+        }
     }
 
     /**

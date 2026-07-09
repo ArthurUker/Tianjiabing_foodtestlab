@@ -1,5 +1,7 @@
 # FIX-P0-07：快速访问模式完全绕过后端认证
 
+> ⚠️ **历史空模板标注（TD-P2-31，2026-07-02）**：本文件为历史空模板（文件内状态"⬜ 待处理"为陈旧未更新），问题已通过代码修复闭环（见 `FIX_PLAN.md` v1.8 记录：后端新增 `/api/guest/quick-access` 接口签发真实 JWT，`GuestAuthService.quickAccessAsViewer` 改为 async，`Router.js` 移除客户端旁路，login.html / main.js 调用点改为 await，2026-06-24 四端全链核验通过）。本文件保留仅作审计追溯，不代表问题未解决。
+
 | 字段 | 内容 |
 |------|------|
 | **问题 ID** | `P0-07` |

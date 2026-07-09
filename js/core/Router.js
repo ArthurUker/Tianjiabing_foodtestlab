@@ -7,6 +7,9 @@ import { authService } from '../services/AuthService.js';
 import { permissionService } from '../services/PermissionService.js';
 import { GuestAuthService } from '../services/GuestAuthService.js';
 
+// P2-05: 模块级共享单例，避免 Router 各方法每次调用都实例化新的 GuestAuthService
+const guestAuthService = new GuestAuthService();
+
 export class Router {
     constructor() {
         this.currentPage = null;
@@ -25,7 +28,6 @@ export class Router {
         console.log('🔧 Router 初始化中... (完全初始化:', shouldFullyInit, ')');
 
         // 检查用户或访客是否已登录
-        const guestAuthService = new GuestAuthService();
         const isUserAuthenticated = authService.isAuthenticated();
         const isGuestAuthenticated = guestAuthService.isLoggedIn();
         const isAuthenticated = isUserAuthenticated || isGuestAuthenticated;
@@ -89,7 +91,6 @@ export class Router {
      * @returns {boolean}
      */
     isGuest() {
-        const guestAuthService = new GuestAuthService();
         return guestAuthService.isLoggedIn();
     }
 
@@ -168,7 +169,6 @@ export class Router {
      */
     updateNavigationByPermission() {
         const user = authService.getUser();
-        const guestAuthService = new GuestAuthService();
         const isGuest = guestAuthService.isLoggedIn();
         
         if (!user && !isGuest) return;
@@ -232,11 +232,11 @@ export class Router {
         console.log('🔴 ===== 登出流程开始 =====');
         
         try {
-            // 获取全局的 guestAuthService 实例（main.js 中定义）
-            const guestAuthService = window.guestAuthService || new GuestAuthService();
+            // P2-05: 使用模块级共享单例（兼容 main.js 可能挂载的 window.guestAuthService）
+            const guestAuthServiceInstance = window.guestAuthService || guestAuthService;
             
             console.log('  1️⃣ 检查用户身份类型...');
-            const isGuest = guestAuthService.isLoggedIn();
+            const isGuest = guestAuthServiceInstance.isLoggedIn();
             const isAdmin = this.isAdmin();
             console.log(`  身份: 访客=${isGuest}, 管理员=${isAdmin}`);
             
@@ -246,7 +246,7 @@ export class Router {
             // 清除访客认证（如果是访客）
             if (isGuest) {
                 console.log('  📍 清除访客认证...');
-                guestAuthService.logout();
+                guestAuthServiceInstance.logout();
             }
             
             // 清除用户认证（所有角色均需清除）
@@ -320,7 +320,6 @@ export class Router {
      */
     updateUserDisplay() {
         const user = authService.getUser();
-        const guestAuthService = new GuestAuthService();
         const guest = guestAuthService.getCurrentGuest();
         
         if (!user && !guest) return;

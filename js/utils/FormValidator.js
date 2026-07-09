@@ -80,6 +80,39 @@ export class FormValidator {
             } catch {
                 return 'URL 格式不正确'
             }
+        },
+        
+        // P2-20: XSS 防护规则，与后端 validationMiddleware.detectXss 保持一致
+        xss: (value) => {
+            if (typeof value !== 'string') return null
+            const xssPatterns = [
+                /<script\b/gi,
+                /javascript:/gi,
+                /on\w+\s*=/gi,
+                /<iframe/gi,
+                /<embed/gi,
+                /<object/gi,
+                /eval\(/gi,
+                /expression\(/gi
+            ]
+            return xssPatterns.some(p => p.test(value))
+                ? '输入包含不安全的内容'
+                : null
+        },
+        
+        // P2-20: SQL 注入防护规则，与后端 validationMiddleware.detectSqlInjection 保持一致
+        sqlInjection: (value) => {
+            if (typeof value !== 'string') return null
+            const sqlPatterns = [
+                /(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|UNION)\b)/gi,
+                /UNION\s+SELECT/gi,
+                /OR\s*1\s*=\s*1/gi,
+                /'\s*OR\s*'1'='1/gi,
+                /--\s*$/gi
+            ]
+            return sqlPatterns.some(p => p.test(value))
+                ? '输入包含可疑的 SQL 代码'
+                : null
         }
     }
     

@@ -23,7 +23,7 @@ SQLite
 当前生产数据库文件位于：
 
 ```text
-D:\珠海一中\foodtestlab.db
+D:\ZhuHaiYiZhong-data\zhuhaiyizhong.db
 ```
 
 当前 Prisma datasource 配置为：
@@ -38,7 +38,7 @@ datasource db {
 推荐生产环境 `DATABASE_URL` 为：
 
 ```env
-DATABASE_URL="file:D:/珠海一中/foodtestlab.db"
+DATABASE_URL="file:D:/ZhuHaiYiZhong-data/zhuhaiyizhong.db"
 ```
 
 需要特别说明：
@@ -58,7 +58,7 @@ DATABASE_URL="file:D:/珠海一中/foodtestlab.db"
 |---|---|
 | ORM | Prisma |
 | 当前生产数据库 | SQLite |
-| 生产数据库文件 | `D:\珠海一中\foodtestlab.db` |
+| 生产数据库文件 | `D:\ZhuHaiYiZhong-data\zhuhaiyizhong.db` |
 | Prisma Schema | `backend/prisma/schema.prisma` |
 | 种子数据脚本 | `backend/prisma/seed.js` |
 | 数据库同步方式 | `npx prisma db push --accept-data-loss` |
@@ -79,7 +79,7 @@ node prisma/seed.js
 生产环境执行数据库结构同步前，应先备份：
 
 ```text
-D:\珠海一中\foodtestlab.db
+D:\ZhuHaiYiZhong-data\zhuhaiyizhong.db
 ```
 
 ---
@@ -135,7 +135,7 @@ datasource db {
 当前生产环境推荐 `.env` 配置：
 
 ```env
-DATABASE_URL="file:D:/珠海一中/foodtestlab.db"
+DATABASE_URL="file:D:/ZhuHaiYiZhong-data/zhuhaiyizhong.db"
 ```
 
 ### 4.2 数据库选型说明
@@ -571,13 +571,13 @@ model Backup {
 当前生产环境最重要的备份对象是 SQLite 数据库文件：
 
 ```text
-D:\珠海一中\foodtestlab.db
+D:\ZhuHaiYiZhong-data\zhuhaiyizhong.db
 ```
 
 推荐备份目录：
 
 ```text
-D:\foodtestlab\backup
+D:\ZhuHaiYiZhong-data\backup
 ```
 
 ---
@@ -1562,7 +1562,7 @@ PostgreSQL RLS 可作为未来迁移 PostgreSQL 后的数据库层安全增强�
 当前生产数据库文件：
 
 ```text
-D:\珠海一中\foodtestlab.db
+D:\ZhuHaiYiZhong-data\zhuhaiyizhong.db
 ```
 
 安全要求：
@@ -1586,13 +1586,13 @@ C:\nginx\html
 推荐备份目录：
 
 ```text
-D:\foodtestlab\backup
+D:\ZhuHaiYiZhong-data\backup
 ```
 
 建议备份文件命名：
 
 ```text
-foodtestlab_YYYYMMDD_HHMMSS.db
+zhuhaiyizhong_YYYYMMDD_HHMMSS.db
 ```
 
 备份要求：

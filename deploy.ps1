@@ -3,21 +3,66 @@
 # =========================================================
 $selfPath      = $PSCommandPath
 $selfRepoRoot  = "C:\ZhuHaiYiZhong"
-$selfBranch    = "deploy/zhuhaiyizhong"
+$selfBranch    = "deploy/zhuhaiyizhong"   # [架构意图] 为分支重命名铺路，保持此名；待远端 deploy/zhuhaiyizhong 创建后自我更新即生效
 
-if (Test-Path (Join-Path $selfRepoRoot ".git")) {
-    $hashBefore = (Get-FileHash $selfPath -Algorithm MD5).Hash
+# [FIX 4.2] 递归深度保护，防止自我更新死循环
+$selfUpdateDepth = if ($env:DEPLOY_SELFUPDATE_DEPTH) { [int]$env:DEPLOY_SELFUPDATE_DEPTH } else { 0 }
+$selfUpdateMax   = 3
 
-    git -C $selfRepoRoot fetch origin $selfBranch 2>&1 | Out-Null
-    git -C $selfRepoRoot reset --hard "origin/$selfBranch" 2>&1 | Out-Null
+function Get-ContentHash($p) {
+    # [FIX 4.1] 去掉 BOM 后再哈希，使 BOM 差异不触发重复 re-exec（避免与 reset --hard 形成死循环）
+    $b = [System.IO.File]::ReadAllBytes($p)
+    if ($b.Count -ge 3 -and $b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xEF) {
+        $b = $b[3..($b.Count - 1)]
+    }
+    $t = [System.IO.Path]::GetTempFileName()
+    [System.IO.File]::WriteAllBytes($t, $b)
+    $h = (Get-FileHash $t -Algorithm MD5).Hash
+    Remove-Item $t -Force
+    return $h
+}
 
-    $hashAfter = (Get-FileHash $selfPath -Algorithm MD5).Hash
+if ($selfUpdateDepth -ge $selfUpdateMax) {
+    Write-Host "已达自我更新递归上限 ($selfUpdateMax)，终止递归以避免死循环" -ForegroundColor Red
+} elseif (Test-Path (Join-Path $selfRepoRoot ".git")) {
+    $hashBefore = Get-ContentHash $selfPath
 
-    if ($hashBefore -ne $hashAfter) {
+    # [FIX 1.2] 明确捕获 fetch 失败（网络/认证/分支不存在），不静默崩溃
+    # [FIX 5.1] 用显式 refspec 强制创建 refs/remotes/origin/<分支> 跟踪引用。
+    #   注：本测试仓库 remote.origin.fetch 为窄化配置
+    #       (+refs/heads/ZhuHaiYiZhong:..., +refs/heads/main:...)，非标准通配符，
+    #       故 git fetch origin <分支> 不会触发 opportunistic tracking-ref 更新，仅写 FETCH_HEAD；
+    #       标准 git clone 出来的仓库则不会遇到此问题。显式 refspec 使行为不再依赖
+    #       服务器仓库配置，属于无害且推荐的保险写法，而非修复一个通用 Git 缺陷。
+    git -C $selfRepoRoot fetch origin "+refs/heads/$selfBranch:refs/remotes/origin/$selfBranch" 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "警告: 自我更新 git fetch 失败（网络/认证/分支不存在），跳过自我更新并继续主部署" -ForegroundColor Yellow
+    } else {
+        # [FIX 1.3] reset 前备份本地未提交改动，避免静默数据丢失
+        $st = git -C $selfRepoRoot status --porcelain -- $selfPath 2>$null
+        if ($st) {
+            $bak = "$selfPath.bak-" + (Get-Date -Format "yyyyMMddHHmmss")
+            Copy-Item $selfPath $bak
+            Write-Host "检测到 $selfPath 有本地未提交改动，已备份至 $bak" -ForegroundColor Yellow
+        }
+        git -C $selfRepoRoot reset --hard "origin/$selfBranch" 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "警告: 自我更新 git reset 失败，跳过自我更新并继续主部署" -ForegroundColor Yellow
+        }
+    }
+
+    $hashAfter = Get-ContentHash $selfPath
+
+    if (($LASTEXITCODE -eq 0) -and ($hashBefore -ne $hashAfter)) {
         Write-Host "deploy.ps1 已更新，修正编码后切换到新版本执行..." -ForegroundColor Yellow
-        # 确保新版文件是 UTF-8 with BOM，兼容 PowerShell 5.1
-        $newContent = [System.IO.File]::ReadAllText($selfPath, [System.Text.UTF8Encoding]::new($false))
-        [System.IO.File]::WriteAllText($selfPath, $newContent, [System.Text.UTF8Encoding]::new($true))
+        # [FIX 4.1] 仅当文件确实无 BOM 时才重写，避免与 reset --hard 形成死循环
+        $bytes  = [System.IO.File]::ReadAllBytes($selfPath)
+        $hasBom = ($bytes.Count -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xEF)
+        if (-not $hasBom) {
+            $newContent = [System.IO.File]::ReadAllText($selfPath, [System.Text.UTF8Encoding]::new($false))
+            [System.IO.File]::WriteAllText($selfPath, $newContent, [System.Text.UTF8Encoding]::new($true))
+        }
+        $env:DEPLOY_SELFUPDATE_DEPTH = ($selfUpdateDepth + 1)
         & $selfPath @args
         exit $LASTEXITCODE
     }
@@ -31,7 +76,13 @@ $startTime = Get-Date
 function Log($msg)  { Write-Host "`n=== $msg ===" -ForegroundColor Cyan }
 function Ok($msg)   { Write-Host $msg -ForegroundColor Green }
 function Warn($msg) { Write-Host "警告: $msg" -ForegroundColor Yellow }
-function Fail($msg) { Write-Host "错误: $msg" -ForegroundColor Red; exit 1 }
+function Fail($msg) {
+    Write-Host "错误: $msg" -ForegroundColor Red
+    # [FIX 3.3] 失败时尝试恢复 PM2 后端，避免"已停服却未起服"的遗留中断
+    try { npx pm2 restart $pm2AppName *> $null } catch {}
+    if (Test-Path $lockFile) { Remove-Item $lockFile -Force -ErrorAction SilentlyContinue }
+    exit 1
+}
 
 function Test-CommandExists($cmd) {
     $null -ne (Get-Command $cmd -ErrorAction SilentlyContinue)
@@ -65,7 +116,9 @@ function Invoke-GitFetchWithTimeout($repoRootPath, $branchName, $timeoutSeconds)
         "-c", "credential.interactive=never",
         "-c", "http.lowSpeedLimit=1000",
         "-c", "http.lowSpeedTime=30",
-        "fetch", "--prune", "origin", $branchName
+        # [FIX 5.1] 带显式 refspec，确保 origin/<分支> 跟踪引用被更新（不依赖仓库 remote.origin.fetch 配置）
+        # --prune 仅清理该具体目的端命名空间内、远端已不存在的引用；实测不会误删 origin/main、origin/backup 等兄弟引用
+        "fetch", "--prune", "origin", "+refs/heads/$branchName:refs/remotes/origin/$branchName"
     )
 
     $process = Start-Process -FilePath "git" -ArgumentList $arguments -NoNewWindow -PassThru
@@ -75,6 +128,28 @@ function Invoke-GitFetchWithTimeout($repoRootPath, $branchName, $timeoutSeconds)
     }
 
     return ($process.ExitCode -eq 0)
+}
+
+# =========================================================
+# 0.4 单实例锁 + 全局异常兜底（[FIX 3.2] / [FIX 3.3]）
+# =========================================================
+$lockFile = Join-Path $env:TEMP "zhuhaiyizhong-deploy.lock"
+if (Test-Path $lockFile) {
+    $lockPid = Get-Content $lockFile -ErrorAction SilentlyContinue
+    if ($lockPid -and (Get-Process -Id $lockPid -ErrorAction SilentlyContinue)) {
+        Write-Host "错误: 检测到另一份部署正在运行 (PID=$lockPid)，已退出以避免并发冲突" -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "警告: 发现残留锁文件（原进程 PID=$lockPid 已不在运行），将覆盖" -ForegroundColor Yellow
+}
+"$PID" | Out-File $lockFile -Force
+
+trap {
+    Write-Host "部署异常终止: $($_.Exception.Message)" -ForegroundColor Red
+    # [FIX 3.3] 若此前已停止 PM2 后端，尝试拉回，避免长期服务中断
+    try { npx pm2 restart $pm2AppName *> $null } catch {}
+    if (Test-Path $lockFile) { Remove-Item $lockFile -Force -ErrorAction SilentlyContinue }
+    exit 1
 }
 
 Log "珠海一中食品检验系统一键部署开始"
@@ -557,4 +632,5 @@ Write-Host "   田家炳     : 前端 8081  API 3001  PM2 foodtestlab-api"
 Write-Host "   珠海一中   : 前端 $frontendPort  API $apiPort  PM2 $pm2AppName"
 
 Stop-Transcript | Out-Null
+if (Test-Path $lockFile) { Remove-Item $lockFile -Force -ErrorAction SilentlyContinue }
 exit 0

@@ -424,7 +424,7 @@ export function validateToken(req, res, next) {
         }
         
         const token = authHeader.substring(7);
-        const JWT_SECRET = process.env.JWT_SECRET || 'food-lab-secret-key';
+        const JWT_SECRET = process.env.JWT_SECRET; // P0-12 (子问题4): 移除硬编码弱密钥 fallback
         
         try {
             const decoded = require('jsonwebtoken').verify(token, JWT_SECRET);

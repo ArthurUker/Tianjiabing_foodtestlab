@@ -14,6 +14,15 @@ if (!adminPassword || !operatorPassword || !viewerPassword) {
 
 const prisma = new PrismaClient()
 
+// P2-12: 生产环境默认禁止创建测试账号，防止默认凭据泄露风险
+// 如需在生产环境初始化，须显式设置 SEED_ALLOW_PROD=true
+if (process.env.NODE_ENV === 'production' && process.env.SEED_ALLOW_PROD !== 'true') {
+  console.warn('[SKIP] 生产环境检测到 (NODE_ENV=production)，已跳过测试账号初始化。')
+  console.warn('[SKIP] 如确需在生产环境创建初始账号，请设置 SEED_ALLOW_PROD=true 后重新执行。')
+  await prisma.$disconnect()
+  process.exit(0)
+}
+
 async function main() {
   console.log('🌱 开始数据库初始化...')
 
@@ -75,14 +84,19 @@ async function main() {
     console.error(`❌ 初始化默认账户失败: ${err.message}`)
   }
 
-  // 记录初始化日志
-  await prisma.systemLog.create({
-    data: {
-      level: 'info',
-      message: '数据库初始化完成',
-      context: JSON.stringify({ timestamp: new Date().toISOString() })
-    }
+  // 记录初始化日志（[FIX 3.1] 去重，避免每次部署重复插入）
+  const existingLog = await prisma.systemLog.findFirst({
+    where: { message: '数据库初始化完成' }
   })
+  if (!existingLog) {
+    await prisma.systemLog.create({
+      data: {
+        level: 'info',
+        message: '数据库初始化完成',
+        context: JSON.stringify({ timestamp: new Date().toISOString() })
+      }
+    })
+  }
 
   console.log('✨ 数据库初始化完成！')
   console.log('\n📝 初始账户（仅首次创建）:')

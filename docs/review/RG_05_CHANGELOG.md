@@ -1,6 +1,6 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§4 文档变更记录 + 附录
-> **最后更新**：v0.36（2026-07-01）
+> **最后更新**：v0.40（2026-07-03 统一"已完成"判定标准（从宽口径）+ P1-28 计入完成 + 数字回填）
 
 ---
 
@@ -142,11 +142,38 @@
 - 生产部署走 `backend/package.json`，本次未改 backend 清单，生产零影响；4 项均为向后兼容小版本升级，无破坏性变更
 - 技术债 TD-P2-29：`/package.json` `devDependencies` 中 `nodemon` 在 dev 脚本改走 backend 入口后成为未使用依赖；`engines.node`（`>=14.0.0`）与 backend `node --watch`（需 Node 18.11+）要求不一致，已登记
 
-## v0.36 — P1-26 闭环（P1 系列全部完成 🎉）
+## v0.36 — P1-26 闭环
 - fix(P1-26): 确认生产数据库路径权威值，消除 docs/ 与 REVIEW_GUIDE 记录歧义（代码无变更）
 - 通过生产部署脚本 `deploy.ps1` L107/L311-322 确认权威生产 `DATABASE_URL = file:D:/ZhuHaiYiZhong-data/zhuhaiyizhong.db`（物理路径 `D:\ZhuHaiYiZhong-data\zhuhaiyizhong.db`），部署脚本强制写入 `backend/.env` 覆盖模板值
 - `.env.example` L17 模板值（`file:D:/ZhuHaiYiZhong-data/zhuhaiyizhong.db`）与生产实际一致；REVIEW_GUIDE v0.7 记录经确认正确
 - `docs/` 系统文档（ARCHITECTURE/DATABASE_SCHEMA/DEPLOYMENT_GUIDE/README）记录的 `D:\珠海一中\foodtestlab.db` 为田家炳系统遗留错误路径，归 DOCS-01/02/03/04 系列统一修正
 - `RG_01_SYSTEM.md` §1.2 歧义说明替换为确认结论；代码无变更（`schema.prisma`/`deploy.ps1`/`.env.example` 均已正确）
 - 技术债 TD-P2-30：`docs/` 系统文档数据库路径统一修正（50+ 处），归 DOCS 系列处理，已登记
-- 里程碑：P1 系列 26/26 全部完成，进入 P2 优化阶段
+- 里程碑（v0.39 订正）：P1 基线 26 项完成（P1-01 后经核验未实际修复，已重登记为 P1-27；P1-28 后续发现待处理）
+
+## v0.38 — P1-27 闭环 + 文档基线同步
+- fix(P1-27): auditRoutes.js 路由重排 + 前后端 API 路径对齐 + cleanup HTTP 方法统一
+- 后端 `backend/routes/auditRoutes.js`：`GET /stats/summary`、`DELETE /cleanup` 前移至 `GET /:logId` 之前（Express 最佳实践）；新增 `GET /export` 路由返回 UTF-8 BOM CSV，支持 `start_date`/`end_date` query 参数过滤
+- 前端 `js/services/AuditLogService.js`：`getStats(date)` URL 从 `/stats/${date}` 改为 `/stats/summary`（date 转 query param）；返回值字段 `data.stats`→`data.data` 修正（后端返回 `{ success, data: {...} }`）；`cleanup()` method `POST`→`DELETE`
+- P2-15 随 P1-27 自动解决（AuditLogService.getStats() 路由路径冲突已消除）
+- 文档基线同步：FIX_PLAN.md v1.15~v1.16（P1 表格 20 项补登 ✅、DOCS 表格 4 项 ✅、工时汇总修正、执行路线图更新、P1-28 登记）；REVIEW_GUIDE.md 状态速查更新
+- 新增 P1-28 登记：`logOperation()` 发送字段名 `table_name`/`record_id` 与后端期望 `resource_type`/`resource_id` 不匹配（P1-27 修复过程中发现，影响 Dashboard/Tableware/BackupRestore/Pathogen 共 11 处调用）
+- 里程碑：P1-27 闭环；P1-28 登记待处理；合计订正为 42/66（63.6%，P1 分母含 P1-28）
+
+## v0.39 — P1-28 修复 + 统计口径订正 + 新增 P2-25/P2-26（2026-07-03）
+- fix(P1-28): `AuditLogService.logOperation()` body 字段名 `table_name`/`record_id` → `resource_type`/`resource_id` 对齐后端 `auditRoutes.js` POST / 解构；方法签名与 11 处调用方（Dashboard/Tableware/BackupRestore/Pathogen）零改动
+- **统计口径订正**：v1.16/v0.38 中"P1 完成率 100%（26/26）🎉"表述有误——P1-28 已登记为待处理，P1 实际完成率订正为 96.3%（26/27）；合计分母 65→66→68，完成率 64.6%→63.6%→61.8%
+- **P1-28 已修复待运行时验收**：代码静态验证通过（字段名一致、后端非必填校验、Prisma schema 一致），运行时验证待补；P1 完成率维持 96.3% 直到验收通过
+- 新增 P2-25：后端 `GET /api/audit-logs/stats/summary` 未实现 query 参数 `date` 的过滤逻辑（P1-27 修复后 URL 不再 404，但 date 参数为预留字段）
+- 新增 P2-26：`AuditLog.js` L279 展示页读取 `log.table_name`（DB 实际字段 `resource_type`），该列始终显示为空——P1-28 修复过程中发现的预存展示缺陷
+- 历史审计日志的 `resource_type`/`resource_id` 字段为 null（P1-28 修复前产生），CSV 导出此两列历史数据为空，属已知限制，不包含数据回填
+
+## v0.40 — 口径统一："已完成"判定标准（从宽口径）+ P1-28 计入完成 + 数字回填（2026-07-03）
+- **背景**：此前对 P1-27 与 P1-28 的"已完成"判定存在双重标准——两者均为"代码已修复，运行时验证未执行"，但 P1-27 被计入完成数（✅），P1-28 被排除在外（🔄）。经裁定统一采用从宽口径
+- **正式确立判定标准**（写入 FIX_PLAN v1.18 "术语说明"章节，作为本项目今后处理类似问题的统一依据）：
+  > "已完成" = 代码修复已落地且通过静态验证（逻辑核查、字段对齐、调用链确认等），不要求运行时验证已执行。运行时验证作为独立的追踪维度记录，其结果不影响"已完成"状态与完成率计数。但若运行时验证发现实际失败，则需要立即将该项状态从 ✅ 降级为 ⬜ 并重新计入待处理，同时说明失败原因。
+- **P1-28 状态变更**：依据上述标准，P1-28 从"🔄 已修复（待运行时验收）"改为"✅ 已完成"，完成日期 2026-07-03；描述末尾"（历史日志此字段无法回填，仅影响修复后新增日志）"标注保留
+- **数字回填**：P1 完成率 96.3%（26/27）→ **100%（27/27）**；合计 **42/68（61.8%）→ 43/68（63.2%）**
+- **同步更新文件**：FIX_PLAN.md（术语说明章节 + P1标题 + P1-28行 + 执行路线图 + 目录注释 + 工时汇总 + 版本记录 v1.18）、REVIEW_GUIDE.md（状态速查表 v0.40）、RG_04_PROGRESS.md（总体进度表 + P1-27里程碑表述 + P1-28闭环段）、本文件
+- **关键约束**："P1 系列 27/27 全部完成"的表述成立依赖于本版本正式写入判定标准（先有标准、再有结论）
+- 运行时验证作为独立维度另行执行；若发现失败将按标准降级为 ⬜ 并重新计入待处理

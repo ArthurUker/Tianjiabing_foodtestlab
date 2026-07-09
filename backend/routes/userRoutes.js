@@ -5,12 +5,19 @@
 
 import express from 'express'
 import { createAuthMiddleware } from '../middleware/authMiddleware.js'
+import { rateLimit } from '../middleware/validationMiddleware.js'
 
 export function createUserRoutes(userManager) {
     const router = express.Router()
 
     // ====== Authentication Middleware（统一从 authMiddleware.js 导入）======
     const { authenticateUser, authorizeRoles } = createAuthMiddleware(userManager)
+
+    // P2-01: 登录接口专项限流（每 IP 每 15 分钟最多 10 次尝试），防止暴力破解
+    const loginRateLimit = rateLimit(
+        Number(process.env.LOGIN_RATE_LIMIT_MAX || 10),
+        Number(process.env.LOGIN_RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000)
+    )
 
     // ====== Public Routes ======
 
@@ -30,8 +37,8 @@ export function createUserRoutes(userManager) {
         }
     })
 
-    // 用户登录
-    router.post('/login', async (req, res) => {
+    // 用户登录（P2-01: 增加专项限流）
+    router.post('/login', loginRateLimit, async (req, res) => {
         try {
             const { username, password } = req.body
 

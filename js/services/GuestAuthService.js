@@ -117,7 +117,14 @@ export class GuestAuthService {
      */
     getCurrentGuest() {
         const guest = localStorage.getItem('current_guest');
-        return guest ? JSON.parse(guest) : null;
+        if (!guest) return null;
+        try {
+            return JSON.parse(guest);
+        } catch (e) {
+            console.error('❌ current_guest 解析失败，清除损坏数据:', e.message);
+            localStorage.removeItem('current_guest');
+            return null;
+        }
     }
 
     /**

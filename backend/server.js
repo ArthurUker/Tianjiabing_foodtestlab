@@ -34,6 +34,19 @@ if (!JWT_SECRET) {
   console.error('[FATAL] JWT_SECRET is not set. Server startup aborted.')
   process.exit(1)
 }
+
+// P0-12 (子问题3): 拒绝已知弱/默认占位密钥，防止误用 .env.example 默认值启动并签发 JWT
+const KNOWN_WEAK_SECRETS = [
+  'your-super-secret-jwt-key-change-this-in-production',
+  'your-secret-key-change-in-production',
+  'local-dev-jwt-secret',
+  'food-lab-secret-key',
+  'please_change_this_secret'
+]
+if (KNOWN_WEAK_SECRETS.includes(JWT_SECRET)) {
+  console.error('[FATAL] JWT_SECRET is a known weak/default value. Server startup aborted. Please generate a strong random secret.')
+  process.exit(1)
+}
 const RATE_LIMIT_MAX_REQUESTS = Number(process.env.RATE_LIMIT_MAX_REQUESTS || 1000)
 const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || (60 * 1000))
 
@@ -142,6 +155,40 @@ function buildRecordWriteData(tableName, payload) {
         }),
         result_data: JSON.stringify(baseData),
         status: baseData.status || 'completed'
+    }
+}
+
+// P2-07: 记录字段 Schema 验证 — 校验 testDate/canteen/inspector 必填且为非空字符串
+function validateRecordPayload(tableName, payload) {
+    const errors = []
+    const requiredFields = ['testDate', 'canteen', 'inspector']
+    for (const field of requiredFields) {
+        const val = payload[field]
+        if (val === undefined || val === null || String(val).trim() === '') {
+            errors.push(`字段 "${field}" 不能为空`)
+        }
+    }
+    if (!RECORD_ROUTE_TYPES.has(tableName)) {
+        errors.push(`未知的记录类型: ${tableName}`)
+    }
+    return { valid: errors.length === 0, errors }
+}
+
+// P2-02: 审计日志写入辅助函数 — 记录 CRUD 操作到数据库
+async function writeRecordAuditLog(userId, action, resourceType, resourceId, details, ip) {
+    try {
+        await prisma.auditLog.create({
+            data: {
+                user_id: userId,
+                action,
+                resource_type: resourceType || null,
+                resource_id: resourceId || null,
+                details: details ? JSON.stringify(details) : null,
+                ip_address: ip || null
+            }
+        })
+    } catch (e) {
+        console.error('❌ 审计日志写入失败:', e.message)
     }
 }
 
@@ -285,14 +332,12 @@ if (serveStatic) {
     app.use(express.static(path.join(__dirname, '../')))
 }
 
-// Health Check
-app.get('/health', (req, res) => {
-    res.json({ status: '✅ API Server is running', timestamp: new Date() })
-})
-
-app.get('/api/health', (req, res) => {
+// Health Check (P2-06: 合并重复定义，两个路由共用同一处理器)
+function healthCheck(req, res) {
     res.json({ status: 'ok', timestamp: new Date() })
-})
+}
+app.get('/health', healthCheck)
+app.get('/api/health', healthCheck)
 
 // ====== User Authentication Routes ======
 const userRoutes = createUserRoutes(userManager)
@@ -488,6 +533,13 @@ app.post('/api/records/:tableName', authenticateUser, requireEditorOrAbove, asyn
         console.log(`[POST /api/records/${req.params.tableName}] userId=${req.userId} body=`, JSON.stringify(req.body || {}).slice(0, 200))
 
         const payload = req.body || {}
+
+        // P2-07: 写入前进行字段 Schema 验证
+        const validation = validateRecordPayload(testType, payload)
+        if (!validation.valid) {
+            return res.status(400).json({ error: '❌ 字段验证失败', details: validation.errors })
+        }
+
         const writeData = buildRecordWriteData(testType, payload)
         const recordCode = buildDeterministicRecordCode(testType, payload)
 
@@ -512,6 +564,12 @@ app.post('/api/records/:tableName', authenticateUser, requireEditorOrAbove, asyn
                 ...writeData
             }
         })
+
+        // P2-02: 记录创建操作写入审计日志
+        await writeRecordAuditLog(req.userId, 'create', 'test_record', record.id, {
+            test_type: testType,
+            record_code: recordCode
+        }, req.ip)
 
         res.json({
             success: true,
@@ -608,6 +666,18 @@ app.post('/api/records/:tableName/bulk-upsert', authenticateUser, requireEditorO
             }
         }
 
+        // P2-02: 批量导入操作写入审计日志（补充：单条 CRUD 已覆盖，此处覆盖批量导入路径）
+        if (created > 0 || updated > 0) {
+            await writeRecordAuditLog(req.userId, 'import', 'test_record', null, {
+                test_type: testType,
+                total: records.length,
+                unique: uniqueByCode.size,
+                created,
+                updated,
+                failed: failed.length
+            }, req.ip)
+        }
+
         return res.json({
             success: true,
             message: '批量导入完成',
@@ -644,6 +714,12 @@ app.put('/api/records/:tableName/:id', authenticateUser, requireEditorOrAbove, a
             return res.status(404).json({ error: '记录不存在' })
         }
 
+        // P2-07: 更新前进行字段 Schema 验证
+        const updateValidation = validateRecordPayload(testType, req.body || {})
+        if (!updateValidation.valid) {
+            return res.status(400).json({ error: '❌ 字段验证失败', details: updateValidation.errors })
+        }
+
         const writeData = buildRecordWriteData(testType, req.body || {})
 
         // 版本号乐观锁（如果客户端传了 version 字段）
@@ -662,6 +738,12 @@ app.put('/api/records/:tableName/:id', authenticateUser, requireEditorOrAbove, a
                 version: (existing.version || 0) + 1
             }
         })
+
+        // P2-02: 记录更新操作写入审计日志
+        await writeRecordAuditLog(req.userId, 'update', 'test_record', record.id, {
+            test_type: testType,
+            version: (existing.version || 0) + 1
+        }, req.ip)
 
         res.json({
             success: true,
@@ -695,6 +777,12 @@ app.delete('/api/records/:tableName/:id', authenticateUser, requireEditorOrAbove
         await prisma.testRecord.delete({
             where: { id: req.params.id }
         })
+
+        // P2-02: 记录删除操作写入审计日志
+        await writeRecordAuditLog(req.userId, 'delete', 'test_record', req.params.id, {
+            test_type: testType,
+            record_code: existing.record_code
+        }, req.ip)
 
         res.json({
             success: true,

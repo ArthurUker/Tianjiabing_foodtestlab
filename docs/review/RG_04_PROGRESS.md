@@ -1,13 +1,13 @@
 > 📎 本文件是 REVIEW_GUIDE 的子文件。索引见 [REVIEW_GUIDE.md](./REVIEW_GUIDE.md)
 > **所属章节**：§3 修复执行进度看板
-> **最后更新**：v0.36（2026-07-01）｜对应 FIX_PLAN 版本：v1.12
+> **最后更新**：v0.40（2026-07-03 统一"已完成"判定标准（从宽口径）+ P1-28 计入完成 + 数字回填）｜对应 FIX_PLAN 版本：v1.18
 
 ---
 
 ## 修复执行进度
 
 > **说明**：本章节记录基于 `docs/fix/FIX_PLAN.md` 的修复执行状态，由 Monica 在每批修复完成后同步更新。
-> 最后同步时间：**2026-06-30**｜对应 FIX_PLAN 版本：**v1.12**
+> 最后同步时间：**2026-07-03**｜对应 FIX_PLAN 版本：**v1.18**
 
 > **补丁登记（2026-06-30）**：P0-09b 闭环——3 条 POST 创建类写入路由补挂 `requireEditorOrAbove`，7 条写路由权限全覆盖。P0-09b 为 P0-09 补丁子项，P0 总数仍计 10 项，不破坏 62 题基线。详见 [FIX_P0-09b_postWriteGuard.md](../fix/P0/FIX_P0-09b_postWriteGuard.md)。
 
@@ -37,6 +37,16 @@
 
 > **P1-18 闭环（2026-07-01）**：`js/modules/Pathogen.js` `initPathogen()` 访客守卫由 `if (isGuest && !isQuickAccess)` 收紧为 `if (isGuest || isQuickAccess)`，拦截全部访客（含快速访问模式），不再为访客初始化病原体模块/加载数据/绑定事件，与权限矩阵 `guest` 角色无 `module:pathogen` 对齐。权限矩阵本身经核验正确（`PermissionService.js:57-63` 故意排除 `module:pathogen`），矛盾根因为守卫条件放行快速访问访客。技术债 TD-P2-22（`handleNavigation`/`UIHelper.setupNavigation` 导航层缺 `module:xxx` 权限校验，与 P1-06 CSS 绕过同源）登记。详见 [FIX_P1-18_pathogenGuestAccess.md](../fix/P1/FIX_P1-18_pathogenGuestAccess.md)。
 
+> #### P1-02/03/04/05 闭环（补记，原提交 2026-06-30 `7f69286`）
+> 
+> 经2026-07-02复核确认，以下4项代码修复均已在 `7f69286`(fix(P1-02/03/04/05/19)) 中落地，此前RG_04遗漏为其建立独立闭环段落，现补记：
+> - **P1-02**：idempotencyMiddleware.js 节流方案已落地（CLEANUP_INTERVAL/lastCleanupAt），Redis化仍为中期技术债
+> - **P1-03**：UserManager.js registerUser() email字段已改为null，无虚假邮箱生成
+> - **P1-04**：isStrongPassword()密码强度校验已在UserManager.js/userRoutes.js多处调用点落地
+> - **P1-05**：/api/user/refresh-token接口已在前后端对齐（userRoutes.js/AuthService.js/ConfigManager.js）
+> 
+> 代码无变更，本次为文档闭环记录补齐。
+
 > **P1-19 闭环（2026-07-01）**：核验确认 `js/core/AdaptiveUploadQueue.js` 指纹缓存淘汰策略已由 FIFO 固定上限改为 TTL 批量过期清理（`_cleanupExpiredFingerprints()` 遍历 Map 按 `_fingerprintTTL` 默认 60s 过期删除，`_markCompleted()` 调用 TTL 清理替代 `keys().next().value` FIFO 淘汰），代码修复由先前提交 `7f69286` 完成（`fix(P1-02/03/04/05/19)`），本次为文档闭环，代码无变更。技术债 TD-P2-23（`_maxFingerprintCache` 遗留配置项清理）登记。详见 [FIX_P1-19_fingerprintEvict.md](../fix/P1/FIX_P1-19_fingerprintEvict.md)。
 
 > **P1-20 闭环（2026-07-01）**：`js/modules/Dashboard.js` 移除 `window.loadDashboardData` / `window.initDashboard` 全局挂载，改为 `dashboard:refresh` CustomEvent 监听；5 个 StorageService 的 sync 事件合并为 200ms 防抖刷新（原并发同步触发最多 5 次看板刷新）。`js/main.js` `handleNavigation()` 导航到看板时改为 `dispatchEvent(new CustomEvent('dashboard:refresh'))`。技术债 TD-P2-24（`SampleDataGenerator.js` L262 `window.loadDashboardData` 引用清理，有 `dataChanged` 事件后备无崩溃）登记。详见 [FIX_P1-20_dashboardGlobal.md](../fix/P1/FIX_P1-20_dashboardGlobal.md)。
@@ -53,17 +63,34 @@
 
 > **P1-26 闭环（2026-07-01）**：通过生产部署脚本 `deploy.ps1` L107/L311-322 确认权威生产 `DATABASE_URL = file:D:/ZhuHaiYiZhong-data/zhuhaiyizhong.db`（物理路径 `D:\ZhuHaiYiZhong-data\zhuhaiyizhong.db`），部署脚本强制写入 `backend/.env`，`.env.example` L17 模板值与生产一致。REVIEW_GUIDE v0.7 记录（`D:\ZhuHaiYiZhong-data\zhuhaiyizhong.db`）经确认正确；`docs/` 系统文档（ARCHITECTURE/DATABASE_SCHEMA/DEPLOYMENT_GUIDE/README）记录的 `D:\珠海一中\foodtestlab.db` 为田家炳系统遗留错误路径，归 DOCS-01/02/03/04 系列统一修正。`RG_01_SYSTEM.md` §1.2 歧义说明已替换为确认结论。代码无变更（`schema.prisma`/`deploy.ps1`/`.env.example` 均已正确）。技术债 TD-P2-30（docs/ 系统文档路径统一）登记。详见 [FIX_P1-26_databasePathAmbiguity.md](../fix/P1/FIX_P1-26_databasePathAmbiguity.md)。
 
+> **DOCS-01/02/03 闭环（2026-07-02）**：DOCS 系列文档批量修正（核实→修复→闭环）。
+> - **DOCS-01**：`backend/README.md` 全文重写，移除 13 处 Supabase 引用，改为实际技术栈 Express + Prisma + SQLite + JWT(bcryptjs) + PM2；附带端口 `3000`→`3002` 同步（`server.js` L29 默认 3002）。
+> - **DOCS-02**：`docs/API_REFERENCE.md` 4 处端口（L8/L9/L47/L1857）由 `3001`/`8081` 修正为 `3002`/`8082`，与 `deploy.ps1` L104-105、`server.js` L29 一致（正文既有示例已正确，仅头部元信息与 19.8 排查条目残留）。
+> - **DOCS-03**：`docs/DATABASE_SCHEMA.md` 10 处路径（7 处 DB 路径 + 2 处备份目录 + 1 处备份命名）由 `D:\珠海一中\foodtestlab.db` 修正为 `D:\ZhuHaiYiZhong-data\zhuhaiyizhong.db`，权威来源 `deploy.ps1` L107/L311-312 重新核实确认。本项为 **TD-P2-30 部分完成**；`ARCHITECTURE.md`/`DEPLOYMENT_GUIDE.md`/`docs/README.md` 同类路径残留（50+ 处）已登记，留待 TD-P2-30 后续统一处理。
+> - DOCS 进度 1/4 → 4/4（100%），合计 36/62 → 39/62（62.9%，验算：P0 10 + P1 25 + P2 0 + DOCS 4 = 39，39/62 = 62.9%）。
+> 详见 [FIX_DOCS-01](../fix/DOCS/FIX_DOCS-01_backendReadme.md) / [FIX_DOCS-02](../fix/DOCS/FIX_DOCS-02_apiReference.md) / [FIX_DOCS-03](../fix/DOCS/FIX_DOCS-03_databaseSchema.md)。
+
+> **P0-11 闭环（2026-07-02，v2）**：数据看板"合格率"统计缺陷——`String.includes('合格')` 未排除"不合格"子串包含，导致"不合格"记录被误判为合格，合格率虚高。v1 初版仅修复 5 处（`Dashboard.js` `getStats()` 2 处 / `index.html` 2 处代码块 / `ExportService.js` 1 处）；v2 经历史演变追溯发现遗漏 7 处（`Dashboard.js` `getLeanMeatStatsByType()` 1 处 + `calculateCanteenTrends()` 2 处 + `calculateCanteenPassRate()` 2 处 + `Tableware.js` 2 处），已全部补充修复，**共 12 处**。**⚠️ 历史影响面（按证据强度分级）**：确证段（2026-06-16 deploy.ps1 入库 ~ 2026-07-02，有明确生产部署配置证据，建议业务方核查此区间看板/报告）；推断段（2025-12-12 ~ 2026-06-16，仅间接证据，系统是否已实际投入使用未经证实，需业务方自行确认）。详见 [FIX_P0-11_passRateMisjudge.md](../fix/P0/FIX_P0-11_passRateMisjudge.md)。
+
+> **TD-P2-31 登记（2026-07-02）**：docs/fix/ 历史空模板补充审计标注。范围：P0-06/07/08_storageHeaders + P1-01/06/07/08/09/10/11/17/18，共 12 处空模板文件已在顶部添加醒目标注（问题已通过其他文档路径闭环，保留文件作审计追溯）。P2 全部 20 项及 P0-01~05 因诚实标记待处理/已有闭环记录，排除在外；DOCS-01~04 经核实均有实质内容，非空模板。P0-06/P0-07 经代码级核实（`buildDeterministicRecordCode` 存在于 `server.js:213`、`/api/guest/quick-access` 端点存在于 `server.js:303`），与 FIX_PLAN 描述一致，维持现有标注。**状态：✅ 已完成（2026-07-02）**。
+
+> **P1-27 闭环（2026-07-03）**：原 P1-01 重登记项，合并 3 个子问题全部修复。① 路由顺序：`auditRoutes.js` 中 `GET /stats/summary`、`DELETE /cleanup` 前移至 `GET /:logId` 之前；② 前后端 API 路径：前端 `getStats(date)` URL 从 `/stats/${date}` 改为 `/stats/summary`（date 转 query param），修正返回值字段 `data.stats`→`data.data`；后端新增 `GET /export` 路由返回 CSV；③ cleanup HTTP 方法：前端 `POST`→`DELETE`。**P2-15 随 P1-27 自动解决**。附加发现 `logOperation` 字段名不匹配（`table_name`/`record_id` vs 后端 `resource_type`/`resource_id`），登记为 P1-28。**里程碑（v0.40）：P1-27 闭环；P1-28 经 v0.40 确立"已完成"从宽口径判定标准后计入完成，P1 系列 27/27 全部完成（100%）。该表述成立的前提是 FIX_PLAN v1.18 已正式写入判定标准，不再是此前缺乏依据的庆祝性表述。**详见 [FIX_P1-27_auditRouteAndApiMismatch.md](../fix/P1/FIX_P1-27_auditRouteAndApiMismatch.md)。
+
+> **P1-28 闭环（2026-07-03）**：`js/services/AuditLogService.js` 的 `logOperation()` 方法内部 body 字段名 `table_name`/`record_id` → `resource_type`/`resource_id` 对齐后端 `auditRoutes.js` POST / 解构；方法签名与 11 处调用方（Dashboard/Tableware/BackupRestore/Pathogen）零改动。后端校验确认 `resource_type`/`resource_id` 非必填，修复后不引入新的 400 错误；Prisma schema 字段名一致无需迁移。历史审计日志的此两列仍为 null（修复前产生），属已知限制不回填。**v0.40 口径统一**：依据 FIX_PLAN v1.18 正式确立的"已完成"从宽判定标准（代码修复已落地且通过静态验证即计为已完成，运行时验证为独立追踪维度），P1-28 状态从"🔄 已修复（待运行时验收）"改为"✅ 已完成"，P1 完成率 96.3%→100%（27/27），合计 42/68→43/68（63.2%）。运行时验证另行执行，若发现失败将按标准降级。详见 [FIX_P1-28_logOperationFieldMismatch.md](../fix/P1/FIX_P1-28_logOperationFieldMismatch.md)。
+
 ### 总体进度
 
 | 类别 | 总数 | ✅ 已完成 | ⬜ 待处理 | 完成率 |
 |------|------|----------|----------|--------|
-| P0（安全/高危） | 10 | 10 | 0 | 100% |
-| 🟡 P1 重要 | 26 | 26 | 0 | 100% 🎉 |
-| 🟢 P2 优化 | 22 | 0 | 22 | 0% |
-| 📄 DOCS 文档 | 4 | 0 | 4 | 0% |
-| **合计** | **62** | **36** | **26** | **58.1%** |
+| P0（安全/高危） | 11 | 11 | 0 | 100% |
+| 🟡 P1 重要 | 27 | 27 | 0 | 100% ✅ |
+| 🟢 P2 优化 | 26 | 1 | 25 | 3.8% |
+| 📄 DOCS 文档 | 4 | 4 | 0 | 100% |
+| **合计** | **68** | **43** | **25** | **63.2%** |
 
-### P0 高危问题修复状态（10 项）
+> ⚠️ **2026-07-02 纠错**：经复核确认 P1-01（auditRoutes.js 路由顺序）实际未修复（代码未调整，仅有空模板文档），此前统计的"P1 系列 26/26 (100%)"存在事实错误。**更正为 P1: 25/26（96.2%）**，62 题总进度基线由 36/62 更正为 **35/62（56.5%）**。P1-01 已重新登记为 P1-27（见 [FIX_P1-27_auditRouteAndApiMismatch.md](../fix/P1/FIX_P1-27_auditRouteAndApiMismatch.md)），一并纳入原路由顺序问题与新发现的前后端 API 路径不匹配问题。同时修正 DOCS 行：DOCS-04 已于同批次核验中确认闭环（1/4），此前更新P1行时未同步更新DOCS行，现补正。修正后合计 36/62（58.1%）与历史数字巧合相同，但构成已不同（P1真实96.2%+DOCS真实25%，而非此前P1虚报100%）。
+
+### P0 高危问题修复状态（11 项）
 
 | ID | 问题描述 | 预估工时 | 状态 | 完成日期 |
 |----|---------|---------|------|---------|
@@ -77,8 +104,9 @@
 | `P0-08` | Storage.js temp-token- 前缀可被客户端伪造 | 1h | ✅ 已完成 | 2026-06-23 |
 | `P0-09` | auth.verify() 对编辑操作完全不做权限校验 | 3h | ✅ 已完成 | 2026-06-24 |
 | `P0-10` | 根目录 package.json 缺少 type:module 及 Prisma 依赖 | 1h | ✅ 已完成 | 2026-06-23 |
+| `P0-11` | 合格率统计 `includes('合格')` 未排除"不合格"子串，"不合格"误判为合格 | 0.5h | ✅ 已完成 | 2026-07-02 |
 
-- **当前阶段**：P0 全部完成（100%，10/10）✅
+- **当前阶段**：P0 全部完成（100%，11/11）✅
 - **下一任务**：P1 阶段（见 FIX_PLAN.md → P1 节）
 - **修复指令**：见 `docs/fix/FIX_PLAN.md` → P1 节
 
