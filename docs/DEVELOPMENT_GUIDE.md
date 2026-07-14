@@ -410,6 +410,12 @@ Caddy 主配置 `/etc/caddy/Caddyfile` 通过 `import /etc/caddy/sites/*.caddy` 
    | 事务包裹 | 每个请求用 `prisma.$transaction(async tx => { await tx.$executeRawUnsafe('SET search_path TO ...'); ...业务... })` 锁定同连接 | 不引入新组件；实现直观 | 每个请求多一次 SET；长事务占用连接；需确保全程走同一 tx |
    | PgBouncer Session 模式 | 前置 PgBouncer（`pool_mode = session`），单逻辑会话绑定单物理连接 | 连接复用高效；search_path 稳定 | 额外部署/运维 PgBouncer；**不可用 Transaction 模式**（会破坏 search_path 绑定） |
 
+   > **已选定（2026-07-14）：事务包裹 + 预留切换。** 抽象集中在 `backend/lib/tenantClient.js`：
+   > - `setSearchPath(tx, schoolCode)` 是**唯一切换点**，当前执行 `SET LOCAL search_path TO "school_<code>", public`。
+   > - `createTenantClient(prisma, schoolCode)` 用递归 Proxy 把任意 `model.method` 包进 `prisma.$transaction`，业务 handler 统一通过 `req.db.<model>.<method>()` 访问。
+   > - 将来切 PgBouncer（pool_mode=session）时，只需改 `setSearchPath` / `createTenantClient`（去掉事务包裹、连接获取时设一次 search_path），handler 代码零改动。
+   > - 严禁为每校各建一个 PrismaClient（退化为方案③连接膨胀）。
+
    > 注意：无论哪种，都**不要**为每校各建一个 PrismaClient（否则退化为方案③的连接池膨胀）。`backend/sql/*.sql` 是 PostgreSQL/Supabase 脚本，可参考其 schema 划分思路，但当前运行时以 Prisma schema + 每校迁移为准。
 
 8. **孤儿 / 未被引用的前端工具模块**（经全量 `import` 核查，当前不被 ESM 前端加载，属历史遗留，新代码请勿依赖）：

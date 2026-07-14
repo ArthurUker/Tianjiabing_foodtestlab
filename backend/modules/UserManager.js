@@ -1,15 +1,33 @@
 /**
- * UserManager - 用户管理模块 (Prisma + SQLite)
+ * UserManager - 用户管理模块 (Prisma + PostgreSQL, Schema-per-tenant)
  * 处理用户注册、登录、密码管理等业务逻辑
  */
 
 import bcryptjs from 'bcryptjs'
 import jwt from 'jsonwebtoken'
+import { createTenantClient } from '../lib/tenantClient.js'
 
 export class UserManager {
     constructor(prismaClient, jwtSecret) {
         this.prisma = prismaClient
         this.jwtSecret = jwtSecret
+        this.schoolCode = null // 由 forTenant() 注入，用于写入 school_code
+    }
+
+    /**
+     * 返回一个绑定到指定学校 schema 的 UserManager 副本（方案②）。
+     * 副本的 this.prisma 为请求级租户客户端，所有查询落在 school_<code> schema。
+     * 不传 schoolCode 时返回自身（dev/test 共享 schema）。
+     */
+    forTenant(schoolCode) {
+        if (!schoolCode) return this
+        const tenantClient = createTenantClient(this.prisma, schoolCode)
+        const clone = Object.create(UserManager.prototype)
+        Object.assign(clone, this, {
+            prisma: tenantClient,
+            schoolCode
+        })
+        return clone
     }
 
     // ====== User Registration ======
@@ -27,7 +45,8 @@ export class UserManager {
                 userId: user.id,
                 username: user.username,
                 email: user.email,
-                role: user.role
+                role: user.role,
+                schoolCode: user.school_code || this.schoolCode || null
             },
             this.jwtSecret,
             { expiresIn: '7d' }
@@ -70,7 +89,8 @@ export class UserManager {
                     password_hash: passwordHash,
                     full_name: fullName,
                     role: 'user',
-                    status: 'active'
+                    status: 'active',
+                    school_code: this.schoolCode || null
                 }
             })
 
@@ -244,6 +264,7 @@ export class UserManager {
                     full_name: true,
                     role: true,
                     status: true,
+                    school_code: true,
                     created_at: true,
                     last_login: true
                 }

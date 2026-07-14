@@ -30,7 +30,7 @@ export function createUserRoutes(userManager) {
                 return res.status(400).json({ error: '❌ 缺少必要字段' })
             }
 
-            const result = await userManager.registerUser(username, phone, password, fullName)
+            const result = await userManager.forTenant(req.user.schoolCode).registerUser(username, phone, password, fullName)
             res.status(201).json(result)
         } catch (error) {
             res.status(400).json({ error: `❌ 注册失败: ${error.message}` })
@@ -38,15 +38,16 @@ export function createUserRoutes(userManager) {
     })
 
     // 用户登录（P2-01: 增加专项限流）
+    // schoolCode 来自请求体：登录前尚不知学校，需先据此定位 school_<code> schema 的 User 表
     router.post('/login', loginRateLimit, async (req, res) => {
         try {
-            const { username, password } = req.body
+            const { username, password, schoolCode } = req.body
 
             if (!username || !password) {
                 return res.status(400).json({ error: '❌ 用户名或密码缺失' })
             }
 
-            const result = await userManager.loginUser(username, password)
+            const result = await userManager.forTenant(schoolCode).loginUser(username, password)
             res.json(result)
         } catch (error) {
             res.status(401).json({ error: `❌ 登录失败: ${error.message}` })
@@ -91,7 +92,8 @@ export function createUserRoutes(userManager) {
                 id: dbUser.id,
                 username: dbUser.username,
                 email: dbUser.email,
-                role: dbUser.role
+                role: dbUser.role,
+                school_code: dbUser.school_code
             })
 
             res.json({
@@ -109,7 +111,10 @@ export function createUserRoutes(userManager) {
     // 获取当前用户信息
     router.get('/me', authenticateUser, async (req, res) => {
         try {
-            const result = await userManager.getUserProfile(req.user.userId)
+            const result = await userManager.forTenant(req.user.schoolCode).getUserProfile(req.user.userId)
+            if (result?.success && result.data) {
+                result.data.schoolCode = req.user.schoolCode || null
+            }
             res.json(result)
         } catch (error) {
             res.status(400).json({ error: `❌ 获取用户信息失败: ${error.message}` })
@@ -160,7 +165,7 @@ export function createUserRoutes(userManager) {
     router.get('/list', authenticateUser, authorizeRoles('admin', 'manager'), async (req, res) => {
         try {
             const { limit = 100, offset = 0 } = req.query
-            const result = await userManager.getUserList(parseInt(limit), parseInt(offset))
+            const result = await userManager.forTenant(req.user.schoolCode).getUserList(parseInt(limit), parseInt(offset))
             res.json(result)
         } catch (error) {
             res.status(400).json({ error: `❌ 获取用户列表失败: ${error.message}` })
@@ -170,7 +175,7 @@ export function createUserRoutes(userManager) {
     // 禁用用户
     router.post('/:userId/disable', authenticateUser, authorizeRoles('admin', 'manager'), async (req, res) => {
         try {
-            const result = await userManager.disableUser(req.params.userId)
+            const result = await userManager.forTenant(req.user.schoolCode).disableUser(req.params.userId)
             res.json(result)
         } catch (error) {
             res.status(400).json({ error: `❌ 禁用用户失败: ${error.message}` })
@@ -180,7 +185,7 @@ export function createUserRoutes(userManager) {
     // 启用用户
     router.post('/:userId/enable', authenticateUser, authorizeRoles('admin', 'manager'), async (req, res) => {
         try {
-            const result = await userManager.enableUser(req.params.userId)
+            const result = await userManager.forTenant(req.user.schoolCode).enableUser(req.params.userId)
             res.json(result)
         } catch (error) {
             res.status(400).json({ error: `❌ 启用用户失败: ${error.message}` })
@@ -196,7 +201,7 @@ export function createUserRoutes(userManager) {
                 return res.status(400).json({ error: '❌ 缺少角色信息' })
             }
 
-            const result = await userManager.changeUserRole(req.params.userId, newRole)
+            const result = await userManager.forTenant(req.user.schoolCode).changeUserRole(req.params.userId, newRole)
             res.json(result)
         } catch (error) {
             res.status(400).json({ error: `❌ 修改角色失败: ${error.message}` })
@@ -212,7 +217,7 @@ export function createUserRoutes(userManager) {
                 return res.status(400).json({ error: '❌ 新密码至少8个字符，且必须包含字母和数字' })
             }
 
-            const result = await userManager.resetPassword(req.params.userId, newPassword)
+            const result = await userManager.forTenant(req.user.schoolCode).resetPassword(req.params.userId, newPassword)
             res.json(result)
         } catch (error) {
             res.status(400).json({ error: `❌ 重置密码失败: ${error.message}` })
@@ -228,7 +233,7 @@ export function createUserRoutes(userManager) {
                 return res.status(400).json({ error: '❌ 新密码至少8个字符，且必须包含字母和数字' })
             }
 
-            const result = await userManager.resetPassword(req.params.userId, newPassword)
+            const result = await userManager.forTenant(req.user.schoolCode).resetPassword(req.params.userId, newPassword)
             res.json(result)
         } catch (error) {
             res.status(400).json({ error: `❌ 重置密码失败: ${error.message}` })
@@ -248,7 +253,7 @@ export function createUserRoutes(userManager) {
                 status: payload.status ?? (payload.is_active === true ? 'active' : payload.is_active === false ? 'disabled' : undefined)
             }
 
-            const result = await userManager.adminUpdateUser(req.params.userId, normalizedUpdates)
+            const result = await userManager.forTenant(req.user.schoolCode).adminUpdateUser(req.params.userId, normalizedUpdates)
             res.json(result)
         } catch (error) {
             res.status(400).json({ error: `❌ 更新用户失败: ${error.message}` })
@@ -264,15 +269,15 @@ export function createUserRoutes(userManager) {
             }
 
             // P1-17: 防止删除最后一个 admin 导致系统锁死
-            const targetUser = await userManager.prisma.user.findUnique({ where: { id: req.params.userId } })
+            const targetUser = await userManager.forTenant(req.user.schoolCode).prisma.user.findUnique({ where: { id: req.params.userId } })
             if (targetUser && targetUser.role === 'admin') {
-                const adminCount = await userManager.prisma.user.count({ where: { role: 'admin', status: 'active' } })
+                const adminCount = await userManager.forTenant(req.user.schoolCode).prisma.user.count({ where: { role: 'admin', status: 'active' } })
                 if (adminCount <= 1) {
                     return res.status(400).json({ error: '❌ 无法删除最后一个管理员账号，系统将无法管理' })
                 }
             }
 
-            const result = await userManager.deleteUser(req.params.userId)
+            const result = await userManager.forTenant(req.user.schoolCode).deleteUser(req.params.userId)
             res.json(result)
         } catch (error) {
             res.status(400).json({ error: `❌ 删除用户失败: ${error.message}` })

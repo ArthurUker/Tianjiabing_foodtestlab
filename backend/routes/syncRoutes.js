@@ -16,7 +16,7 @@
 import express from 'express'
 import { createAuthMiddleware } from '../middleware/authMiddleware.js'
 
-export function createSyncRoutes(prisma, userManager) {
+export function createSyncRoutes(userManager) {
     const router = express.Router()
 
     // ====== Authentication Middleware（统一从 authMiddleware.js 导入）======
@@ -41,7 +41,7 @@ export function createSyncRoutes(prisma, userManager) {
 
             switch (action) {
                 case 'add': {
-                    result = await prisma.testRecord.create({
+                    result = await req.db.testRecord.create({
                         data: {
                             record_code: data.record_code || `SYNC-${store}-${Date.now()}`,
                             test_type: store,
@@ -58,7 +58,7 @@ export function createSyncRoutes(prisma, userManager) {
                     if (!data.id) {
                         return res.status(400).json({ success: false, error: 'update 操作需要提供 data.id' })
                     }
-                    result = await prisma.testRecord.update({
+                    result = await req.db.testRecord.update({
                         where: { id: data.id },
                         data: {
                             test_name: data.test_name,
@@ -73,7 +73,7 @@ export function createSyncRoutes(prisma, userManager) {
                     if (!data.id) {
                         return res.status(400).json({ success: false, error: 'delete 操作需要提供 data.id' })
                     }
-                    result = await prisma.testRecord.delete({
+                    result = await req.db.testRecord.delete({
                         where: { id: data.id }
                     })
                     break
@@ -121,7 +121,7 @@ export function createSyncRoutes(prisma, userManager) {
                     let result
                     switch (action) {
                         case 'add':
-                            result = await prisma.testRecord.create({
+                            result = await req.db.testRecord.create({
                                 data: {
                                     record_code: data.record_code || `SYNC-${store}-${Date.now()}`,
                                     test_type: store,
@@ -134,7 +134,7 @@ export function createSyncRoutes(prisma, userManager) {
                             })
                             break
                         case 'update':
-                            result = await prisma.testRecord.update({
+                            result = await req.db.testRecord.update({
                                 where: { id: data.id },
                                 data: {
                                     test_name: data.test_name,
@@ -145,7 +145,7 @@ export function createSyncRoutes(prisma, userManager) {
                             })
                             break
                         case 'delete':
-                            result = await prisma.testRecord.delete({ where: { id: data.id } })
+                            result = await req.db.testRecord.delete({ where: { id: data.id } })
                             break
                         default:
                             throw new Error(`未知操作类型：${action}`)
@@ -174,8 +174,8 @@ export function createSyncRoutes(prisma, userManager) {
     // ====== GET /sync/status — 同步状态统计 ======
     router.get('/status', authenticateUser, async (req, res) => {
         try {
-            const total = await prisma.testRecord.count()
-            const byType = await prisma.testRecord.groupBy({
+            const total = await req.db.testRecord.count()
+            const byType = await req.db.testRecord.groupBy({
                 by: ['test_type'],
                 _count: { id: true }
             })
@@ -202,7 +202,7 @@ export function createSyncRoutes(prisma, userManager) {
     router.delete('/queue', authenticateUser, authorizeAdmin, async (req, res) => {
         try {
             // 清空 completed 状态的记录（谨慎操作，仅清理已归档数据）
-            const deleted = await prisma.testRecord.deleteMany({
+            const deleted = await req.db.testRecord.deleteMany({
                 where: { status: 'archived' }
             })
 

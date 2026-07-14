@@ -7,7 +7,7 @@ import express from 'express'
 import jwt from 'jsonwebtoken'
 import { createAuthMiddleware } from '../middleware/authMiddleware.js'
 
-export function createAuditRoutes(prisma, userManager) {
+export function createAuditRoutes(userManager) {
     const router = express.Router()
 
     // ====== Authentication Middleware（统一从 authMiddleware.js 导入）======
@@ -35,7 +35,7 @@ export function createAuditRoutes(prisma, userManager) {
                 return res.status(400).json({ error: '❌ 缺少操作类型' })
             }
 
-            const log = await prisma.auditLog.create({
+            const log = await req.db.auditLog.create({
                 data: {
                     user_id: req.user.userId,
                     action,
@@ -76,7 +76,7 @@ export function createAuditRoutes(prisma, userManager) {
 
             if (action) where.action = action
 
-            const logs = await prisma.auditLog.findMany({
+            const logs = await req.db.auditLog.findMany({
                 where,
                 skip: parseInt(offset),
                 take: parseInt(limit),
@@ -92,7 +92,7 @@ export function createAuditRoutes(prisma, userManager) {
                 orderBy: { created_at: 'desc' }
             })
 
-            const total = await prisma.auditLog.count({ where })
+            const total = await req.db.auditLog.count({ where })
 
             res.json({
                 success: true,
@@ -126,7 +126,7 @@ export function createAuditRoutes(prisma, userManager) {
                 }
             }
 
-            const actions = await prisma.auditLog.groupBy({
+            const actions = await req.db.auditLog.groupBy({
                 by: ['action'],
                 _count: {
                     id: true
@@ -139,7 +139,7 @@ export function createAuditRoutes(prisma, userManager) {
                 where
             })
 
-            const userActions = await prisma.auditLog.groupBy({
+            const userActions = await req.db.auditLog.groupBy({
                 by: ['user_id'],
                 _count: {
                     id: true
@@ -153,7 +153,7 @@ export function createAuditRoutes(prisma, userManager) {
                 where
             })
 
-            const totalLogs = await prisma.auditLog.count({ where })
+            const totalLogs = await req.db.auditLog.count({ where })
 
             res.json({
                 success: true,
@@ -190,7 +190,7 @@ export function createAuditRoutes(prisma, userManager) {
                 }
             }
 
-            const logs = await prisma.auditLog.findMany({
+            const logs = await req.db.auditLog.findMany({
                 where,
                 include: {
                     user: {
@@ -232,7 +232,7 @@ export function createAuditRoutes(prisma, userManager) {
             const cutoffDate = new Date()
             cutoffDate.setDate(cutoffDate.getDate() - parseInt(days))
 
-            const result = await prisma.auditLog.deleteMany({
+            const result = await req.db.auditLog.deleteMany({
                 where: {
                     created_at: {
                         lt: cutoffDate
@@ -257,7 +257,7 @@ export function createAuditRoutes(prisma, userManager) {
      */
     router.get('/:logId', authenticateUser, async (req, res) => {
         try {
-            const log = await prisma.auditLog.findUnique({
+            const log = await req.db.auditLog.findUnique({
                 where: { id: req.params.logId },
                 include: {
                     user: {

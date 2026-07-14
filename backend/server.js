@@ -18,6 +18,7 @@ import { createAuditRoutes } from './routes/auditRoutes.js'
 import { createValidationMiddleware, rateLimit, sanitizeText } from './middleware/validationMiddleware.js'
 import idempotencyMiddleware from './middleware/idempotencyMiddleware.js'
 import { createAuthMiddleware } from './middleware/authMiddleware.js'
+import { createTenantMiddleware } from './middleware/tenantMiddleware.js'
 import { createSyncRoutes } from './routes/syncRoutes.js'
 
 dotenv.config()
@@ -174,10 +175,10 @@ function validateRecordPayload(tableName, payload) {
     return { valid: errors.length === 0, errors }
 }
 
-// P2-02: 审计日志写入辅助函数 — 记录 CRUD 操作到数据库
-async function writeRecordAuditLog(userId, action, resourceType, resourceId, details, ip) {
+// P2-02: 审计日志写入辅助函数 — 记录 CRUD 操作到数据库（db 为请求级租户客户端）
+async function writeRecordAuditLog(db, userId, action, resourceType, resourceId, details, ip) {
     try {
-        await prisma.auditLog.create({
+        await db.auditLog.create({
             data: {
                 user_id: userId,
                 action,
@@ -264,6 +265,8 @@ function buildDeterministicRecordCode(tableName, payload) {
 }
 
 // Middleware: Authenticate User（统一从 authMiddleware.js 导入，兼容 req.userId / req.userRole）
+// 认证成功后注入请求级租户客户端 req.db（方案②：按 schoolCode 路由 schema）
+const attachTenant = createTenantMiddleware(prisma)
 export function authenticateUser(req, res, next) {
     _authUser(req, res, () => {
         // 向后兼容：同时挂载 req.userId 和 req.userRole
@@ -271,7 +274,7 @@ export function authenticateUser(req, res, next) {
             req.userId = req.user.userId
             req.userRole = req.user.role
         }
-        next()
+        attachTenant(req, res, next)
     })
 }
 
@@ -339,6 +342,39 @@ function healthCheck(req, res) {
 app.get('/health', healthCheck)
 app.get('/api/health', healthCheck)
 
+// ====== School Config（外观 / 字段个性化，直连 public 系统表，不受 search_path 影响）======
+app.get('/api/school/config', authenticateUser, async (req, res) => {
+    try {
+        const code = req.user?.schoolCode || ''
+        // 系统表位于 public，使用显式 schema 前缀，确保不依赖 search_path
+        const schoolRows = await prisma.$queryRawUnsafe(
+            `SELECT "code","name","short_name","theme_color","logo_url","status" FROM public."School" WHERE "code" = $1 LIMIT 1`,
+            code
+        )
+        const customRows = await prisma.$queryRawUnsafe(
+            `SELECT "visible_types","field_labels","hidden_fields","theme_config","updated_at" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`,
+            code
+        )
+        const school = schoolRows?.[0] || null
+        const customization = customRows?.[0] || null
+        res.json({
+            success: true,
+            data: {
+                schoolCode: code,
+                school,
+                customization
+            }
+        })
+    } catch (error) {
+        // 表尚未创建（如未执行迁移）时优雅降级，返回空配置而非 500
+        res.json({
+            success: true,
+            data: { schoolCode: req.user?.schoolCode || '', school: null, customization: null },
+            note: 'school tables not provisioned yet'
+        })
+    }
+})
+
 // ====== User Authentication Routes ======
 const userRoutes = createUserRoutes(userManager)
 app.use('/api/user', userRoutes)
@@ -375,11 +411,11 @@ app.post('/api/guest/quick-access', async (req, res) => {
 })
 
 // ====== Audit Logs Routes ======
-const auditRoutes = createAuditRoutes(prisma, userManager)
+const auditRoutes = createAuditRoutes(userManager)
 app.use('/api/audit-logs', auditRoutes)
 
 // ====== Sync Routes ======
-const syncRoutes = createSyncRoutes(prisma, userManager)
+const syncRoutes = createSyncRoutes(userManager)
 app.use('/api/sync', syncRoutes)
 
 // ====== Test Records API ======
@@ -392,7 +428,7 @@ app.post('/api/test-records', authenticateUser, requireEditorOrAbove, async (req
         const recordCode = buildDeterministicRecordCode(test_type || 'generic', req.body)
 
         // P1-15: 前置幂等检查，重复提交返回已有记录（与 /api/records/:tableName 一致）
-        const existing = await prisma.testRecord.findUnique({
+        const existing = await req.db.testRecord.findUnique({
             where: { record_code: recordCode }
         })
 
@@ -405,7 +441,7 @@ app.post('/api/test-records', authenticateUser, requireEditorOrAbove, async (req
             })
         }
 
-        const record = await prisma.testRecord.create({
+        const record = await req.db.testRecord.create({
             data: {
                 record_code: recordCode,
                 test_type: test_type || 'generic',
@@ -426,7 +462,7 @@ app.post('/api/test-records', authenticateUser, requireEditorOrAbove, async (req
         // P1-15: P2002 唯一约束冲突（并发重复写入）：按幂等策略返回已有记录
         if (error.code === 'P2002' || (error.message && error.message.includes('Unique constraint'))) {
             try {
-                const existing = await prisma.testRecord.findUnique({
+                const existing = await req.db.testRecord.findUnique({
                     where: { record_code: buildDeterministicRecordCode(req.body?.test_type || 'generic', req.body || {}) }
                 })
                 if (existing) {
@@ -460,14 +496,14 @@ app.get('/api/test-records', authenticateUser, async (req, res) => {
         if (test_type) where.test_type = test_type
         if (status) where.status = status
 
-        const records = await prisma.testRecord.findMany({
+        const records = await req.db.testRecord.findMany({
             where,
             skip: parseInt(offset),
             take: parseInt(limit),
             orderBy: { created_at: 'desc' }
         })
 
-        const total = await prisma.testRecord.count({ where })
+        const total = await req.db.testRecord.count({ where })
 
         res.json({
             success: true,
@@ -498,14 +534,14 @@ app.get('/api/records/:tableName', authenticateUser, async (req, res) => {
         const where = { test_type: testType }
         if (status) where.status = status
 
-        const records = await prisma.testRecord.findMany({
+        const records = await req.db.testRecord.findMany({
             where,
             skip: parseInt(offset),
             take: parseInt(limit),
             orderBy: { created_at: 'desc' }
         })
 
-        const total = await prisma.testRecord.count({ where })
+        const total = await req.db.testRecord.count({ where })
 
         res.json({
             success: true,
@@ -543,7 +579,7 @@ app.post('/api/records/:tableName', authenticateUser, requireEditorOrAbove, asyn
         const writeData = buildRecordWriteData(testType, payload)
         const recordCode = buildDeterministicRecordCode(testType, payload)
 
-        const existing = await prisma.testRecord.findUnique({
+        const existing = await req.db.testRecord.findUnique({
             where: { record_code: recordCode }
         })
 
@@ -556,7 +592,7 @@ app.post('/api/records/:tableName', authenticateUser, requireEditorOrAbove, asyn
             })
         }
 
-        const record = await prisma.testRecord.create({
+        const record = await req.db.testRecord.create({
             data: {
                 record_code: recordCode,
                 created_by: req.userId,
@@ -566,7 +602,7 @@ app.post('/api/records/:tableName', authenticateUser, requireEditorOrAbove, asyn
         })
 
         // P2-02: 记录创建操作写入审计日志
-        await writeRecordAuditLog(req.userId, 'create', 'test_record', record.id, {
+        await writeRecordAuditLog(req.db, req.userId, 'create', 'test_record', record.id, {
             test_type: testType,
             record_code: recordCode
         }, req.ip)
@@ -580,7 +616,7 @@ app.post('/api/records/:tableName', authenticateUser, requireEditorOrAbove, asyn
         // P2002: 唯一约束冲突（并发重复写入）：按幂等策略返回已有记录
         if (error.code === 'P2002' || (error.message && error.message.includes('Unique constraint'))) {
             try {
-                const existing = await prisma.testRecord.findUnique({ where: { record_code: buildDeterministicRecordCode(normalizeRecordType(req.params.tableName), req.body || {}) } })
+                const existing = await req.db.testRecord.findUnique({ where: { record_code: buildDeterministicRecordCode(normalizeRecordType(req.params.tableName), req.body || {}) } })
                 if (existing) {
                     return res.json({ success: true, deduplicated: true, data: buildRecordPayload(existing), message: '记录已存在（并发写入），已按幂等策略返回现有数据' })
                 }
@@ -634,12 +670,12 @@ app.post('/api/records/:tableName/bulk-upsert', authenticateUser, requireEditorO
         for (const [recordCode, payload] of uniqueByCode.entries()) {
             try {
                 const writeData = buildRecordWriteData(testType, payload)
-                const existing = await prisma.testRecord.findUnique({
+                const existing = await req.db.testRecord.findUnique({
                     where: { record_code: recordCode }
                 })
 
                 if (existing) {
-                    await prisma.testRecord.update({
+                    await req.db.testRecord.update({
                         where: { id: existing.id },
                         data: {
                             ...writeData,
@@ -648,7 +684,7 @@ app.post('/api/records/:tableName/bulk-upsert', authenticateUser, requireEditorO
                     })
                     updated++
                 } else {
-                    await prisma.testRecord.create({
+                    await req.db.testRecord.create({
                         data: {
                             record_code: recordCode,
                             created_by: req.userId,
@@ -668,7 +704,7 @@ app.post('/api/records/:tableName/bulk-upsert', authenticateUser, requireEditorO
 
         // P2-02: 批量导入操作写入审计日志（补充：单条 CRUD 已覆盖，此处覆盖批量导入路径）
         if (created > 0 || updated > 0) {
-            await writeRecordAuditLog(req.userId, 'import', 'test_record', null, {
+            await writeRecordAuditLog(req.db, req.userId, 'import', 'test_record', null, {
                 test_type: testType,
                 total: records.length,
                 unique: uniqueByCode.size,
@@ -706,7 +742,7 @@ app.put('/api/records/:tableName/:id', authenticateUser, requireEditorOrAbove, a
             return res.status(404).json({ error: '记录类型不存在' })
         }
 
-        const existing = await prisma.testRecord.findUnique({
+        const existing = await req.db.testRecord.findUnique({
             where: { id: req.params.id }
         })
 
@@ -731,7 +767,7 @@ app.put('/api/records/:tableName/:id', authenticateUser, requireEditorOrAbove, a
             })
         }
 
-        const record = await prisma.testRecord.update({
+        const record = await req.db.testRecord.update({
             where: { id: req.params.id },
             data: {
                 ...writeData,
@@ -740,7 +776,7 @@ app.put('/api/records/:tableName/:id', authenticateUser, requireEditorOrAbove, a
         })
 
         // P2-02: 记录更新操作写入审计日志
-        await writeRecordAuditLog(req.userId, 'update', 'test_record', record.id, {
+        await writeRecordAuditLog(req.db, req.userId, 'update', 'test_record', record.id, {
             test_type: testType,
             version: (existing.version || 0) + 1
         }, req.ip)
@@ -766,7 +802,7 @@ app.delete('/api/records/:tableName/:id', authenticateUser, requireEditorOrAbove
             return res.status(404).json({ error: '记录类型不存在' })
         }
 
-        const existing = await prisma.testRecord.findUnique({
+        const existing = await req.db.testRecord.findUnique({
             where: { id: req.params.id }
         })
 
@@ -774,12 +810,12 @@ app.delete('/api/records/:tableName/:id', authenticateUser, requireEditorOrAbove
             return res.status(404).json({ error: '记录不存在' })
         }
 
-        await prisma.testRecord.delete({
+        await req.db.testRecord.delete({
             where: { id: req.params.id }
         })
 
         // P2-02: 记录删除操作写入审计日志
-        await writeRecordAuditLog(req.userId, 'delete', 'test_record', req.params.id, {
+        await writeRecordAuditLog(req.db, req.userId, 'delete', 'test_record', req.params.id, {
             test_type: testType,
             record_code: existing.record_code
         }, req.ip)
@@ -804,7 +840,7 @@ app.get('/api/records/:tableName/:id', authenticateUser, async (req, res) => {
             return res.status(404).json({ error: '记录类型不存在' })
         }
 
-        const existing = await prisma.testRecord.findUnique({
+        const existing = await req.db.testRecord.findUnique({
             where: { id: req.params.id }
         })
 
@@ -830,7 +866,7 @@ app.get('/api/test-records/:id', authenticateUser, async (req, res) => {
     try {
         const { id } = req.params
 
-        const record = await prisma.testRecord.findUnique({
+        const record = await req.db.testRecord.findUnique({
             where: { id },
             include: {
                 test_items: true,
@@ -873,7 +909,7 @@ app.put('/api/test-records/:id', authenticateUser, requireEditorOrAbove, async (
         if (status) updateData.status = status
         if (result_data) updateData.result_data = JSON.stringify(result_data)
 
-        const record = await prisma.testRecord.update({
+        const record = await req.db.testRecord.update({
             where: { id },
             data: updateData
         })
@@ -897,7 +933,7 @@ app.delete('/api/test-records/:id', authenticateUser, requireEditorOrAbove, asyn
     try {
         const { id } = req.params
 
-        await prisma.testRecord.delete({
+        await req.db.testRecord.delete({
             where: { id }
         })
 
@@ -989,7 +1025,7 @@ const server = app.listen(PORT, () => {
     console.log(`📍 Server running on: http://localhost:${PORT}`)
     console.log(`📍 API Endpoints: http://localhost:${PORT}/api`)
     console.log(`🔐 JWT Secret configured: ${JWT_SECRET ? '✅' : '❌ MISSING'}`)
-    console.log(`🗄️  Database: SQLite (Prisma)`)
+    console.log(`🗄️  Database: PostgreSQL (Prisma, Schema-per-tenant)`)
     console.log(`📦 CORS Origins: ${allowCorsWildcard ? 'Allow All' : allowedOrigins.join(', ')}`)
     console.log(`📦 CORS Hostnames: ${allowedHostnames.length ? allowedHostnames.join(', ') : '(none)'}`)
     console.log(`${'='.repeat(60)}\n`)

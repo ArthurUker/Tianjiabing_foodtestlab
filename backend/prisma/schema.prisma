@@ -1,12 +1,14 @@
 // Prisma Schema for Food Safety Testing Lab
-// Database: SQLite (local) / PostgreSQL (production)
+// Database: PostgreSQL（开发 / 测试 / 生产统一，Schema-per-tenant 方案②）
+// 每校业务数据落在独立 schema（school_<code>），由应用层按登录学校 SET search_path 路由。
+// 系统表（School / SchoolCustomization）始终位于 public schema（search_path 兜底位）。
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -21,6 +23,7 @@ model User {
   phone         String?
   role          String   @default("user") // admin / manager / operator / viewer / user
   status        String   @default("active") // active / disabled
+  school_code   String?  // 所属学校代码（方案②）；dev/test 共享 schema 时为空
   created_at    DateTime @default(now())
   updated_at    DateTime @updatedAt
   last_login    DateTime?
@@ -154,4 +157,36 @@ model SystemLog {
 
   @@index([level])
   @@index([created_at])
+}
+
+// ========== 学校注册表（系统级，位于 public schema）==========
+
+model School {
+  id            String   @id @default(cuid())
+  code          String   @unique // 学校代码，对应 schema 名 school_<code>
+  name          String
+  short_name    String?
+  theme_color   String?  // 主题色（外观个性化）
+  logo_url      String?
+  status        String   @default("active") // active / disabled
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  customization SchoolCustomization?
+}
+
+// ========== 学校定制配置（外观 / 字段个性化，位于 public schema）==========
+
+model SchoolCustomization {
+  id            String   @id @default(cuid())
+  school_code   String   @unique // 与 School.code 对应
+  // 可见检测类型（JSON 数组，如 ["tableware","pathogen"]）
+  visible_types String?  // JSON array
+  // 字段标签覆盖（JSON，如 {"testDate":"检测日期"}）
+  field_labels  String?  // JSON object
+  // 隐藏字段（JSON 数组）
+  hidden_fields String?  // JSON array
+  // 其它主题设置（JSON）
+  theme_config  String?  // JSON object
+  updated_at    DateTime @updatedAt
 }

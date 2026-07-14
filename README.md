@@ -104,7 +104,7 @@ flowchart LR
     C -->|/api/*、/health| N[Express 后端]
     C -->|其他路径| S[dist/ 静态文件<br/>try_files → index.html]
     N --> P[Prisma Client]
-    P --> Q[(SQLite)]
+    P --> Q[(PostgreSQL)]
 ```
 
 ### 3.3 多学校隔离（单应用 + PostgreSQL Schema-per-tenant）
@@ -537,12 +537,12 @@ node prisma/seed.js           # 初始化 admin/operator/viewer（需 SEED_*_PAS
 npm run dev                   # 或 npm start（默认端口 3002）
 ```
 
-本地 `.env` 最小集：
+本地 `.env` 最小集（PostgreSQL，开发/测试/生产统一）：
 
 ```ini
 NODE_ENV=development
 PORT=3002
-DATABASE_URL=file:./dev.db
+DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/foodtestlab
 JWT_SECRET=<自行生成的强随机串，勿用弱密钥黑名单值>
 SEED_ADMIN_PASSWORD=admin123
 SEED_OPERATOR_PASSWORD=operator123
