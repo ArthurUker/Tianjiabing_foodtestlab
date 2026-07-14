@@ -23,3 +23,14 @@
 2. **预先报备 ≠ 预先等待批准**：报备后可继续执行，不需要停下来等待确认。但"报备"这个动作本身不能省略。
 
 3. 只有在用户明确追问或要求变更方案时，才可以直接切换方法而不需要每次都报备。
+
+---
+
+## 相关文档
+
+- 系统总览（项目入口）：[`README.md`（根）](../README.md)
+- 文档中心（docs 索引）：[`docs/README.md`](./README.md)
+- 开发文档（随代码更新）：[`docs/DEVELOPMENT_GUIDE.md`](./DEVELOPMENT_GUIDE.md)
+- 部署说明：[`deploy/README.md`](../deploy/README.md)
+- 后端说明：[`backend/README.md`](../backend/README.md)
+- 历史归档（仅供参考，非权威）：[`docs/history/`](./history/)

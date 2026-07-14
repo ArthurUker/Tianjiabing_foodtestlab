@@ -134,25 +134,25 @@ export class GuestDashboard {
                     <h3 class="text-lg font-semibold text-gray-800 mb-4">
                         <i class="fas fa-link mr-2"></i>快速导航
                     </h3>
-                    <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    <div class="grid grid-cols-2 md:grid-cols-3 gap-2" id="guestQuickNav">
                         <button class="p-2 bg-blue-50 text-blue-600 rounded hover:bg-blue-100 text-sm font-medium flex items-center justify-center transition"
-                            onclick="window.handleNavigation('dashboard')">
+                            data-nav-target="dashboard">
                             <i class="fas fa-chart-pie mr-1"></i>数据看板
                         </button>
                         <button class="p-2 bg-green-50 text-green-600 rounded hover:bg-green-100 text-sm font-medium flex items-center justify-center transition"
-                            onclick="window.handleNavigation('tableware-test')">
+                            data-nav-target="tableware-test">
                             <i class="fas fa-utensils mr-1"></i>餐具洁净度
                         </button>
                         <button class="p-2 bg-lime-50 text-lime-600 rounded hover:bg-lime-100 text-sm font-medium flex items-center justify-center transition"
-                            onclick="window.handleNavigation('pesticide-test')">
+                            data-nav-target="pesticide-test">
                             <i class="fas fa-leaf mr-1"></i>果蔬农残
                         </button>
                         <button class="p-2 bg-yellow-50 text-yellow-600 rounded hover:bg-yellow-100 text-sm font-medium flex items-center justify-center transition"
-                            onclick="window.handleNavigation('oil-test')">
+                            data-nav-target="oil-test">
                             <i class="fas fa-flask mr-1"></i>食用油品质
                         </button>
                         <button class="p-2 bg-orange-50 text-orange-600 rounded hover:bg-orange-100 text-sm font-medium flex items-center justify-center transition"
-                            onclick="window.handleNavigation('lean-meat-test')">
+                            data-nav-target="lean-meat-test">
                             <i class="fas fa-drumstick-bite mr-1"></i>肉蛋农残
                         </button>
                         <!-- ❌ 访客无权访问病原体检测 - 已移除快速链接 -->
@@ -294,6 +294,18 @@ export class GuestDashboard {
         const btnSubmit = document.getElementById('btnSubmitExportRequest');
         if (btnSubmit) {
             btnSubmit.addEventListener('click', () => this.submitExportRequest());
+        }
+
+        // P2-10 阶段B：快速导航按钮改事件委托，派发 app:navigate 事件（不再依赖 window.handleNavigation）
+        const quickNav = document.getElementById('guestQuickNav');
+        if (quickNav) {
+            quickNav.addEventListener('click', (e) => {
+                const btn = e.target.closest('[data-nav-target]');
+                if (!btn) return;
+                document.dispatchEvent(new CustomEvent('app:navigate', {
+                    detail: { target: btn.dataset.navTarget }
+                }));
+            });
         }
     }
 

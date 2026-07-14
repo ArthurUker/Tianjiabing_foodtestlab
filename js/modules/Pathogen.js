@@ -1460,5 +1460,4 @@ function updatePagination(start, end, total, pages) {
     }
 }
 
-// 导出初始化函数
-window.initPathogen = initPathogen;
+// P2-10 阶段B：initPathogen 已通过 export 导出并由 main.js import 使用，不再挂 window

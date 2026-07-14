@@ -240,7 +240,7 @@ export class UserManagement {
                     <button class="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm btn-edit-user" data-user-id="${user.id}">
                         <i class="fas fa-edit mr-1"></i>编辑
                     </button>
-                    <button class="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 text-sm" onclick="window.userMgmt.deleteUser('${user.id}')">
+                    <button class="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 text-sm btn-delete-user" data-user-id="${user.id}">
                         <i class="fas fa-trash mr-1"></i>删除
                     </button>
                 </td>
@@ -251,13 +251,19 @@ export class UserManagement {
         document.getElementById('totalCount').textContent = this.totalUsers;
         document.getElementById('currentPage').textContent = this.currentPage;
 
-        // 绑定编辑按钮（避免 JSON 在 onclick HTML 属性中的引号冲突）
+        // 绑定编辑按钮（事件委托，避免 JSON 在 onclick HTML 属性中的引号冲突）
         tableBody.querySelectorAll('.btn-edit-user').forEach(btn => {
             const userId = btn.dataset.userId;
             const user = this.users.find(u => String(u.id) === String(userId));
             if (user) {
-                btn.addEventListener('click', () => window.userMgmt.showEditModal(user));
+                btn.addEventListener('click', () => this.showEditModal(user));
             }
+        });
+
+        // 绑定删除按钮（事件委托，替代内联 onclick，不再依赖全局 window.userMgmt）
+        tableBody.querySelectorAll('.btn-delete-user').forEach(btn => {
+            const userId = btn.dataset.userId;
+            btn.addEventListener('click', () => this.deleteUser(userId));
         });
     }
 
@@ -285,7 +291,7 @@ export class UserManagement {
         document.getElementById('passwordLabel').textContent = '密码';
         document.getElementById('passwordDiv').classList.remove('hidden');
         document.getElementById('formPassword').required = true;
-        window.userMgmt.currentEditId = null;
+        this.currentEditId = null;
         document.getElementById('userModal').classList.remove('hidden');
     }
 
@@ -302,7 +308,7 @@ export class UserManagement {
         document.getElementById('passwordDiv').classList.remove('hidden');
         document.getElementById('formPassword').required = false;
         document.getElementById('formPassword').value = '';
-        window.userMgmt.currentEditId = user.id;
+        this.currentEditId = user.id;
         document.getElementById('userModal').classList.remove('hidden');
     }
 
@@ -326,17 +332,17 @@ export class UserManagement {
         const fullName = document.getElementById('formFullName').value;
 
         try {
-            if (window.userMgmt.currentEditId) {
+            if (this.currentEditId) {
                 // 编辑用户
                 UINotification.loading('正在保存用户信息...');
-                const result = await authService.updateUser(window.userMgmt.currentEditId, { username, phone, fullName, role });
+                const result = await authService.updateUser(this.currentEditId, { username, phone, fullName, role });
                 if (!result.success) {
                     UINotification.error('更新用户失败: ' + result.message);
                     return;
                 }
                 // 如果填写了新密码，则同步重置密码
                 if (password) {
-                    const pwResult = await authService.adminResetPassword(window.userMgmt.currentEditId, password);
+                    const pwResult = await authService.adminResetPassword(this.currentEditId, password);
                     if (!pwResult.success) {
                         UINotification.error('用户信息已保存，但密码重置失败: ' + pwResult.message);
                         this.closeModal();
@@ -345,7 +351,7 @@ export class UserManagement {
                     }
                 }
                 UINotification.success('用户信息已更新');
-                logOperation('update', 'users', `修改用户 ${username || window.userMgmt.currentEditId}`);
+                logOperation('update', 'users', `修改用户 ${username || this.currentEditId}`);
                 this.closeModal();
                 this.loadUsers();
             } else {
@@ -399,7 +405,6 @@ export class UserManagement {
 // 导出并初始化
 export function initUserManagement() {
     const userMgmt = new UserManagement();
-    window.userMgmt = userMgmt; // 暴露到全局以便内联事件使用
     userMgmt.init();
     return userMgmt;
 }

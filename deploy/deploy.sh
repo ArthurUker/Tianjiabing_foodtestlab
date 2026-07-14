@@ -1,0 +1,411 @@
+#!/usr/bin/env bash
+# =========================================================
+# 通用部署脚本（deploy.sh）— 与具体系统解耦
+# =========================================================
+# 配套文件：deploy.<用户>.conf（适配文件 / 用户设置文件，由 deploy.adapter.example.conf 复制修改）
+#
+# 设计原则：
+#   - 本脚本只负责“部署流程”，不含任何学校 / 系统名 / 端口等硬编码。
+#   - 所有环境差异都在适配文件里，改适配文件即可适配新用户 / 新服务器。
+#   - 支持同一台服务器多用户隔离部署：每个用户一份适配文件，分配独立的前端端口，
+#     互不干扰（目录 / systemd 服务 / Caddy 站点各自独立）。
+#   - 适配 Ubuntu 22.04/24.04 LTS，使用 Caddy（自动 HTTPS）+ systemd 托管后端。
+#
+# 用法：
+#   sudo bash deploy.sh [适配文件路径]
+#   不传路径时默认读取同目录下的 deploy.adapter.conf
+#
+# 流程：校验 → 装运行时 → 建系统用户/目录 → 拉代码 → 后端依赖/Prisma/Seed
+#       → 前端构建 → 写 systemd 单元 → 写 Caddy 站点片段 → 健康检查 → 收尾报告
+# =========================================================
+
+set -o pipefail
+
+# ------------------------- 基础工具 -------------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ADAPTER_FILE="${1:-$SCRIPT_DIR/deploy.adapter.conf}"
+
+log()  { echo -e "\n\033[36m=== $* ===\033[0m"; }
+ok()   { echo -e "\033[32m✅ $*\033[0m"; }
+warn() { echo -e "\033[33m⚠️  $*\033[0m"; }
+fail() {
+  echo -e "\033[31m❌ 错误: $*\033[0m"
+  exit 1
+}
+
+# ------------------------- 0. 读取适配文件 -------------------------
+[ -f "$ADAPTER_FILE" ] || fail "找不到适配文件: $ADAPTER_FILE\n用法: sudo bash deploy.sh <适配文件.conf>"
+# shellcheck disable=SC1090
+source "$ADAPTER_FILE"
+ok "已加载适配文件: $ADAPTER_FILE"
+
+# 必填项校验
+[ -n "${SYSTEM_NAME:-}" ]    || fail "适配文件缺少 SYSTEM_NAME"
+[ -n "${REPO_URL:-}" ]       || fail "适配文件缺少 REPO_URL"
+[ -n "${DEPLOY_BRANCH:-}" ]  || fail "适配文件缺少 DEPLOY_BRANCH"
+[ -n "${API_PORT:-}" ]       || fail "适配文件缺少 API_PORT"
+[ -n "${FRONTEND_PORT:-}" ]  || fail "适配文件缺少 FRONTEND_PORT（多用户部署，每个用户需独立前端端口）"
+[[ "${FRONTEND_PORT:-}" =~ ^[0-9]+$ ]] || fail "FRONTEND_PORT 必须是数字"
+
+# 默认值补全（未设置时使用）
+REPO_ROOT="${REPO_ROOT:-/opt/${SYSTEM_NAME}}"
+DATA_DIR="${DATA_DIR:-/var/lib/${SYSTEM_NAME}}"
+LOG_DIR="${LOG_DIR:-/var/log/${SYSTEM_NAME}}"
+APP_NAME="${APP_NAME:-${SYSTEM_NAME}-api}"
+DB_TYPE="${DB_TYPE:-sqlite}"
+NODE_VERSION="${NODE_VERSION:-20}"
+INSTALL_RUNTIME="${INSTALL_RUNTIME:-true}"
+ENABLE_SWAP="${ENABLE_SWAP:-false}"
+SWAP_SIZE_GB="${SWAP_SIZE_GB:-2}"
+ACCEPT_DATA_LOSS="${ACCEPT_DATA_LOSS:-true}"
+SEED_ON_FIRST_DEPLOY="${SEED_ON_FIRST_DEPLOY:-true}"
+FRONTEND_NPM_INSTALL="${FRONTEND_NPM_INSTALL:-false}"
+JWT_EXPIRE="${JWT_EXPIRE:-7d}"
+SERVICE_MEMORY_MAX="${SERVICE_MEMORY_MAX:-}"
+REQUIRED_MOUNT="${REQUIRED_MOUNT:-}"   # 数据盘挂载点；非空时若未挂载则中止，避免数据静默写回系统盘
+
+# 前置条件提醒（脚本无法配置云平台安全组，必须手动在控制台放行）
+warn "【前置条件·手动】请确认腾讯云安全组已放行 TCP 22 及本次 FRONTEND_PORT=$FRONTEND_PORT（补域名后还需 443）。"
+warn "  脚本不配置安全组；漏配会导致【本机健康检查通过但外部浏览器访问超时】的假阳性。"
+
+# ------------------------- 1. 运行环境与权限 -------------------------
+log "检查运行环境"
+[ "$(id -u)" -eq 0 ] || fail "请使用 root 运行（sudo bash deploy.sh ...）"
+command -v apt-get >/dev/null 2>&1 || fail "本脚本仅支持 apt 系发行版（Ubuntu/Debian）"
+
+START_TIME=$(date +%s)
+
+# ------------------------- 1.5 服务器性能自适应（按新机配置规划资源）-------------------------
+TOTAL_MEM_MB=$(free -m 2>/dev/null | awk '/^Mem:/{print $2}')
+[ -z "$TOTAL_MEM_MB" ] && TOTAL_MEM_MB=2048   # 取不到时按保守值
+CPU_COUNT=$(nproc 2>/dev/null || echo 1)
+
+# 后端内存上限：自适应；可被适配文件 SERVICE_MEMORY_MAX 覆盖
+if [ -z "$SERVICE_MEMORY_MAX" ]; then
+  if   [ "$TOTAL_MEM_MB" -le 1024 ]; then MEM_LIMIT_MB=384
+  elif [ "$TOTAL_MEM_MB" -le 2048 ]; then MEM_LIMIT_MB=768
+  elif [ "$TOTAL_MEM_MB" -le 4096 ]; then MEM_LIMIT_MB=1024
+  else MEM_LIMIT_MB=1536
+  fi
+else
+  MEM_LIMIT_MB="$SERVICE_MEMORY_MAX"
+fi
+NODE_OLD_SPACE=$(( MEM_LIMIT_MB * 3 / 4 ))
+log "服务器资源: 内存 ${TOTAL_MEM_MB}MB / CPU ${CPU_COUNT} 核"
+ok "后端内存上限 MemoryMax=${MEM_LIMIT_MB}M（NODE_OPTIONS --max-old-space-size=${NODE_OLD_SPACE}M）"
+
+# ------------------------- 1.6 外网出站连通性预检 -------------------------
+log "检查外网出站连通性（apt / git / npm / nvm / caddy 源都依赖外网）"
+if ! curl -sI --max-time 8 https://github.com >/dev/null 2>&1; then
+  fail "无法访问 github.com。请检查服务器出站网络 / 安全组（部署需访问 GitHub）。"
+fi
+if ! curl -sI --max-time 8 https://registry.npmjs.org >/dev/null 2>&1; then
+  fail "无法访问 registry.npmjs.org，npm 依赖安装将失败。"
+fi
+ok "外网连通性正常"
+
+# ------------------------- 1.7 数据盘挂载前置检查 -------------------------
+if [ -n "$REQUIRED_MOUNT" ]; then
+  if ! findmnt -m "$REQUIRED_MOUNT" >/dev/null 2>&1; then
+    fail "REQUIRED_MOUNT=$REQUIRED_MOUNT 未挂载。为避免数据盘掉线后把数据静默写回系统盘，已中止。请先挂载该盘（建议写入 /etc/fstab 持久化）。"
+  fi
+  ok "数据盘已挂载: $REQUIRED_MOUNT"
+  if ! grep -qw "$REQUIRED_MOUNT" /etc/fstab 2>/dev/null; then
+    warn "$REQUIRED_MOUNT 未写入 /etc/fstab，重启后可能不自动挂载，导致服务因 DATA_DIR 不存在而启动失败。建议配置持久化挂载。"
+  fi
+  case "$DATA_DIR" in
+    "$REQUIRED_MOUNT"|"$REQUIRED_MOUNT"/*) ;;
+    *) warn "DATA_DIR=$DATA_DIR 不在 REQUIRED_MOUNT=$REQUIRED_MOUNT 下，数据可能未落在数据盘" ;;
+  esac
+fi
+
+# ------------------------- 2. 安装运行时 -------------------------
+if [ "$INSTALL_RUNTIME" = "true" ]; then
+  log "安装运行时：Git / Caddy / Node(NVM)"
+
+  # 低配机开 swap：true 强制 / false 不开 / auto 内存<2G 自动开
+  if [ "$ENABLE_SWAP" = "true" ] || { [ "$ENABLE_SWAP" = "auto" ] && [ "$TOTAL_MEM_MB" -lt 2048 ]; }; then
+    if ! swapon --show 2>/dev/null | grep -q "/swapfile"; then
+      SWAPFILE="/swapfile"
+      if [ ! -f "$SWAPFILE" ]; then
+        warn "正在创建 ${SWAP_SIZE_GB}G swap（低配机）..."
+        fallocate -l "${SWAP_SIZE_GB}G" "$SWAPFILE" 2>/dev/null || dd if=/dev/zero of="$SWAPFILE" bs=1M count=$((SWAP_SIZE_GB*1024))
+        chmod 600 "$SWAPFILE"
+        mkswap "$SWAPFILE"
+      fi
+      swapon "$SWAPFILE"
+      grep -q "/swapfile" /etc/fstab || echo "/swapfile none swap sw 0 0" >> /etc/fstab
+    fi
+    ok "swap 已启用"
+  fi
+
+  apt-get update -y
+  apt-get install -y git curl ca-certificates gnupg lsb-release build-essential unzip jq sqlite3 openssl
+
+  # Caddy（官方源）
+  if ! command -v caddy >/dev/null 2>&1; then
+    apt-get install -y debian-keyring debian-archive-keyring apt-transport-https
+    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+    echo "deb [signed-by=/usr/share/keyrings/caddy-stable-archive-keyring.gpg] https://dl.cloudsmith.io/public/caddy/stable/deb/debian any-version main" > /etc/apt/sources.list.d/caddy.list
+    apt-get update -y
+    apt-get install -y caddy
+  fi
+  ok "Caddy: $(caddy version 2>/dev/null | head -1)"
+
+  # Node（NVM 安装后软链到 /usr/local/bin，便于 systemd 直接调用）
+  if ! command -v node >/dev/null 2>&1; then
+    export NVM_DIR="/root/.nvm"
+    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+    # shellcheck disable=SC1090
+    source "$NVM_DIR/nvm.sh"
+    nvm install "$NODE_VERSION"
+    nvm alias default "$NODE_VERSION"
+    NODE_BIN="$NVM_DIR/versions/node/$(nvm version "$NODE_VERSION")/bin"
+    ln -sf "$NODE_BIN/node" /usr/local/bin/node
+    ln -sf "$NODE_BIN/npm"  /usr/local/bin/npm
+    ln -sf "$NODE_BIN/npx"  /usr/local/bin/npx
+  fi
+  ok "Node: $(node -v)  npm: $(npm -v)"
+else
+  warn "跳过运行时安装（INSTALL_RUNTIME=false），请确保 node/npm/caddy/git 已就绪"
+  command -v node >/dev/null 2>&1 || fail "未检测到 node"
+  command -v caddy >/dev/null 2>&1 || fail "未检测到 caddy"
+fi
+
+# ------------------------- 3. 系统用户与目录 -------------------------
+log "创建系统用户与目录"
+id "$SYSTEM_NAME" >/dev/null 2>&1 || useradd --system --home-dir "$REPO_ROOT" --shell /usr/sbin/nologin "$SYSTEM_NAME"
+mkdir -p "$REPO_ROOT" "$DATA_DIR" "$LOG_DIR"
+
+# ------------------------- 4. 拉取代码 -------------------------
+log "拉取代码: $REPO_URL @ $DEPLOY_BRANCH"
+if [ ! -d "$REPO_ROOT/.git" ]; then
+  # 目录非空且非 git 仓库 => 拒绝，避免误清数据
+  if [ -n "$(ls -A "$REPO_ROOT" 2>/dev/null)" ]; then
+    fail "$REPO_ROOT 非空且不是 Git 仓库，请先清空或改 REPO_ROOT"
+  fi
+  git clone ${GIT_CLONE_DEPTH:+"--depth=$GIT_CLONE_DEPTH"} -b "$DEPLOY_BRANCH" "$REPO_URL" "$REPO_ROOT" \
+    || fail "git clone 失败（检查网络/仓库地址/分支名 '$DEPLOY_BRANCH'）"
+  ok "克隆完成"
+else
+  git -C "$REPO_ROOT" fetch origin "$DEPLOY_BRANCH"
+  git -C "$REPO_ROOT" checkout "$DEPLOY_BRANCH"
+  git -C "$REPO_ROOT" reset --hard "origin/$DEPLOY_BRANCH"
+  # 保留本地的 .env，不被 clean 删掉
+  git -C "$REPO_ROOT" clean -fd -e "backend/.env" -e ".env"
+  ok "已更新到最新: $(git -C "$REPO_ROOT" log -1 --oneline)"
+fi
+
+# ------------------------- 5. 生成后端 .env（含密钥）-------------------------
+log "生成 backend/.env"
+BACKEND_ENV="$REPO_ROOT/backend/.env"
+
+gen_password() {
+  # 14 位，保证含大写/小写/数字
+  local p
+  p=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 12)
+  echo "${p}1A"
+}
+
+if [ -z "$DATABASE_URL" ]; then
+  DATABASE_URL="file:${DATA_DIR}/${SYSTEM_NAME}.db"
+fi
+[ -z "$JWT_SECRET" ] && JWT_SECRET=$(openssl rand -base64 48)
+for v in SEED_ADMIN_PASSWORD SEED_OPERATOR_PASSWORD SEED_VIEWER_PASSWORD; do
+  if [ -z "${!v}" ]; then eval "$v=\$(gen_password)"; fi
+done
+if [ -z "$CORS_ORIGIN" ]; then
+  if [ -n "$DOMAIN" ]; then
+    CORS_ORIGIN="https://$DOMAIN"
+  else
+    PUBIP=$(curl -s --max-time 5 ifconfig.me || true)
+    if [ -n "$PUBIP" ]; then CORS_ORIGIN="http://$PUBIP:$FRONTEND_PORT"; else CORS_ORIGIN="*"; fi
+  fi
+fi
+
+# 注意：不要加引号、不要出现会破坏 systemd EnvironmentFile 解析的字符
+cat > "$BACKEND_ENV" <<EOF
+# Auto-generated by deploy.sh — 重新部署会覆盖
+NODE_ENV=production
+PORT=$API_PORT
+SERVE_STATIC=false
+DATABASE_URL=$DATABASE_URL
+JWT_SECRET=$JWT_SECRET
+JWT_EXPIRE=$JWT_EXPIRE
+CORS_ORIGIN=$CORS_ORIGIN
+SEED_ADMIN_PASSWORD=$SEED_ADMIN_PASSWORD
+SEED_OPERATOR_PASSWORD=$SEED_OPERATOR_PASSWORD
+SEED_VIEWER_PASSWORD=$SEED_VIEWER_PASSWORD
+EOF
+ok "backend/.env 已写入（PORT=$API_PORT, CORS_ORIGIN=$CORS_ORIGIN）"
+warn "请记下初始账号密码（SEED_*_PASSWORD），首次登录后请修改"
+
+# ------------------------- 6. 后端依赖 / Prisma / Seed -------------------------
+log "后端依赖安装与数据库同步"
+export NODE_OPTIONS="--max-old-space-size=${NODE_OLD_SPACE}M"   # 低内存机避免构建/OOM
+cd "$REPO_ROOT/backend" || fail "找不到 backend 目录"
+if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
+[ ${PIPESTATUS[0]} -eq 0 ] || fail "后端依赖安装失败"
+
+npx prisma generate || fail "prisma generate 失败"
+
+DB_FILE="${DATA_DIR}/${SYSTEM_NAME}.db"
+FIRST_DEPLOY=false
+[ -f "$DB_FILE" ] || FIRST_DEPLOY=true
+
+if [ "$ACCEPT_DATA_LOSS" = "true" ]; then
+  npx prisma db push --accept-data-loss || fail "prisma db push 失败"
+else
+  warn "观察模式（ACCEPT_DATA_LOSS=false）：遇破坏性 schema 变更将中止"
+  npx prisma db push || fail "prisma db push 失败（可能检测到需数据丢失的变更，请人工确认）"
+fi
+ok "数据库 schema 同步完成"
+
+if [ -f prisma/seed.js ] && { [ "$FIRST_DEPLOY" = "true" ] && [ "$SEED_ON_FIRST_DEPLOY" = "true" ]; }; then
+  log "首次部署：执行 seed 初始化账号"
+  node prisma/seed.js || warn "seed 执行失败，请手动运行: node $REPO_ROOT/backend/prisma/seed.js"
+fi
+
+# ------------------------- 7. 前端构建 -------------------------
+log "前端构建"
+cd "$REPO_ROOT" || fail "找不到前端目录"
+if [ "$FRONTEND_NPM_INSTALL" = "true" ]; then
+  if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
+fi
+node scripts/build-static.js || fail "前端构建失败（scripts/build-static.js）"
+[ -f "$REPO_ROOT/dist/index.html" ] || fail "前端构建异常：dist/index.html 不存在"
+# 让 caddy 用户可读静态资源
+chmod -R a+rX "$REPO_ROOT/dist"
+ok "前端构建完成：dist/index.html"
+
+# ------------------------- 8. systemd 单元 -------------------------
+log "写入 systemd 单元: $APP_NAME.service"
+cat > "/etc/systemd/system/${APP_NAME}.service" <<EOF
+[Unit]
+Description=$SYSTEM_NAME food safety lab API
+After=network.target
+
+[Service]
+Type=simple
+User=$SYSTEM_NAME
+Group=$SYSTEM_NAME
+WorkingDirectory=$REPO_ROOT/backend
+EnvironmentFile=$BACKEND_ENV
+ExecStart=/usr/local/bin/node server.js
+MemoryMax=${MEM_LIMIT_MB}M
+Environment=NODE_OPTIONS=--max-old-space-size=${NODE_OLD_SPACE}M
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:$LOG_DIR/app.out.log
+StandardError=append:$LOG_DIR/app.err.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# 目录归属：代码与数据归系统用户，caddy 仅需对 dist 有读权限（已 a+rX）
+chown -R "$SYSTEM_NAME:$SYSTEM_NAME" "$REPO_ROOT" "$DATA_DIR" "$LOG_DIR"
+
+systemctl daemon-reload
+systemctl enable "$APP_NAME"
+systemctl restart "$APP_NAME" || fail "启动 $APP_NAME 失败，查看: journalctl -u $APP_NAME -n 50"
+ok "后端已启动: $APP_NAME"
+
+# ------------------------- 9. Caddy 多用户站点（import 模式，互不覆盖）-------------------------
+log "写入 Caddy 站点（多用户隔离）"
+CADDY_SITES_DIR="/etc/caddy/sites"
+mkdir -p "$CADDY_SITES_DIR"
+SNIPPET="$CADDY_SITES_DIR/${APP_NAME}.caddy"
+
+# 端口冲突预检：扫描已有用户站点片段，避免两个用户抢占同一前端端口
+if [ -d "$CADDY_SITES_DIR" ]; then
+  for f in "$CADDY_SITES_DIR"/*.caddy; do
+    [ -e "$f" ] || continue
+    [ "$f" = "$SNIPPET" ] && continue
+    if grep -Eq ":$FRONTEND_PORT \{" "$f"; then
+      fail "前端端口 $FRONTEND_PORT 已被已部署站点占用: $f（请为本次部署换一个 FRONTEND_PORT）"
+    fi
+  done
+fi
+# 后端端口占用预检（轻量，ss 不存在则跳过）
+if command -v ss >/dev/null 2>&1; then
+  if ss -ltn 2>/dev/null | grep -q ":$API_PORT "; then
+    fail "后端端口 $API_PORT 已被占用（可能是其它用户的服务），请换一个 API_PORT"
+  fi
+fi
+
+# 主 Caddyfile 只需初始化一次：存在且已 import 站点目录则不动（不覆盖其它用户）
+if [ ! -f /etc/caddy/Caddyfile ] || ! grep -q "import $CADDY_SITES_DIR" /etc/caddy/Caddyfile; then
+  cat > /etc/caddy/Caddyfile <<EOF
+# Managed by deploy.sh — 各用户站点片段在 $CADDY_SITES_DIR/*.caddy
+import $CADDY_SITES_DIR/*.caddy
+EOF
+  ok "已初始化主 Caddyfile（import $CADDY_SITES_DIR）"
+fi
+
+# 本用户站点片段（有域名走 HTTPS，否则监听 :FRONTEND_PORT）
+TLS_LINE=""
+if [ -n "${DOMAIN:-}" ]; then
+  [ -n "${TLS_EMAIL:-}" ] || fail "已设置 DOMAIN=$DOMAIN，但缺少 TLS_EMAIL（证书注册邮箱）"
+  CADDY_ADDR="$DOMAIN"
+  TLS_LINE="    tls $TLS_EMAIL"
+else
+  CADDY_ADDR=":$FRONTEND_PORT"
+fi
+
+cat > "$SNIPPET" <<EOF
+$CADDY_ADDR {
+    encode gzip
+
+    @api path /api/* /health
+    reverse_proxy @api 127.0.0.1:$API_PORT
+
+    root * $REPO_ROOT/dist
+    file_server
+    try_files {path} /index.html
+$TLS_LINE
+}
+EOF
+
+caddy validate --config /etc/caddy/Caddyfile >/dev/null 2>&1 || fail "Caddyfile 校验失败，请检查 $SNIPPET"
+systemctl enable caddy
+if systemctl is-active --quiet caddy; then
+  caddy reload --config /etc/caddy/Caddyfile || systemctl restart caddy
+else
+  systemctl restart caddy || fail "Caddy 启动失败，查看: journalctl -u caddy -n 50"
+fi
+ok "Caddy 站点已加载: $CADDY_ADDR（片段 $SNIPPET）"
+
+# ------------------------- 10. 健康检查 -------------------------
+log "健康检查（等待后端启动）"
+HEALTH_OK=false
+for i in $(seq 1 30); do
+  if curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${API_PORT}/api/health" | grep -q 200; then
+    ok "API 健康检查通过（第 $i 次）"
+    HEALTH_OK=true
+    break
+  fi
+  sleep 2
+done
+[ "$HEALTH_OK" = "true" ] || warn "健康检查超时，后端可能仍在启动，稍后检查: journalctl -u $APP_NAME -n 50"
+
+# ------------------------- 11. 收尾报告 -------------------------
+ELAPSED=$(( $(date +%s) - START_TIME ))
+log "部署完成（耗时 ${ELAPSED}s）"
+
+echo -e "\033[36m请检查以下项目：\033[0m"
+echo "  1. 后端状态 : systemctl status $APP_NAME"
+echo "  2. 后端日志 : journalctl -u $APP_NAME -f"
+echo "  3. Caddy 状态: systemctl status caddy"
+echo "  4. 健康检查 : curl http://127.0.0.1:${API_PORT}/api/health"
+if [ -n "$DOMAIN" ]; then
+  echo "  5. 公网访问 : https://$DOMAIN"
+else
+  echo "  5. 公网访问 : http://<你的公网IP>:$FRONTEND_PORT（Caddy 监听此端口；安全组需放行 $FRONTEND_PORT）"
+  echo "     之后补域名：在适配文件填 DOMAIN/TLS_EMAIL，重跑本脚本即自动切 HTTPS"
+fi
+echo -e "\033[36m后端初始账号密码（首次登录后请修改）：\033[0m"
+echo "  admin / $SEED_ADMIN_PASSWORD"
+echo "  operator / $SEED_OPERATOR_PASSWORD"
+echo "  viewer / $SEED_VIEWER_PASSWORD"
+echo ""

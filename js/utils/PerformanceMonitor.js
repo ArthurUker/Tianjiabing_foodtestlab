@@ -399,7 +399,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = { PerformanceMonitor, getPerformanceMonitor };
 }
 
-// 自动初始化
+// 自动初始化（P2-10 阶段B：不再挂 window.perfMonitor，单例由 getPerformanceMonitor 内部持有）
 if (typeof window !== 'undefined') {
-  window.perfMonitor = getPerformanceMonitor();
+  getPerformanceMonitor();
 }

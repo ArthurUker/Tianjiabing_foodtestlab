@@ -20,50 +20,8 @@ import guestAuthService from './services/GuestAuthService.js';
 import { GuestDashboard } from './modules/GuestDashboard.js';
 // 6. ✨ 引入会话管理服务
 
-// ✨ 全局快速访问模式渲染函数 - 直接暴露给window
-window.renderQuickAccessData = () => {
-    console.log('🎯 快速访问模式渲染函数被调用');
-    
-    const tbody = document.getElementById('tablewareRecords');
-    if (!tbody) {
-        console.warn('⚠️ tablewareRecords 元素不存在');
-        return;
-    }
-    
-    const cacheData = localStorage.getItem('cache_tableware');
-    if (!cacheData) {
-        console.warn('⚠️ 缓存无数据');
-        return;
-    }
-    
-    try {
-        const parsed = JSON.parse(cacheData);
-        const records = parsed.data || [];
-        console.log(`✅ 发现${records.length}条记录`);
-        
-        if (records.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="7" class="text-center py-6">暂无数据</td></tr>`;
-            return;
-        }
-        
-        let html = '';
-        records.slice(0, 20).forEach(record => {
-            html += `<tr>
-                <td class="border px-4 py-2">${record.testDate || ''}</td>
-                <td class="border px-4 py-2">${record.canteen || ''}</td>
-                <td class="border px-4 py-2">${record.location || ''}</td>
-                <td class="border px-4 py-2">${record.rluValue || ''}</td>
-                <td class="border px-4 py-2">${record.result || ''}</td>
-                <td class="border px-4 py-2">${record.inspector || ''}</td>
-                <td class="border px-4 py-2">-</td>
-            </tr>`;
-        });
-        tbody.innerHTML = html;
-        console.log(`✅ 已渲染${records.length}条记录`);
-    } catch (e) {
-        console.error('❌ 渲染失败:', e);
-    }
-};
+// P2-10 阶段B：移除 window.renderQuickAccessData 全局函数。
+// 快速访问模式的表格渲染由 index.html 内联脚本自身兜底完成，无需全局暴露。
 
 console.log('✅ main.js 模块加载开始');
 
@@ -97,11 +55,11 @@ function handleNavigation(target) {
         targetSection.classList.remove('hidden');
         console.log('✅ 导航成功，显示:', target);
         
-        // 特殊处理：初始化需要动态渲染的模块
-        if (target === 'audit-log' && typeof window.initAuditLog === 'function') {
+        // 特殊处理：初始化需要动态渲染的模块（P2-10：直接调用 import 的 initAuditLog，不再走 window）
+        if (target === 'audit-log') {
             try {
                 console.log('🔧 审计日志模块初始化中...');
-                window.initAuditLog();
+                initAuditLog();
                 console.log('✅ 审计日志模块初始化成功');
             } catch (error) {
                 console.error('❌ 审计日志模块初始化失败:', error);
@@ -120,9 +78,6 @@ function handleNavigation(target) {
     }
 }
 
-// 保留 window 挂载以兼容 GuestDashboard.js 动态生成 HTML 的内联调用（详见 P2-10 报告）
-window.handleNavigation = handleNavigation;
-
 // P2-10 阶段B：导航按钮改用事件委托（index.html 静态按钮已移除 onclick）
 const navEl = document.querySelector('nav.space-y-1');
 if (navEl) {
@@ -131,6 +86,12 @@ if (navEl) {
         if (btn) handleNavigation(btn.dataset.target);
     });
 }
+
+// P2-10 阶段B：接收模块内动态生成 HTML 发出的导航请求（替代 window.handleNavigation 内联调用）
+document.addEventListener('app:navigate', (e) => {
+    const target = e.detail && e.detail.target;
+    if (target) handleNavigation(target);
+});
 
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('✅ DOMContentLoaded 事件触发');
@@ -262,8 +223,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             console.log('📝 initDashboard 是否存在:', typeof initDashboard);
             const result = initDashboard();
             console.log('📊 initDashboard 返回值:', result);
-            // 🎯 暴露 initDashboard 到全局作用域以便调试
-            window.initDashboard = initDashboard;
             console.log('✅ initDashboard 完成');
             
             // 🔥 强制确保Dashboard显示正确标题
@@ -279,8 +238,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             }, 500);
         } catch (error) {
             console.error('❌ initDashboard 执行出错:', error.message, error.stack);
-            // 即使出错，也尝试暴露函数
-            window.initDashboard = initDashboard;
         }
 
         // 4. 看板快速导出功能 (仅非快速访问模式)
@@ -332,8 +289,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         // 7. ✨ 初始化审计日志模块 (仅管理员可访问)
-        // 暴露 initAuditLog 到全局以支持动态导航
-        window.initAuditLog = initAuditLog;
+        // P2-10：动态导航通过 import 的 initAuditLog 直接调用，无需挂 window
         if (!isQuickAccessMode) {
             console.log('🔧 AuditLog 初始化中...');
             try {

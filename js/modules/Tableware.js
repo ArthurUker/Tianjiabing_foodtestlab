@@ -44,9 +44,8 @@ export function initTableware() {
             // ✅ 访客模式同样需要创建筛选控件和分页容器
             updateFormStructure();
             
-            window.renderTablewareData = () => {
-                renderTable();
-            };
+            // P2-10 阶段B：不再暴露 window.renderTablewareData；
+            // 快速访问模式的数据渲染由下方 renderTable() 及 dataChanged / sync 监听统一处理
         } else {
             form.addEventListener('submit', handleFormSubmit);
             updateFormStructure();
@@ -1175,7 +1174,8 @@ function getPointTemplate(removable = false) {
 }
 
 // 详情页展示（包含日志和复检）
-window.showTablewareDetail = function(recordId) {
+// P2-10 阶段B：改为模块内函数（由本模块事件委托调用），不再挂 window
+function showTablewareDetail(recordId) {
     const records = storage.getAll();
     const record = records.find(r => r.id === parseInt(recordId));
     if (!record) return;
@@ -1283,7 +1283,6 @@ window.showTablewareDetail = function(recordId) {
         </div>
     `;
     document.body.appendChild(modal);
-};
+}
 
-// 导出初始化函数
-window.initTableware = initTableware;
+// P2-10 阶段B：initTableware 已通过 export 导出并由 main.js import 使用，不再挂 window

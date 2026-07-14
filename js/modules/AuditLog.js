@@ -351,7 +351,9 @@ class AuditLog {
     }
 }
 
+// P2-10 阶段B：审计日志实例改为模块内单例，不再挂 window
+let auditLogInstance = null;
 export function initAuditLog() {
-    window.auditLog = new AuditLog();
-    return window.auditLog.init();
+    auditLogInstance = new AuditLog();
+    return auditLogInstance.init();
 }

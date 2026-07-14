@@ -831,46 +831,39 @@
             console.log('🎯 [DOMContentLoaded在index.html] 快速访问模式最后备渲染');
             setTimeout(() => {
                 const isQuickAccess = new URLSearchParams(window.location.search).get('quickAccess') === 'true';
-                console.log('🎯 [index.html] renderQuickAccessData 存在:', !!window.renderQuickAccessData);
                 console.log('🎯 [index.html] isQuickAccess:', isQuickAccess);
                 
                 if (isQuickAccess) {
-                    // 如果函数还不存在，直接在这里定义并执行
-                    if (!window.renderQuickAccessData) {
-                        console.log('🎯 [index.html] renderQuickAccessData不存在，直接在这里执行');
-                        const tbody = document.getElementById('tablewareRecords');
-                        if (tbody) {
-                            const cacheData = localStorage.getItem('cache_tableware');
-                            if (cacheData) {
-                                try {
-                                    const parsed = JSON.parse(cacheData);
-                                    const records = parsed.data || [];
-                                    console.log(`✅ [index.html] 直接渲染: 发现${records.length}条记录`);
-                                    
-                                    if (records.length > 0) {
-                                        let html = '';
-                                        records.slice(0, 20).forEach(record => {
-                                            html += `<tr>
-                                                <td class="border px-4 py-2">${record.testDate || ''}</td>
-                                                <td class="border px-4 py-2">${record.canteen || ''}</td>
-                                                <td class="border px-4 py-2">${record.location || ''}</td>
-                                                <td class="border px-4 py-2">${record.rluValue || ''}</td>
-                                                <td class="border px-4 py-2">${record.result || ''}</td>
-                                                <td class="border px-4 py-2">${record.inspector || ''}</td>
-                                                <td class="border px-4 py-2">-</td>
-                                            </tr>`;
-                                        });
-                                        tbody.innerHTML = html;
-                                        console.log(`✅ [index.html] 直接渲染完成`);
-                                    }
-                                } catch (e) {
-                                    console.error('❌ [index.html] 直接渲染失败:', e);
+                    // P2-10 阶段B：直接内联渲染快速访问数据（不再依赖 window.renderQuickAccessData 全局函数）
+                    const tbody = document.getElementById('tablewareRecords');
+                    if (tbody) {
+                        const cacheData = localStorage.getItem('cache_tableware');
+                        if (cacheData) {
+                            try {
+                                const parsed = JSON.parse(cacheData);
+                                const records = parsed.data || [];
+                                console.log(`✅ [index.html] 直接渲染: 发现${records.length}条记录`);
+                                
+                                if (records.length > 0) {
+                                    let html = '';
+                                    records.slice(0, 20).forEach(record => {
+                                        html += `<tr>
+                                            <td class="border px-4 py-2">${record.testDate || ''}</td>
+                                            <td class="border px-4 py-2">${record.canteen || ''}</td>
+                                            <td class="border px-4 py-2">${record.location || ''}</td>
+                                            <td class="border px-4 py-2">${record.rluValue || ''}</td>
+                                            <td class="border px-4 py-2">${record.result || ''}</td>
+                                            <td class="border px-4 py-2">${record.inspector || ''}</td>
+                                            <td class="border px-4 py-2">-</td>
+                                        </tr>`;
+                                    });
+                                    tbody.innerHTML = html;
+                                    console.log(`✅ [index.html] 直接渲染完成`);
                                 }
+                            } catch (e) {
+                                console.error('❌ [index.html] 直接渲染失败:', e);
                             }
                         }
-                    } else if (window.renderQuickAccessData) {
-                        console.log('🎯 [index.html] 调用 renderQuickAccessData');
-                        window.renderQuickAccessData();
                     }
                     
                     // 🎯 也直接更新Dashboard卡片

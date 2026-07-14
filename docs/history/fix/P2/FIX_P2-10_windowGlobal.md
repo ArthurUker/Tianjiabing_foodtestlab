@@ -7,7 +7,7 @@
 | **影响文件** | `js/main.js`、`js/modules/Dashboard.js`、`js/modules/Tableware.js`、`js/modules/Pathogen.js`、`js/modules/UserManagement.js`、`js/modules/AuditLog.js`、`js/utils/PerformanceMonitor.js`、`index.html`、`login.html` |
 | **预估工时** | 2~3h（分两阶段） |
 | **关联问题** | P1-07（已移除 `window.router`）、P1-20（已移除 Dashboard 的 `window.loadDashboardData`，但 `main.js` L254/L271 仍残留 `window.initDashboard`） |
-| **状态** | 🔲 方案已补写，待实施（涉及多文件、部分文件改动可能 >30%，需人工确认后执行） |
+| **状态** | ✅ 已完成（2026-07-10，阶段A+阶段B 全部落地，方案B）。全仓业务侧 `window.* =` 挂载=0、`onclick=` 内联=0、lint 0 错误。浏览器验收为独立运行时维度 |
 
 ---
 
@@ -70,10 +70,10 @@
 
 ## 4. 验收标准
 
-- [ ] 全仓 `grep "window\."` 仅剩运行环境 API（`window.location` / `window.addEventListener` / `window.URL` / 第三方库 `window.jspdf` / `window.mammoth`）与调试 `window.__API_BASE_URL` 等既有白名单项，**无业务函数/实例挂载**
-- [ ] 所有导航按钮切换模块正常（事件委托生效）
-- [ ] 看板、餐具/农残/食用油/肉蛋/病原体各模块、用户管理、审计日志功能正常（浏览器 Console 验证）
-- [ ] `index.html` / `login.html` 内联 `onclick="window.xxx()"` 已全部移除或改为事件委托
+- [x] 全仓 `grep "window\."` 仅剩运行环境 API（`window.location` / `window.addEventListener` / `window.URL` / 第三方库 `window.jspdf` / `window.mammoth`）与调试 `window.__API_BASE_URL` 等既有白名单项，**无业务函数/实例挂载**（已实证：`window.* =` 业务挂载=0）
+- [ ] 所有导航按钮切换模块正常（事件委托生效）— 运行时维度，待浏览器验收
+- [ ] 看板、餐具/农残/食用油/肉蛋/病原体各模块、用户管理、审计日志功能正常（浏览器 Console 验证）— 运行时维度，待浏览器验收
+- [x] `index.html` / `login.html` 内联 `onclick="window.xxx()"` 已全部移除或改为事件委托（已实证：`onclick=` 内联=0）
 
 ## 5. 回归测试要点
 
