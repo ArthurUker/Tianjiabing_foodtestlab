@@ -7,7 +7,7 @@
 #   bash scripts/provision-school.sh
 #
 # 原理：
-#   1. 先从「模板 schema」克隆租户表到 school_<code>。
+#   1. 先从「模板 schema」克隆租户表到该校 schema（schema 名即 schoolCode，如 school-a）。
 #      模板 schema 名由 TEMPLATE_SCHEMA 指定（默认 school_template）。
 #   2. 模板 schema 需预先用 `prisma db push` 建好（仅含租户业务表，不含系统表
 #      School / SchoolCustomization，它们只存在于 public）。
@@ -40,7 +40,7 @@ export PGPASSWORD="$PG_PASS"
 PSQL="psql -h $PG_HOST -p $PG_PORT -U $PG_USER -d $DB_NAME"
 PG_DUMP="pg_dump -h $PG_HOST -p $PG_PORT -U $PG_USER -d $DB_NAME"
 
-SCHEMA_NAME="school_${SCHOOL_CODE}"
+SCHEMA_NAME="${SCHOOL_CODE}"
 
 echo "➡️  目标 schema: $SCHEMA_NAME（来源模板: $TEMPLATE_SCHEMA）"
 

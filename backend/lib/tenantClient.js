@@ -27,16 +27,17 @@ const PASSTHROUGH = new Set([
 
 function sanitizeSchoolCode(schoolCode) {
   if (!schoolCode) return null
-  // 仅保留字母数字下划线，防止 schema 名注入
-  const safe = String(schoolCode).replace(/[^a-zA-Z0-9_]/g, '')
+  // 仅保留字母数字下划线连字符，防止 schema 名注入
+  const safe = String(schoolCode).replace(/[^a-zA-Z0-9_-]/g, '')
   return safe || null
 }
 
 // 由 schoolCode 推导 schema 名；为空时回落到默认 schema（dev/test 共享）
+// 方案A（已确认目标架构）：schoolCode 本身即 schema 名（如 "school-a"），不再额外加前缀。
 export function resolveSchemaName(schoolCode, defaultSchema = DEFAULT_SCHEMA) {
   const code = sanitizeSchoolCode(schoolCode)
   if (!code) return defaultSchema
-  return `school_${code}`
+  return code
 }
 
 // ★ 唯一切换点：在事务内设置 search_path

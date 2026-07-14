@@ -411,7 +411,7 @@ Caddy 主配置 `/etc/caddy/Caddyfile` 通过 `import /etc/caddy/sites/*.caddy` 
    | PgBouncer Session 模式 | 前置 PgBouncer（`pool_mode = session`），单逻辑会话绑定单物理连接 | 连接复用高效；search_path 稳定 | 额外部署/运维 PgBouncer；**不可用 Transaction 模式**（会破坏 search_path 绑定） |
 
    > **已选定（2026-07-14）：事务包裹 + 预留切换。** 抽象集中在 `backend/lib/tenantClient.js`：
-   > - `setSearchPath(tx, schoolCode)` 是**唯一切换点**，当前执行 `SET LOCAL search_path TO "school_<code>", public`。
+   > - `setSearchPath(tx, schoolCode)` 是**唯一切换点**，当前执行 `SET LOCAL search_path TO "school-a", public`（schoolCode 即 schema 名）。
    > - `createTenantClient(prisma, schoolCode)` 用递归 Proxy 把任意 `model.method` 包进 `prisma.$transaction`，业务 handler 统一通过 `req.db.<model>.<method>()` 访问。
    > - 将来切 PgBouncer（pool_mode=session）时，只需改 `setSearchPath` / `createTenantClient`（去掉事务包裹、连接获取时设一次 search_path），handler 代码零改动。
    > - 严禁为每校各建一个 PrismaClient（退化为方案③连接膨胀）。

@@ -122,8 +122,8 @@
                 <div class="logo-animation mb-4">
                     <i class="fas fa-shield-alt text-4xl text-blue-600"></i>
                 </div>
-                <h1 class="text-2xl font-bold text-gray-800 mb-2">食品安全检验系统</h1>
-                <p class="text-gray-500 text-sm">珠海一中食堂管理平台</p>
+                <h1 id="schoolTitle" class="text-2xl font-bold text-gray-800 mb-2">食品安全检验系统</h1>
+                <p id="schoolSubtitle" class="text-gray-500 text-sm">珠海一中食堂管理平台</p>
             </div>
 
             <!-- Tab 选项卡 -->
@@ -252,9 +252,60 @@
     <script type="module">
         import { authService } from './js/services/AuthService.js';
         import { GuestAuthService } from './js/services/GuestAuthService.js';
+        import { extractSchoolCode } from './js/utils/schoolCode.js';
 
         const guestAuthService = new GuestAuthService();
         const enableGuestEntry = window.__ENABLE_GUEST_ENTRY__ === true;
+
+        // ===== 方案A：按 URL 路径前缀识别学校，登录前完成个性化 =====
+        const currentSchoolCode = extractSchoolCode();
+        if (currentSchoolCode) {
+            applySchoolTheme(currentSchoolCode);
+        }
+
+        // 登录前拉取学校个性化配置（Logo / 主题色 / 名称），失败不阻断登录
+        async function applySchoolTheme(schoolCode) {
+            try {
+                const resp = await fetch(`/api/schools/${encodeURIComponent(schoolCode)}/config`);
+                if (!resp.ok) return;
+                const json = await resp.json();
+                const cfg = json && json.data;
+                if (!cfg) return;
+
+                if (cfg.name) {
+                    document.title = `${cfg.name} - 登录`;
+                    const titleEl = document.getElementById('schoolTitle');
+                    if (titleEl) titleEl.textContent = cfg.name;
+                    const subEl = document.getElementById('schoolSubtitle');
+                    if (subEl) subEl.textContent = cfg.shortName || cfg.name;
+                }
+                if (cfg.themeColor) {
+                    const c = cfg.themeColor;
+                    document.body.style.background = `linear-gradient(135deg, ${c} 0%, ${shadeColor(c, -20)} 100%)`;
+                    const icon = document.querySelector('.logo-animation i');
+                    if (icon) icon.style.color = c;
+                    const btn = document.getElementById('loginBtn');
+                    if (btn) btn.style.background = `linear-gradient(90deg, ${c}, ${shadeColor(c, -12)})`;
+                }
+                if (cfg.logoUrl) {
+                    const iconWrap = document.querySelector('.logo-animation');
+                    if (iconWrap) {
+                        iconWrap.innerHTML = `<img src="${cfg.logoUrl}" alt="logo" class="w-14 h-14 object-contain">`;
+                    }
+                }
+            } catch (e) {
+                // 个性化失败不应阻断登录流程
+            }
+        }
+
+        // 将十六进制颜色按百分比调亮/调暗
+        function shadeColor(hex, percent) {
+            const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+            if (!m) return hex;
+            const adj = i => Math.max(0, Math.min(255, parseInt(i, 16) + Math.round(255 * percent / 100)));
+            const h = n => adj(n).toString(16).padStart(2, '0');
+            return `#${h(m[1])}${h(m[2])}${h(m[3])}`;
+        }
 
         // 若用户已登录（含页面意外重载场景），直接跳转主界面
         if (authService.isAuthenticated()) {
@@ -385,8 +436,8 @@
             loginBtnText.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>登录中...';
 
             try {
-                // 调用 AuthService 登录
-                const result = await authService.login(username, password);
+                // 调用 AuthService 登录（携带 schoolCode，供后端路由到对应 schema）
+                const result = await authService.login(username, password, currentSchoolCode);
 
                 if (result.success) {
                     // 保存用户名（如果勾选记住我）

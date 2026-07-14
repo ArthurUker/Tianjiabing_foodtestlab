@@ -1,6 +1,6 @@
 // Prisma Schema for Food Safety Testing Lab
 // Database: PostgreSQL（开发 / 测试 / 生产统一，Schema-per-tenant 方案②）
-// 每校业务数据落在独立 schema（school_<code>），由应用层按登录学校 SET search_path 路由。
+// 每校业务数据落在独立 schema（schoolCode 即 schema 名，如 school-a），由应用层按登录学校 SET search_path 路由。
 // 系统表（School / SchoolCustomization）始终位于 public schema（search_path 兜底位）。
 
 generator client {

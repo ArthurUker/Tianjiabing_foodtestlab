@@ -360,6 +360,11 @@ $CADDY_ADDR {
     @api path /api/* /health
     reverse_proxy @api 127.0.0.1:$API_PORT
 
+    # 方案A：路径前缀多租户识别（/school-a/login → 登录页，URL 不变）
+    # 通用规则，新增学校零改动（验收：第 N 所学校部署时本文件不改）
+    @schoolLogin path /school-*/login /school-*/login.html
+    rewrite @schoolLogin /login.html
+
     root * $REPO_ROOT/dist
     file_server
     try_files {path} /index.html

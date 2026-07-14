@@ -115,7 +115,7 @@ flowchart TB
     API[systemd: foodtestlab-api<br/>单应用 + 单 PrismaClient]
     PG[(PostgreSQL 单实例)]
     subgraph Schemas[schema-per-tenant]
-        S1[schema: school_a]
+        S1[schema: school-a]
         S2[schema: school_b]
         Sn[schema: school_n ...]
     end
@@ -134,9 +134,9 @@ flowchart TB
 
 #### 多学校隔离（Schema-per-tenant）
 
-- 每校对应 PostgreSQL 中一个独立 schema（命名如 `school_<code>`），**所有 schema 的表结构与迁移完全一致**（同一份 Prisma schema）。
-- 应用通过**单一 PrismaClient** + 请求级中间件执行 `SET search_path TO "school_<code>", public;` 路由到对应 schema；注意 `search_path` 是连接级状态，须用事务包裹或 PgBouncer Session 模式避免连接池竞态（实现选型见 §10 / 部署说明）。
-- 备份/恢复/迁移按校独立：`pg_dump -n school_a mydb` 单独导出，`psql -d mydb -f school_a.sql` 单独恢复；迁校即导出该 schema 在目标库 `CREATE SCHEMA` 后恢复。
+- 每校对应 PostgreSQL 中一个独立 schema（**schoolCode 即 schema 名**，如 `school-a`），**所有 schema 的表结构与迁移完全一致**（同一份 Prisma schema）。
+- 应用通过**单一 PrismaClient** + 请求级中间件执行 `SET search_path TO "school-a", public;` 路由到对应 schema；注意 `search_path` 是连接级状态，须用事务包裹或 PgBouncer Session 模式避免连接池竞态（实现选型见 §10 / 部署说明）。
+- 备份/恢复/迁移按校独立：`pg_dump -n school-a mydb` 单独导出，`psql -d mydb -f school-a.sql` 单独恢复；迁校即导出该 schema 在目标库 `CREATE SCHEMA` 后恢复。
 - 新增学校：在 PG 实例建 schema + 对其跑 Prisma 迁移（或从模板 schema 克隆）。
 - 开发/测试：使用单一共享 schema（如 `public` 或 `dev`），无需逐校隔离。
 
@@ -597,8 +597,8 @@ caddy reload --config /etc/caddy/Caddyfile   # 重载 Caddy 配置
 pg_dump foodtestlab > /mnt/datadisk0/foodtestlab/backup/foodtestlab_$(date +%F).sql
 
 # 按校（schema）单独备份 / 恢复 —— 多学校隔离的核心能力
-pg_dump -n school_a foodtestlab > /mnt/datadisk0/foodtestlab/backup/school_a_$(date +%F).sql
-psql -d foodtestlab -f /mnt/datadisk0/foodtestlab/backup/school_a_$(date +%F).sql
+pg_dump -n school-a foodtestlab > /mnt/datadisk0/foodtestlab/backup/school-a_$(date +%F).sql
+psql -d foodtestlab -f /mnt/datadisk0/foodtestlab/backup/school-a_$(date +%F).sql
 
 # 恢复整库（先停后端，再导入）
 systemctl stop foodtestlab-api

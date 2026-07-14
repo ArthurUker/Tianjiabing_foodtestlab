@@ -39,22 +39,23 @@ export class AuthService {
      * 登录 API 调用
      * @param {string} username - 用户名
      * @param {string} password - 密码
+     * @param {string} [schoolCode] - 所属学校代码（方案A：来自 URL 路径前缀，用于在登录前定位 school_<code> schema）
      * @returns {Promise<{success: boolean, user?: object, token?: string, message?: string}>}
      */
-    async login(username, password) {
+    async login(username, password, schoolCode = null) {
         try {
             // 输入验证
             if (!username || !password) {
                 throw new Error('用户名和密码不能为空');
             }
 
-            // 调用后端登录 API
+            // 调用后端登录 API（schoolCode 一并上报，供后端路由到对应 schema）
             const response = await fetch(`${this.apiBaseUrl}/api/user/login`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ username, password })
+                body: JSON.stringify({ username, password, schoolCode })
             });
 
             const data = await response.json();

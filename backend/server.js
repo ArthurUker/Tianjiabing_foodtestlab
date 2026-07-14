@@ -375,6 +375,41 @@ app.get('/api/school/config', authenticateUser, async (req, res) => {
     }
 })
 
+// ====== School 个性化配置（登录前公开查询，方案A 访问层）======
+// 在用户登录前即可按 schoolCode 返回 Logo / 主题色 / 字段定制，实现登录页个性化。
+// schoolCode 来自 URL 路径前缀（前端 extractSchoolCode），系统表位于 public。
+app.get('/api/schools/:schoolCode/config', async (req, res) => {
+    try {
+        const code = req.params.schoolCode
+        const schoolRows = await prisma.$queryRawUnsafe(
+            `SELECT "code","name","short_name","theme_color","logo_url","status" FROM public."School" WHERE "code" = $1 LIMIT 1`,
+            code
+        )
+        const customRows = await prisma.$queryRawUnsafe(
+            `SELECT "visible_types","field_labels","hidden_fields","theme_config" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`,
+            code
+        )
+        const school = schoolRows?.[0] || null
+        if (!school || school.status !== 'active') {
+            return res.status(404).json({ error: '学校不存在或未激活' })
+        }
+        const customization = customRows?.[0] || null
+        res.json({
+            success: true,
+            data: {
+                schoolCode: code,
+                name: school.name,
+                shortName: school.short_name,
+                themeColor: school.theme_color,
+                logoUrl: school.logo_url,
+                customization
+            }
+        })
+    } catch (error) {
+        res.status(500).json({ error: '查询学校配置失败', details: error.message })
+    }
+})
+
 // ====== User Authentication Routes ======
 const userRoutes = createUserRoutes(userManager)
 app.use('/api/user', userRoutes)
