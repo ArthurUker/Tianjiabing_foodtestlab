@@ -1,4 +1,4 @@
-# 田家炳食品检验系统（foodtestlab）
+# 食品检验系统（foodtestlab）
 
 > 本 README 基于**当前仓库实际代码**编写，是项目的系统级总览文档。
 > 深入的开发细节见 [`docs/DEVELOPMENT_GUIDE.md`](./docs/DEVELOPMENT_GUIDE.md)；长期操作规范见 [`docs/PROJECT_CONVENTIONS.md`](./docs/PROJECT_CONVENTIONS.md)（优先级最高）；历史文档归档于 [`docs/history/`](./docs/history/)。
