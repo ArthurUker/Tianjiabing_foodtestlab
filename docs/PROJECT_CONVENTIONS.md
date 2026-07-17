@@ -16,7 +16,7 @@
 五类检测（`test_type`）：`tableware`（餐具洁净度/ATP）、`pesticide`（果蔬农残）、`oil`（食用油品质）、`leanMeat`（肉蛋农残）、`pathogen`（病原体，Word 导入）。
 
 ### 0.2 架构基线（已定稿，方案② + 方案A）
-- **数据层（方案② Schema-per-tenant）**：单应用 + 单 PostgreSQL 实例 + 每校独立 schema。50+ 学校共用同一套应用代码与同一份 Prisma 数据模型；每校业务数据落在独立 schema（表结构完全一致），由应用层按登录学校动态 `SET search_path` 路由。
+- **数据层（方案② Schema-per-tenant）**：单应用 + 单 PostgreSQL 实例 + 每校独立 schema。50+ 学校共用同一套应用代码与同一份 Prisma 数据模型；每校业务数据落在独立 schema（名 = `school_<code>`，表结构完全一致）。⚠️ **关键约束**：Prisma 生成 SQL 时把表名【硬编码】为 datasource schema（`FROM "public"."User"`），`SET search_path` 对 Prisma 的 model 查询【完全无效】（仅对裸 `$queryRaw` 生效）。因此租户隔离**不能**靠 search_path，而由 `backend/lib/tenantClient.js` 为每校缓存一个「带 `?schema=school_<code>` 连接串」的专属 `PrismaClient` 实现（受控缓存 + LRU 淘汰 + 优雅关闭）。
 - **访问层（方案A 路径前缀识别，已确认目标架构）**：`schoolCode` 从 URL 路径前缀提取（如 `/school-a/login` → `school-a`）；登录前即可按 `schoolCode` 拉取个性化配置；登录将 `schoolCode` 上报后端以路由到对应 schema。
 - **部署形态**：腾讯云 CVM（Ubuntu 22.04+）单机；**Caddy** 反向代理（对外）+ **systemd** 托管 Node 后端（仅监听 `127.0.0.1`）；前端为原生 ES Module 静态资源（`dist/`），由 Caddy 托管。**不使用 PM2、不使用 Windows 部署**。
 
@@ -29,9 +29,9 @@
 ### 0.4 关键术语
 | 术语 | 含义 |
 |------|------|
-| `schoolCode` | 学校代码，同时**即 PostgreSQL schema 名**（如 `school-a`）；含连字符 `[a-zA-Z0-9_-]`。 |
+| `schoolCode` | 学校代码（URL/登录请求携带，如 `tianjiabing`、`school-a`、`sysdynit`）。**不是**直接用作 schema 名——须经 `schemaNameOf(code)` 归一为 `school_<code>`（如 `tianjiabing`→`school_tianjiabing`、`school-a`→`school_a`；已含 `school_` 前缀则原样返回，幂等）。含连字符代码会归一为下划线形式。 |
 | 业务 schema | 每校独立的 schema，存放 `User`/`TestRecord`/`AuditLog` 等租户表（不含系统表）。 |
-| 系统表（public） | `School` / `SchoolCustomization` 始终位于 `public` schema，由显式 `public.` 前缀访问，不随 `search_path` 切换。 |
+| 系统表（public） | `School` / `SchoolCustomization` 始终位于 `public` schema，由**基础 Prisma 单例**（连 `public`）直接访问，不经由 `req.db`（租户客户端会路由到 `school_<code>`）。 |
 | 模板 schema | `school_template`：预先用 `prisma db push` 建好的标准租户表集合，`provision-school.sh` 据此克隆新校。 |
 | `req.db` | 请求级租户客户端（由 `createTenantClient` 构造），业务 handler 统一经它访问数据库。 |
 
@@ -44,7 +44,7 @@
 3. **例外**：仅当处理对象明确是**本地开发环境**（非生产）的测试库，且经**项目负责人明确同意逐条删除**时，才可物理删除。**生产环境审计日志任何情况下不得物理删除。**
 4. `TestRecord` 等业务数据表不受此规则约束，确认为测试数据后可正常清理。
 
-> ⚠️ **已知冲突（须警惕）**：`backend/routes/auditRoutes.js` 存在 `DELETE /api/audit-logs/cleanup?days=N`（按天批量删除审计日志）。该端点与本条规则冲突，属未收敛的技术债（TD-P2-13）。**生产环境严禁调用此端点**；规则一优先级高于该端点。如需「清理」，只能走规则一第 2 条的"追加说明"方式。
+> ✅ **已知冲突已消除**：`backend/routes/auditRoutes.js` 原 `DELETE /api/audit-logs/cleanup?days=N`（按天批量删除审计日志）端点**已于 2026-07 移除**，彻底消除与本条规则的冲突（详见 TD-P2-13 收敛）。任何批量删除审计日志的诉求均走规则一第 2 条的"追加说明"方式，不得复活该删除端点。
 
 ---
 
@@ -54,7 +54,7 @@
 2. **预先报备 ≠ 预先等待批准**：报备后可继续执行，不需要停下来等待确认；但"报备"动作本身不能省略。
 3. 仅在用户明确追问或要求变更方案时，才可直接切换方法而不必每次报备。
 
-> 示例：多学校隔离由"每校物理分部署"改为"单应用 + Schema-per-tenant（方案②）"、访问层由 `school_<code>` 前缀改为 `schoolCode` 即 schema 名（方案A），均属已在该项目历史沿革中报备并已落地的偏离，本规范据此固化。
+> 示例：多学校隔离由"每校物理分部署"改为"单应用 + Schema-per-tenant（方案②）"、访问层由 `school_<code>` 前缀改为 URL 路径前缀 `/<code>/`（方案A）、schema 命名统一为 `school_<code>`（经 `schemaNameOf` 归一，见规则三），均属已在该项目历史沿革中报备并已落地的偏离，本规范据此固化。
 
 ---
 
@@ -62,15 +62,17 @@
 
 本规则保护"50+ 学校共享单应用单库但数据互不串"的核心架构。
 
-1. **唯一切换点**：所有 `search_path` 切换必须经由 `backend/lib/tenantClient.js` 的 `setSearchPath(tx, schoolCode)`（执行 `SET LOCAL search_path TO "<schema>", public`）。**禁止在业务代码里手写 `SET search_path` 或用 `$executeRawUnsafe` 拼接 schema 名绕过此切换点。**
-2. **禁止为每校各自 `new PrismaClient()`**（会退化为连接膨胀的方案③）。全应用只有**一个全局 PrismaClient 单例**（在 `server.js` 创建），租户隔离靠请求级 `SET search_path`，而非多连接。
-3. **`schoolCode` 即 schema 名**：`resolveSchemaName(schoolCode)` 直接返回 `schoolCode`（已含连字符清洗）。不要再加 `school_` 前缀或做任何映射。
-4. **系统表恒在 `public`**：`School` / `SchoolCustomization` 只存在于 `public`，访问时**必须带显式 `public.` 前缀**且**不能**经由 `req.db`（租户客户端会把查询路由到租户 schema）。现有实现：`server.js` 的 `/api/school/config`、`/api/schools/:schoolCode/config` 直接用全局 `prisma.$queryRawUnsafe('SELECT ... FROM public."School" ...')`。
-5. **业务 handler 一律经 `req.db`**：租户相关读写（如 `req.db.testRecord.findMany`、`req.db.auditLog.create`）必须走由中间件注入的请求级客户端，`禁止`在 handler 内直接使用全局 `prisma.<model>`（否则落到默认 schema，造成跨校串数据）。`UserManager` 内部则通过 `forTenant(schoolCode)` 拿到绑定租户客户端的副本。
-6. **`Passthrough` 集合不可随意扩大**：`tenantClient.js` 中的 `PASSTHROUGH`（`$connect`/`$disconnect`/`$use`/`$extends`/`$on`/`$metric`/`$applyPendingMigrations`）是明确透传、不包事务的方法；新增透传项须评估是否会破坏 search_path 包裹语义。
-7. **连接池竞态解决方案（已定稿事务包裹，预留切换）**：当前每个 model 方法调用都被包进 `prisma.$transaction(async tx => { setSearchPath(tx, code); ... })`。未来若切到 **PgBouncer（pool_mode=session）**，只需改 `tenantClient.js` 的 `setSearchPath` 与 `createTenantClient`（去掉事务包裹、仅在获取连接时设一次 search_path），**业务 handler 代码零改动**。在切换完成前，不得为了减少事务开销而移除事务包裹。
+> ⚠️ **架构既定事实（2026-07 验证）**：Prisma 生成 SQL 时把表名硬编码为 datasource schema（`FROM "public"."User"`），`SET search_path` 对 Prisma 的 model 查询**完全无效**（只对裸 `$queryRaw` 生效）。因此**租户隔离不靠 search_path**，而靠 **per-schema 专属 `PrismaClient`**（连接串带 `?schema=school_<code>`）。旧的"事务包裹 + `setSearchPath`"方案已证伪并废弃，请勿复活。
+
+1. **唯一切换点 = `createTenantClient(prisma, schoolCode)`**：它按 `schemaNameOf(schoolCode)` 归一出 `school_<code>`，返回绑定该 schema 的专属 `PrismaClient`（命中缓存则复用）。`schoolCode` 为空或落到 `public`（dev/test 共享库）时返回基础 `prisma` 单例。**禁止**在业务代码里手写 `SET search_path` 或用 `$executeRawUnsafe` / `$queryRawUnsafe` 拼接 schema 名绕过此切换点。
+2. **允许且必须经由 `createTenantClient` 为每校创建专属 `PrismaClient`**（受控缓存，非连接膨胀的方案③）：客户端由该模块统一 `new`、按 schema 缓存、`MAX_TENANT_CLIENTS`（默认 25，LRU）淘汰最久未用并 `$disconnect()`、进程退出经 `disconnectAllTenantClients()` 优雅关闭；每客户端连接上限 `TENANT_CONNECTION_LIMIT`（默认 3）。**禁止**在业务代码里绕过 `createTenantClient` 自行 `new PrismaClient`（会导致 schema 路由失控 / 连接泄漏）。全应用仍只有一个**基础 `PrismaClient` 单例**（连 `public`，在 `server.js` 创建），所有租户客户端均派生自它。
+3. **`schoolCode` 不是 schema 名，须经 `schemaNameOf` 归一**：真实 schema 名 = `school_<code>`（如 `tianjiabing`→`school_tianjiabing`、`school-a`→`school_a`；已含 `school_` 前缀则原样返回，幂等）。`resolveSchemaName(schoolCode)` 是推导入口，为空回落 `public`。**必须**加 `school_` 前缀，不要去掉它。
+4. **系统表恒在 `public`**：`School` / `SchoolCustomization` 只存在于 `public`，访问时一律走**基础 `prisma` 单例**（如 `prisma.$queryRawUnsafe('SELECT ... FROM public."School" ...')`），**不能**经由 `req.db`（租户客户端会路由到 `school_<code>`）。
+5. **业务 handler 一律经 `req.db`**：租户相关读写（如 `req.db.testRecord.findMany`、`req.db.auditLog.create`）必须走由中间件注入的请求级客户端，`禁止`在 handler 内直接使用基础全局 `prisma.<model>`（否则落到 `public`，造成跨校串数据）。`UserManager` 内部通过 `createTenantClient(prisma, schoolCode)` 拿到绑定租户客户端的副本后再操作。
+6. **防伪登录（租户归属校验）**：`UserManager.loginUser` 携带非空 `schoolCode` 时，命中的 `User.school_code` **必须**等于请求的 `schoolCode`，否则拒绝登录。这是防御"目标租户 schema 不存在时查询静默回落 `public`、误命中 public 超管"的关键兜底，不得移除。
+7. **连接数受控**：总连接 ≈ `MAX_TENANT_CLIENTS × TENANT_CONNECTION_LIMIT`（外加基础单例）。调大前须评估 PG `max_connections`；不要为"减少开销"而改回单客户端 + search_path 方案。
 8. **新增学校流程（标准动作）**：
-   - 在 PG 实例建 schema（名= `schoolCode`）；推荐用 `scripts/provision-school.sh`（`SCHOOL_CODE=xxx DATABASE_URL=postgresql://... bash scripts/provision-school.sh`）从 `school_template` 克隆租户表（自动排除系统表）。
+   - 在 PG 实例建 schema（名 = `schemaNameOf(schoolCode)` = `school_<code>`）；推荐用 `scripts/provision-school.sh`（`SCHOOL_CODE=xxx DATABASE_URL=postgresql://... bash scripts/provision-school.sh`）从 `school_template` 克隆租户表（自动排除系统表）。
    - 在 `public."School"` 登记该校（`code=schoolCode, name=..., status='active'`），并按需在 `public."SchoolCustomization"` 写个性化配置。
    - 在 `School` 中 `status != 'active'` 时，公开配置端点会返回 404，登录前应被前端拦截。
    - **新增学校时 `deploy/deploy.sh` 与 `deploy/*.conf` 必须零改动**（单应用原则，见规则十）。
@@ -202,14 +204,14 @@ server.js（入口/路由/中间件装配）
 
 | 编号 | 描述 | 状态 |
 |------|------|------|
-| TD-P2-13 | 三套审计日志字段口径未统一，待统一审计接口设计 | 分工维持（规则五） |
-| TD-Guest | `GuestAuthService` 调用的 `/api/guest/login`、`/register`、`/verify-token`、`/api/guest-export-request/*` 后端未实现（仅 `quick-access` 可用） | open |
+| TD-P2-13 | 三套审计日志字段口径尚未完全统一，但已收敛：新增 `lib/auditLog.js` 门面（`writeTenantAuditLog`/`writeSystemLog`），handler 统一经此落库；`auditRoutes` 已改用门面、并移除 `DELETE /cleanup` 删除端点。后续仍待统一三套为单一接口。 | 收敛中（规则五） |
+| TD-Guest | 后端 `guestRoutes.js` 已实现 `POST /api/guest/register|login|verify-token`、`POST /api/guest-export-request/submit`、`GET /api/guest-export-request/my-requests|check-permission`；schema 新增 `Guest`/`GuestExportRequest`（租户级）；前端 `GuestAuthService` 经 `extractSchoolCode()` 补齐 `schoolCode`；真实 PostgreSQL 冒烟（`scripts/smoke-guest.mjs`）通过。 | ✅已解决 |
 | TD-Auth-Path | `AuthService` 路径已对齐后端（改密码 `POST /change-password`、校验令牌 `POST /verify-token`、登出后端新增无状态端点） | ✅已解决 |
 | TD-Users-Dup | `server.js` 内联 `/api/users*` 与 `userRoutes` 重复（且无租户隔离） | ✅已解决（内联已删，统一走 `/api/user`） |
-| TD-Session | `SessionManager` 会话同步为 TODO 占位 | open |
+| TD-Session | 后端 `sessionRoutes.js` 已实现 `POST/GET /api/session`、`DELETE /api/session/:id|others`；schema 新增 `Session`（租户级）；前端 `SessionManager.syncToBackend/syncSessions` 已对接后端。 | ✅已解决 |
 | TD-Orphan | 前端遗留孤儿模块、`backend/sql/*.sql`、`backend/config/telemetry.js` 未启用 | ✅已解决（迁移清理中已移出仓库） |
 | TD-Naming | `package.json` name 已中立化；`engines.node` 对齐实际环境；`.env.example` Windows 旧字段已清理 | ✅已解决 |
-| TD-Tenant | 连接池竞态选型：**采用事务包裹**（兼容 PgBouncer transaction 模式，无需 Session 模式；切换点 `tenantClient.js` 已就位） | ✅已解决（已拍板） |
+| TD-Tenant | 隔离方案：**采用 per-schema 专属 `PrismaClient`（`?schema=school_<code>` 连接串 + 受控缓存 + LRU）**。原"事务包裹 + `setSearchPath`"方案经调试证伪（Prisma 硬编码 `public` schema，`SET search_path` 对 model 查询无效）后已废弃。 | ✅已解决（方案反转，见规则三） |
 | **DB_TYPE 冲突** | ~~`deploy/deploy.sh`/`deploy.foodtestlab.conf` 仍为 `sqlite`~~ 已 PostgreSQL 化（提交 `5bc6059`），与代码 `postgresql` 一致 | ✅已解决 |
 
 ---

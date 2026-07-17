@@ -1,7 +1,9 @@
 // Prisma Schema for Food Safety Testing Lab
 // Database: PostgreSQL（开发 / 测试 / 生产统一，Schema-per-tenant 方案②）
-// 每校业务数据落在独立 schema（schoolCode 即 schema 名，如 school-a），由应用层按登录学校 SET search_path 路由。
-// 系统表（School / SchoolCustomization）始终位于 public schema（search_path 兜底位）。
+// 每校业务数据落在独立 schema（school_<code>，如 school_tianjiabing）。
+// ⚠️ Prisma 会把表名硬编码为 datasource schema，SET search_path 对 model 查询无效，
+//    故由 lib/tenantClient.js 为每个 schema 缓存一个带 ?schema= 连接串的 PrismaClient 实现路由。
+// 系统表（School / SchoolCustomization）始终位于 public schema，由基础 prisma 单例直接访问。
 
 generator client {
   provider = "prisma-client-js"
@@ -32,6 +34,7 @@ model User {
   test_records  TestRecord[]
   guests        Guest[]
   backups       Backup[]
+  sessions      Session[]
 }
 
 // ========== 审计日志 ==========
@@ -111,21 +114,50 @@ model Attachment {
 }
 
 // ========== 访客管理 ==========
+// 注意：Guest 与 GuestExportRequest 均为「每校业务数据」，落在租户 schema
+// （schoolCode 即 schema 名），由应用层按登录学校 SET search_path 路由；
+// 与 User / AuditLog / TestRecord 同属租户级模型。
 
 model Guest {
-  id            String   @id @default(cuid())
-  username      String   @unique
-  email         String?
-  password_hash String
-  full_name     String?
-  created_by    String
-  status        String   @default("active")
-  created_at    DateTime @default(now())
-  updated_at    DateTime @updatedAt
+  id                   String    @id @default(cuid())
+  username             String    @unique
+  email                String?
+  password_hash        String
+  full_name            String?
+  // 自注册访客无创建者用户，故允许为空（P1-08 同款 Restrict 关系仅在非空时生效）
+  created_by           String?
+  guest_type           String    @default("viewer") // viewer（只读） / export_applicant（导出申请人）
+  has_export_permission Boolean  @default(false)   // 导出权限（默认关，export_applicant 经审批后开通）
+  valid_until          DateTime? // 访客有效期（自注册时按 valid_days 计算）
+  status               String    @default("active") // active / disabled
+  created_at           DateTime  @default(now())
+  updated_at           DateTime  @updatedAt
 
-  created_user  User     @relation(fields: [created_by], references: [id], onDelete: Restrict) // P1-08: 改为 Restrict，防止删用户时级联删除检测记录
+  created_user         User?     @relation(fields: [created_by], references: [id], onDelete: SetNull)
+  export_requests      GuestExportRequest[]
 
   @@index([created_by])
+  @@index([guest_type])
+}
+
+// ========== 访客导出申请 ==========
+
+model GuestExportRequest {
+  id             String   @id @default(cuid())
+  guest_id       String
+  request_type   String   // 申请类型（如 data_export）
+  request_reason String?
+  request_data   String?  // JSON，附加数据
+  status         String   @default("pending") // pending / approved / rejected
+  reviewed_by    String?  // 审批人（User.id）
+  reviewed_at    DateTime?
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  guest          Guest    @relation(fields: [guest_id], references: [id], onDelete: Cascade)
+
+  @@index([guest_id])
+  @@index([status])
 }
 
 // ========== 系统备份元数据 ==========
@@ -144,6 +176,30 @@ model Backup {
   created_user  User?    @relation(fields: [created_by], references: [id], onDelete: SetNull)
 
   @@index([created_by])
+}
+
+// ========== 会话管理（TD-Session）==========
+// 每校业务数据，落在租户 schema（与 User / AuditLog 同级）。记录活跃登录会话，
+// 支撑「强制登出其它设备」「并发会话限制」等能力。由前端 SessionManager 在登录/
+// 登出时经 /api/session 同步。
+
+model Session {
+  id            String   @id @default(cuid())
+  user_id       String
+  session_token String?  // 前端生成的会话标识（sess_...），用于注销指定会话
+  device_type   String?  // Desktop / Mobile / Tablet
+  browser       String?
+  user_agent    String?
+  ip_address    String?
+  status        String   @default("active") // active / revoked
+  login_at      DateTime @default(now())
+  last_seen_at  DateTime @default(now())
+  created_at    DateTime @default(now())
+
+  user          User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([status])
 }
 
 // ========== 系统日志 ==========

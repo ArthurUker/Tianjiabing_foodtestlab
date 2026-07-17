@@ -6,6 +6,7 @@
 import express from 'express'
 import jwt from 'jsonwebtoken'
 import { createAuthMiddleware } from '../middleware/authMiddleware.js'
+import { writeTenantAuditLog } from '../lib/auditLog.js'
 
 export function createAuditRoutes(userManager, prisma) {
     const router = express.Router()
@@ -35,15 +36,13 @@ export function createAuditRoutes(userManager, prisma) {
                 return res.status(400).json({ error: '❌ 缺少操作类型' })
             }
 
-            const log = await req.db.auditLog.create({
-                data: {
-                    user_id: req.user.userId,
-                    action,
-                    resource_type: resource_type || null,
-                    resource_id: resource_id || null,
-                    details: details ? JSON.stringify(details) : null,
-                    ip_address: req.ip || null
-                }
+            const log = await writeTenantAuditLog(req.db, {
+                actorId: req.user.userId,
+                action,
+                resourceType: resource_type || null,
+                resourceId: resource_id || null,
+                details,
+                ip: req.ip || null,
             })
 
             res.status(201).json({
@@ -222,33 +221,11 @@ export function createAuditRoutes(userManager, prisma) {
     })
 
     /**
-     * 删除旧日志（仅管理员可操作）
-     * DELETE /api/audit-logs/cleanup?days=30
-     * P1-27: 静态路由前移至 /:logId 之前
+     * 删除旧日志端点（DELETE /api/audit-logs/cleanup）已移除。
+     * 依据 docs/PROJECT_CONVENTIONS.md 规则一（审计日志永久保留、禁止删除），
+     * 任何形式的审计批量删除均不允许；如需「清理」只能走「追加说明」方式。
+     * 故该端点不再提供，避免触碰红线。
      */
-    router.delete('/cleanup', authenticateUser, authorizeAdmin, async (req, res) => {
-        try {
-            const { days = 30 } = req.query
-            const cutoffDate = new Date()
-            cutoffDate.setDate(cutoffDate.getDate() - parseInt(days))
-
-            const result = await req.db.auditLog.deleteMany({
-                where: {
-                    created_at: {
-                        lt: cutoffDate
-                    }
-                }
-            })
-
-            res.json({
-                success: true,
-                message: `已删除 ${result.count} 条${days}天前的日志`
-            })
-        } catch (error) {
-            console.error('❌ Error cleaning up logs:', error)
-            res.status(400).json({ error: `❌ 清理失败: ${error.message}` })
-        }
-    })
 
     /**
      * 获取单条日志详情

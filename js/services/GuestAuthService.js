@@ -3,6 +3,8 @@
  * 处理访客登录、注册、权限检查等
  */
 
+import { extractSchoolCode } from '../utils/schoolCode.js'
+
 export class GuestAuthService {
     constructor(apiBaseUrl = '') {
         // 默认走同源 API，适配腾讯云 Nginx 反向代理。
@@ -18,8 +20,9 @@ export class GuestAuthService {
      * @param {string} guest_type - 访客类型: 'viewer' 或 'export_applicant'
      * @returns {Promise<{success: boolean, token?: string, guest?: object, error?: string}>}
      */
-    async register(username, email, password, full_name, guest_type = 'viewer') {
+    async register(username, email, password, full_name, guest_type = 'viewer', schoolCode = null) {
         try {
+            const resolvedSchool = schoolCode || extractSchoolCode()
             const response = await fetch(`${this.apiBaseUrl}/api/guest/register`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -29,7 +32,8 @@ export class GuestAuthService {
                     password,
                     full_name,
                     guest_type,
-                    valid_days: 30
+                    valid_days: 30,
+                    schoolCode: resolvedSchool
                 })
             });
 
@@ -58,12 +62,13 @@ export class GuestAuthService {
      * @param {string} password - 访客密码
      * @returns {Promise<{success: boolean, token?: string, guest?: object, error?: string}>}
      */
-    async login(username, password) {
+    async login(username, password, schoolCode = null) {
         try {
+            const resolvedSchool = schoolCode || extractSchoolCode()
             const response = await fetch(`${this.apiBaseUrl}/api/guest/login`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password })
+                body: JSON.stringify({ username, password, schoolCode: resolvedSchool })
             });
 
             const data = await response.json();

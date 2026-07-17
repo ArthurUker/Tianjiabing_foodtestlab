@@ -510,7 +510,7 @@ sudo bash deploy/deploy.sh deploy/deploy.foodtestlab.conf
 
 | 编号 | 描述 |
 |------|------|
-| TD-Guest | `GuestAuthService` 调用的 `/api/guest/login`、`/register`、`/verify-token`、`/api/guest-export-request/*` **后端未实现**（404）；仅 `quick-access`（只读）可用。 |
+| TD-Guest | `GuestAuthService` 调用的 `/api/guest/login`、`/register`、`/verify-token`、`/api/guest-export-request/*` 后端已落地（schema 新增 `Guest`/`GuestExportRequest`，`guestRoutes.js` 实现全套并挂载于 `server.js`；前端 `GuestAuthService` 经 `extractSchoolCode()` 补齐 `schoolCode`）；已对真实 PostgreSQL 冒烟通过。 | ✅已解决 |
 | TD-Auth-Path | `AuthService` 路径已对齐后端：改密码 `POST /api/user/change-password`、校验令牌 `POST /api/user/verify-token`；后端新增无状态 `/api/user/logout`（返回 200，前端统一清本地）。 | ✅已解决 |
 | TD-ApiClient | `js/utils/ApiClient.js` 用 `/auth/*` 路径，与后端 `/api/user/*` 不符，属遗留并行客户端（无引用，已移出仓库）。 | ✅已解决 |
 | TD-Users-Dup | `server.js` 内联 `/api/users*` 与 `userRoutes` 的 `/api/user/list`、`/:userId/disable|enable` 功能重复（且内联版无租户隔离）。 | ✅已解决（内联实现已删除，统一走 `/api/user`） |
@@ -558,7 +558,7 @@ npx http-server -p 8080
 # 访问 http://localhost:8080/login.html
 ```
 
-- 开发环境下 `AuthService.getApiBaseUrl()` 会自动指向 `http://localhost:3002`（本地后端）。
+- 前端 `AuthService.getApiBaseUrl()` 现返回同源空串，API 走相对路径 `/api/...`，自动命中"当前页面所在端口"的后端（开发态由后端 `SERVE_STATIC=true` 同源托管静态与 API，无需写死端口）；如需跨域/特殊环境可用 `window.__API_BASE_URL` 覆盖。
 - 生成部署产物：`npm run build`（`scripts/build-static.js` → `dist/`）。
 
 ### 11.3 测试

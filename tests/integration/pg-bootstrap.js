@@ -6,10 +6,15 @@
 // 需要 live PG 的集成测试（jest 默认单测套件不会加载本文件）。
 
 import pg from 'pg'
+import { resolveSchemaName } from '../../backend/lib/tenantClient.js'
 const { Pool } = pg
 
-// 测试用租户（schoolCode 即 schema 名，对齐方案A）
+// 测试用租户学校代码。真实 schema 名由生产的 resolveSchemaName 推导（school_<code>），
+// 确保测试与生产走同一套命名逻辑（单一事实源）。
 export const TENANTS = ['school-a', 'school-b', 'school-c']
+
+// 学校代码 → 真实 schema 名（复用生产逻辑）
+export const schemaOf = (code) => resolveSchemaName(code)
 
 export function getDatabaseUrl() {
   // 允许通过环境变量注入真实连接串；缺省使用本机 brew 安装的 PG 默认参数
@@ -39,18 +44,19 @@ export async function bootstrapTenants(pool) {
     `)
 
     for (const t of TENANTS) {
-      await client.query(`CREATE SCHEMA IF NOT EXISTS "${t}"`)
+      const schema = schemaOf(t)
+      await client.query(`CREATE SCHEMA IF NOT EXISTS "${schema}"`)
       await client.query(`
-        CREATE TABLE IF NOT EXISTS "${t}".messages (
+        CREATE TABLE IF NOT EXISTS "${schema}".messages (
           id serial PRIMARY KEY,
           tenant_tag text NOT NULL,
           body text NOT NULL
         )
       `)
       // 清空后写入「仅属于该租户」的可区分行，便于泄露检测
-      await client.query(`TRUNCATE TABLE "${t}".messages`)
+      await client.query(`TRUNCATE TABLE "${schema}".messages`)
       await client.query(
-        `INSERT INTO "${t}".messages (tenant_tag, body) VALUES ($1, $2)`,
+        `INSERT INTO "${schema}".messages (tenant_tag, body) VALUES ($1, $2)`,
         [t, `data-of-${t}`]
       )
     }
@@ -70,7 +76,7 @@ export async function teardownTenants(pool) {
   const client = await pool.connect()
   try {
     for (const t of TENANTS) {
-      await client.query(`DROP SCHEMA IF EXISTS "${t}" CASCADE`)
+      await client.query(`DROP SCHEMA IF EXISTS "${schemaOf(t)}" CASCADE`)
     }
     await client.query('DROP TABLE IF EXISTS public.messages')
   } finally {

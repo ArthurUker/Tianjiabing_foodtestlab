@@ -15,12 +15,16 @@ import jwt from 'jsonwebtoken'
 import UserManager from './modules/UserManager.js'
 import { createUserRoutes } from './routes/userRoutes.js'
 import { createAuditRoutes } from './routes/auditRoutes.js'
+import { createSessionRoutes } from './routes/sessionRoutes.js'
+import { writeTenantAuditLog } from './lib/auditLog.js'
+import { createGuestRoutes, createGuestExportRequestRoutes } from './routes/guestRoutes.js'
 import { createValidationMiddleware, rateLimit, sanitizeText } from './middleware/validationMiddleware.js'
 import idempotencyMiddleware from './middleware/idempotencyMiddleware.js'
 import { createAuthMiddleware } from './middleware/authMiddleware.js'
 import { createTenantMiddleware } from './middleware/tenantMiddleware.js'
 import { createSyncRoutes } from './routes/syncRoutes.js'
 import { provisionSchool, isValidSchoolCode } from './lib/tenantProvisioner.js'
+import { disconnectAllTenantClients } from './lib/tenantClient.js'
 
 dotenv.config()
 
@@ -177,18 +181,10 @@ function validateRecordPayload(tableName, payload) {
 }
 
 // P2-02: 审计日志写入辅助函数 — 记录 CRUD 操作到数据库（db 为请求级租户客户端）
+// 委派给统一审计门面（TD-P2-13），保持原 7 参签名以最小改动调用方。
 async function writeRecordAuditLog(db, userId, action, resourceType, resourceId, details, ip) {
     try {
-        await db.auditLog.create({
-            data: {
-                user_id: userId,
-                action,
-                resource_type: resourceType || null,
-                resource_id: resourceId || null,
-                details: details ? JSON.stringify(details) : null,
-                ip_address: ip || null
-            }
-        })
+        await writeTenantAuditLog(db, { actorId: userId, action, resourceType, resourceId, details, ip })
     } catch (e) {
         console.error('❌ 审计日志写入失败:', e.message)
     }
@@ -505,6 +501,16 @@ app.post('/api/guest/quick-access', async (req, res) => {
 // ====== Audit Logs Routes ======
 const auditRoutes = createAuditRoutes(userManager, prisma)
 app.use('/api/audit-logs', auditRoutes)
+
+// ====== Session Routes（TD-Session）======
+const sessionRoutes = createSessionRoutes(userManager, prisma)
+app.use('/api/session', sessionRoutes)
+
+// ====== Guest Routes（TD-Guest 收口）======
+const guestRoutes = createGuestRoutes(userManager, prisma, JWT_SECRET)
+app.use('/api/guest', guestRoutes)
+const guestExportRequestRoutes = createGuestExportRequestRoutes(userManager, prisma, JWT_SECRET)
+app.use('/api/guest-export-request', guestExportRequestRoutes)
 
 // ====== Sync Routes ======
 const syncRoutes = createSyncRoutes(userManager, prisma)
@@ -1077,6 +1083,7 @@ const server = app.listen(PORT, () => {
 process.on('SIGTERM', async () => {
     console.log('📌 SIGTERM signal received: closing HTTP server')
     server.close(async () => {
+        await disconnectAllTenantClients()
         await prisma.$disconnect()
         process.exit(0)
     })
@@ -1085,6 +1092,7 @@ process.on('SIGTERM', async () => {
 process.on('SIGINT', async () => {
     console.log('📌 SIGINT signal received: closing HTTP server')
     server.close(async () => {
+        await disconnectAllTenantClients()
         await prisma.$disconnect()
         process.exit(0)
     })

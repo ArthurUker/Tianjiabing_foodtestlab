@@ -93,12 +93,12 @@ export class SessionManager {
     }
 
     /**
-     * 获取客户端 IP (模拟)
+     * 获取客户端 IP（前端侧尽力值）
+     * 说明：浏览器无法可靠获取自身公网 IP，这里返回本地回环占位；
+     * 真实的客户端 IP 由后端在会话落库时从请求连接（req.ip）捕获，
+     * 故该字段仅作前端标记，安全口径以后端为准。
      */
     getClientIP() {
-        // P1-11: 127.0.0.1 为模拟占位值，非配置硬编码 IP。
-        //   实际应从后端获取真实 IP（后端 session API 待实现，见 syncToBackend TODO）。
-        //   后端 CORS allowedOrigins 与前端 AuthService LOCAL_API_URL 已通过环境变量/全局变量管理（见 FIX_P1-11 文档）。
         return '127.0.0.1';
     }
 
@@ -243,34 +243,68 @@ export class SessionManager {
     }
 
     /**
-     * 同步会话到后端
+     * 同步会话到后端（TD-Session 收口）
+     * - action='add'             → POST   /api/session（注册/心跳）
+     * - action='remove'          → DELETE /api/session/:id（登出）
+     * - action='logout-forced'   → DELETE /api/session/:id（强制登出其它设备）
      */
     async syncToBackend(action, session) {
         try {
-            // TODO: 调用后端 API
-            // await fetch('/api/session/' + action, {
-            //     method: 'POST',
-            //     headers: { 'Content-Type': 'application/json' },
-            //     body: JSON.stringify(session)
-            // });
+            const token = authService.getToken()
+            if (!token) return
 
-            console.log('✅ 会话已同步到后端: ' + action + ' - ' + session.id);
+            const headers = {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+            }
+
+            let method = 'POST'
+            let url = '/api/session'
+            let body
+            if (action === 'remove' || action === 'logout-forced') {
+                method = 'DELETE'
+                url = `/api/session/${session.id}`
+            } else {
+                body = JSON.stringify({
+                    sessionId: session.id,
+                    deviceType: session.deviceType,
+                    browser: session.browser,
+                    userAgent: session.userAgent,
+                })
+            }
+
+            const resp = await fetch(url, { method, headers, body })
+            if (!resp.ok) {
+                console.warn(`⚠️ 会话同步到后端失败: ${action} -> HTTP ${resp.status}`)
+            }
         } catch (error) {
-            console.error('❌ 同步会话到后端失败:', error);
+            console.error('❌ 同步会话到后端失败:', error)
         }
     }
 
     /**
-     * 从后端同步会话
+     * 从后端同步会话（TD-Session 收口）
+     * 拉取当前用户的活跃会话列表，将后端已撤销（revoked）的会话在本地同步标记为非活跃。
      */
     async syncSessions() {
         try {
-            // TODO: 调用后端 API 获取最新会话列表
-            // const response = await fetch('/api/session/list');
-            // const sessions = await response.json();
-            // this.sessions = sessions;
+            const token = authService.getToken()
+            if (!token) return
+
+            const resp = await fetch('/api/session', {
+                headers: { Authorization: `Bearer ${token}` },
+            })
+            if (!resp.ok) return
+
+            const json = await resp.json()
+            const remote = new Set((json.data || []).map((s) => s.id))
+            this.sessions.forEach((s) => {
+                if (s.status === 'active' && !remote.has(s.id)) {
+                    s.status = 'revoked'
+                }
+            })
         } catch (error) {
-            console.error('❌ 从后端同步会话失败:', error);
+            console.error('❌ 从后端同步会话失败:', error)
         }
     }
 

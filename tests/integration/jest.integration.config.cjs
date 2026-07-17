@@ -24,5 +24,7 @@ module.exports = {
     ],
   },
   moduleFileExtensions: ['js', 'json'],
+  // backend/ 有独立 node_modules（含 @prisma/client）；让根目录下的测试也能解析到它
+  moduleDirectories: ['node_modules', '<rootDir>/backend/node_modules'],
   testTimeout: 60000,
 }

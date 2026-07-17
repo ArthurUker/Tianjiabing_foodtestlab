@@ -6,6 +6,7 @@
 import bcryptjs from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import { createTenantClient } from '../lib/tenantClient.js'
+import { writeTenantAuditLog, writeSystemLog } from '../lib/auditLog.js'
 
 export class UserManager {
     constructor(prismaClient, jwtSecret) {
@@ -124,6 +125,16 @@ export class UserManager {
 
             if (!user) {
                 // P2-03: 用户不存在时也记录失败登录（写入 SystemLog，因 AuditLog 需有效 user_id 外键）
+                await this.logFailedLogin(null, username)
+                throw new Error('用户不存在或密码错误')
+            }
+
+            // 1.5 租户归属校验（防伪登录）：
+            // 携带非空 schoolCode 登录时，若目标 schema 不存在，PostgreSQL 的
+            // `SET LOCAL search_path TO "school_xxx", public` 不会报错，查询会静默
+            // 回落到 public，可能命中 public 的超管账号，造成"以其它租户身份登录成功"。
+            // 因此要求命中的用户 school_code 必须与请求的 schoolCode 一致，否则视为失败。
+            if (this.schoolCode && user.school_code !== this.schoolCode) {
                 await this.logFailedLogin(null, username)
                 throw new Error('用户不存在或密码错误')
             }
@@ -566,12 +577,10 @@ export class UserManager {
 
     async logLogin(userId, username) {
         try {
-            await this.prisma.auditLog.create({
-                data: {
-                    user_id: userId,
-                    action: 'login',
-                    details: JSON.stringify({ username, timestamp: new Date().toISOString() })
-                }
+            await writeTenantAuditLog(this.prisma, {
+                actorId: userId,
+                action: 'login',
+                details: { username, timestamp: new Date().toISOString() },
             })
         } catch (error) {
             console.error(`❌ 记录登录日志失败: ${error.message}`)
@@ -582,21 +591,17 @@ export class UserManager {
         try {
             // P2-03: userId 为 null 时（用户不存在），AuditLog 需有效 user_id 外键无法写入，改记 SystemLog
             if (!userId) {
-                await this.prisma.systemLog.create({
-                    data: {
-                        level: 'warn',
-                        message: `登录失败（用户不存在）: ${username}`,
-                        context: JSON.stringify({ username, timestamp: new Date().toISOString() })
-                    }
+                await writeSystemLog(this.prisma, {
+                    level: 'warn',
+                    message: `登录失败（用户不存在）: ${username}`,
+                    context: { username, timestamp: new Date().toISOString() },
                 })
                 return
             }
-            await this.prisma.auditLog.create({
-                data: {
-                    user_id: userId,
-                    action: 'login_failed',
-                    details: JSON.stringify({ username, timestamp: new Date().toISOString() })
-                }
+            await writeTenantAuditLog(this.prisma, {
+                actorId: userId,
+                action: 'login_failed',
+                details: { username, timestamp: new Date().toISOString() },
             })
         } catch (error) {
             console.error(`❌ 记录失败登录失败: ${error.message}`)

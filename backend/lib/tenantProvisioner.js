@@ -14,6 +14,7 @@ import bcryptjs from 'bcryptjs'
 import { spawnSync } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { schemaNameOf } from './tenantClient.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // backend 目录（schema.prisma 位于 backend/prisma/schema.prisma）
@@ -26,9 +27,8 @@ export function isValidSchoolCode(code) {
   return typeof code === 'string' && CODE_RE.test(code)
 }
 
-export function schemaNameOf(code) {
-  return `school_${code}`
-}
+// schema 命名统一由 tenantClient.schemaNameOf 提供（单一事实源），此处再导出以兼容既有引用。
+export { schemaNameOf }
 
 /**
  * 初始化单个学校。
