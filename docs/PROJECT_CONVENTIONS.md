@@ -175,7 +175,7 @@ server.js（入口/路由/中间件装配）
 ```
 - 路由层只做参数解析 + 授权 + 调 `UserManager` / `req.db`；重业务逻辑放进 `UserManager`。
 - `tenantMiddleware` 在 `authenticateUser` 后注入 `req.db`；handler 不直接 new 客户端（见规则三）。
-- `backend/config/telemetry.js`、`backend/sql/*.sql` 当前**未被 `server.js` 引入**（依赖未装 / 历史遗留），属 TD-Backend-Orphan；新增可观测性须先 `npm install` 对应依赖并以 `--import` 方式接入，**不得**在已有 handler 里内联埋点。
+- 可观测性产物（`telemetry.js`、`backend/sql/*.sql`）**已于迁移清理中移出仓库**（TD-Backend-Orphan 已解决）；新增可观测性须先 `npm install` 对应依赖并以 `--import` 方式接入，**不得**在已有 handler 里内联埋点。
 
 ### 11.2 前端（原生 ESM，无框架）
 - **入口**：`login.html`（登录）、`index.html`（主应用）、`js/main.js`（DOMContentLoaded 总初始化）。
@@ -183,7 +183,7 @@ server.js（入口/路由/中间件装配）
 - **权限守卫**：`js/core/Router.js` 负责按角色显隐 admin/guest 菜单、Token 定时校验、30 分钟空闲登出。菜单项用 `data-admin-only` 标记仅管理员可见。
 - **状态存储约定**（无集中状态库）：`localStorage` 键包括 `auth_token`/`current_user`/`guest_token`（登录态）、`cache_<table>`（记录缓存）、`pending_<table>`（待同步队列）、`fingerprint_index_<table>`（去重索引）、`audit_YYYY-MM-DD`（离线日志，保留 30 天）。新增持久化键须带语义前缀，避免与现有键冲突。
 - **离线优先数据层**：`js/core/Storage.js`（`StorageService`）是核心——离线优先、乐观写入（`temp_` 临时 ID）、三层去重、429 全局退避、409 版本冲突恢复。新检测模块的数据读写应走该服务，而非裸 `fetch`。
-- **禁止新增孤儿模块**：`js/utils/` 中 `CacheManager`/`ConfigManager`/`UserAuth`（ESM 但无人 import）、`IndexedDBManager`/`OfflineModeManager`/`PerformanceMonitor`（CommonJS 风格，无法被 ESM import）均为遗留未启用产物（TD-Orphan）。新功能请在既有模块或新增被正确 import 的模块中实现，不要制造新的孤立文件。
+- **禁止新增孤儿模块**：`js/utils/` 中曾有 `CacheManager`/`ConfigManager`/`UserAuth`（ESM 但无人 import）、`IndexedDBManager`/`OfflineModeManager`/`PerformanceMonitor`（CommonJS 风格，无法被 ESM import）等遗留未启用产物，已于迁移清理中移出仓库（TD-Orphan 已解决）。新功能请在既有模块或新增被正确 import 的模块中实现，不要制造新的孤立文件。
 
 ---
 
@@ -207,7 +207,7 @@ server.js（入口/路由/中间件装配）
 | TD-Auth-Path | `AuthService` 部分路径与后端不一致（改密码 `PUT /api/user/password` vs 后端 `POST /change-password` 等） | open |
 | TD-Users-Dup | `server.js` 内联 `/api/users*` 与 `userRoutes` 功能重复 | open |
 | TD-Session | `SessionManager` 会话同步为 TODO 占位 | open |
-| TD-Orphan | 前端遗留孤儿模块、`backend/sql/*.sql`、`backend/config/telemetry.js` 未启用 | open |
+| TD-Orphan | 前端遗留孤儿模块、`backend/sql/*.sql`、`backend/config/telemetry.js` 未启用 | ✅已解决（迁移清理中已移出仓库） |
 | TD-Naming | 根 `package.json` name 旧名；`.env.example` 含 Windows 旧字段 | open |
 | TD-Tenant | 连接池竞态选型：当前事务包裹，PgBouncer Session 模式待拍板（预留切换点已就位） | ✅报备 |
 | **DB_TYPE 冲突** | ~~`deploy/deploy.sh`/`deploy.foodtestlab.conf` 仍为 `sqlite`~~ 已 PostgreSQL 化（提交 `5bc6059`），与代码 `postgresql` 一致 | ✅已解决 |

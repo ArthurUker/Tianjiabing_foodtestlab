@@ -497,24 +497,14 @@ export class AuthService {
 }
 
 // 自动检测 API 基础 URL
-const LOCAL_API_URL = 'http://localhost:3002';
-
+// 注意：本系统开发态由后端 SERVE_STATIC=true 同源托管前端与 API，
+// 因此不再写死端口，统一走同源（返回空串 → fetch(`${apiBaseUrl}/api/...`)
+// 解析为相对路径 /api/...，自动命中当前页面所在端口的后端）。
+// 如需跨域/特殊环境，可通过 window.__API_BASE_URL 覆盖。
 export function getApiBaseUrl() {
-    // 允许通过全局变量覆盖，便于灰度或特殊环境调试。
     if (typeof window !== 'undefined' && window.__API_BASE_URL) {
         return window.__API_BASE_URL;
     }
-    
-    const isDevelopment = window.location.hostname === 'localhost' || 
-                          window.location.hostname === '127.0.0.1';
-    
-    if (isDevelopment) {
-        console.log('🔗 开发环境检测到，使用本地后端:', LOCAL_API_URL);
-        return LOCAL_API_URL;
-    }
-    
-    // 生产环境默认使用同源 API，由 Nginx 反向代理到后端。
-    console.log('🔗 生产环境，使用同源后端代理');
     return '';
 }
 
