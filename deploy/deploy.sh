@@ -196,7 +196,9 @@ if [ "$INSTALL_RUNTIME" = "true" ]; then
   fi
   ok "Caddy: $(caddy version 2>/dev/null | head -1)"
 
-  # Node（NVM 安装后软链到 /usr/local/bin，便于 systemd 直接调用）
+  # Node（NVM 默认装到 /root/.nvm；但 systemd 服务以非 root 系统用户 foodtestlab 运行，
+  # 无法穿越 /root（700）执行软链过去的 node，会报 Permission denied / status=203/EXEC。
+  # 因此必须把 node 整个目录复制到全局可读的 /opt，再从 /usr/local/bin 软链过去。）
   if ! command -v node >/dev/null 2>&1; then
     export NVM_DIR="/root/.nvm"
     curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
@@ -204,10 +206,15 @@ if [ "$INSTALL_RUNTIME" = "true" ]; then
     source "$NVM_DIR/nvm.sh"
     nvm install "$NODE_VERSION"
     nvm alias default "$NODE_VERSION"
-    NODE_BIN="$NVM_DIR/versions/node/$(nvm version "$NODE_VERSION")/bin"
-    ln -sf "$NODE_BIN/node" /usr/local/bin/node
-    ln -sf "$NODE_BIN/npm"  /usr/local/bin/npm
-    ln -sf "$NODE_BIN/npx"  /usr/local/bin/npx
+    NODE_VER="$(nvm version "$NODE_VERSION")"
+    NODE_SRC="$NVM_DIR/versions/node/$NODE_VER"
+    NODE_DST="/opt/node-$NODE_VER"
+    mkdir -p "$NODE_DST"
+    cp -a "$NODE_SRC/." "$NODE_DST/"
+    chmod -R a+rX "$NODE_DST"
+    ln -sf "$NODE_DST/bin/node" /usr/local/bin/node
+    ln -sf "$NODE_DST/bin/npm"  /usr/local/bin/npm
+    ln -sf "$NODE_DST/bin/npx"  /usr/local/bin/npx
   fi
   ok "Node: $(node -v)  npm: $(npm -v)"
 else
