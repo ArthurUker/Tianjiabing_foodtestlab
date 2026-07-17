@@ -238,11 +238,15 @@ if [ "$INSTALL_RUNTIME" = "true" ]; then
   PG_SUPER="postgres"
   export PGPASSWORD="$PG_PASSWORD"
 
-  # 应用角色（若不存在）
+  # 应用角色（若不存在则创建）
   if ! sudo -u "$PG_SUPER" psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='$PG_USER'" | grep -q 1; then
     sudo -u "$PG_SUPER" psql -c "CREATE ROLE \"$PG_USER\" WITH LOGIN PASSWORD '$PG_PASSWORD';" \
       || fail "创建 PostgreSQL 角色 $PG_USER 失败"
   fi
+  # 每次部署都把角色密码同步为本次 .env 使用的 PG_PASSWORD（幂等）。
+  # 否则重跑时重新生成密码会导致 .env 与库中角色密码不一致，prisma 连接报 P1000 认证失败。
+  sudo -u "$PG_SUPER" psql -c "ALTER ROLE \"$PG_USER\" WITH PASSWORD '$PG_PASSWORD';" \
+    || fail "更新 PostgreSQL 角色 $PG_USER 密码失败"
   # 应用数据库（若不存在），归属应用角色
   if ! sudo -u "$PG_SUPER" psql -tAc "SELECT 1 FROM pg_database WHERE datname='$PG_DB_NAME'" | grep -q 1; then
     sudo -u "$PG_SUPER" psql -c "CREATE DATABASE \"$PG_DB_NAME\" OWNER \"$PG_USER\";" \
@@ -318,7 +322,10 @@ warn "请记下初始账号密码（SEED_*_PASSWORD），首次登录后请修�
 
 # ------------------------- 6. 后端依赖 / Prisma / Seed -------------------------
 log "后端依赖安装与数据库同步"
-export NODE_OPTIONS="--max-old-space-size=${NODE_OLD_SPACE}M"   # 低内存机避免构建/OOM
+# 防御：先清空可能从启动环境（IDE / 父 shell）继承来的 NODE_OPTIONS，
+# 避免其中携带如 --harmony-* 等已失效的 v8 flag 导致 node 启动失败。
+unset NODE_OPTIONS
+export NODE_OPTIONS="--max-old-space-size=${NODE_OLD_SPACE}"   # 低内存机避免构建/OOM（单位 MB，勿加 M 后缀）
 cd "$REPO_ROOT/backend" || fail "找不到 backend 目录"
 if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
 [ ${PIPESTATUS[0]} -eq 0 ] || fail "后端依赖安装失败"
@@ -384,7 +391,7 @@ WorkingDirectory=$REPO_ROOT/backend
 EnvironmentFile=$BACKEND_ENV
 ExecStart=/usr/local/bin/node server.js
 MemoryMax=${MEM_LIMIT_MB}M
-Environment=NODE_OPTIONS=--max-old-space-size=${NODE_OLD_SPACE}M
+Environment=NODE_OPTIONS=--max-old-space-size=${NODE_OLD_SPACE}
 Restart=on-failure
 RestartSec=5
 StandardOutput=append:$LOG_DIR/app.out.log
