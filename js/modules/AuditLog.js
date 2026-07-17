@@ -4,7 +4,7 @@
  */
 
 import { UINotification } from '../utils/UINotification.js';
-import { auditLogService } from '../services/AuditLogService.js';
+import { auditService } from '../services/AuditService.js';
 
 class AuditLog {
     constructor() {
@@ -166,7 +166,7 @@ class AuditLog {
         // 导出
         document.getElementById('btnExportLogs')?.addEventListener('click', () => {
             const start_date = document.getElementById('dateFilter')?.value;
-            auditLogService.exportLogs(start_date);
+            auditService.exportLogs(start_date);
         });
 
         // 分页
@@ -211,7 +211,7 @@ class AuditLog {
             }
 
             // 调用 API
-            const result = await auditLogService.getLogs(this.pageSize, offset, filters);
+            const result = await auditService.getLogs(this.pageSize, offset, filters);
 
             if (result.success) {
                 this.logs = result.data || [];

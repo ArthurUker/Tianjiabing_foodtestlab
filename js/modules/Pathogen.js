@@ -5,7 +5,7 @@ import { UINotification } from '../utils/UINotification.js';
 import { NetworkHelper } from '../utils/NetworkHelper.js';
 import { GuestAuthService } from '../services/GuestAuthService.js';
 import { calculatePathogenRisk, isPositiveResult } from '../utils/pathogenRisk.js';
-import { auditLogService } from '../services/AuditLogService.js';
+import { auditService } from '../services/AuditService.js';
 import { permissionService } from '../services/PermissionService.js';
 
 const storage = new StorageService('pathogen');
@@ -433,7 +433,7 @@ async function handleDeleteRecord(recordId) {
         if (success) {
             // 记录审计日志
             const sampleId = record?.sampleId || recordId;
-            await auditLogService.logOperation(
+            await auditService.log(
                 'delete',
                 'pathogen',
                 recordId,
@@ -705,7 +705,7 @@ function showEditModal(record, currentUser) {
         if (storage.update(record.id, record)) {
             // 记录审计日志
             const sampleId = record?.sampleId || record.id;
-            await auditLogService.logOperation(
+            await auditService.log(
                 'update',
                 'pathogen',
                 record.id,

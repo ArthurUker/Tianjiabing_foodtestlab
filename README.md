@@ -514,7 +514,7 @@ sudo bash deploy/deploy.sh deploy/deploy.foodtestlab.conf
 | TD-Auth-Path | `AuthService` 路径已对齐后端：改密码 `POST /api/user/change-password`、校验令牌 `POST /api/user/verify-token`；后端新增无状态 `/api/user/logout`（返回 200，前端统一清本地）。 | ✅已解决 |
 | TD-ApiClient | `js/utils/ApiClient.js` 用 `/auth/*` 路径，与后端 `/api/user/*` 不符，属遗留并行客户端（无引用，已移出仓库）。 | ✅已解决 |
 | TD-Users-Dup | `server.js` 内联 `/api/users*` 与 `userRoutes` 的 `/api/user/list`、`/:userId/disable|enable` 功能重复（且内联版无租户隔离）。 | ✅已解决（内联实现已删除，统一走 `/api/user`） |
-| TD-P2-13 | 三套审计日志字段口径未统一，待统一审计接口设计。 |
+| TD-P2-13 | 审计日志已统一：新增 `js/services/AuditService.js` 单一入口，双写后端（系统真相源）+ localStorage 镜像，字段口径对齐后端 `auditLog` 模型（`action`/`resource_type`/`resource_id`/`details`）。 | ✅已解决 |
 | TD-Session | `SessionManager.syncToBackend` / `syncSessions` 为 TODO 占位，会话仅前端内存（JWT 无状态，重启不丢登录态）。 |
 | TD-Orphan | 未被引用的前端遗留模块：`CacheManager` / `ConfigManager` / `UserAuth` / `IndexedDBManager` / `OfflineModeManager` / `PerformanceMonitor` | ✅已解决（迁移清理中已移出仓库） |
 | TD-Backend-Orphan | `backend/sql/*.sql`（PostgreSQL/Supabase + RLS）、`backend/config/telemetry.js`（依赖未安装的 node-statsd/Prometheus）等未启用产物 | ✅已解决（迁移清理中已移出仓库） |

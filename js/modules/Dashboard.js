@@ -2,7 +2,7 @@ import { StorageService } from '../core/Storage.js';
 import { UINotification } from '../utils/UINotification.js';
 import { NetworkHelper } from '../utils/NetworkHelper.js';
 import { calculatePathogenRisk } from '../utils/pathogenRisk.js';
-import { auditLogService } from '../services/AuditLogService.js';
+import { auditService } from '../services/AuditService.js';
 
 const services = {
     tableware: new StorageService('tableware'),
@@ -255,7 +255,7 @@ async function exportDashboardToPDF() {
         pdf.save(`数据看板_${new Date().toISOString().split('T')[0]}.pdf`);
         
         // 记录审计日志
-        await auditLogService.logOperation(
+        await auditService.log(
             'export',
             'dashboard',
             'pdf',

@@ -4,7 +4,7 @@ import { FormValidator } from '../utils/FormValidator.js';
 import { UINotification } from '../utils/UINotification.js';
 import { NetworkHelper } from '../utils/NetworkHelper.js';
 import { GuestAuthService } from '../services/GuestAuthService.js';
-import { auditLogService } from '../services/AuditLogService.js';
+import { auditService } from '../services/AuditService.js';
 import { permissionService } from '../services/PermissionService.js';
 
 const storage = new StorageService('tableware');
@@ -285,7 +285,7 @@ function showEditModal(record, currentUser) {
         if (success) {
             // 记录审计日志
             const pointId = record?.pointId || record.id;
-            await auditLogService.logOperation(
+            await auditService.log(
                 'update',
                 'tableware',
                 record.id,
@@ -365,7 +365,7 @@ function showEditModal(record, currentUser) {
         if (success) {
             // 记录审计日志
             const pointId = record?.pointId || record.id;
-            await auditLogService.logOperation(
+            await auditService.log(
                 'update',
                 'tableware',
                 record.id,
@@ -625,7 +625,7 @@ async function handleDeleteRecord(recordId) {
         if (success) {
             // 记录审计日志
             const pointId = record?.pointId || recordId;
-            await auditLogService.logOperation(
+            await auditService.log(
                 'delete',
                 'tableware',
                 recordId,

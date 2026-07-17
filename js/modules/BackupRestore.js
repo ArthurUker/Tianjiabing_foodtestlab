@@ -1,7 +1,7 @@
 // 文件路径: js/modules/BackupRestore.js
 import { UINotification } from '../utils/UINotification.js';
 import { NetworkHelper } from '../utils/NetworkHelper.js';
-import { auditLogService } from '../services/AuditLogService.js';
+import { auditService } from '../services/AuditService.js';
 
 export class BackupRestoreService {
     constructor() {
@@ -458,7 +458,7 @@ export class BackupRestoreService {
 
             UINotification.success(`✅ 备份成功！共导出 ${count} 条记录`);
             // 记录审计日志
-            await auditLogService.logOperation(
+            await auditService.log(
                 'export',
                 'system',
                 'backup',
@@ -542,7 +542,7 @@ export class BackupRestoreService {
 
             this.showStatus('✅ 云端同步成功！页面即将刷新...', 'green');
             // 记录审计日志
-            await auditLogService.logOperation(
+            await auditService.log(
                 'import',
                 'system',
                 'backup',
@@ -632,7 +632,7 @@ export class BackupRestoreService {
 
                 localStorage.removeItem('block_data_sync');
                 // 记录审计日志
-                await auditLogService.logOperation(
+                await auditService.log(
                     'import',
                     'system',
                     'backup',
@@ -647,7 +647,7 @@ export class BackupRestoreService {
             } else {
                 localStorage.setItem('block_data_sync', 'true');
                 // 记录审计日志
-                await auditLogService.logOperation(
+                await auditService.log(
                     'import',
                     'system',
                     'backup',

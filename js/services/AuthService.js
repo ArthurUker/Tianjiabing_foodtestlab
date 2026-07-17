@@ -3,7 +3,7 @@
  * 处理登录、登出、Token 管理、权限验证等
  */
 
-import { logOperation } from '../utils/AuditLogger.js';
+import { auditService } from './AuditService.js';
 
 export class AuthService {
     constructor(apiBaseUrl = '') {
@@ -83,7 +83,7 @@ export class AuthService {
                 }
 
                 console.log('✅ 登录成功:', data.user.username);
-                logOperation('login', 'system', `用户 ${data.user.username} 登录系统`);
+                auditService.log('login', 'auth', null, `用户 ${data.user.username} 登录系统`);
                 return { success: true, user: data.user };
             } else {
                 throw new Error(data.message || '登录失败');
@@ -120,7 +120,7 @@ export class AuthService {
 
             // 清除本地认证信息
             this.clearAuth();
-            logOperation('logout', 'system', '用户登出系统');
+            auditService.log('logout', 'auth', null, '用户登出系统');
             console.log('✅ 已登出');
             return { success: true };
         } catch (error) {

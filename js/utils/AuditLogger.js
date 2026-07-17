@@ -23,12 +23,13 @@ function getCurrentUser() {
 }
 
 /**
- * 记录一条操作日志
- * @param {string} action     - 操作类型：login / logout / create / update / delete / export
- * @param {string} module     - 模块名称：tableware / pesticide / oil / leanMeat / pathogen / users / system
- * @param {string} detail     - 操作描述，如 "新增餐具记录 #123"
+ * 记录一条操作日志（TD-P2-13 收口：字段口径与后端 auditLog 模型一致）
+ * @param {string} action        - 操作类型：login / logout / create / update / delete / export / import
+ * @param {string} [resourceType] - 资源类型（对应后端 resource_type）：tableware_tests / user / auth / system ...
+ * @param {string} [resourceId]   - 资源 ID（可选）
+ * @param {string} [details]      - 操作详情（可选）
  */
-export function logOperation(action, module, detail = '') {
+export function logOperation(action, resourceType = null, resourceId = null, details = '') {
     try {
         const key = getTodayKey();
         const existing = JSON.parse(localStorage.getItem(key) || '[]');
@@ -38,8 +39,9 @@ export function logOperation(action, module, detail = '') {
             timestamp: new Date().toISOString(),
             user: getCurrentUser(),
             action,
-            module,
-            detail,
+            resource_type: resourceType,
+            resource_id: resourceId,
+            details,
             status: 'success'
         });
 

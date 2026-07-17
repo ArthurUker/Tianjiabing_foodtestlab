@@ -1,6 +1,6 @@
 // 文件路径: core/Storage.js
 
-import { logOperation } from '../utils/AuditLogger.js';
+import { auditService } from '../services/AuditService.js';
 import { AdaptiveUploadQueue } from './AdaptiveUploadQueue.js';
 
 const DEFAULT_CONFIG = {
@@ -377,7 +377,7 @@ export class StorageService {
         this._replaceTempIdInCache(tempId, savedRecord);
         this._indexServerFingerprint(savedRecord);
         this._emit('sync', { type: 'create', record: savedRecord });
-        logOperation('create', this.tableName, `新增记录 #${savedRecord.id || '?'}`);
+        auditService.log('create', this.tableName, null, `新增记录 #${savedRecord.id || '?'}`);
     }
 
     async _handleUpdate(req) {
@@ -406,7 +406,7 @@ export class StorageService {
             this._updateCacheStatus(recordId, 'synced');
         }
 
-        logOperation('update', this.tableName, `修改记录 #${recordId}`);
+        auditService.log('update', this.tableName, null, `修改记录 #${recordId}`);
     }
 
     async _handleDelete(req) {
@@ -418,7 +418,7 @@ export class StorageService {
 
         if (responseJson && responseJson.skipped) return;
         this._removeFingerprintByRecordId(recordId);
-        logOperation('delete', this.tableName, `删除记录 #${recordId}`);
+        auditService.log('delete', this.tableName, null, `删除记录 #${recordId}`);
     }
 
     _initializeLocalCache() {

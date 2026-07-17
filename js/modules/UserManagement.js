@@ -6,7 +6,7 @@
 import { authService } from '../services/AuthService.js';
 import { UINotification } from '../utils/UINotification.js';
 import { router } from '../core/Router.js';
-import { logOperation } from '../utils/AuditLogger.js';
+import { auditService } from '../services/AuditService.js';
 
 export class UserManagement {
     constructor() {
@@ -351,7 +351,7 @@ export class UserManagement {
                     }
                 }
                 UINotification.success('用户信息已更新');
-                logOperation('update', 'users', `修改用户 ${username || this.currentEditId}`);
+                auditService.log('update', 'users', null, `修改用户 ${username || this.currentEditId}`);
                 this.closeModal();
                 this.loadUsers();
             } else {
@@ -360,7 +360,7 @@ export class UserManagement {
                 const result = await authService.registerUser({ username, phone, password, fullName });
                 if (result.success) {
                     UINotification.success('用户已创建');
-                    logOperation('create', 'users', `新增用户 ${username}`);
+                    auditService.log('create', 'users', null, `新增用户 ${username}`);
                     this.closeModal();
                     this.loadUsers();
                 } else {
@@ -390,7 +390,7 @@ export class UserManagement {
             const result = await authService.deleteUser(userId);
             if (result.success) {
                 UINotification.success('用户已删除');
-                logOperation('delete', 'users', `删除用户 ID: ${userId}`);
+                auditService.log('delete', 'users', null, `删除用户 ID: ${userId}`);
                 this.loadUsers();
             } else {
                 UINotification.error('删除用户失败: ' + result.message);
