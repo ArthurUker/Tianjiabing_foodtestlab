@@ -323,7 +323,7 @@ export class AuthService {
             }
 
             const response = await fetch(`${this.apiBaseUrl}/api/user/verify-token`, {
-                method: 'GET',
+                method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
@@ -345,8 +345,8 @@ export class AuthService {
      */
     async changePassword(oldPassword, newPassword) {
         try {
-            const response = await fetch(`${this.apiBaseUrl}/api/user/password`, {
-                method: 'PUT',
+            const response = await fetch(`${this.apiBaseUrl}/api/user/change-password`, {
+                method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${this.getToken()}`

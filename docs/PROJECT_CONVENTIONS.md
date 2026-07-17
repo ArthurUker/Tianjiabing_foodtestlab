@@ -204,12 +204,12 @@ server.js（入口/路由/中间件装配）
 |------|------|------|
 | TD-P2-13 | 三套审计日志字段口径未统一，待统一审计接口设计 | 分工维持（规则五） |
 | TD-Guest | `GuestAuthService` 调用的 `/api/guest/login`、`/register`、`/verify-token`、`/api/guest-export-request/*` 后端未实现（仅 `quick-access` 可用） | open |
-| TD-Auth-Path | `AuthService` 部分路径与后端不一致（改密码 `PUT /api/user/password` vs 后端 `POST /change-password` 等） | open |
-| TD-Users-Dup | `server.js` 内联 `/api/users*` 与 `userRoutes` 功能重复 | open |
+| TD-Auth-Path | `AuthService` 路径已对齐后端（改密码 `POST /change-password`、校验令牌 `POST /verify-token`、登出后端新增无状态端点） | ✅已解决 |
+| TD-Users-Dup | `server.js` 内联 `/api/users*` 与 `userRoutes` 重复（且无租户隔离） | ✅已解决（内联已删，统一走 `/api/user`） |
 | TD-Session | `SessionManager` 会话同步为 TODO 占位 | open |
 | TD-Orphan | 前端遗留孤儿模块、`backend/sql/*.sql`、`backend/config/telemetry.js` 未启用 | ✅已解决（迁移清理中已移出仓库） |
-| TD-Naming | 根 `package.json` name 旧名；`.env.example` 含 Windows 旧字段 | open |
-| TD-Tenant | 连接池竞态选型：当前事务包裹，PgBouncer Session 模式待拍板（预留切换点已就位） | ✅报备 |
+| TD-Naming | `package.json` name 已中立化；`engines.node` 对齐实际环境；`.env.example` Windows 旧字段已清理 | ✅已解决 |
+| TD-Tenant | 连接池竞态选型：**采用事务包裹**（兼容 PgBouncer transaction 模式，无需 Session 模式；切换点 `tenantClient.js` 已就位） | ✅已解决（已拍板） |
 | **DB_TYPE 冲突** | ~~`deploy/deploy.sh`/`deploy.foodtestlab.conf` 仍为 `sqlite`~~ 已 PostgreSQL 化（提交 `5bc6059`），与代码 `postgresql` 一致 | ✅已解决 |
 
 ---

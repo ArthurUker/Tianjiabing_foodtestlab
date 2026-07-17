@@ -78,6 +78,11 @@ export function createUserRoutes(userManager) {
         })
     })
 
+    // 登出（JWT 无状态，服务端无需作废；返回 200 供前端统一清理本地态）
+    router.post('/logout', authenticateUser, (req, res) => {
+        res.json({ success: true, message: '已登出' })
+    })
+
     // 刷新访问令牌（沿用现有访问令牌进行续期）
     router.post('/refresh-token', authenticateUser, async (req, res) => {
         try {

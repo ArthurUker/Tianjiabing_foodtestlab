@@ -511,15 +511,15 @@ sudo bash deploy/deploy.sh deploy/deploy.foodtestlab.conf
 | 编号 | 描述 |
 |------|------|
 | TD-Guest | `GuestAuthService` 调用的 `/api/guest/login`、`/register`、`/verify-token`、`/api/guest-export-request/*` **后端未实现**（404）；仅 `quick-access`（只读）可用。 |
-| TD-Auth-Path | `AuthService` 部分路径与后端不一致：改密码 `PUT /api/user/password`（后端 `POST /change-password`）、校验令牌 `GET`（后端 `POST`）、登出 `POST /api/user/logout`（后端无此路由，前端忽略失败仅清本地）。 |
-| TD-ApiClient | `js/utils/ApiClient.js` 用 `/auth/*` 路径，与后端 `/api/user/*` 不符，属遗留并行客户端，登录以 `AuthService` 为准。 |
-| TD-Users-Dup | `server.js` 内联 `/api/users*` 与 `userRoutes` 的 `/api/user/list`、`/:userId/disable|enable` 功能重复。 |
+| TD-Auth-Path | `AuthService` 路径已对齐后端：改密码 `POST /api/user/change-password`、校验令牌 `POST /api/user/verify-token`；后端新增无状态 `/api/user/logout`（返回 200，前端统一清本地）。 | ✅已解决 |
+| TD-ApiClient | `js/utils/ApiClient.js` 用 `/auth/*` 路径，与后端 `/api/user/*` 不符，属遗留并行客户端（无引用，已移出仓库）。 | ✅已解决 |
+| TD-Users-Dup | `server.js` 内联 `/api/users*` 与 `userRoutes` 的 `/api/user/list`、`/:userId/disable|enable` 功能重复（且内联版无租户隔离）。 | ✅已解决（内联实现已删除，统一走 `/api/user`） |
 | TD-P2-13 | 三套审计日志字段口径未统一，待统一审计接口设计。 |
 | TD-Session | `SessionManager.syncToBackend` / `syncSessions` 为 TODO 占位，会话仅前端内存（JWT 无状态，重启不丢登录态）。 |
 | TD-Orphan | 未被引用的前端遗留模块：`CacheManager` / `ConfigManager` / `UserAuth` / `IndexedDBManager` / `OfflineModeManager` / `PerformanceMonitor` | ✅已解决（迁移清理中已移出仓库） |
 | TD-Backend-Orphan | `backend/sql/*.sql`（PostgreSQL/Supabase + RLS）、`backend/config/telemetry.js`（依赖未安装的 node-statsd/Prometheus）等未启用产物 | ✅已解决（迁移清理中已移出仓库） |
-| TD-Naming | `package.json` name 仍为旧名；`engines.node>=14` 与实际 `NODE_VERSION=20` 不符；`.env.example` 含 Windows 路径旧字段。 |
-| TD-Tenant | 原文档所述"每校物理隔离部署"已弃用，目标架构改为**单应用 + PostgreSQL Schema-per-tenant（方案②）**，以适配 50+ 校与 2vCPU/3.5GiB 约束。`search_path` 连接池竞态的实现选型（事务包裹 vs PgBouncer Session 模式）待团队拍板。 |
+| TD-Naming | `package.json` name 已中立化为 `foodtestlab`；`engines.node` 对齐实际运行环境（`>=18`）；`.env.example` Windows 旧字段已清理。 | ✅已解决 |
+| TD-Tenant | 连接池竞态选型：**采用事务包裹**（与 PgBouncer transaction 模式兼容，无需 Session 模式；切换点 `tenantClient.js` 已就位，未来若改 Session 模式仅改该文件）。 | ✅已解决（已拍板） |
 
 ---
 

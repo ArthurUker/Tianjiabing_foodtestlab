@@ -1042,61 +1042,11 @@ app.delete('/api/test-records/:id', authenticateUser, requireEditorOrAbove, asyn
     }
 })
 
-// ====== User Management (Admin Only) ======
-
-// 获取所有用户
-app.get('/api/users', authenticateUser, async (req, res) => {
-    try {
-        if (req.userRole !== 'admin') {
-            return res.status(403).json({ error: 'Only admins can access this' })
-        }
-
-        const users = await userManager.getUserList(100, 0)
-        res.json(users)
-    } catch (error) {
-        console.error('❌ Error fetching users:', error)
-        res.status(500).json({
-            error: '获取失败',
-            details: error.message
-        })
-    }
-})
-
-// 禁用用户
-app.post('/api/users/:userId/disable', authenticateUser, async (req, res) => {
-    try {
-        if (req.userRole !== 'admin') {
-            return res.status(403).json({ error: 'Only admins can access this' })
-        }
-
-        const result = await userManager.disableUser(req.params.userId)
-        res.json(result)
-    } catch (error) {
-        console.error('❌ Error disabling user:', error)
-        res.status(500).json({
-            error: '禁用失败',
-            details: error.message
-        })
-    }
-})
-
-// 启用用户
-app.post('/api/users/:userId/enable', authenticateUser, async (req, res) => {
-    try {
-        if (req.userRole !== 'admin') {
-            return res.status(403).json({ error: 'Only admins can access this' })
-        }
-
-        const result = await userManager.enableUser(req.params.userId)
-        res.json(result)
-    } catch (error) {
-        console.error('❌ Error enabling user:', error)
-        res.status(500).json({
-            error: '启用失败',
-            details: error.message
-        })
-    }
-})
+// ====== User Management（统一由 userRoutes 承载，见上方 /api/user）======
+// TD-Users-Dup 已解决：原内联的 /api/users（GET 列表 / POST disable|enable）
+// 与 /api/user（userRoutes）功能重复，且内联版本调用 userManager 时**未带租户
+// schoolCode**，会落到默认 schema 而非当前登录学校（隔离缺陷）。现统一删除内联
+// 实现，全部走 /api/user（已含 authorizeRoles('admin') + 请求级 req.db 租户隔离）。
 
 // ====== Error Handling ======
 
