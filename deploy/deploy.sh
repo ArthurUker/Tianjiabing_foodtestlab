@@ -33,6 +33,13 @@ fail() {
   exit 1
 }
 
+# 生成强随机密码（14 位，含大小写字母与数字），供 PG / seed 使用
+gen_password() {
+  local p
+  p=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 12)
+  echo "${p}1A"
+}
+
 # ------------------------- 0. 读取适配文件 -------------------------
 [ -f "$ADAPTER_FILE" ] || fail "找不到适配文件: $ADAPTER_FILE\n用法: sudo bash deploy.sh <适配文件.conf>"
 # shellcheck disable=SC1090
@@ -52,7 +59,13 @@ REPO_ROOT="${REPO_ROOT:-/opt/${SYSTEM_NAME}}"
 DATA_DIR="${DATA_DIR:-/var/lib/${SYSTEM_NAME}}"
 LOG_DIR="${LOG_DIR:-/var/log/${SYSTEM_NAME}}"
 APP_NAME="${APP_NAME:-${SYSTEM_NAME}-api}"
-DB_TYPE="${DB_TYPE:-sqlite}"
+DB_TYPE="${DB_TYPE:-postgresql}"
+# PostgreSQL 连接参数（单实例，与后端 schema.prisma provider=postgresql 一致）
+PG_HOST="${PG_HOST:-127.0.0.1}"
+PG_PORT="${PG_PORT:-5432}"
+PG_DB_NAME="${PG_DB_NAME:-${SYSTEM_NAME}}"
+PG_USER="${PG_USER:-${SYSTEM_NAME}}"
+PG_PASSWORD="${PG_PASSWORD:-}"   # 留空则脚本自动生成强随机密码
 NODE_VERSION="${NODE_VERSION:-20}"
 INSTALL_RUNTIME="${INSTALL_RUNTIME:-true}"
 ENABLE_SWAP="${ENABLE_SWAP:-false}"
@@ -140,7 +153,7 @@ if [ "$INSTALL_RUNTIME" = "true" ]; then
   fi
 
   apt-get update -y
-  apt-get install -y git curl ca-certificates gnupg lsb-release build-essential unzip jq sqlite3 openssl
+  apt-get install -y git curl ca-certificates gnupg lsb-release build-essential unzip jq openssl postgresql postgresql-contrib
 
   # Caddy（官方源）
   if ! command -v caddy >/dev/null 2>&1; then
@@ -172,6 +185,41 @@ else
   command -v caddy >/dev/null 2>&1 || fail "未检测到 caddy"
 fi
 
+# ------------------------- 2.5 安装并初始化 PostgreSQL（单实例）-------------------------
+# 多学校架构（方案② Schema-per-tenant）依赖单 PostgreSQL 实例；本机部署即安装并初始化。
+if [ "$INSTALL_RUNTIME" = "true" ]; then
+  log "安装并初始化 PostgreSQL（单实例，多学校按 schema 隔离）"
+  if ! command -v psql >/dev/null 2>&1; then
+    apt-get install -y postgresql postgresql-contrib
+  fi
+  # PG 未就绪则启动（Ubuntu 服务名为 postgresql）
+  if ! pg_isready -h "$PG_HOST" -p "$PG_PORT" >/dev/null 2>&1; then
+    systemctl enable postgresql
+    systemctl start postgresql || fail "PostgreSQL 启动失败，请检查日志: journalctl -u postgresql"
+  fi
+  ok "PostgreSQL: $(psql --version 2>/dev/null | head -1)"
+
+  # 生成应用库密码（留空则自动生成）；建库/建角色使用本密码
+  [ -z "$PG_PASSWORD" ] && PG_PASSWORD=$(gen_password)
+  PG_SUPER="postgres"
+  export PGPASSWORD="$PG_PASSWORD"
+
+  # 应用角色（若不存在）
+  if ! sudo -u "$PG_SUPER" psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='$PG_USER'" | grep -q 1; then
+    sudo -u "$PG_SUPER" psql -c "CREATE ROLE \"$PG_USER\" WITH LOGIN PASSWORD '$PG_PASSWORD';" \
+      || fail "创建 PostgreSQL 角色 $PG_USER 失败"
+  fi
+  # 应用数据库（若不存在），归属应用角色
+  if ! sudo -u "$PG_SUPER" psql -tAc "SELECT 1 FROM pg_database WHERE datname='$PG_DB_NAME'" | grep -q 1; then
+    sudo -u "$PG_SUPER" psql -c "CREATE DATABASE \"$PG_DB_NAME\" OWNER \"$PG_USER\";" \
+      || fail "创建 PostgreSQL 数据库 $PG_DB_NAME 失败"
+  fi
+  ok "PostgreSQL 就绪: $PG_USER@$PG_HOST:$PG_PORT/$PG_DB_NAME"
+else
+  warn "跳过运行时安装，假定 PostgreSQL 已就绪（需 $PG_USER@$PG_HOST:$PG_PORT/$PG_DB_NAME 可连）"
+  command -v psql >/dev/null 2>&1 || fail "未检测到 psql 客户端"
+fi
+
 # ------------------------- 3. 系统用户与目录 -------------------------
 log "创建系统用户与目录"
 id "$SYSTEM_NAME" >/dev/null 2>&1 || useradd --system --home-dir "$REPO_ROOT" --shell /usr/sbin/nologin "$SYSTEM_NAME"
@@ -200,15 +248,9 @@ fi
 log "生成 backend/.env"
 BACKEND_ENV="$REPO_ROOT/backend/.env"
 
-gen_password() {
-  # 14 位，保证含大写/小写/数字
-  local p
-  p=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 12)
-  echo "${p}1A"
-}
-
 if [ -z "$DATABASE_URL" ]; then
-  DATABASE_URL="file:${DATA_DIR}/${SYSTEM_NAME}.db"
+  [ -z "$PG_PASSWORD" ] && PG_PASSWORD=$(gen_password)
+  DATABASE_URL="postgresql://${PG_USER}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/${PG_DB_NAME}"
 fi
 [ -z "$JWT_SECRET" ] && JWT_SECRET=$(openssl rand -base64 48)
 for v in SEED_ADMIN_PASSWORD SEED_OPERATOR_PASSWORD SEED_VIEWER_PASSWORD; do
@@ -249,9 +291,12 @@ if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install 
 
 npx prisma generate || fail "prisma generate 失败"
 
-DB_FILE="${DATA_DIR}/${SYSTEM_NAME}.db"
 FIRST_DEPLOY=false
-[ -f "$DB_FILE" ] || FIRST_DEPLOY=true
+# 首部署判定：public 下尚不存在 User 表（prisma db push 后才会创建）
+if ! PGPASSWORD="$PG_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB_NAME" \
+     -tAc "SELECT 1 FROM pg_tables WHERE schemaname='public' AND tablename='User' LIMIT 1" 2>/dev/null | grep -q 1; then
+  FIRST_DEPLOY=true
+fi
 
 if [ "$ACCEPT_DATA_LOSS" = "true" ]; then
   npx prisma db push --accept-data-loss || fail "prisma db push 失败"
@@ -283,7 +328,7 @@ log "写入 systemd 单元: $APP_NAME.service"
 cat > "/etc/systemd/system/${APP_NAME}.service" <<EOF
 [Unit]
 Description=$SYSTEM_NAME food safety lab API
-After=network.target
+After=network.target postgresql.service
 
 [Service]
 Type=simple

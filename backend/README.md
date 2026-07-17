@@ -49,7 +49,7 @@ curl http://127.0.0.1:3000/api/health
 | `NODE_ENV` | development / production |
 | `PORT` | 后端内部端口（默认 3000） |
 | `SERVE_STATIC` | 是否后端托管静态资源（生产 false，由 Caddy 托管 `dist/`） |
-| `DATABASE_URL` | `file:<路径>/foodtestlab.db` |
+| `DATABASE_URL` | `postgresql://<user>:<pass>@127.0.0.1:5432/foodtestlab` |
 | `JWT_SECRET` | 强随机密钥（不可为弱密钥黑名单，否则启动即退出） |
 | `JWT_EXPIRE` | 令牌有效期（默认 7d） |
 | `CORS_ORIGIN` | 逗号分隔允许来源；`*` 全开 |

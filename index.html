@@ -619,6 +619,40 @@
         </div>
     </div>
 
+    <!-- 方案A：按 URL 路径前缀识别学校，主应用加载时应用个性化（失败不阻断） -->
+    <script type="module">
+      import { extractSchoolCode } from './js/utils/schoolCode.js';
+      const code = extractSchoolCode();
+      if (code) {
+        fetch(`/api/schools/${encodeURIComponent(code)}/config`)
+          .then(r => r.ok ? r.json() : null)
+          .then(json => {
+            const cfg = json && json.data;
+            if (!cfg) return;
+            if (cfg.name) {
+              document.title = cfg.name;
+              const navTitle = document.querySelector('nav.bg-blue-600 h1');
+              if (navTitle) navTitle.textContent = cfg.name;
+            }
+            if (cfg.themeColor) {
+              const c = cfg.themeColor;
+              const nav = document.querySelector('nav.bg-blue-600');
+              if (nav) nav.style.background = c;
+            }
+            if (cfg.logoUrl) {
+              const icon = document.querySelector('nav.bg-blue-600 .fa-shield-alt');
+              if (icon) {
+                const img = document.createElement('img');
+                img.src = cfg.logoUrl; img.alt = 'logo';
+                img.style.height = '1.5rem'; img.style.width = '1.5rem';
+                icon.replaceWith(img);
+              }
+            }
+          })
+          .catch(() => {});
+      }
+    </script>
+
     <!-- 模块入口 -->
     <script type="module" src="./js/main.js?t=1776768000000"></script>
 
