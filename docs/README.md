@@ -46,7 +46,7 @@
 | 新增一个受保护 API | DEV_GUIDE §4.6 / §5 | `backend/server.js`、`backend/routes/*.js`、`backend/middleware/authMiddleware.js` | 规则四（统一认证工厂，禁重复实现） |
 | 新增 / 修改检测记录字段 | DEV_GUIDE §4.2/§4.4 | `backend/prisma/schema.prisma`、`server.js`（`buildDeterministicRecordCode`） | 规则六（迁移只用 Prisma）、规则八（幂等 `record_code`） |
 | 新增一所学校 | CONVENTIONS 规则三.8 | `scripts/provision-school.sh`、`public."School"` 登记 | 规则三（唯一切换点）、规则十（部署零改动） |
-| 改多学校隔离 / search_path | CONVENTIONS 规则三 | `backend/lib/tenantClient.js`、`backend/middleware/tenantMiddleware.js` | 规则三（唯一切换点，禁手写 SET / 禁每校 new Client） |
+| 改多学校隔离（per-schema PrismaClient） | CONVENTIONS 规则三 | `backend/lib/tenantClient.js`、`backend/middleware/tenantMiddleware.js` | 规则三（唯一切换点 `createTenantClient`，禁手写 SET search_path / 禁每校 new Client） |
 | 改学校个性化（外观/字段） | CONVENTIONS 规则四.4 | `schema.prisma`（`School`/`SchoolCustomization`）、`server.js`（`/api/school/config`、`/api/schools/:code/config`） | 系统表恒在 `public`，带显式 `public.` 前缀 |
 | 改前端登录 / schoolCode 提取 | CONVENTIONS 规则七 | `login.html`、`js/services/AuthService.js`、`js/utils/schoolCode.js` | 规则七（schoolCode 提取唯一入口） |
 | 改前端导航 / 新增页面 | DEV_GUIDE §6.1~6.3 | `index.html`（`data-target`）、`js/main.js`、`js/core/Router.js` | 规则十一（事件委托 + CustomEvent，禁 `window.*` 全局） |

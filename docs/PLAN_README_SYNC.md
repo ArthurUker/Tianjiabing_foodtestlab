@@ -296,9 +296,12 @@ new_str：
 | P7 §9.4 | 审计统一描述 | ✅ 2026-07-17 |
 | P8 §10 | TD-Session ✅、TD-Tenant 更正 | ✅ 2026-07-17 |
 | P9 零散 | SessionManager L16 注释改为已对接后端（L417 事件记录 TODO 保留为真实后续项） | ✅ 2026-07-17 |
-| 收尾 | `npx jest --silent` 6/6 ✅；grep 自检 ✅（`SET search_path` 仅余 ⚠️ 警告）；git commit 文档改动 | ☐ 待提交 |
+| §5-残留-SQLite | 活动文档无残留「使用 SQLite」表述；`deploy.adapter.example.conf` 已 `postgresql`、`DEVELOPMENT_GUIDE.md` §8 已重写（均含于提交 `eaad334`） | ✅ 2026-07-17 |
+| §5-残留-search_path | `DEVELOPMENT_GUIDE.md:14`、`docs/README.md:49` 的 `SET search_path` 现行方案表述已改为 `?schema=` / per-schema PrismaClient | ✅ 2026-07-17 |
+| §5-残留-SchoolCustomization | 已核实端到端接通：后端 `/api/school/config`+`/api/schools/:code/config`、`provisionSchool` 写 `public.SchoolCustomization`；前端 `schoolCustomization.js`+`main.js`+`FormBuilder.js` 拉取应用；`tests/integration/live-api.mjs` 有集成测试。无需改代码。 | ✅ 2026-07-17 |
+| 收尾 | `npx jest --silent` 6/6 ✅；grep 自检 ✅（`SET search_path` 仅余 ⚠️ 警告）；全部改动已提交 `eaad334` 并推送 `origin/main` | ✅ 2026-07-17 |
 
-> **本会话已执行完 P1–P9 文档/注释校正**。剩余：① 提交改动；② §5 残留（见 §5：SQLite 旧文档、SchoolCustomization 端到端、CVM 实机部署）。若超资源，新对话可直接从「收尾提交」或「§5 残留」继续。
+> **本会话（2026-07-17）已完成 PLAN_README_SYNC 全部 P1–P9 文档/注释校正 + §5 残留项（除 CVM 实机部署为运维项、不在本仓）**。所有改动已提交 `eaad334` 并推送。新对话若需继续，仅剩：CVM 实机 `deploy.sh` 验证（运维，需上机）。
 
 > 若中途超资源限制：保存当前进度到此文件「检查点」表，新对话读本文档即可从下一个未完成项继续。**所有改动都是文档/注释，互不依赖，可独立提交。**
 

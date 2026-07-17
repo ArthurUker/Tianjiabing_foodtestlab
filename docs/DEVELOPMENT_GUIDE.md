@@ -11,7 +11,7 @@
 
 - 当前实际部署形态：**腾讯云 CVM（Ubuntu）+ Caddy 反向代理 + systemd 托管后端**，前端为静态 ES Module 资源。
 - 数据库：**Prisma + PostgreSQL**（开发/测试/生产统一），落在独立数据盘 `/mnt/datadisk0`。
-- **多学校架构（目标）**：单应用 + 单 PostgreSQL 实例 + **Schema-per-tenant（方案②）**——50+ 学校共用同一份数据模型，每校数据在独立 schema；应用层按登录学校动态 `SET search_path` 路由。开发/测试用共享 schema。
+- **多学校架构（目标）**：单应用 + 单 PostgreSQL 实例 + **Schema-per-tenant（方案②）**——50+ 学校共用同一份数据模型，每校数据在独立 schema（`school_<code>`）；应用层经 `backend/lib/tenantClient.js` 的 `createTenantClient` 为每校缓存独立 `PrismaClient`（连接串带 `?schema=<schema>`）路由，而非 `SET search_path`（该方案已证伪废弃，见 §8）。开发/测试用共享 schema。
 - 认证：**JWT（Bearer）**，后端统一签发与校验；JWT 中携带学校标识（`schoolCode`）用于租户路由。
 
 > 命名已品牌中立化：根 `package.json` 的 `name` 为 `foodtestlab`，部署使用 `SYSTEM_NAME=foodtestlab`；学校名（珠海一中 / 田家炳中学 / 珠海实验中学等）均为 `School` 表数据，按 `schoolCode` 动态读取，代码层不出现学校专有命名。每校个性化（界面 / 内容 / 字段）由 `SchoolCustomization` 承载。
