@@ -16,11 +16,11 @@
 import express from 'express'
 import { createAuthMiddleware } from '../middleware/authMiddleware.js'
 
-export function createSyncRoutes(userManager) {
+export function createSyncRoutes(userManager, prisma) {
     const router = express.Router()
 
     // ====== Authentication Middleware（统一从 authMiddleware.js 导入）======
-    const { authenticateUser, authorizeAdmin } = createAuthMiddleware(userManager)
+    const { authenticateUser, authorizeAdmin } = createAuthMiddleware(userManager, prisma)
 
     // ====== POST /sync/records — 同步单条检测记录 ======
     router.post('/records', authenticateUser, async (req, res) => {

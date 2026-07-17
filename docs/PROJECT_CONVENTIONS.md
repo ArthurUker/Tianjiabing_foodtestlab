@@ -106,7 +106,7 @@
 3. **Seed 不覆盖已有账号**：`prisma/seed.js` 用 `ensureUser` 仅在账号不存在时创建 `admin`/`operator`/`viewer`；已存在则跳过，避免部署覆盖已改密码。
 4. **生产默认不 seed**：`NODE_ENV=production` 且未设 `SEED_ALLOW_PROD=true` 时，seed 直接跳过（防默认凭据泄露）。首次部署由 `SEED_ON_FIRST_DEPLOY=true` + 数据库不存在触发。
 5. **强密钥门槛**：`JWT_SECRET` 缺失或命中弱密钥黑名单（`server.js` 中 `KNOWN_WEAK_SECRETS`，如 `food-lab-secret-key`、`local-dev-jwt-secret` 等）→ **进程直接 `exit(1)`**，杜绝占位密钥签发令牌。seed 密码须 ≥8 位且含字母与数字。
-6. **已知待办（已报备，尚未执行）**：`deploy/deploy.foodtestlab.conf` 与 `deploy/deploy.sh` 的 `DB_TYPE` 仍为 `sqlite`、`DATABASE_URL` 仍拼接 `file:...db`、安装项仍含 `sqlite3` 而非 PG 客户端——与代码层 `postgresql` 冲突。修改该部署脚本做 PostgreSQL 化（装 PG、建库、按 `DATABASE_URL` 连库、移除 sqlite 依赖）属既定下一步，但**在动手前须再次确认，且严禁反向把 `schema.prisma` 改回 sqlite**。
+6. **PostgreSQL 化已完成**：`deploy/deploy.sh` 已 PostgreSQL 化（装 PG、建库、按 `DATABASE_URL=postgresql://...` 连库、移除 sqlite 依赖、首部署判据改查 `public.User`），详见提交 `5bc6059`。后续任何部署相关改动仍**严禁反向把 `schema.prisma` 改回 sqlite**——`postgresql` 是代码层唯一真相。
 
 ---
 
@@ -210,7 +210,7 @@ server.js（入口/路由/中间件装配）
 | TD-Orphan | 前端遗留孤儿模块、`backend/sql/*.sql`、`backend/config/telemetry.js` 未启用 | open |
 | TD-Naming | 根 `package.json` name 旧名；`.env.example` 含 Windows 旧字段 | open |
 | TD-Tenant | 连接池竞态选型：当前事务包裹，PgBouncer Session 模式待拍板（预留切换点已就位） | ✅报备 |
-| **DB_TYPE 冲突** | `deploy/deploy.sh`/`deploy.foodtestlab.conf` 仍为 `sqlite`，与代码 `postgresql` 冲突，部署会失败 | ✅报备待改（规则六.6 / 规则十.6） |
+| **DB_TYPE 冲突** | ~~`deploy/deploy.sh`/`deploy.foodtestlab.conf` 仍为 `sqlite`~~ 已 PostgreSQL 化（提交 `5bc6059`），与代码 `postgresql` 一致 | ✅已解决 |
 
 ---
 

@@ -14,7 +14,7 @@
 - **多学校架构（目标）**：单应用 + 单 PostgreSQL 实例 + **Schema-per-tenant（方案②）**——50+ 学校共用同一份数据模型，每校数据在独立 schema；应用层按登录学校动态 `SET search_path` 路由。开发/测试用共享 schema。
 - 认证：**JWT（Bearer）**，后端统一签发与校验；JWT 中携带学校标识（`schoolCode`）用于租户路由。
 
-> ⚠️ 命名遗留：根 `package.json` 的 `name` 仍为 `zhuhaiyizhong-foodtestlab`（v3.1.0），是历史命名；实际部署使用 `SYSTEM_NAME=foodtestlab`。新增脚本 / 配置请统一使用 `foodtestlab` 命名，旧名仅在包元数据里保留。
+> 命名已品牌中立化：根 `package.json` 的 `name` 为 `foodtestlab`，部署使用 `SYSTEM_NAME=foodtestlab`；学校名（珠海一中 / 田家炳中学 / 珠海实验中学等）均为 `School` 表数据，按 `schoolCode` 动态读取，代码层不出现学校专有命名。每校个性化（界面 / 内容 / 字段）由 `SchoolCustomization` 承载。
 
 ---
 
@@ -70,11 +70,12 @@ Tianjiabing_foodtestlab/
 │   │   ├── AuthService.js        # 用户登录 / 登出 / Token（实际被 login.html 使用）
 │   │   ├── GuestAuthService.js   # 访客认证（快速访问 / 注册 / 导出申请）
 │   │   └── PermissionService.js  SessionManager.js  ExportService.js  AuditLogService.js
-│   └── utils/                    # 工具（15 个，注意部分为未引用的历史遗留，见 §9.8）
+│   └── utils/                    # 工具（活跃，详见 §9.8）
 │       ├── 活跃：AuditLogger.js  NetworkHelper.js  FormValidator.js
 │       │        Validator.js  pathogenRisk.js  UIHelper.js  UINotification.js  SampleDataGenerator.js
-│       └── 遗留：ApiClient.js  UserAuth.js  CacheManager.js  ConfigManager.js
-│                IndexedDBManager.js  OfflineModeManager.js  PerformanceMonitor.js
+│       └── 遗留（仅剩）：ApiClient.js（并行旧客户端，与后端 /api/user/* 路径不符，见 TD-ApiClient）
+│                （CacheManager/ConfigManager/UserAuth/IndexedDBManager/OfflineModeManager/PerformanceMonitor
+│                 等历史遗留模块已于迁移清理中移出仓库，见 §9.8）
 ├── css/  index.html  login.html  # 前端入口页面
 ├── deploy/                       # 部署
 │   ├── deploy.sh                 # 通用部署脚本（与具体系统解耦）
@@ -282,7 +283,7 @@ Tianjiabing_foodtestlab/
 - **重试与退避**：写请求失败按 HTTP 状态分类——`429` 触发**全局退避**（跨所有 table 的 `app_sync_backoff_until` 键）；`409` 版本冲突拉取最新 `version` 后重试（≤2 次）；4xx（非 429/409）不重试直接标记失败；其余指数退避（≤3 次）。
 - **事件**：通过 `on('sync', cb)` / `on('error', cb)` 通知模块刷新 UI / 提示错误。
 
-> ⚠️ 注意区分：`js/core/Storage.js` 是**数据同步层**（不是简单的 localStorage 封装）。真正的通用 KV/localStorage 工具是 `js/utils/CacheManager.js`，但后者当前未被引用（见 §9.8）。
+> ⚠️ 注意区分：`js/core/Storage.js` 是**数据同步层**（不是简单的 localStorage 封装）。原 `js/utils/CacheManager.js` 等通用 KV 缓存遗留模块已从仓库移除，请勿再依赖。
 
 ### 6.7 上传队列：AdaptiveUploadQueue（`js/core/AdaptiveUploadQueue.js`）
 
@@ -318,7 +319,7 @@ node prisma/seed.js         # 初始化账号（需 SEED_*_PASSWORD）
 | `NODE_ENV` | development / production |
 | `PORT` | 后端内部端口（默认 3000） |
 | `SERVE_STATIC` | 是否后端托管静态资源（生产 false） |
-| `DATABASE_URL` | `file:<路径>/foodtestlab.db` |
+| `DATABASE_URL` | `postgresql://<user>:<pass>@<host>:<port>/<db>`（PostgreSQL，schema-per-tenant） |
 | `JWT_SECRET` | 强随机密钥（不可为弱密钥黑名单） |
 | `JWT_EXPIRE` | 令牌有效期（默认 7d） |
 | `CORS_ORIGIN` | 逗号分隔允许来源；`*` 全开 |
@@ -401,7 +402,7 @@ Caddy 主配置 `/etc/caddy/Caddyfile` 通过 `import /etc/caddy/sites/*.caddy` 
 
 6. **SessionManager 后端 API 未实现**：`syncToBackend` / `syncSessions` 为 TODO 占位，会话仅存于前端内存（JWT 无状态，重启不丢登录态）。
 
-7. **命名遗留**：`package.json` 的 `name` 仍为 `zhuhaiyizhong-foodtestlab`；`engines.node` 写的是 `>=14.0.0`，而部署脚本实际用 `NODE_VERSION=20`；`.env.example` 含 Windows 路径与旧字段，仅供格式参考，实际以部署脚本生成 `.env` 为准。根 `package.json` 同时列出了后端运行依赖（express / jsonwebtoken 等），而后端另有独立 `backend/package.json`，以后端目录的为准。
+7. **命名已中立化**：`package.json` 的 `name` 为 `foodtestlab`；`engines.node` 写的是 `>=14.0.0`，而部署脚本实际用 `NODE_VERSION=20`（待统一）；`.env.example` 含 Windows 路径与旧字段，仅供格式参考，实际以部署脚本生成 `.env` 为准。根 `package.json` 同时列出了后端运行依赖（express / jsonwebtoken 等），而后端另有独立 `backend/package.json`，以后端目录的为准。
 
 8. **多租户架构已定稿为方案②（Schema-per-tenant）**：原"每校物理隔离部署"描述已废弃。50+ 学校共用单应用与单 PostgreSQL 实例，每校独立 schema、表结构统一；应用层用单一 PrismaClient + 请求级 `SET search_path` 路由。`search_path` 是连接级状态，连接池竞态须用**事务包裹**或 **PgBouncer Session 模式**规避——两者选型对比见下，待团队拍板：
 
@@ -416,14 +417,11 @@ Caddy 主配置 `/etc/caddy/Caddyfile` 通过 `import /etc/caddy/sites/*.caddy` 
    > - 将来切 PgBouncer（pool_mode=session）时，只需改 `setSearchPath` / `createTenantClient`（去掉事务包裹、连接获取时设一次 search_path），handler 代码零改动。
    > - 严禁为每校各建一个 PrismaClient（退化为方案③连接膨胀）。
 
-   > 注意：无论哪种，都**不要**为每校各建一个 PrismaClient（否则退化为方案③的连接池膨胀）。`backend/sql/*.sql` 是 PostgreSQL/Supabase 脚本，可参考其 schema 划分思路，但当前运行时以 Prisma schema + 每校迁移为准。
+   > 注意：无论哪种，都**不要**为每校各建一个 PrismaClient（否则退化为方案③的连接池膨胀）。每校 schema 划分以 Prisma schema + 每校迁移为准。
 
-8. **孤儿 / 未被引用的前端工具模块**（经全量 `import` 核查，当前不被 ESM 前端加载，属历史遗留，新代码请勿依赖）：
-   - **ESM 但无人 import**：`js/utils/CacheManager.js`、`js/utils/ConfigManager.js`、`js/utils/UserAuth.js`（`UserAuth` 仅依赖 `ApiClient`，两者形成一条独立的遗留链，均未被主流程引用）。
-   - **CommonJS 风格（`module.exports` + 全局单例），无法被 ESM `import`，故未启用**：`js/utils/IndexedDBManager.js`、`js/utils/OfflineModeManager.js`、`js/utils/PerformanceMonitor.js`。这三者描述的 IndexedDB 离线库 / 离线同步 / 性能监控**目前并未接入运行时**；真正生效的离线同步是 §6.6 的 `StorageService`。
-   - **当前活跃工具**：`AuditLogger`、`NetworkHelper`、`FormValidator`、`PermissionService`、`AuditLogService`、`ExportService`、`SessionManager`、`SampleDataGenerator`、`Validator`、`pathogenRisk`、`UIHelper`、`UINotification`。
+8. **孤儿 / 未被引用的前端工具模块**（经全量 `import` 核查）：`CacheManager`/`ConfigManager`/`UserAuth`（ESM 但无人 import）、`IndexedDBManager`/`OfflineModeManager`/`PerformanceMonitor`（CommonJS，无法被 ESM import）等历史遗留模块**已于迁移清理中移出仓库**（见 `TD-Orphan`）。当前活跃工具：`AuditLogger`、`NetworkHelper`、`FormValidator`、`PermissionService`、`AuditLogService`、`ExportService`、`SessionManager`、`SampleDataGenerator`、`Validator`、`pathogenRisk`、`UIHelper`、`UINotification`。
 
-9. **后端遗留产物**：`backend/sql/*.sql` 是面向 **PostgreSQL/Supabase（含 RLS）** 的初始化脚本，虽不被 Prisma 运行时直接执行，但可作为每校 schema 迁移与 PostgreSQL 适配的参考；`backend/config/telemetry.js` 依赖未安装的 `node-statsd`/Prometheus，且未被 `server.js` 引入，属预留未启用。
+9. **后端遗留产物**：`backend/sql/*.sql`、`backend/config/telemetry.js` 等未启用产物**已于迁移清理中移出仓库**（见 `TD-Backend-Orphan`）。运行时数据访问以 Prisma schema + 每校迁移为准。
 
 ---
 

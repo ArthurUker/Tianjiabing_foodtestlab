@@ -7,11 +7,11 @@ import express from 'express'
 import jwt from 'jsonwebtoken'
 import { createAuthMiddleware } from '../middleware/authMiddleware.js'
 
-export function createAuditRoutes(userManager) {
+export function createAuditRoutes(userManager, prisma) {
     const router = express.Router()
 
     // ====== Authentication Middleware（统一从 authMiddleware.js 导入）======
-    const { authenticateUser, authorizeAdmin } = createAuthMiddleware(userManager)
+    const { authenticateUser, authorizeAdmin } = createAuthMiddleware(userManager, prisma)
 
     // ====== Public Routes ======
 

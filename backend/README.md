@@ -1,6 +1,6 @@
 # 后端 API 服务（backend/）
 
-田家炳食品检验系统（部署代号 `foodtestlab`）的后端，基于 **Express + Prisma + PostgreSQL**，使用 **JWT（Bearer）** 认证。生产部署由 **systemd** 托管，前端经 **Caddy** 反向代理（非 Windows / 非 PM2）。开发/测试/生产统一使用 PostgreSQL。
+食品安全检验系统（部署代号 `foodtestlab`）的后端，基于 **Express + Prisma + PostgreSQL**，使用 **JWT（Bearer）** 认证。生产部署由 **systemd** 托管，前端经 **Caddy** 反向代理（非 Windows / 非 PM2）。开发/测试/生产统一使用 PostgreSQL。
 
 > 完整架构、API 清单、前端与部署说明见 [`../docs/DEVELOPMENT_GUIDE.md`](../docs/DEVELOPMENT_GUIDE.md)。本文仅覆盖后端自身的本地开发与运行。
 

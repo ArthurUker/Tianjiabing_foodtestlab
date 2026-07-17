@@ -49,7 +49,7 @@
 - 前端为**原生 ES Module 静态资源**（无打包器），由 Caddy 直接托管 `dist/`。
 - **多学校架构（方案② Schema-per-tenant）**：50+ 学校共用同一套应用与同一份数据模型，每校数据存放在 PostgreSQL 的**独立 schema**（表结构一致）；应用层按当前登录学校动态 `SET search_path` 路由。开发/测试环境使用单一共享 schema，不做隔离。
 
-> ⚠️ 命名遗留：根 `package.json` 的 `name` 仍为 `zhuhaiyizhong-foodtestlab`（v3.1.0），部署统一使用 `SYSTEM_NAME=foodtestlab`。
+> 命名已品牌中立化：根 `package.json` 的 `name` 为 `foodtestlab`，部署统一使用 `SYSTEM_NAME=foodtestlab`；具体学校名（如珠海一中 / 田家炳中学 / 珠海实验中学）均为 `School` 表中的数据，由登录时按 `schoolCode` 动态读取，代码层不出现任何学校专有命名。每校的界面 / 显示内容 / 字段要求的差异，统一由 `public` 系统表中的 `SchoolCustomization` 承载（外观 `theme_color`/`logo_url`/`theme_config`、可见检测类型 `visible_types`、字段标签 `field_labels`、隐藏字段 `hidden_fields`、字段必填/校验规则 `field_rules`），新增学校零改码。
 
 ---
 
@@ -242,7 +242,7 @@ erDiagram
 - `record_code` 为**内容确定性哈希**：`RC-{test_type}-{sha256(规范化 payload)}`，用于幂等去重（详见 §5.4、§9）。
 - 读取时 `buildRecordPayload()` 会把 `sample_info` 与 `result_data` 展开合并回平铺对象返回前端。
 
-> ⚠️ `backend/sql/*.sql` 是面向 **PostgreSQL/Supabase（含 RLS）** 的历史脚本，不被 Prisma 运行时直接执行，但可作为每校 schema 迁移与 PostgreSQL 适配的参考。
+> ⚠️ 原 `backend/sql/*.sql`（PostgreSQL/Supabase + RLS 脚本）与 `backend/config/telemetry.js` 等未启用产物**已于迁移清理中移出仓库**（见 `TD-Backend-Orphan`），运行时以 Prisma schema + 每校迁移为准。
 
 ---
 
@@ -398,7 +398,7 @@ flowchart LR
 
 ## 8. 部署架构
 
-当前生效方案：`deploy/deploy.sh`（通用流程）+ `deploy/deploy.foodtestlab.conf`（环境适配）。`deploy/nginx`、`deploy/pm2`、`deploy.ps1` 为历史适配器，已弃用。
+当前生效方案：`deploy/deploy.sh`（通用流程）+ `deploy/deploy.foodtestlab.conf`（环境适配）。`deploy/nginx`、`deploy/pm2`、`deploy.ps1` 等历史适配器（Nginx/PM2/Windows 栈）已下线并移出仓库。
 
 ### 8.1 部署形态（单应用 + 每校 schema）
 
@@ -516,8 +516,8 @@ sudo bash deploy/deploy.sh deploy/deploy.foodtestlab.conf
 | TD-Users-Dup | `server.js` 内联 `/api/users*` 与 `userRoutes` 的 `/api/user/list`、`/:userId/disable|enable` 功能重复。 |
 | TD-P2-13 | 三套审计日志字段口径未统一，待统一审计接口设计。 |
 | TD-Session | `SessionManager.syncToBackend` / `syncSessions` 为 TODO 占位，会话仅前端内存（JWT 无状态，重启不丢登录态）。 |
-| TD-Orphan | 未被引用的前端遗留模块：`CacheManager` / `ConfigManager` / `UserAuth`（ESM 但无人 import）、`IndexedDBManager` / `OfflineModeManager` / `PerformanceMonitor`（CommonJS 风格，无法被 ESM import，未启用）。 |
-| TD-Backend-Orphan | `backend/sql/*.sql`（PostgreSQL/Supabase + RLS）、`backend/config/telemetry.js`（依赖未安装的 node-statsd/Prometheus，未被 `server.js` 引入）均为未启用产物。 |
+| TD-Orphan | 未被引用的前端遗留模块：`CacheManager` / `ConfigManager` / `UserAuth` / `IndexedDBManager` / `OfflineModeManager` / `PerformanceMonitor` | ✅已解决（迁移清理中已移出仓库） |
+| TD-Backend-Orphan | `backend/sql/*.sql`（PostgreSQL/Supabase + RLS）、`backend/config/telemetry.js`（依赖未安装的 node-statsd/Prometheus）等未启用产物 | ✅已解决（迁移清理中已移出仓库） |
 | TD-Naming | `package.json` name 仍为旧名；`engines.node>=14` 与实际 `NODE_VERSION=20` 不符；`.env.example` 含 Windows 路径旧字段。 |
 | TD-Tenant | 原文档所述"每校物理隔离部署"已弃用，目标架构改为**单应用 + PostgreSQL Schema-per-tenant（方案②）**，以适配 50+ 校与 2vCPU/3.5GiB 约束。`search_path` 连接池竞态的实现选型（事务包裹 vs PgBouncer Session 模式）待团队拍板。 |
 

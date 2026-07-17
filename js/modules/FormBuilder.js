@@ -49,6 +49,39 @@ export class FormBuilder {
     }
 
     /**
+     * 应用学校个性化配置（SchoolCustomization）到已定义字段，实现按校差异化。
+     * @param {Object} customization - 来自 /api/schools/:schoolCode/config 的 customization 对象
+     *        （field_labels / hidden_fields / field_rules 为字符串 JSON 时自动解析）
+     * 消费维度：
+     *   - field_labels:  { 字段名: "中文标签" }                         → 覆盖 label
+     *   - hidden_fields: [ "字段名", ... ]                             → 设为 hidden（不渲染）
+     *   - field_rules:   { 字段名: { required, maxLength, minLength } } → 覆盖必填/校验
+     * 用法：业务模块在 defineFields(...) 之后调用
+     *       form.applySchoolCustomization(getSchoolCustomization(extractSchoolCode()))
+     */
+    applySchoolCustomization(customization) {
+        if (!customization) return this
+        const parse = (v) => {
+            if (typeof v === 'string') {
+                try { return JSON.parse(v) } catch { return null }
+            }
+            return v || null
+        }
+        const labels = parse(customization.field_labels)
+        const hidden = parse(customization.hidden_fields) || []
+        const rules = parse(customization.field_rules) || {}
+        for (const [name, def] of Object.entries(this.fields)) {
+            if (labels && labels[name]) def.label = labels[name]
+            if (Array.isArray(hidden) && hidden.includes(name)) def.hidden = true
+            const r = rules[name]
+            if (r && r.required) def.required = true
+            if (r && typeof r.maxLength === 'number') def.maxLength = r.maxLength
+            if (r && typeof r.minLength === 'number') def.minLength = r.minLength
+        }
+        return this
+    }
+
+    /**
      * 添加验证规则
      */
     addValidator(fieldName, validator) {

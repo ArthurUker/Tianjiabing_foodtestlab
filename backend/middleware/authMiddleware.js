@@ -12,7 +12,9 @@
  * 工厂函数：接收 userManager 实例，返回一组认证/授权中间件
  * @param {UserManager} userManager
  */
-export function createAuthMiddleware(userManager) {
+import { createTenantClient } from '../lib/tenantClient.js'
+
+export function createAuthMiddleware(userManager, prisma) {
 
   /**
    * authenticateUser
@@ -33,6 +35,11 @@ export function createAuthMiddleware(userManager) {
     }
 
     req.user = verification.user
+    // 挂载请求级租户客户端，使独立 Router 内路由也能通过 req.db 访问数据库，
+    // 无需各路由自行重复注入（修复 auditRoutes/syncRoutes 中 req.db 为 undefined 的问题）
+    if (prisma) {
+      req.db = createTenantClient(prisma, req.user?.schoolCode)
+    }
     next()
   }
 

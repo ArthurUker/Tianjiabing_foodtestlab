@@ -5,6 +5,9 @@ import { initPathogen } from './modules/Pathogen.js';
 import { initDashboard } from './modules/Dashboard.js';
 import { ExportService } from './services/ExportService.js';
 import { initializeSampleData } from './utils/SampleDataGenerator.js';
+// ✨ 学校个性化配置：提取 schoolCode + 应用 SchoolCustomization 到静态录入表单
+import { extractSchoolCode } from './utils/schoolCode.js';
+import { ensureSchoolConfig, applyCustomizationToAllForms } from './utils/schoolCustomization.js';
 // 1. ✨ 引入新模块
 import { BackupRestoreService } from './modules/BackupRestore.js';
 // 2. ✨ 引入认证与路由
@@ -216,6 +219,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         new GenericTestModule({ moduleName: 'oil', formId: 'oilTestForm', tableId: 'oilRecords' });
         new GenericTestModule({ moduleName: 'leanMeat', formId: 'leanMeatTestForm', tableId: 'leanMeatRecords' });
         console.log('✅ GenericTestModule 完成');
+
+        // ✨ 按校个性化：将 SchoolCustomization 应用到静态录入表单（标签/显隐/必填规则）。
+        // 若用户直接打开 index.html（localStorage 无缓存），ensureSchoolConfig 会自动调公开端点兜底拉取。
+        try {
+            const schoolCode = extractSchoolCode();
+            const customization = await ensureSchoolConfig(schoolCode);
+            applyCustomizationToAllForms(customization);
+            console.log('✅ 学校个性化配置已应用到录入表单', schoolCode || '(无 schoolCode，跳过)');
+        } catch (e) {
+            console.error('❌ 学校个性化配置应用失败:', e);
+        }
 
         // 3. 看板初始化
         console.log('🔧 initDashboard 调用中...');

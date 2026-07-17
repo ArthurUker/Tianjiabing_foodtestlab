@@ -163,7 +163,7 @@ model SystemLog {
 
 model School {
   id            String   @id @default(cuid())
-  code          String   @unique // 学校代码，对应 schema 名 school_<code>
+  code          String   @unique // 学校代码，即 PostgreSQL schema 名（无前缀，如 school-a）
   name          String
   short_name    String?
   theme_color   String?  // 主题色（外观个性化）
@@ -172,7 +172,7 @@ model School {
   created_at    DateTime @default(now())
   updated_at    DateTime @updatedAt
 
-  customization SchoolCustomization?
+  customization SchoolCustomization? @relation("SchoolCustomization")
 }
 
 // ========== 学校定制配置（外观 / 字段个性化，位于 public schema）==========
@@ -180,6 +180,7 @@ model School {
 model SchoolCustomization {
   id            String   @id @default(cuid())
   school_code   String   @unique // 与 School.code 对应
+  school        School   @relation("SchoolCustomization", fields: [school_code], references: [code])
   // 可见检测类型（JSON 数组，如 ["tableware","pathogen"]）
   visible_types String?  // JSON array
   // 字段标签覆盖（JSON，如 {"testDate":"检测日期"}）
@@ -188,5 +189,7 @@ model SchoolCustomization {
   hidden_fields String?  // JSON array
   // 其它主题设置（JSON）
   theme_config  String?  // JSON object
+  // 字段级规则（JSON，如 {"sampler":{"required":true},"note":{"required":false,"maxLength":200}}）
+  field_rules   String?  // JSON object
   updated_at    DateTime @updatedAt
 }

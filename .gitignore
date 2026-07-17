@@ -31,6 +31,9 @@ pnpm-debug.log*
 tmp/
 temp/
 
+# Local handoff / context notes (not for repo)
+docs/HANDOFF.md
+
 # Prisma
 prisma/*.db
 backend/prisma/*.db
