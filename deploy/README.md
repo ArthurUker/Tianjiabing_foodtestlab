@@ -71,6 +71,9 @@
 | `SERVICE_MEMORY_MAX` | 后端内存上限(MB)；留空=按服务器内存自适应 |
 | `REQUIRED_MOUNT` | 数据盘挂载点；非空时未挂载则中止，防止数据静默写回系统盘 |
 | `ACCEPT_DATA_LOSS` | `prisma db push` 是否接受数据丢失（`false` 为观察模式） |
+| `PROVISION_TENANTS` | `true` 时首部署初始化多租户：为每个学校建 `school_<code>` schema、推业务表、写 `public` 系统记录、建租户 admin |
+| `SCHOOL_CODES` | 逗号分隔的学校代码（如 `tianjiabing`）；留空 = 仅用 `public` 共享 schema（dev/test 最简模式） |
+| `SCHOOL_NAME_<code>` | 可选，学校显示名；如 `SCHOOL_NAME_tianjiabing="田家炳食品检验实验室"` |
 
 ## 按服务器性能自适应（无需手动调参）
 脚本启动即探测内存/CPU，自动决定资源规划（适配文件可覆盖）：
@@ -83,7 +86,7 @@
 | > 4G      | 否         | 1536M          | 1152M       |
 
 - 内存上限通过 `systemd MemoryMax` + `NODE_OPTIONS=--max-old-space-size` 双重约束，低配机不会因构建/`prisma generate` 把内存吃爆。
-- 若服务器挂了独立数据盘，把适配文件里的 `DATA_DIR` 指向数据盘挂载点（如 `/data/<名>`），PostgreSQL 数据与日志放到数据盘，系统盘只放代码。
+- 若服务器挂了独立数据盘，把适配文件里的 `DATA_DIR` 指向数据盘挂载点（如 `/data/<名>`）。脚本在 PostgreSQL 启动后会**自动把 PG 数据目录迁移到 `$DATA_DIR/pgdata`**（用软链替还原路径，对 PG 透明），系统盘只放代码。仅当配置了 `REQUIRED_MOUNT` 时才迁移。
 
 ## 后续加域名（切 HTTPS）
 在适配文件填 `DOMAIN=你的域名`、`TLS_EMAIL=你的邮箱`，重跑：

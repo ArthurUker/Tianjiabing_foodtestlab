@@ -20,6 +20,7 @@ import idempotencyMiddleware from './middleware/idempotencyMiddleware.js'
 import { createAuthMiddleware } from './middleware/authMiddleware.js'
 import { createTenantMiddleware } from './middleware/tenantMiddleware.js'
 import { createSyncRoutes } from './routes/syncRoutes.js'
+import { provisionSchool, isValidSchoolCode } from './lib/tenantProvisioner.js'
 
 dotenv.config()
 
@@ -58,7 +59,7 @@ const prisma = new PrismaClient()
 const userManager = new UserManager(prisma, JWT_SECRET)
 
 // Initialize unified auth middleware
-const { authenticateUser: _authUser, authorizeAdmin: _authAdmin, authorizeRoles } = createAuthMiddleware(userManager)
+const { authenticateUser: _authUser, authorizeAdmin: _authAdmin, authorizeRoles } = createAuthMiddleware(userManager, prisma)
 
 function parseAllowedOrigins() {
     if (!process.env.CORS_ORIGIN) {
@@ -386,7 +387,7 @@ app.get('/api/schools/:schoolCode/config', async (req, res) => {
             code
         )
         const customRows = await prisma.$queryRawUnsafe(
-            `SELECT "visible_types","field_labels","hidden_fields","theme_config" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`,
+            `SELECT "visible_types","field_labels","hidden_fields","theme_config","field_rules" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`,
             code
         )
         const school = schoolRows?.[0] || null
@@ -407,6 +408,62 @@ app.get('/api/schools/:schoolCode/config', async (req, res) => {
         })
     } catch (error) {
         res.status(500).json({ error: '查询学校配置失败', details: error.message })
+    }
+})
+
+// ====== School Management (超管：动态新增/列出学校，方案② 运行时建 schema) ======
+// 仅 role=admin 且不属于任何具体学校（school_code 为空 = 平台超管，落在 public schema）可操作，
+// 防止某校 admin 越权创建其它学校。系统表位于 public，直连全局 prisma。
+function requirePlatformSuperAdmin(req, res, next) {
+    const role = req.user?.role ?? req.userRole
+    const schoolCode = req.user?.schoolCode || null
+    if (role !== 'admin' || schoolCode) {
+        return res.status(403).json({ error: '❌ 仅平台超级管理员（public/无学校归属的 admin）可管理学校' })
+    }
+    next()
+}
+
+// 列出所有学校
+app.get('/api/admin/schools', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
+    try {
+        const rows = await prisma.$queryRawUnsafe(
+            `SELECT "code","name","short_name","theme_color","logo_url","status","created_at"
+             FROM public."School" ORDER BY "created_at" DESC`
+        )
+        res.json({ success: true, data: rows })
+    } catch (error) {
+        console.error('❌ Error listing schools:', error)
+        res.status(500).json({ error: '获取学校列表失败', details: error.message })
+    }
+})
+
+// 动态新增学校（建 schema + 推表 + 系统记录 + 租户 admin）
+app.post('/api/admin/schools', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
+    try {
+        const { code, name, adminPassword } = req.body || {}
+        if (!isValidSchoolCode(code)) {
+            return res.status(400).json({ error: '❌ 非法学校代码（仅允许小写字母、数字、连字符，长度 1~40）' })
+        }
+        if (!adminPassword || String(adminPassword).length < 8) {
+            return res.status(400).json({ error: '❌ 必须提供该校 admin 初始密码（至少 8 位）' })
+        }
+
+        const result = await provisionSchool({
+            prisma,
+            code,
+            name,
+            adminPassword,
+            log: (m) => console.log(`[provision:${code}] ${m}`)
+        })
+
+        res.json({
+            success: true,
+            message: `学校 ${code} 初始化完成`,
+            data: result
+        })
+    } catch (error) {
+        console.error('❌ Error provisioning school:', error)
+        res.status(500).json({ error: '学校初始化失败', details: error.message })
     }
 })
 
@@ -446,11 +503,11 @@ app.post('/api/guest/quick-access', async (req, res) => {
 })
 
 // ====== Audit Logs Routes ======
-const auditRoutes = createAuditRoutes(userManager)
+const auditRoutes = createAuditRoutes(userManager, prisma)
 app.use('/api/audit-logs', auditRoutes)
 
 // ====== Sync Routes ======
-const syncRoutes = createSyncRoutes(userManager)
+const syncRoutes = createSyncRoutes(userManager, prisma)
 app.use('/api/sync', syncRoutes)
 
 // ====== Test Records API ======

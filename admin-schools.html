@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>学校管理 - 平台超管</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <style>
+        body { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    </style>
+</head>
+<body class="py-10">
+    <div class="max-w-4xl mx-auto px-4">
+        <div class="bg-white rounded-lg shadow-2xl p-8">
+            <div class="flex items-center justify-between mb-6">
+                <h1 class="text-2xl font-bold text-gray-800"><i class="fas fa-school text-blue-600 mr-2"></i>学校管理（平台超管）</h1>
+                <a href="./index.html" class="text-sm text-blue-600 hover:underline"><i class="fas fa-arrow-left mr-1"></i>返回主界面</a>
+            </div>
+
+            <div id="notice" class="hidden mb-4 p-3 rounded-lg text-sm"></div>
+
+            <!-- 新增学校 -->
+            <div class="border border-gray-200 rounded-lg p-5 mb-8">
+                <h2 class="font-semibold text-gray-700 mb-4"><i class="fas fa-plus-circle mr-2 text-green-600"></i>新增学校</h2>
+                <form id="createForm" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm text-gray-600 mb-1">学校代码（唯一，小写字母/数字/连字符）</label>
+                        <input id="code" type="text" required placeholder="如 tianjiabing" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-600 mb-1">学校名称</label>
+                        <input id="name" type="text" placeholder="如 田家炳食品检验实验室" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-600 mb-1">该校 admin 初始密码（至少 8 位）</label>
+                        <input id="adminPassword" type="text" required placeholder="至少 8 位" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div class="flex items-end">
+                        <button id="createBtn" type="submit" class="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-semibold py-2 rounded-lg transition flex items-center justify-center">
+                            <i class="fas fa-check mr-2"></i><span id="createBtnText">创建学校</span>
+                        </button>
+                    </div>
+                </form>
+                <p class="text-xs text-gray-400 mt-3">创建后将自动建立独立数据空间（schema）、业务表与该校 admin 账号。访问地址：<code>/&lt;学校代码&gt;/login</code></p>
+            </div>
+
+            <!-- 学校列表 -->
+            <div class="border border-gray-200 rounded-lg p-5">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="font-semibold text-gray-700"><i class="fas fa-list mr-2 text-blue-600"></i>已有学校</h2>
+                    <button id="refreshBtn" class="text-sm text-blue-600 hover:underline"><i class="fas fa-sync mr-1"></i>刷新</button>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="text-left text-gray-500 border-b">
+                                <th class="py-2 pr-4">代码</th>
+                                <th class="py-2 pr-4">名称</th>
+                                <th class="py-2 pr-4">状态</th>
+                                <th class="py-2 pr-4">创建时间</th>
+                                <th class="py-2">登录地址</th>
+                            </tr>
+                        </thead>
+                        <tbody id="schoolTbody">
+                            <tr><td colspan="5" class="py-4 text-center text-gray-400">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { authService, getApiBaseUrl } from './js/services/AuthService.js';
+
+        const API_BASE = getApiBaseUrl();
+
+        // 未登录则回登录页
+        if (!authService.isAuthenticated()) {
+            window.location.replace('./login.html');
+        }
+
+        const notice = document.getElementById('notice');
+        function showNotice(msg, type = 'info') {
+            notice.textContent = msg;
+            notice.className = 'mb-4 p-3 rounded-lg text-sm ' + (
+                type === 'error' ? 'bg-red-100 border border-red-400 text-red-700'
+                : type === 'success' ? 'bg-green-100 border border-green-400 text-green-700'
+                : 'bg-blue-100 border border-blue-400 text-blue-700'
+            );
+            notice.classList.remove('hidden');
+        }
+
+        function authHeaders() {
+            return {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authService.getToken()}`
+            };
+        }
+
+        async function loadSchools() {
+            const tbody = document.getElementById('schoolTbody');
+            tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-gray-400">加载中...</td></tr>';
+            try {
+                const resp = await fetch(`${API_BASE}/api/admin/schools`, { headers: authHeaders() });
+                const json = await resp.json();
+                if (!resp.ok) throw new Error(json.error || '加载失败');
+                const rows = json.data || [];
+                if (!rows.length) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-gray-400">暂无学校</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = rows.map(s => `
+                    <tr class="border-b hover:bg-gray-50">
+                        <td class="py-2 pr-4 font-mono">${s.code}</td>
+                        <td class="py-2 pr-4">${s.name || ''}</td>
+                        <td class="py-2 pr-4">${s.status === 'active' ? '<span class="text-green-600">启用</span>' : '<span class="text-gray-400">停用</span>'}</td>
+                        <td class="py-2 pr-4">${s.created_at ? new Date(s.created_at).toLocaleString() : ''}</td>
+                        <td class="py-2"><a class="text-blue-600 hover:underline" href="/${s.code}/login">/${s.code}/login</a></td>
+                    </tr>
+                `).join('');
+            } catch (e) {
+                if (e.message && (e.message.includes('超级管理员') || e.message.includes('403'))) {
+                    showNotice('当前账号非平台超管（需 public/无学校归属的 admin），无权管理学校。', 'error');
+                }
+                tbody.innerHTML = `<tr><td colspan="5" class="py-4 text-center text-red-500">${e.message}</td></tr>`;
+            }
+        }
+
+        document.getElementById('createForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const code = document.getElementById('code').value.trim();
+            const name = document.getElementById('name').value.trim();
+            const adminPassword = document.getElementById('adminPassword').value;
+            const btn = document.getElementById('createBtn');
+            const btnText = document.getElementById('createBtnText');
+
+            btn.disabled = true;
+            btnText.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>创建中...';
+            try {
+                const resp = await fetch(`${API_BASE}/api/admin/schools`, {
+                    method: 'POST',
+                    headers: authHeaders(),
+                    body: JSON.stringify({ code, name, adminPassword })
+                });
+                const json = await resp.json();
+                if (!resp.ok) throw new Error(json.error || json.details || '创建失败');
+                showNotice(`✅ ${json.message}（访问 /${code}/login，admin 密码即刚才填写的值）`, 'success');
+                document.getElementById('createForm').reset();
+                loadSchools();
+            } catch (e) {
+                showNotice('❌ ' + e.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btnText.textContent = '创建学校';
+            }
+        });
+
+        document.getElementById('refreshBtn').addEventListener('click', loadSchools);
+        loadSchools();
+    </script>
+</body>
+</html>

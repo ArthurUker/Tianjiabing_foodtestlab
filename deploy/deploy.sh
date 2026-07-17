@@ -40,6 +40,36 @@ gen_password() {
   echo "${p}1A"
 }
 
+# ------------------------- 将 PostgreSQL 数据目录迁移到数据盘 -------------------------
+# 仅当 REQUIRED_MOUNT 非空（即使用了独立数据盘）时启用。
+# 做法：停止 PG → 将现有数据 rsync 到 $DATA_DIR/pgdata → 用软链替还原路径 → 启动。
+# 软链对 PG 完全透明，无需改动 postgresql.conf，最稳妥，且不破坏 Ubuntu 的 cluster 管理。
+relocate_postgres_data() {
+  [ -n "$REQUIRED_MOUNT" ] || return 0   # 未配置数据盘则保持默认（系统盘）
+  local pgver
+  pgver=$(psql --version 2>/dev/null | awk '{print $3}' | cut -d. -f1-2)
+  [ -n "$pgver" ] || { warn "无法识别 PostgreSQL 版本，跳过数据目录迁移"; return 0; }
+  local cluster_dir="/var/lib/postgresql/${pgver}/main"
+  local target_dir="$DATA_DIR/pgdata"
+  # 已迁移（软链 / 已在数据盘下）则跳过，保证幂等
+  [ -L "$cluster_dir" ] && { ok "PG 数据目录已是软链，跳过迁移"; return 0; }
+  case "$cluster_dir" in "$DATA_DIR"*|"$REQUIRED_MOUNT"*) ok "PG 数据目录已在数据盘，跳过迁移"; return 0;; esac
+  log "迁移 PostgreSQL 数据目录到数据盘: $target_dir"
+  if ! systemctl stop postgresql; then warn "PostgreSQL 停止失败，跳过数据目录迁移"; return 0; fi
+  mkdir -p "$target_dir"
+  if [ -d "$cluster_dir" ]; then
+    rsync -a "$cluster_dir/" "$target_dir/" 2>/dev/null || cp -a "$cluster_dir/." "$target_dir/"
+    rm -rf "$cluster_dir"
+  fi
+  ln -s "$target_dir" "$cluster_dir"
+  chown -R postgres:postgres "$target_dir"
+  if ! systemctl start postgresql; then
+    warn "PG 启动失败（数据盘迁移后），请检查: journalctl -u postgresql"
+    return 0
+  fi
+  ok "PG 数据目录已迁移到数据盘（symlink: $cluster_dir -> $target_dir）"
+}
+
 # ------------------------- 0. 读取适配文件 -------------------------
 [ -f "$ADAPTER_FILE" ] || fail "找不到适配文件: $ADAPTER_FILE\n用法: sudo bash deploy.sh <适配文件.conf>"
 # shellcheck disable=SC1090
@@ -73,6 +103,7 @@ SWAP_SIZE_GB="${SWAP_SIZE_GB:-2}"
 ACCEPT_DATA_LOSS="${ACCEPT_DATA_LOSS:-true}"
 SEED_ON_FIRST_DEPLOY="${SEED_ON_FIRST_DEPLOY:-true}"
 FRONTEND_NPM_INSTALL="${FRONTEND_NPM_INSTALL:-false}"
+PROVISION_TENANTS="${PROVISION_TENANTS:-true}"   # 首次部署是否初始化多租户（学校 schema / 系统记录 / 租户 admin）
 JWT_EXPIRE="${JWT_EXPIRE:-7d}"
 SERVICE_MEMORY_MAX="${SERVICE_MEMORY_MAX:-}"
 REQUIRED_MOUNT="${REQUIRED_MOUNT:-}"   # 数据盘挂载点；非空时若未挂载则中止，避免数据静默写回系统盘
@@ -199,6 +230,9 @@ if [ "$INSTALL_RUNTIME" = "true" ]; then
   fi
   ok "PostgreSQL: $(psql --version 2>/dev/null | head -1)"
 
+  # 数据盘就绪后、建库/建角色前，先把 PG 数据目录迁到数据盘（若配了 REQUIRED_MOUNT）
+  relocate_postgres_data
+
   # 生成应用库密码（留空则自动生成）；建库/建角色使用本密码
   [ -z "$PG_PASSWORD" ] && PG_PASSWORD=$(gen_password)
   PG_SUPER="postgres"
@@ -308,7 +342,19 @@ ok "数据库 schema 同步完成"
 
 if [ -f prisma/seed.js ] && { [ "$FIRST_DEPLOY" = "true" ] && [ "$SEED_ON_FIRST_DEPLOY" = "true" ]; }; then
   log "首次部署：执行 seed 初始化账号"
-  node prisma/seed.js || warn "seed 执行失败，请手动运行: node $REPO_ROOT/backend/prisma/seed.js"
+  # 首部署必须放行 seed（seed.js 在生产环境默认跳过，避免泄露默认凭据）。
+  # 仅本次首部署临时置位，不写入永久 .env；后续重跑部署若已存在账号则 seed 内 ensureUser 去重跳过。
+  SEED_ALLOW_PROD=true node prisma/seed.js || warn "seed 执行失败，请手动运行: SEED_ALLOW_PROD=true node $REPO_ROOT/backend/prisma/seed.js"
+fi
+
+# ------------------------- 6.5 多租户初始化（方案② Schema-per-tenant）-------------------------
+if [ "$PROVISION_TENANTS" = "true" ]; then
+  log "多租户初始化（创建学校 schema / 系统记录 / 租户 admin）"
+  # 透传必要环境变量给 provision-tenants.js
+  for v in "${!SCHOOL_NAME_@}"; do export "$v"; done
+  export DATABASE_URL SEED_ADMIN_PASSWORD SCHOOL_CODES
+  node prisma/provision-tenants.js \
+    || warn "多租户初始化失败，请手动运行: node $REPO_ROOT/backend/prisma/provision-tenants.js"
 fi
 
 # ------------------------- 7. 前端构建 -------------------------

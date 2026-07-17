@@ -204,9 +204,26 @@ export class APIClient {
 
 // ====== Singleton Instance ======
 
-export const apiClient = new APIClient(
-    import.meta.env.VITE_API_URL || '/api'
-)
+// 解析 API base：
+// 生产为纯静态部署（scripts/build-static.js 仅复制文件，无 Vite 编译），
+// 因此不能直接访问 import.meta.env（原生浏览器 ESM 下 import.meta.env 为 undefined，
+// 直接读属性会抛 TypeError 导致整个模块加载失败）。这里做防御性解析：
+//   1) 允许 window.__API_BASE_URL 覆盖（灰度/调试）
+//   2) 有 Vite 环境（开发/被打包）时读 import.meta.env.VITE_API_URL
+//   3) 兜底同源 /api（由 Caddy/Nginx 反代到后端）
+function resolveApiBase() {
+    try {
+        if (typeof window !== 'undefined' && window.__API_BASE_URL) {
+            return window.__API_BASE_URL
+        }
+        if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_URL) {
+            return import.meta.env.VITE_API_URL
+        }
+    } catch (_) { /* 原生浏览器无 import.meta.env，忽略 */ }
+    return '/api'
+}
+
+export const apiClient = new APIClient(resolveApiBase())
 
 // ====== Usage Examples ======
 

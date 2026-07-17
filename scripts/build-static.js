@@ -5,7 +5,8 @@ const dist = path.join(root, 'dist');
 
 const filesToCopy = [
   'index.html',
-  'login.html'
+  'login.html',
+  'admin-schools.html'
 ];
 
 const dirsToCopy = [
