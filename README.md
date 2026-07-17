@@ -116,8 +116,8 @@ flowchart TB
     PG[(PostgreSQL 单实例)]
     subgraph Schemas[schema-per-tenant]
         S1[schema: school-a]
-        S2[schema: school_b]
-        Sn[schema: school_n ...]
+        S2[schema: school-b]
+        Sn[schema: school-n ...]
     end
     Caddy --> API --> PG
     PG --> Schemas

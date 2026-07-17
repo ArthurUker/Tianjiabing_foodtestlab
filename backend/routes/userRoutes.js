@@ -38,7 +38,7 @@ export function createUserRoutes(userManager) {
     })
 
     // 用户登录（P2-01: 增加专项限流）
-    // schoolCode 来自请求体：登录前尚不知学校，需先据此定位 school_<code> schema 的 User 表
+    // schoolCode 来自请求体：登录前尚不知学校，需先据此定位 schoolCode 对应的 schema（schoolCode 即 schema 名，如 school-a）的 User 表
     router.post('/login', loginRateLimit, async (req, res) => {
         try {
             const { username, password, schoolCode } = req.body

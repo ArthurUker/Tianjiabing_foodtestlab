@@ -16,7 +16,7 @@ export class UserManager {
 
     /**
      * 返回一个绑定到指定学校 schema 的 UserManager 副本（方案②）。
-     * 副本的 this.prisma 为请求级租户客户端，所有查询落在 school_<code> schema。
+     * 副本的 this.prisma 为请求级租户客户端，所有查询落在 schoolCode 对应的 schema（schoolCode 即 schema 名，如 school-a）。
      * 不传 schoolCode 时返回自身（dev/test 共享 schema）。
      */
     forTenant(schoolCode) {

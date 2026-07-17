@@ -39,7 +39,7 @@ export class AuthService {
      * 登录 API 调用
      * @param {string} username - 用户名
      * @param {string} password - 密码
-     * @param {string} [schoolCode] - 所属学校代码（方案A：来自 URL 路径前缀，用于在登录前定位 school_<code> schema）
+     * @param {string} [schoolCode] - 所属学校代码（方案A：来自 URL 路径前缀；schoolCode 即 schema 名，用于在登录前定位该校 schema）
      * @returns {Promise<{success: boolean, user?: object, token?: string, message?: string}>}
      */
     async login(username, password, schoolCode = null) {

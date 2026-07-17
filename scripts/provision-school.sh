@@ -19,7 +19,7 @@
 
 set -euo pipefail
 
-SCHOOL_CODE="${SCHOOL_CODE:?请设置 SCHOOL_CODE（学校代码，对应 schema school_<code>）}"
+SCHOOL_CODE="${SCHOOL_CODE:?请设置 SCHOOL_CODE（学校代码，schoolCode 即 PostgreSQL schema 名，如 school-tianjiabing）}"
 DATABASE_URL="${DATABASE_URL:?请设置 DATABASE_URL（postgresql://...）}"
 TEMPLATE_SCHEMA="${TEMPLATE_SCHEMA:-school_template}"
 # 不应进入每校 schema 的系统表（仅 public 保留）
