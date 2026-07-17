@@ -305,3 +305,37 @@ SCHOOL_CODES=""
 # 前端构建
 FRONTEND_NPM_INSTALL=false
 ```
+
+---
+
+## 12. 首次部署排错记录（已修复，留存备查）
+
+> 以下 4 个问题在 **2026-07-17 首次部署**时已逐一命中并修复，修复均已提交进 `main` 分支
+> （`deploy/deploy.sh` + 新增 `scripts/package.json`）。**拉取最新 `main` 后重跑部署不会再遇到**，
+> 此处仅作排查参考。
+
+### 12.1 `npm ci` 报 `illegal value for flag --max-old-space-size=768M` / `node: bad option: --harmony-import-*`
+- **现象**：`后端依赖安装失败`，日志同时出现 `--max-old-space-size=768M`、`--harmony-import-assertions`、`--harmony-import-attributes` 三个非法 flag。
+- **原因**：
+  1. `--max-old-space-size` 只接受**纯数字 MB**（如 `768`），`deploy.sh` 旧写法带了 `M` 后缀；
+  2. `--harmony-*` 来自**启动部署的父环境**（`NODE_OPTIONS` 被继承进 `sudo bash`，属 IDE / 父 shell 的运行环境残留）。
+- **修复**：① 去掉 `M` 后缀；② 在设置 `NODE_OPTIONS` 前先 `unset NODE_OPTIONS`，并重跑时显式 `NODE_OPTIONS= sudo ...` 清空继承值。
+
+### 12.2 `prisma db push` 报 `P1000: Authentication failed` / 提供的凭据无效
+- **现象**：首次部署成功后**重跑部署**时，`.env` 里 `DATABASE_URL` 的密码被重新随机生成，但 PostgreSQL 角色 `foodtestlab` 仍是上一次的旧密码（创建角色的 `CREATE ROLE` 仅在角色不存在时执行，不更新密码），导致认证失败。
+- **修复**：`deploy.sh` 在每次部署都对应用角色执行 `ALTER ROLE "<user>" WITH PASSWORD '<本次 PG_PASSWORD>'`，保证 `.env` 与库中角色密码始终一致（幂等，重跑不失效）。
+
+### 12.3 前端构建报 `ReferenceError: require is not defined in ES module scope`
+- **现象**：`node scripts/build-static.js` 因仓库根 `package.json` 设了 `"type": "module"`，被当成 ESM，而该脚本是 CommonJS（`require`/`__dirname`）。
+- **修复**：在 `scripts/` 目录新增 `package.json` 写 `{"type":"commonjs"}`，使 `scripts/*.js` 仍按 CommonJS 处理（不改动脚本内容、不碰部署流水线）。**该文件必须提交进仓库**，否则重部署时 `git clean` 会把它删掉。
+
+### 12.4 systemd 服务 `Failed to execute /usr/local/bin/node: Permission denied`（`status=203/EXEC`，无限重启）
+- **现象**：`systemctl restart foodtestlab-api` 后服务疯狂重启（`NRestarts` 飙升），健康检查超时。日志为 `Failed at step EXEC spawning /usr/local/bin/node: Permission denied`。
+- **原因**：`deploy.sh` 用 NVM 把 Node 装到 **`/root/.nvm`**（root 家目录），再把 `/usr/local/bin/node` 软链过去。而 systemd 服务以**非 root 系统用户 `foodtestlab`** 运行，无法穿越 `/root`（700 权限）去执行软链里的 node。
+- **修复**：`deploy.sh` 改为把 Node 整个目录 `cp -a` 到**全局可读的 `/opt/node-<ver>`**（并 `chmod -R a+rX`），再从 `/usr/local/bin` 软链。这样 `foodtestlab` 用户可正常执行。
+
+### 12.5 部署中偶发 `无法访问 github.com`（外网连通性预检失败）
+- **现象**：某次重跑在「外网连通性预检」直接中止。
+- **原因**：服务器出站网络瞬时抖动（非脚本问题）。
+- **处理**：直接重跑同一条部署命令即可（脚本幂等，已装组件会跳过）。
+

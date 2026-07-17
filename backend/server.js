@@ -11,7 +11,6 @@ import path from 'path'
 import { fileURLToPath, URL } from 'url'
 import crypto from 'crypto'
 import { PrismaClient } from '@prisma/client'
-import jwt from 'jsonwebtoken'
 import UserManager from './modules/UserManager.js'
 import { createUserRoutes } from './routes/userRoutes.js'
 import { createAuditRoutes } from './routes/auditRoutes.js'
@@ -466,37 +465,6 @@ app.post('/api/admin/schools', authenticateUser, requirePlatformSuperAdmin, asyn
 // ====== User Authentication Routes ======
 const userRoutes = createUserRoutes(userManager)
 app.use('/api/user', userRoutes)
-
-// ====== Guest Routes ======
-// POST /api/guest/quick-access — P0-07 修复：无需凭证，签发只读限权 JWT（2h）
-app.post('/api/guest/quick-access', async (req, res) => {
-    try {
-        const payload = {
-            guestId: 0,
-            username: '快速访问用户',
-            guest_type: 'viewer',
-            has_export_permission: false,
-            is_quick_access: true,
-            iat: Math.floor(Date.now() / 1000)
-        }
-        const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '2h' })
-        return res.json({
-            success: true,
-            token,
-            guest: {
-                id: 0,
-                username: '快速访问用户',
-                guest_type: 'viewer',
-                has_export_permission: false,
-                is_quick_access: true,
-                status: 'active'
-            }
-        })
-    } catch (err) {
-        console.error('快速访问接口错误:', err)
-        return res.status(500).json({ error: '快速访问失败' })
-    }
-})
 
 // ====== Audit Logs Routes ======
 const auditRoutes = createAuditRoutes(userManager, prisma)

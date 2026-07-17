@@ -404,20 +404,15 @@ Caddy 主配置 `/etc/caddy/Caddyfile` 通过 `import /etc/caddy/sites/*.caddy` 
 
 7. **命名已中立化**：`package.json` 的 `name` 为 `foodtestlab`；`engines.node` 写的是 `>=14.0.0`，而部署脚本实际用 `NODE_VERSION=20`（待统一）；`.env.example` 含 Windows 路径与旧字段，仅供格式参考，实际以部署脚本生成 `.env` 为准。根 `package.json` 同时列出了后端运行依赖（express / jsonwebtoken 等），而后端另有独立 `backend/package.json`，以后端目录的为准。
 
-8. **多租户架构已定稿为方案②（Schema-per-tenant）**：原"每校物理隔离部署"描述已废弃。50+ 学校共用单应用与单 PostgreSQL 实例，每校独立 schema、表结构统一；应用层用单一 PrismaClient + 请求级 `SET search_path` 路由。`search_path` 是连接级状态，连接池竞态须用**事务包裹**或 **PgBouncer Session 模式**规避——两者选型对比见下，待团队拍板：
+8. **多租户架构已定稿为方案②（Schema-per-tenant）**：原"每校物理隔离部署"描述已废弃。50+ 学校共用单应用与单 PostgreSQL 实例，每校独立 schema、表结构统一。
 
-   | 方案 | 实现 | 优点 | 风险 / 代价 |
-   |------|------|------|------------|
-   | 事务包裹 | 每个请求用 `prisma.$transaction(async tx => { await tx.$executeRawUnsafe('SET search_path TO ...'); ...业务... })` 锁定同连接 | 不引入新组件；实现直观 | 每个请求多一次 SET；长事务占用连接；需确保全程走同一 tx |
-   | PgBouncer Session 模式 | 前置 PgBouncer（`pool_mode = session`），单逻辑会话绑定单物理连接 | 连接复用高效；search_path 稳定 | 额外部署/运维 PgBouncer；**不可用 Transaction 模式**（会破坏 search_path 绑定） |
+   > ⚠️ **方案反转（2026-07）**：早先的"单一 PrismaClient + 请求级 `SET search_path` + 事务包裹"方案**已被证伪并废弃**。原因：Prisma 生成 SQL 把表名固定为 datasource schema（`FROM "public"."User"`），`SET search_path` 对 model 查询**完全无效**（仅对裸 `$queryRaw` 生效），会导致所有租户查询回落 `public`、跨校串数据。权威规范见 [`PROJECT_CONVENTIONS.md` 规则三](./PROJECT_CONVENTIONS.md)。
 
-   > **已选定（2026-07-14）：事务包裹 + 预留切换。** 抽象集中在 `backend/lib/tenantClient.js`：
-   > - `setSearchPath(tx, schoolCode)` 是**唯一切换点**，当前执行 `SET LOCAL search_path TO "school-a", public`（schoolCode 即 schema 名）。
-   > - `createTenantClient(prisma, schoolCode)` 用递归 Proxy 把任意 `model.method` 包进 `prisma.$transaction`，业务 handler 统一通过 `req.db.<model>.<method>()` 访问。
-   > - 将来切 PgBouncer（pool_mode=session）时，只需改 `setSearchPath` / `createTenantClient`（去掉事务包裹、连接获取时设一次 search_path），handler 代码零改动。
-   > - 严禁为每校各建一个 PrismaClient（退化为方案③连接膨胀）。
-
-   > 注意：无论哪种，都**不要**为每校各建一个 PrismaClient（否则退化为方案③的连接池膨胀）。每校 schema 划分以 Prisma schema + 每校迁移为准。
+   **现方案 = per-schema 专属 `PrismaClient`**，抽象集中在 `backend/lib/tenantClient.js`：
+   - `createTenantClient(prisma, schoolCode)` 为每个 `school_<code>` 缓存一个**带 `?schema=school_<code>` 连接串**的 `PrismaClient`（LRU 上限 `MAX_TENANT_CLIENTS=25`、每客户端 `TENANT_CONNECTION_LIMIT=3`，进程退出经 `disconnectAllTenantClients()` 优雅关闭）。`schoolCode` 为空 / 落到 `public` 时返回基础单例。
+   - 真实 schema 名 = `school_<code>`（非 `schoolCode` 本身）：`schemaNameOf(code)` 归一（strip 前导 `school-`/`school_` 再补 `school_` 前缀，幂等；`tianjiabing`→`school_tianjiabing`、`school-a`→`school_a`）；`resolveSchemaName(code)` 是推导入口，为空回落 `public`。
+   - 系统表 `School`/`SchoolCustomization` 恒在 `public`，由基础 prisma 单例显式 `public.` 前缀访问（如 `prisma.school.findUnique` 即落在 `public`）。
+   - 业务 handler **统一通过 `req.db.<model>.<method>()` 访问**（`req.db` 即 `createTenantClient` 返回的租户客户端）；严禁手写 `SET search_path` 或直接用基础 `prisma.<model>` 做租户查询。
 
 8. **孤儿 / 未被引用的前端工具模块**（经全量 `import` 核查）：`CacheManager`/`ConfigManager`/`UserAuth`（ESM 但无人 import）、`IndexedDBManager`/`OfflineModeManager`/`PerformanceMonitor`（CommonJS，无法被 ESM import）等历史遗留模块**已于迁移清理中移出仓库**（见 `TD-Orphan`）。当前活跃工具：`AuditLogger`、`NetworkHelper`、`FormValidator`、`PermissionService`、`AuditLogService`、`ExportService`、`SessionManager`、`SampleDataGenerator`、`Validator`、`pathogenRisk`、`UIHelper`、`UINotification`。
 

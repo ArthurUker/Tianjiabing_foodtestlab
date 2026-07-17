@@ -13,7 +13,7 @@ export class SessionManager {
         //   - 会话超时：sessionTimeout = 30 分钟无活动自动登出（见 checkSessionExpiry）
         //   - 最大并发：maxConcurrentSessions = 5（见 enforceMaxSessions）
         //   - 后端认证为 JWT 无状态（UserManager.verifyToken），重启不丢失登录态
-        //   - syncToBackend / syncSessions 为 TODO 占位，后端 session API 未实现
+        //   - syncToBackend / syncSessions 已对接后端 /api/session（登录/登出/强制登出同步落库，TD-Session ✅）
         //   - 遗留：inactive 会话不从数组移除（removeSession 仅改 status），长期运行可能内存增长 → TD-P2-15 评估
         //   - getClientIP() 返回模拟 127.0.0.1（见下方注释），非配置硬编码
         this.sessions = [];
@@ -189,6 +189,10 @@ export class SessionManager {
             this.checkSessionExpiry();
             this.updateLastActivityTime();
             this.syncSessions();
+            // 心跳：每分钟用当前会话 POST /api/session（upsert 刷新 last_seen_at），
+            // 使后端会话表的「最后活跃时间」与前端一致（TD-Session 收口）。
+            const current = this.getCurrentSession();
+            if (current) this.syncToBackend('heartbeat', current);
         }, 60000); // 每分钟检查一次
     }
 

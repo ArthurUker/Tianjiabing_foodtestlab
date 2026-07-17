@@ -47,7 +47,7 @@
 - **腾讯云 CVM（Ubuntu 22.04+）** 单机部署；**Caddy** 反向代理（对外）+ **systemd** 托管 Node 后端（仅监听 `127.0.0.1`）。
 - 数据库为 **PostgreSQL**，落在独立数据盘 `/mnt/datadisk0`（与系统盘生命周期解耦）。开发/测试/生产**统一使用 PostgreSQL**，仅在 schema 隔离策略上不同（dev/test 共享 schema，prod 每校一 schema）。
 - 前端为**原生 ES Module 静态资源**（无打包器），由 Caddy 直接托管 `dist/`。
-- **多学校架构（方案② Schema-per-tenant）**：50+ 学校共用同一套应用与同一份数据模型，每校数据存放在 PostgreSQL 的**独立 schema**（表结构一致）；应用层按当前登录学校动态 `SET search_path` 路由。开发/测试环境使用单一共享 schema，不做隔离。
+- **多学校架构（方案② Schema-per-tenant）**：50+ 学校共用同一套应用与同一份数据模型，每校数据存放在 PostgreSQL 的**独立 schema**（表结构一致）；应用层按当前登录学校经 `?schema=` 连接串路由（`backend/lib/tenantClient.js` 的 `createTenantClient` 为每校缓存独立 PrismaClient）。开发/测试环境使用单一共享 schema，不做隔离。
 
 > 命名已品牌中立化：根 `package.json` 的 `name` 为 `foodtestlab`，部署统一使用 `SYSTEM_NAME=foodtestlab`；具体学校名（如珠海一中 / 田家炳中学 / 珠海实验中学）均为 `School` 表中的数据，由登录时按 `schoolCode` 动态读取，代码层不出现任何学校专有命名。每校的界面 / 显示内容 / 字段要求的差异，统一由 `public` 系统表中的 `SchoolCustomization` 承载（外观 `theme_color`/`logo_url`/`theme_config`、可见检测类型 `visible_types`、字段标签 `field_labels`、隐藏字段 `hidden_fields`、字段必填/校验规则 `field_rules`），新增学校零改码。
 
@@ -112,19 +112,21 @@ flowchart LR
 ```mermaid
 flowchart TB
     Caddy[Caddy 反代 :FRONTEND_PORT]
-    API[systemd: foodtestlab-api<br/>单应用 + 单 PrismaClient]
+    API[systemd: foodtestlab-api<br/>单应用 + 每校缓存独立 PrismaClient]
     PG[(PostgreSQL 单实例)]
     subgraph Schemas[schema-per-tenant]
-        S1[schema: school-a]
-        S2[schema: school-b]
-        Sn[schema: school-n ...]
+        S1[schema: school_tianjiabing]
+        S2[schema: school_gtest]
+        Sn[schema: school_n ...]
     end
     Caddy --> API --> PG
     PG --> Schemas
-    API -.请求级 SET search_path.-> Schemas
+    API -.按 schoolCode 经 ?schema= 连接串路由.-> Schemas
 ```
 
-> 「多学校」= **单套应用 + 单 PostgreSQL 实例 + 每校独立 schema**（非物理分部署，也非单表 `school_id` 混放）。表结构全校一致；连接池共享（约 10–20 条），由请求级中间件按登录学校 `SET search_path` 路由。开发/测试环境用单一共享 schema。
+> 「多学校」= **单套应用 + 单 PostgreSQL 实例 + 每校独立 schema**（非物理分部署，也非单表 `school_id` 混放）。表结构全校一致；`backend/lib/tenantClient.js` 的 `createTenantClient(prisma, schoolCode)` 为**每个 schema 缓存一个独立 `new PrismaClient`**（连接串带 `?schema=<schema>`，LRU 缓存 + 每客户端连接上限），把 Prisma 的 model 查询硬绑定到对应 schema——这是 Prisma 官方推荐的 schema 隔离方式（schema 名编译进 SQL，非运行时 search_path）。`schoolCode` 经 `schemaNameOf()` 归一为 `school_<code>`（`school-` 前缀归一为 `school_` 下划线）；`isValidSchoolCode` 仅允许 `[a-z0-9-]`（不含下划线，学校代码用连字符，如 `school-gtest`）。开发/测试环境用单一共享 schema。
+>
+> ⚠️ **历史文档曾描述「请求级 `SET search_path` 路由 + Proxy」方案，已证伪并废弃**：Prisma 把 schema 名硬编码进生成的 SQL，`SET LOCAL search_path` 对 model 查询无效（仅裸 `$queryRaw` 生效，如 `provisionSchool` 建初始 admin 时）。**切勿重新引入 search_path / Proxy 方案。**
 
 ---
 
@@ -134,10 +136,10 @@ flowchart TB
 
 #### 多学校隔离（Schema-per-tenant）
 
-- 每校对应 PostgreSQL 中一个独立 schema（**schoolCode 即 schema 名**，如 `school-a`），**所有 schema 的表结构与迁移完全一致**（同一份 Prisma schema）。
-- 应用通过**单一 PrismaClient** + 请求级中间件执行 `SET search_path TO "school-a", public;` 路由到对应 schema；注意 `search_path` 是连接级状态，须用事务包裹或 PgBouncer Session 模式避免连接池竞态（实现选型见 §10 / 部署说明）。
-- 备份/恢复/迁移按校独立：`pg_dump -n school-a mydb` 单独导出，`psql -d mydb -f school-a.sql` 单独恢复；迁校即导出该 schema 在目标库 `CREATE SCHEMA` 后恢复。
-- 新增学校：在 PG 实例建 schema + 对其跑 Prisma 迁移（或从模板 schema 克隆）。
+- 每校对应 PostgreSQL 中一个独立 schema（schema 名由 `schemaNameOf(schoolCode)` 归一为 `school_<code>`，如 `school-gtest` → `school_gtest`），**所有 schema 的表结构与迁移完全一致**（同一份 Prisma schema）。
+- 隔离由 `backend/lib/tenantClient.js` 的 `createTenantClient(prisma, schoolCode)` 实现：为每个 schema 缓存一个独立 `new PrismaClient`（连接串带 `?schema=<schema>`），Prisma 据此把 model 查询限定到该 schema。租户中间件在 `authenticateUser` 后挂 `req.db`（即当前校的 tenant client）。新增模型只需 `prisma db push` 推一次，新学校自动包含全部模型。
+- 备份/恢复/迁移按校独立：`pg_dump -n school_gtest mydb` 单独导出，`psql -d mydb -f school_gtest.sql` 单独恢复；迁校即导出该 schema 在目标库 `CREATE SCHEMA` 后恢复。
+- 新增学校：`tenantProvisioner.provisionSchool({ code })` 用 `prisma db push ?schema=<租户>` 推全表并建初始 admin（连字符代码，如 `school-gtest`）。
 - 开发/测试：使用单一共享 schema（如 `public` 或 `dev`），无需逐校隔离。
 
 ### 4.1 ER 图
@@ -148,6 +150,8 @@ erDiagram
     User ||--o{ TestRecord : "created_by (Restrict)"
     User ||--o{ Guest : "created_by (Restrict)"
     User ||--o{ Backup : "created_by (SetNull)"
+    User ||--o{ Session : "user_id (Cascade)"
+    Guest ||--o{ GuestExportRequest : "guest_id (Cascade)"
     TestRecord ||--o{ TestItem : "test_record_id (Cascade)"
     TestRecord ||--o{ Attachment : "test_record_id (SetNull)"
 
@@ -204,8 +208,40 @@ erDiagram
         string id PK
         string username UK
         string password_hash
-        string created_by FK
+        string email "nullable"
+        string full_name "nullable"
+        string created_by FK "nullable"
+        string guest_type "default viewer"
+        string has_export_permission "default false"
+        string valid_until "DateTime, nullable"
         string status "default active"
+        datetime created_at
+        datetime updated_at
+    }
+    GuestExportRequest {
+        string id PK
+        string guest_id FK
+        string request_type
+        string request_reason "nullable"
+        string request_data "JSON string, nullable"
+        string status "default pending"
+        string reviewed_by "nullable"
+        datetime reviewed_at "nullable"
+        datetime created_at
+        datetime updated_at
+    }
+    Session {
+        string id PK
+        string user_id FK
+        string session_token "nullable"
+        string device_type "nullable"
+        string browser "nullable"
+        string user_agent "nullable"
+        string ip_address "nullable"
+        string status "active/revoked"
+        datetime login_at
+        datetime last_seen_at
+        datetime created_at
     }
     Backup {
         string id PK
@@ -232,7 +268,9 @@ erDiagram
 | `TestRecord` | `record_code` | `test_type`、`status`、`created_by`、`created_at` | `created_by → User`（**Restrict**，删用户不级联删记录） |
 | `TestItem` | — | `test_record_id` | `test_record_id → TestRecord`（**Cascade**） |
 | `Attachment` | — | `test_record_id` | `test_record_id → TestRecord`（**SetNull**） |
-| `Guest` | `username` | `created_by` | `created_by → User`（**Restrict**） |
+| `Guest` | `username` | `guest_type`、`created_by`、`valid_until` | `created_by → User`（**SetNull**，可空）；`export_requests → GuestExportRequest`（**Cascade**） |
+| `GuestExportRequest` | — | `guest_id`、`status` | `guest_id → Guest`（**Cascade**） |
+| `Session` | — | `user_id`、`status` | `user_id → User`（**Cascade**） |
 | `Backup` | `backup_path` | `created_by` | `created_by → User`（**SetNull**，可空） |
 | `SystemLog` | — | `level`、`created_at` | — |
 
@@ -280,9 +318,20 @@ erDiagram
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/guest/quick-access` | **唯一实现**：免凭证签发只读 JWT（2h，`is_quick_access=true`、`guest_type=viewer`、无导出权限） |
+| POST | `/api/guest/quick-access` | 免凭证签发只读 JWT（2h，`is_quick_access=true`、`guest_type=viewer`、无导出权限） |
+| POST | `/api/guest/register` | 访客自助注册（需 `schoolCode`+`username`+`password`，密码 bcrypt 落当前租户 `Guest` 表） |
+| POST | `/api/guest/login` | 访客登录，返回 `{ token, guest, expiresIn }`（7d） |
+| POST | `/api/guest/verify-token` | 校验访客令牌（需 guest 角色 JWT） |
 
-> 前端 `GuestAuthService` 另调用 `/api/guest/login`、`/register`、`/verify-token`、`/api/guest-export-request/*`，**后端未实现**，会 404（见 §10）。
+#### 5.3.1 数据导出申请（`/api/guest-export-request`，访客角色）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/guest-export-request/submit` | 提交导出申请（`status=pending`，落 `GuestExportRequest`） |
+| GET | `/api/guest-export-request/my-requests` | 当前访客的导出申请列表 |
+| GET | `/api/guest-export-request/check-permission` | 当前访客是否具备导出权限（`has_export_permission` / `valid_until`） |
+
+> 访客端点经 `extractSchoolCode()` 解析 `schoolCode` 做租户路由（连字符代码，如 `school-gtest`）。`Guest` / `GuestExportRequest` 模型落在租户 schema，由 `provisionSchool` 推全表自动包含。导出申请当前流程为「访客提交 → pending」，审批端（admin approve/reject）尚未实现，待后续迭代。
 
 ### 5.4 检测记录
 
@@ -309,12 +358,14 @@ erDiagram
 | * | `/api/audit-logs`（`auditRoutes.js`） | 通用操作审计（字段完整：user_id/action/resource_type/resource_id/details/ip_address） |
 | * | `/api/sync`（`syncRoutes.js`） | 离线 / 多端数据同步 |
 
-### 5.6 用户管理（历史遗留，`server.js` 内联）
+### 5.6 用户管理（历史遗留，已移除）
+
+> ⚠️ 原 `server.js` 内联的 `/api/users`、`/api/users/:userId/disable|enable` 路由（技术债 TD-Users-Dup，见 §10）已于清理中**删除**，统一收敛到 `/api/user/*`（见 §5.2）。下方仅作历史索引归档，当前代码中已不存在：
 
 | 方法 | 路径 | 权限 | 说明 |
 |------|------|------|------|
-| GET | `/api/users` | admin | 用户列表（与 `/api/user/list` 功能重复） |
-| POST | `/api/users/:userId/disable` \| `/enable` | admin | 禁用 / 启用（与 `/api/user/*` 重复） |
+| GET | `/api/users` | admin | 用户列表（已删除，改用 `/api/user/list`） |
+| POST | `/api/users/:userId/disable` \| `/enable` | admin | 禁用 / 启用（已删除，改用 `/api/user/:userId/disable|enable`） |
 
 ---
 
@@ -365,10 +416,9 @@ js/
 | 创建 / 编辑 / 删除记录 | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
 | 用户管理（增删改角色） | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | 审计日志管理 | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| 内联 `/api/users*` | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 
 - 写入判定由 `requireEditorOrAbove` 实现：角色为 `guest` / `viewer` 一律拒绝（403），其余允许写。
-- 用户管理由 `authorizeRoles('admin','manager')`；内联 `/api/users*` 仅 `admin`。
+- 用户管理由 `authorizeRoles('admin','manager')`。
 
 ### 7.2 JWT 结构
 
@@ -491,13 +541,9 @@ sudo bash deploy/deploy.sh deploy/deploy.foodtestlab.conf
 
 ### 9.4 审计日志机制
 
-系统当前存在**三套审计日志**（见 `server.js` 顶部注释，技术债 TD-P2-13）：
+审计已统一为**单一入口 `js/services/AuditService.js`**（技术债 TD-P2-13 ✅）：所有审计调用收敛到 `auditService.log`，**双写后端（系统真相源 `/api/audit-logs`）+ localStorage 镜像**（`AuditLogger`，按天 `audit_YYYY-MM-DD`，保留 30 天），字段口径对齐后端 `auditLog` 模型（`action` / `resource_type` / `resource_id` / `details` / `ip_address`）。调用方涵盖 `AuthService`(login/logout)、`UserManagement`、`Storage`(create/update/delete)、`Dashboard`/`Tableware`/`Pathogen`/`BackupRestore`/`AuditLog`。后端写入实现仍在 `AuditLogService`（`/api/audit-logs` 路由 `auditRoutes.js`），由 `AuditService` 委托。
 
-1. **后端 DB 登录日志**（`UserManager`）—— 仅登录 / 失败登录；
-2. **后端 DB 通用操作审计**（`/api/audit-logs` ← 前端 `AuditLogService`，字段完整含 IP）；记录记录类 CRUD / 批量导入（`writeRecordAuditLog`）；
-3. **前端 localStorage 离线日志**（`AuditLogger`，按天存储 `audit_YYYY-MM-DD`，保留 30 天）。
-
-> 生产环境审计记录**不得物理删除**（见 `docs/PROJECT_CONVENTIONS.md` 规则一）。
+> 生产环境审计记录**不得物理删除**（见 `docs/PROJECT_CONVENTIONS.md` 规则一）。`/api/audit-logs/cleanup` 物理删除端点已在审计统一时移除。
 
 ### 9.5 幂等与并发
 
@@ -515,11 +561,11 @@ sudo bash deploy/deploy.sh deploy/deploy.foodtestlab.conf
 | TD-ApiClient | `js/utils/ApiClient.js` 用 `/auth/*` 路径，与后端 `/api/user/*` 不符，属遗留并行客户端（无引用，已移出仓库）。 | ✅已解决 |
 | TD-Users-Dup | `server.js` 内联 `/api/users*` 与 `userRoutes` 的 `/api/user/list`、`/:userId/disable|enable` 功能重复（且内联版无租户隔离）。 | ✅已解决（内联实现已删除，统一走 `/api/user`） |
 | TD-P2-13 | 审计日志已统一：新增 `js/services/AuditService.js` 单一入口，双写后端（系统真相源）+ localStorage 镜像，字段口径对齐后端 `auditLog` 模型（`action`/`resource_type`/`resource_id`/`details`）。 | ✅已解决 |
-| TD-Session | `SessionManager.syncToBackend` / `syncSessions` 为 TODO 占位，会话仅前端内存（JWT 无状态，重启不丢登录态）。 |
+| TD-Session | 已实现并对接后端：`backend/routes/sessionRoutes.js` 提供 `/api/session`（注册/心跳、列表、注销指定、登出其它设备），`model Session` 落在租户 schema；前端 `SessionManager.syncToBackend` / `syncSessions` 已真正调用后端（登录/登出/强制登出同步落库）。 | ✅已解决 |
 | TD-Orphan | 未被引用的前端遗留模块：`CacheManager` / `ConfigManager` / `UserAuth` / `IndexedDBManager` / `OfflineModeManager` / `PerformanceMonitor` | ✅已解决（迁移清理中已移出仓库） |
 | TD-Backend-Orphan | `backend/sql/*.sql`（PostgreSQL/Supabase + RLS）、`backend/config/telemetry.js`（依赖未安装的 node-statsd/Prometheus）等未启用产物 | ✅已解决（迁移清理中已移出仓库） |
 | TD-Naming | `package.json` name 已中立化为 `foodtestlab`；`engines.node` 对齐实际运行环境（`>=18`）；`.env.example` Windows 旧字段已清理。 | ✅已解决 |
-| TD-Tenant | 连接池竞态选型：**采用事务包裹**（与 PgBouncer transaction 模式兼容，无需 Session 模式；切换点 `tenantClient.js` 已就位，未来若改 Session 模式仅改该文件）。 | ✅已解决（已拍板） |
+| TD-Tenant | 多学校隔离采用 **per-schema `?schema=` 专属 PrismaClient** 方案（`tenantClient.js` 的 `createTenantClient`：为每个 schema 缓存独立 `new PrismaClient`，连接串带 `?schema=<schema>`，LRU 缓存 + 每客户端连接上限）。该方案避开连接池竞态（无需 search_path / 事务包裹 / PgBouncer Session 模式）。**历史「事务包裹 / search_path」方案已证伪废弃**。 | ✅已解决 |
 
 ---
 

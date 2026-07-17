@@ -195,38 +195,6 @@ export class AuditLogService {
         }
     }
 
-    /**
-     * 清理旧审计日志 (仅90天内)
-     */
-    async cleanup() {
-        try {
-            const token = authService.getToken();
-            if (!token) {
-                return { success: false, message: '未登录' };
-            }
-
-            // P1-27: HTTP 方法从 POST 改为 DELETE，对齐后端 DELETE /api/audit-logs/cleanup
-            const response = await fetch(`${this.apiBaseUrl}/api/audit-logs/cleanup`, {
-                method: 'DELETE',
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
-
-            const data = await response.json();
-
-            if (!response.ok) {
-                console.error('❌ 清理失败:', data.error);
-                return { success: false, message: data.error };
-            }
-
-            console.log('✅ 审计日志已清理:', data);
-            return { success: true, message: data.message };
-        } catch (error) {
-            console.error('❌ 清理异常:', error.message);
-            return { success: false, message: error.message };
-        }
-    }
 }
 
 // 导出单例

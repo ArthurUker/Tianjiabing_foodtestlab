@@ -5,6 +5,7 @@
  *   POST /api/guest/register              访客自注册（按 schoolCode 落到对应租户 schema）
  *   POST /api/guest/login                 访客登录（签发 guest 作用域 JWT）
  *   POST /api/guest/verify-token          校验访客令牌
+ *   POST /api/guest/quick-access          P0-07 快速访问：无需凭证，签发只读限权 JWT（2h）
  *   POST /api/guest-export-request/submit           提交导出申请
  *   GET  /api/guest-export-request/my-requests      查看我的申请
  *   GET  /api/guest-export-request/check-permission 查看导出权限状态
@@ -150,6 +151,37 @@ export function createGuestRoutes(userManager, prisma, jwtSecret) {
                 has_export_permission: u.has_export_permission
             }
         })
+    })
+
+    // P0-07：快速访问 —— 无需凭证，签发只读限权 JWT（2h）。
+    // 原内联在 server.js，现收口到 guestRoutes 保持结构统一。
+    router.post('/quick-access', async (req, res) => {
+        try {
+            const payload = {
+                guestId: 0,
+                username: '快速访问用户',
+                guest_type: 'viewer',
+                has_export_permission: false,
+                is_quick_access: true,
+                iat: Math.floor(Date.now() / 1000)
+            }
+            const token = jwt.sign(payload, jwtSecret, { expiresIn: '2h' })
+            return res.json({
+                success: true,
+                token,
+                guest: {
+                    id: 0,
+                    username: '快速访问用户',
+                    guest_type: 'viewer',
+                    has_export_permission: false,
+                    is_quick_access: true,
+                    status: 'active'
+                }
+            })
+        } catch (err) {
+            console.error('快速访问接口错误:', err)
+            return res.status(500).json({ error: '快速访问失败' })
+        }
     })
 
     return router

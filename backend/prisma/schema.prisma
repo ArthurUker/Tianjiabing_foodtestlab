@@ -115,8 +115,9 @@ model Attachment {
 
 // ========== 访客管理 ==========
 // 注意：Guest 与 GuestExportRequest 均为「每校业务数据」，落在租户 schema
-// （schoolCode 即 schema 名），由应用层按登录学校 SET search_path 路由；
-// 与 User / AuditLog / TestRecord 同属租户级模型。
+// （真实 schema 名 = school_<code>，由 schemaNameOf 归一），由应用层经
+// createTenantClient(prisma, schoolCode) 返回的独立 PrismaClient 路由（非 SET search_path）；
+// 与 User / AuditLog / TestRecord / Session 同属租户级模型。
 
 model Guest {
   id                   String    @id @default(cuid())
