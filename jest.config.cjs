@@ -7,6 +7,9 @@
 module.exports = {
   testEnvironment: 'jsdom',
   testMatch: ['**/tests/**/*.test.js'],
+  // 并发竞态集成测试需要 live PostgreSQL，单独用 tests/integration/jest.integration.config.cjs 运行，
+  // 不纳入默认单测套件（避免无 PG 环境 npm test 失败）。
+  testPathIgnorePatterns: ['/node_modules/', '<rootDir>/tests/integration/'],
   transform: {
     '^.+\\.js$': 'babel-jest',
   },
