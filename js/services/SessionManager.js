@@ -405,7 +405,7 @@ export class SessionManager {
     }
 
     /**
-     * 记录会话事件
+     * 记录会话事件（TD-Session 收口：发送后端落审计）
      */
     recordSessionEvent(eventType, details = {}) {
         const currentSession = this.getCurrentSession();
@@ -418,8 +418,25 @@ export class SessionManager {
             details: details
         };
 
-        // TODO: 发送到后端记录
-        console.log('📝 会话事件记录:', event);
+        this.sessionEvents.push(event);
+
+        // 发送到后端记录（落租户 auditLog，action=session_event）
+        const token = authService.getToken();
+        if (!token) return;
+        fetch('/api/session/event', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+                sessionId: currentSession.id,
+                eventType,
+                details,
+            }),
+        }).catch((err) => {
+            console.warn('⚠️ 会话事件发送失败（已忽略）:', err.message);
+        });
     }
 }
 

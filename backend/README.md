@@ -37,7 +37,7 @@ npm run dev                   # 或生产：npm start
 启动后默认监听 `PORT`（部署用 `3000`；本地可设 `3002`）。健康检查：
 
 ```bash
-curl http://127.0.0.1:3000/api/health
+curl http://127.0.0.1:3002/api/health   # 本地开发端口；部署环境为 3000
 ```
 
 ---
@@ -68,14 +68,20 @@ backend/
 ├── server.js                 # 应用入口：路由、中间件、启动、健康检查
 ├── package.json              # 后端依赖与脚本
 ├── prisma/
-│   ├── schema.prisma         # 数据模型（User/AuditLog/TestRecord/TestItem/Attachment/Guest/Backup/SystemLog）
+│   ├── schema.prisma         # 数据模型（User/AuditLog/TestRecord/TestItem/Attachment/Guest/Backup/SystemLog/Session）
 │   └── seed.js               # 初始账号初始化
 ├── modules/
 │   └── UserManager.js        # 用户 / 认证核心逻辑（loginUser / verifyToken / 角色管理）
 ├── routes/
 │   ├── userRoutes.js         # /api/user/* 用户与认证
 │   ├── auditRoutes.js        # /api/audit-logs/*
+│   ├── guestRoutes.js        # /api/guest/* 与 /api/guest-export-request/*（含 admin 审批）
+│   ├── sessionRoutes.js      # /api/session/* 会话同步与事件
 │   └── syncRoutes.js         # /api/sync/*
+├── lib/
+│   ├── tenantClient.js       # per-schema 专属 PrismaClient（Schema-per-tenant 隔离核心）
+│   ├── tenantProvisioner.js  # 新学校 schema 初始化（provisionSchool）
+│   └── auditLog.js           # 统一审计写入门面（writeTenantAuditLog / writeSystemLog）
 └── middleware/
     ├── authMiddleware.js     # 统一认证 / 授权工厂（authenticateUser / authorizeAdmin / authorizeRoles）
     ├── validationMiddleware.js  # 限流 / 文本消毒
@@ -102,15 +108,24 @@ backend/
 | PUT/DELETE | `/api/user/:userId` | admin/manager | 更新 / 删除用户（防删自己、防删最后一个 admin） |
 | POST | `/api/user/:userId/{disable,enable,role,reset-password}` | admin/manager | 账号管理 |
 
-> ⚠️ 前端 `AuthService` 对 `change-password` / `verify-token` 的 method/path 与后端略有出入（见 DEVELOPMENT_GUIDE §9），属已知偏差，勿按旧 README 的 `/api/auth/*` 调用。
+> 前端 `AuthService` 与后端 `userRoutes.js` 现已一致（`change-password`/`verify-token`/`logout` 均为 `POST`），旧 README 的 `/api/auth/*` 调用方式已废弃。
 
 ### 访客（`/api/guest`）
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/guest/quick-access` | **唯一实现**：免凭证签发只读限权 JWT（2h） |
+| POST | `/api/guest/quick-access` | 免凭证签发只读限权 JWT（2h） |
+| POST | `/api/guest/register` | 访客自注册（落到对应租户 schema） |
+| POST | `/api/guest/login` | 访客登录（签发 guest 作用域 JWT） |
+| POST | `/api/guest/verify-token` | 校验访客令牌 |
+| POST | `/api/guest-export-request/submit` | 提交导出申请 |
+| GET  | `/api/guest-export-request/my-requests` | 查看我的申请 |
+| GET  | `/api/guest-export-request/check-permission` | 查看导出权限状态 |
+| GET  | `/api/guest-export-request/admin/pending` | 管理端待审批列表（admin/manager） |
+| POST | `/api/guest-export-request/admin/:id/approve` | 管理端批准（置 `has_export_permission=true`） |
+| POST | `/api/guest-export-request/admin/:id/reject` | 管理端驳回 |
 
-> 访客自助注册 / 登录 / 导出申请的前端调用（`/api/guest/login|register`、`/api/guest-export-request/*`）后端尚未实现（见 DEVELOPMENT_GUIDE §9）。
+> 访客自助路由（TD-Guest）与导出审批端均已实现，详见 `guestRoutes.js`。
 
 ### 检测记录
 

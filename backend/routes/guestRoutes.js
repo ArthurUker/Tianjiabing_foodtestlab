@@ -9,6 +9,9 @@
  *   POST /api/guest-export-request/submit           提交导出申请
  *   GET  /api/guest-export-request/my-requests      查看我的申请
  *   GET  /api/guest-export-request/check-permission 查看导出权限状态
+ *   GET  /api/guest-export-request/admin/pending     管理端：待审批列表（admin/manager）
+ *   POST /api/guest-export-request/admin/:id/approve 管理端：批准（置 has_export_permission=true）
+ *   POST /api/guest-export-request/admin/:id/reject  管理端：驳回
  *
  * 租户隔离：register/login 按请求体 schoolCode 用 createTenantClient 落到对应 schema；
  * 其余需鉴权的端点从 JWT（req.user.schoolCode）取租户，与全局认证一致。
@@ -21,6 +24,7 @@ import jwt from 'jsonwebtoken'
 import { createTenantClient } from '../lib/tenantClient.js'
 import { isValidSchoolCode } from '../lib/tenantProvisioner.js'
 import { createAuthMiddleware } from '../middleware/authMiddleware.js'
+import { writeTenantAuditLog } from '../lib/auditLog.js'
 
 function serializeGuest(g) {
     return {
@@ -189,7 +193,7 @@ export function createGuestRoutes(userManager, prisma, jwtSecret) {
 
 export function createGuestExportRequestRoutes(userManager, prisma, jwtSecret) {
     const router = express.Router()
-    const { authenticateUser } = createAuthMiddleware(userManager, prisma)
+    const { authenticateUser, authorizeRoles } = createAuthMiddleware(userManager, prisma)
 
     const requireGuest = (req, res, next) => {
         if (!req.user || req.user.role !== 'guest') {
@@ -248,6 +252,87 @@ export function createGuestExportRequestRoutes(userManager, prisma, jwtSecret) {
             })
         } catch (error) {
             return res.status(400).json({ error: `❌ 查询失败: ${error.message}` })
+        }
+    })
+
+    // ========== 管理端审批（仅 admin / manager，TD-Export-Approval） ==========
+    // 待审批列表（当前租户 schema 内 status=pending）
+    router.get('/admin/pending', authenticateUser, authorizeRoles('admin', 'manager'), async (req, res) => {
+        try {
+            const requests = await req.db.guestExportRequest.findMany({
+                where: { status: 'pending' },
+                orderBy: { created_at: 'desc' },
+            })
+            res.json({ success: true, data: requests })
+        } catch (error) {
+            console.error('❌ Error listing pending export requests:', error)
+            res.status(400).json({ error: `❌ 获取待审批列表失败: ${error.message}` })
+        }
+    })
+
+    // 审批通过：置 guest.has_export_permission=true，记录审批人与时间 + 审计
+    router.post('/admin/:requestId/approve', authenticateUser, authorizeRoles('admin', 'manager'), async (req, res) => {
+        try {
+            const { requestId } = req.params
+            const request = await req.db.guestExportRequest.findUnique({ where: { id: requestId } })
+            if (!request || request.status !== 'pending') {
+                return res.status(404).json({ error: '❌ 申请不存在或已处理' })
+            }
+
+            await req.db.$transaction(async (tx) => {
+                await tx.guestExportRequest.update({
+                    where: { id: requestId },
+                    data: { status: 'approved', reviewed_by: req.user.userId, reviewed_at: new Date() },
+                })
+                await tx.guest.update({
+                    where: { id: request.guest_id },
+                    data: { has_export_permission: true },
+                })
+            })
+
+            await writeTenantAuditLog(req.db, {
+                actorId: req.user.userId,
+                action: 'guest_export_approve',
+                resourceType: 'guest_export_request',
+                resourceId: requestId,
+                details: { guest_id: request.guest_id },
+                ip: req.ip || null,
+            })
+
+            res.json({ success: true, message: '✅ 已批准导出申请' })
+        } catch (error) {
+            console.error('❌ Error approving export request:', error)
+            res.status(400).json({ error: `❌ 审批失败: ${error.message}` })
+        }
+    })
+
+    // 审批驳回：记录审批人与时间 + 审计（不开放导出权限）
+    router.post('/admin/:requestId/reject', authenticateUser, authorizeRoles('admin', 'manager'), async (req, res) => {
+        try {
+            const { requestId } = req.params
+            const request = await req.db.guestExportRequest.findUnique({ where: { id: requestId } })
+            if (!request || request.status !== 'pending') {
+                return res.status(404).json({ error: '❌ 申请不存在或已处理' })
+            }
+
+            await req.db.guestExportRequest.update({
+                where: { id: requestId },
+                data: { status: 'rejected', reviewed_by: req.user.userId, reviewed_at: new Date() },
+            })
+
+            await writeTenantAuditLog(req.db, {
+                actorId: req.user.userId,
+                action: 'guest_export_reject',
+                resourceType: 'guest_export_request',
+                resourceId: requestId,
+                details: { guest_id: request.guest_id },
+                ip: req.ip || null,
+            })
+
+            res.json({ success: true, message: '✅ 已驳回导出申请' })
+        } catch (error) {
+            console.error('❌ Error rejecting export request:', error)
+            res.status(400).json({ error: `❌ 驳回失败: ${error.message}` })
         }
     })
 

@@ -8,10 +8,12 @@
  *   GET    /api/session             列出当前用户活跃会话
  *   DELETE /api/session/:id         注销指定会话（本人或管理员）
  *   DELETE /api/session/others      注销除 currentSessionId 外的所有会话
+ *   POST   /api/session/event       记录会话事件埋点（前端 recordSessionEvent 调用）
  */
 
 import express from 'express'
 import { createAuthMiddleware } from '../middleware/authMiddleware.js'
+import { writeTenantAuditLog } from '../lib/auditLog.js'
 
 export function createSessionRoutes(userManager, prisma) {
     const router = express.Router()
@@ -107,6 +109,30 @@ export function createSessionRoutes(userManager, prisma) {
         } catch (error) {
             console.error('❌ Error revoking other sessions:', error)
             res.status(400).json({ error: `❌ 注销其它会话失败: ${error.message}` })
+        }
+    })
+
+    // 记录会话事件埋点（前端 SessionManager.recordSessionEvent 调用）
+    router.post('/event', authenticateUser, async (req, res) => {
+        try {
+            const { sessionId, eventType, details } = req.body
+            if (!eventType) {
+                return res.status(400).json({ error: '❌ 缺少 eventType' })
+            }
+
+            await writeTenantAuditLog(req.db, {
+                actorId: req.user.userId,
+                action: 'session_event',
+                resourceType: 'session',
+                resourceId: sessionId || req.user.userId,
+                details: { eventType, details: details || {} },
+                ip: req.ip || null,
+            })
+
+            res.json({ success: true })
+        } catch (error) {
+            console.error('❌ Error recording session event:', error)
+            res.status(400).json({ error: `❌ 记录会话事件失败: ${error.message}` })
         }
     })
 

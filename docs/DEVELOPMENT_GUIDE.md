@@ -192,9 +192,18 @@ Tianjiabing_foodtestlab/
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/guest/quick-access` | **当前唯一实现**：免凭证签发只读限权 JWT（2h，`is_quick_access=true`） |
+| POST | `/api/guest/quick-access` | 免凭证签发只读限权 JWT（2h，`is_quick_access=true`） |
+| POST | `/api/guest/register` | 访客自注册（落到对应租户 schema，TD-Guest 已实现） |
+| POST | `/api/guest/login` | 访客登录（签发 guest 作用域 JWT） |
+| POST | `/api/guest/verify-token` | 校验访客令牌 |
+| POST | `/api/guest-export-request/submit` | 提交导出申请 |
+| GET  | `/api/guest-export-request/my-requests` | 查看我的申请 |
+| GET  | `/api/guest-export-request/check-permission` | 查看导出权限状态 |
+| GET  | `/api/guest-export-request/admin/pending` | 管理端待审批列表（admin/manager） |
+| POST | `/api/guest-export-request/admin/:id/approve` | 管理端批准（置 `has_export_permission=true`） |
+| POST | `/api/guest-export-request/admin/:id/reject` | 管理端驳回 |
 
-> 前端 `GuestAuthService` 还调用 `/api/guest/login`、`/api/guest/register`、`/api/guest/verify-token`、`/api/guest-export-request/*`，**但后端未实现这些路由**（见 §9 已知偏差）。
+> 访客自助注册 / 登录 / 导出申请的后端路由**已于 TD-Guest 实现**（见 `guestRoutes.js`），前端 `GuestAuthService` 的调用均有对应实现，不再 404。仅「访客导出**审批端**」为后续迭代补齐（admin approve/reject，见 `guestRoutes.js` 的 `/admin/*`）。
 
 ### 5.4 审计日志（`/api/audit-logs`，`auditRoutes.js`）
 
@@ -383,24 +392,17 @@ Caddy 主配置 `/etc/caddy/Caddyfile` 通过 `import /etc/caddy/sites/*.caddy` 
 
 以下内容为**前端与后端当前实际不一致或历史遗留**，改动前请先阅读并在必要时按 PROJECT_CONVENTIONS 的「方法偏离预先报备」原则说明：
 
-1. **访客自助路由缺失**：`GuestAuthService` 调用 `/api/guest/login`、`/api/guest/register`、`/api/guest/verify-token`、`/api/guest-export-request/{submit,my-requests,check-permission}`，但后端 `server.js` **仅实现** `/api/guest/quick-access`。访客自助注册 / 登录 / 导出申请目前是**前端占位、后端无对应实现**，会 404；只有「快速访问（只读）」模式可用（走 `quick-access`）。`Guest` 模型已定义但未开放写路由。
+1. ~~**访客自助路由缺失**~~ **（已解决，2026-07，TD-Guest）**：`guestRoutes.js` 已实现 `register`/`login`/`verify-token` 及 `guest-export-request/{submit,my-requests,check-permission}`，前端 `GuestAuthService` 调用均有对应实现，不再 404。仅「导出审批端」为后续补齐（见 `guestRoutes.js` `/admin/*`，已在 2026-07-18 实现 list-pending/approve/reject）。
 
-2. **AuthService 与后端路由细微不一致**：
-   - 改密码：`AuthService.changePassword` → `PUT /api/user/password`，后端为 `POST /api/user/change-password`。
-   - 校验令牌：`AuthService.verifyToken` → `GET /api/user/verify-token`，后端为 `POST`。
-   - 登出：`AuthService.logout` → `POST /api/user/logout`，后端无此路由（前端 `.catch` 忽略失败，仅清本地）。
+2. ~~**AuthService 与后端路由细微不一致**~~ **（已解决，2026-07，`ef4394b` 清理 TD-Naming/Auth-Path）**：改密码、校验令牌、登出前后端现已一致——均为 `POST /api/user/{change-password,verify-token,logout}`。
 
 3. **遗留并行 API 客户端**：`js/utils/ApiClient.js` 的 `apiClient` 方法路径为 `/auth/*`（如 `/auth/login`），与后端 `/api/user/*` 不符；该客户端并非登录流程所用（登录走 `AuthService`），属历史遗留，新代码不应依赖它。
 
-4. **用户管理路由重复**：`server.js` 直接定义了 `/api/users`（列表）与 `/api/users/:userId/disable|enable`，与 `userRoutes.js` 中的 `/api/user/list`、`/:userId/disable|enable` 功能重复。
+4. **用户管理路由重复**：`server.js` 直接定义了 `/api/users`（列表）与 `/api/users/:userId/disable|enable`，与 `userRoutes.js` 中的 `/api/user/list`、`/:userId/disable|enable` 功能重复。（遗留，若触碰可合并，否则不影响功能。）
 
-5. **审计日志三套并存**（见 `server.js` 顶部注释，技术债 TD-P2-13）：
-   - ① 后端 DB 登录日志（`UserManager`）；
-   - ② 后端 DB 通用操作审计（`/api/audit-logs` ← `AuditLogService`）；
-   - ③ 前端 `localStorage` 离线日志（`AuditLogger`）。
-   字段口径未完全统一，无同表重复写入，但待统一审计接口设计。
+5. ~~**审计日志三套并存**~~ **（已收敛，2026-07，TD-P2-13）**：新增 `backend/lib/auditLog.js` 门面（`writeTenantAuditLog`/`writeSystemLog`），`auditRoutes`/`UserManager`/`server.writeRecordAuditLog` 全部经门面落库；违规的 `DELETE /api/audit-logs/cleanup` 端点已移除（对齐"审计日志禁止删除"红线）。前端离线日志仍由 `AuditLogger` 双写 `localStorage`，属离线兜底、不进库。
 
-6. **SessionManager 后端 API 未实现**：`syncToBackend` / `syncSessions` 为 TODO 占位，会话仅存于前端内存（JWT 无状态，重启不丢登录态）。
+6. ~~**SessionManager 后端 API 未实现**~~ **（已落地，2026-07，TD-Session）**：`sessionRoutes.js` 提供 `POST/GET /api/session`、`DELETE /api/session/:id|others`、`POST /api/session/event`；`SessionManager.syncToBackend`/`syncSessions`/`recordSessionEvent` 均已调用后端（消除 TODO 占位）。
 
 7. **命名已中立化**：`package.json` 的 `name` 为 `foodtestlab`；`engines.node` 写的是 `>=14.0.0`，而部署脚本实际用 `NODE_VERSION=20`（待统一）；`.env.example` 含 Windows 路径与旧字段，仅供格式参考，实际以部署脚本生成 `.env` 为准。根 `package.json` 同时列出了后端运行依赖（express / jsonwebtoken 等），而后端另有独立 `backend/package.json`，以后端目录的为准。
 
