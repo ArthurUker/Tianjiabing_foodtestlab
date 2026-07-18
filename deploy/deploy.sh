@@ -271,6 +271,9 @@ id "$SYSTEM_NAME" >/dev/null 2>&1 || useradd --system --home-dir "$REPO_ROOT" --
 mkdir -p "$REPO_ROOT" "$DATA_DIR" "$LOG_DIR"
 
 # ------------------------- 4. 拉取代码 -------------------------
+# 防御：仓库可能被 chown 到系统用户（部署收尾会 chown），root 重跑时 git 会因
+# dubious ownership 报错。提前将 REPO_ROOT 加入 git safe.directory。
+git config --global --add safe.directory "$REPO_ROOT" 2>/dev/null || true
 log "拉取代码: $REPO_URL @ $DEPLOY_BRANCH"
 if [ ! -d "$REPO_ROOT/.git" ]; then
   # 目录非空且非 git 仓库 => 拒绝，避免误清数据
@@ -298,8 +301,17 @@ if [ -z "$DATABASE_URL" ]; then
   DATABASE_URL="postgresql://${PG_USER}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/${PG_DB_NAME}"
 fi
 [ -z "$JWT_SECRET" ] && JWT_SECRET=$(openssl rand -base64 48)
+# 密码策略：conf 显式提供 > 复用现有 .env 中已写入的密码 > 随机生成。
+# 关键：重部署时必须复用现有 .env 密码，否则新生成的密码与库中已 seed 的
+# password_hash 不一致，导致登录失败（seed 仅在首部署运行一次）。
 for v in SEED_ADMIN_PASSWORD SEED_OPERATOR_PASSWORD SEED_VIEWER_PASSWORD; do
-  if [ -z "${!v}" ]; then eval "$v=\$(gen_password)"; fi
+  if [ -z "${!v}" ]; then
+    if [ -f "$BACKEND_ENV" ] && grep -q "^$v=" "$BACKEND_ENV" 2>/dev/null; then
+      eval "$v=\$(grep \"^$v=\" \"$BACKEND_ENV\" | head -1 | cut -d= -f2-)"
+    else
+      eval "$v=\$(gen_password)"
+    fi
+  fi
 done
 if [ -z "$CORS_ORIGIN" ]; then
   if [ -n "$DOMAIN" ]; then
@@ -359,6 +371,25 @@ if [ -f prisma/seed.js ] && { [ "$FIRST_DEPLOY" = "true" ] && [ "$SEED_ON_FIRST_
   # 首部署必须放行 seed（seed.js 在生产环境默认跳过，避免泄露默认凭据）。
   # 仅本次首部署临时置位，不写入永久 .env；后续重跑部署若已存在账号则 seed 内 ensureUser 去重跳过。
   SEED_ALLOW_PROD=true node prisma/seed.js || warn "seed 执行失败，请手动运行: SEED_ALLOW_PROD=true node $REPO_ROOT/backend/prisma/seed.js"
+fi
+
+# 密码自愈：将 admin 的 password_hash 对齐为 .env 中的 SEED_ADMIN_PASSWORD。
+# 幂等、安全：无论首部署还是重部署，保证 .env 密码与库中账号一致（防重部署密码漂移）。
+if [ -f prisma/seed.js ] && [ -n "$SEED_ADMIN_PASSWORD" ]; then
+  log "对齐 admin 初始密码到 .env（防重部署密码漂移）"
+  DATABASE_URL="$DATABASE_URL" node -e '
+    const { PrismaClient } = require("@prisma/client");
+    const bcrypt = require("bcryptjs");
+    const prisma = new PrismaClient();
+    (async () => {
+      const pw = process.env.SEED_ADMIN_PASSWORD;
+      if (!pw) { console.log("SEED_ADMIN_PASSWORD 为空，跳过"); return; }
+      const hash = await bcrypt.hash(pw, 10);
+      const r = await prisma.user.updateMany({ where: { username: "admin" }, data: { password_hash: hash } });
+      console.log("admin 密码已对齐, 影响行数:", r.count);
+      await prisma.$disconnect();
+    })().catch(e => { console.error(e); process.exit(1); });
+  ' || warn "admin 密码对齐失败，请手动运行 node prisma/seed.js 或更新密码"
 fi
 
 # ------------------------- 6.5 多租户初始化（方案② Schema-per-tenant）-------------------------
