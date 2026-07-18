@@ -296,6 +296,17 @@ fi
 log "生成 backend/.env"
 BACKEND_ENV="$REPO_ROOT/backend/.env"
 
+# 密钥复用：conf 未显式提供时，复用现有 .env 中已生成的密钥，避免重部署重新随机
+# 导致 (1) PG 角色密码不匹配 / (2) JWT 失效需重新登录 / (3) seed 账号 password_hash
+# 与 .env 不一致（登录失败）。仅首次部署（无旧 .env）才会真正生成随机值。
+if [ -f "$BACKEND_ENV" ]; then
+  for k in PG_PASSWORD JWT_SECRET SEED_ADMIN_PASSWORD SEED_OPERATOR_PASSWORD SEED_VIEWER_PASSWORD; do
+    [ -n "${!k}" ] && continue
+    v=$(grep -E "^${k}=" "$BACKEND_ENV" 2>/dev/null | head -1 | cut -d= -f2-)
+    [ -n "$v" ] && eval "$k=\"$v\""
+  done
+fi
+
 if [ -z "$DATABASE_URL" ]; then
   [ -z "$PG_PASSWORD" ] && PG_PASSWORD=$(gen_password)
   DATABASE_URL="postgresql://${PG_USER}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/${PG_DB_NAME}"
@@ -373,35 +384,9 @@ if [ -f prisma/seed.js ] && { [ "$FIRST_DEPLOY" = "true" ] && [ "$SEED_ON_FIRST_
   SEED_ALLOW_PROD=true node prisma/seed.js || warn "seed 执行失败，请手动运行: SEED_ALLOW_PROD=true node $REPO_ROOT/backend/prisma/seed.js"
 fi
 
-# 密码自愈：将初始账号(admin/operator/viewer)的 password_hash 对齐为 .env 中对应密码。
-# 幂等、安全：无论首部署还是重部署，保证 .env 密码与库中账号一致（防重部署密码漂移）。
-# 说明：seed.js 仅在首部署创建账号（ensureUser 遇已存在则跳过，不覆盖密码），
-# 而 deploy 重跑会重新随机生成 SEED_* 密码写入 .env，若不同步则登录失败；本步做对齐。
-if [ -f prisma/seed.js ] && [ -n "$SEED_ADMIN_PASSWORD" ]; then
-  log "对齐初始账号密码到 .env（防重部署密码漂移）"
-  DATABASE_URL="$DATABASE_URL" \
-  SEED_ADMIN_PASSWORD="$SEED_ADMIN_PASSWORD" \
-  SEED_OPERATOR_PASSWORD="$SEED_OPERATOR_PASSWORD" \
-  SEED_VIEWER_PASSWORD="$SEED_VIEWER_PASSWORD" \
-  node -e '
-    const { PrismaClient } = require("@prisma/client");
-    const bcrypt = require("bcryptjs");
-    const prisma = new PrismaClient();
-    const accounts = [
-      ["admin", process.env.SEED_ADMIN_PASSWORD],
-      ["operator", process.env.SEED_OPERATOR_PASSWORD],
-      ["viewer", process.env.SEED_VIEWER_PASSWORD],
-    ].filter(([_, pw]) => !!pw);
-    (async () => {
-      for (const [username, pw] of accounts) {
-        const hash = await bcrypt.hash(pw, 10);
-        const r = await prisma.user.updateMany({ where: { username }, data: { password_hash: hash } });
-        console.log(username + " 密码已对齐, 影响行数:", r.count);
-      }
-      await prisma.$disconnect();
-    })().catch(e => { console.error(e); process.exit(1); });
-  ' || warn "初始账号密码对齐失败，请手动运行 node prisma/seed.js 或更新密码"
-fi
+# 初始账号密码对齐已统一移至下方「6.6 同步 bootstrap 账号密码」（ESM 脚本）。
+# 注意：此前内联的 `node -e 'require(...)'` 在本工程 ESM（type:module）下会抛
+# “require is not defined” 而静默失败（仅 warn），导致重部署后登录 401。故改为 ESM 脚本。
 
 # ------------------------- 6.5 多租户初始化（方案② Schema-per-tenant）-------------------------
 if [ "$PROVISION_TENANTS" = "true" ]; then
@@ -411,6 +396,17 @@ if [ "$PROVISION_TENANTS" = "true" ]; then
   export DATABASE_URL SEED_ADMIN_PASSWORD SCHOOL_CODES
   node prisma/provision-tenants.js \
     || warn "多租户初始化失败，请手动运行: node $REPO_ROOT/backend/prisma/provision-tenants.js"
+fi
+
+# ------------------------- 6.6 同步 bootstrap 账号密码（每次部署）-------------------------
+# seed.js 仅在首次部署创建账号（ensureUser 跳过已存在用户），重部署不会更新 password_hash；
+# 若 .env 密码曾被重新随机，库内 hash 与 .env 不一致会导致登录失败。此处显式把库内
+# bootstrap 账号（public: admin/operator/viewer；各租户 schema: admin）密码对齐为 .env 当前值，
+# 确保登录始终可用（类比 PostgreSQL ALTER ROLE 同步角色密码）。
+if [ -f prisma/syncBootstrapPasswords.js ]; then
+  log "同步 bootstrap 账号密码到 .env"
+  node prisma/syncBootstrapPasswords.js \
+    || warn "bootstrap 密码同步失败，请手动运行: node $REPO_ROOT/backend/prisma/syncBootstrapPasswords.js"
 fi
 
 # ------------------------- 7. 前端构建 -------------------------
@@ -504,17 +500,25 @@ cat > "$SNIPPET" <<EOF
 $CADDY_ADDR {
     encode gzip
 
-    @api path /api/* /health
-    reverse_proxy @api 127.0.0.1:$API_PORT
-
     # 方案A：路径前缀多租户识别（/school-a/login → 登录页，URL 不变）
-    # 通用规则，新增学校零改动（验收：第 N 所学校部署时本文件不改）
     @schoolLogin path /school-*/login /school-*/login.html
     rewrite @schoolLogin /login.html
 
-    root * $REPO_ROOT/dist
-    file_server
-    try_files {path} /index.html
+    # API 反代必须放在最前、且用 handle 互斥：Caddy 固定指令顺序中 rewrite 在
+    # reverse_proxy 之前，若把 try_files 放外面会把 /api/* 先改写到 /index.html，
+    # 导致所有 API 请求落到静态文件（返回 SPA HTML / 405）。用 handle 块保证
+    # /api/* 优先反代、其余请求才走 SPA 回退。
+    handle /api/* {
+        reverse_proxy 127.0.0.1:$API_PORT
+    }
+    handle /health {
+        reverse_proxy 127.0.0.1:$API_PORT
+    }
+    handle {
+        root * $REPO_ROOT/dist
+        try_files {path} /index.html
+        file_server
+    }
 $TLS_LINE
 }
 EOF
@@ -527,6 +531,13 @@ else
   systemctl restart caddy || fail "Caddy 启动失败，查看: journalctl -u caddy -n 50"
 fi
 ok "Caddy 站点已加载: $CADDY_ADDR（片段 $SNIPPET）"
+
+# 反向代理自检：确认 /api 经由 Caddy 真正反代到后端（而非被 SPA 回退吞掉返回 HTML）。
+if curl -s "http://127.0.0.1:${FRONTEND_PORT}/api/health" | grep -q '"status"'; then
+  ok "Caddy 反代自检通过（/api/health 返回后端 JSON）"
+else
+  warn "Caddy 反代自检异常：/api/health 未返回后端 JSON（可能被静态文件回退吞掉）"
+fi
 
 # ------------------------- 10. 健康检查 -------------------------
 log "健康检查（等待后端启动）"
