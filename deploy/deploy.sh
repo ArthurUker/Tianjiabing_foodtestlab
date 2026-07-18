@@ -373,23 +373,34 @@ if [ -f prisma/seed.js ] && { [ "$FIRST_DEPLOY" = "true" ] && [ "$SEED_ON_FIRST_
   SEED_ALLOW_PROD=true node prisma/seed.js || warn "seed 执行失败，请手动运行: SEED_ALLOW_PROD=true node $REPO_ROOT/backend/prisma/seed.js"
 fi
 
-# 密码自愈：将 admin 的 password_hash 对齐为 .env 中的 SEED_ADMIN_PASSWORD。
+# 密码自愈：将初始账号(admin/operator/viewer)的 password_hash 对齐为 .env 中对应密码。
 # 幂等、安全：无论首部署还是重部署，保证 .env 密码与库中账号一致（防重部署密码漂移）。
+# 说明：seed.js 仅在首部署创建账号（ensureUser 遇已存在则跳过，不覆盖密码），
+# 而 deploy 重跑会重新随机生成 SEED_* 密码写入 .env，若不同步则登录失败；本步做对齐。
 if [ -f prisma/seed.js ] && [ -n "$SEED_ADMIN_PASSWORD" ]; then
-  log "对齐 admin 初始密码到 .env（防重部署密码漂移）"
-  DATABASE_URL="$DATABASE_URL" node -e '
+  log "对齐初始账号密码到 .env（防重部署密码漂移）"
+  DATABASE_URL="$DATABASE_URL" \
+  SEED_ADMIN_PASSWORD="$SEED_ADMIN_PASSWORD" \
+  SEED_OPERATOR_PASSWORD="$SEED_OPERATOR_PASSWORD" \
+  SEED_VIEWER_PASSWORD="$SEED_VIEWER_PASSWORD" \
+  node -e '
     const { PrismaClient } = require("@prisma/client");
     const bcrypt = require("bcryptjs");
     const prisma = new PrismaClient();
+    const accounts = [
+      ["admin", process.env.SEED_ADMIN_PASSWORD],
+      ["operator", process.env.SEED_OPERATOR_PASSWORD],
+      ["viewer", process.env.SEED_VIEWER_PASSWORD],
+    ].filter(([_, pw]) => !!pw);
     (async () => {
-      const pw = process.env.SEED_ADMIN_PASSWORD;
-      if (!pw) { console.log("SEED_ADMIN_PASSWORD 为空，跳过"); return; }
-      const hash = await bcrypt.hash(pw, 10);
-      const r = await prisma.user.updateMany({ where: { username: "admin" }, data: { password_hash: hash } });
-      console.log("admin 密码已对齐, 影响行数:", r.count);
+      for (const [username, pw] of accounts) {
+        const hash = await bcrypt.hash(pw, 10);
+        const r = await prisma.user.updateMany({ where: { username }, data: { password_hash: hash } });
+        console.log(username + " 密码已对齐, 影响行数:", r.count);
+      }
       await prisma.$disconnect();
     })().catch(e => { console.error(e); process.exit(1); });
-  ' || warn "admin 密码对齐失败，请手动运行 node prisma/seed.js 或更新密码"
+  ' || warn "初始账号密码对齐失败，请手动运行 node prisma/seed.js 或更新密码"
 fi
 
 # ------------------------- 6.5 多租户初始化（方案② Schema-per-tenant）-------------------------
