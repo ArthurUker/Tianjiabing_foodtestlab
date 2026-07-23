@@ -377,6 +377,10 @@ else
 fi
 ok "数据库 schema 同步完成"
 
+# 透传学校代码给 seed（与 provision-tenants 一致），确保种子学校与租户 schema 对齐
+for v in "${!SCHOOL_NAME_@}"; do export "$v"; done
+export SCHOOL_CODES
+
 if [ -f prisma/seed.js ] && { [ "$FIRST_DEPLOY" = "true" ] && [ "$SEED_ON_FIRST_DEPLOY" = "true" ]; }; then
   log "首次部署：执行 seed 初始化账号"
   # 首部署必须放行 seed（seed.js 在生产环境默认跳过，避免泄露默认凭据）。
@@ -437,6 +441,7 @@ EnvironmentFile=$BACKEND_ENV
 ExecStart=/usr/local/bin/node server.js
 MemoryMax=${MEM_LIMIT_MB}M
 Environment=NODE_OPTIONS=--max-old-space-size=${NODE_OLD_SPACE}
+Environment=TZ=Asia/Shanghai
 Restart=on-failure
 RestartSec=5
 StandardOutput=append:$LOG_DIR/app.out.log

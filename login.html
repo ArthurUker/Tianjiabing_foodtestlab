@@ -370,33 +370,6 @@
             adminForm.classList.add('hidden');
         });
 
-        // ===== 访客登录/注册的显示/隐藏逻辑 =====
-        const guestLoginMode = document.getElementById('guestLoginMode');
-        const guestRegisterMode = document.getElementById('guestRegisterMode');
-        const guestEmailDiv = document.getElementById('guestEmailDiv');
-        const guestFullNameDiv = document.getElementById('guestFullNameDiv');
-        const guestConfirmPasswordDiv = document.getElementById('guestConfirmPasswordDiv');
-        const guestRegisterNotice = document.getElementById('guestRegisterNotice');
-        const guestSubmitBtnText = document.getElementById('guestSubmitBtnText');
-        
-        function updateGuestFormMode() {
-            const isRegister = guestRegisterMode.checked;
-            if (isRegister) {
-                guestEmailDiv.classList.remove('hidden');
-                guestFullNameDiv.classList.remove('hidden');
-                guestConfirmPasswordDiv.classList.remove('hidden');
-                guestRegisterNotice.classList.remove('hidden');
-                guestSubmitBtnText.innerHTML = '<i class="fas fa-user-plus mr-2"></i>注 册';
-                document.getElementById('guestType').required = true;
-            } else {
-                guestEmailDiv.classList.add('hidden');
-                guestFullNameDiv.classList.add('hidden');
-                guestConfirmPasswordDiv.classList.add('hidden');
-                guestRegisterNotice.classList.add('hidden');
-                guestSubmitBtnText.innerHTML = '<i class="fas fa-sign-in-alt mr-2"></i>登 录';
-            }
-        }
-
         // 密码可见性切换 (管理员登录)
         const passwordToggleBtnAdmin = document.getElementById('togglePassword');
         if (passwordToggleBtnAdmin) {

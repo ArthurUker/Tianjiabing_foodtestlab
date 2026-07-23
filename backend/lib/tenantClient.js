@@ -86,7 +86,7 @@ function getSchemaClient(schema) {
     if (oldestKey) {
       const ev = tenantClients.get(oldestKey)
       tenantClients.delete(oldestKey)
-      ev.client.$disconnect().catch(() => {})
+      ev.client.$disconnect().catch(e => console.warn('[tenantClient] LRU淘汰disconnect失败:', e.message))
     }
   }
   const client = new PrismaClient({ datasources: { db: { url: buildTenantUrl(schema) } } })
@@ -105,7 +105,7 @@ export function createTenantClient(prisma, schoolCode, defaultSchema = DEFAULT_S
 // 断开所有租户客户端（进程退出时调用，优雅关闭）
 export async function disconnectAllTenantClients() {
   const tasks = []
-  for (const [, v] of tenantClients) tasks.push(v.client.$disconnect().catch(() => {}))
+  for (const [, v] of tenantClients) tasks.push(v.client.$disconnect().catch(e => console.warn('[tenantClient] 关闭disconnect失败:', e.message)))
   tenantClients.clear()
   await Promise.all(tasks)
 }

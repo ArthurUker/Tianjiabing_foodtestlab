@@ -11,18 +11,7 @@ export function initializeSampleData() {
     if (!isQuickAccess) return;
     
     console.log('📊 初始化示例数据用于快速访问模式...');
-    
-    // ✨ 注意：不清除缓存，因为可能已有真实数据。只在必要时添加缺失的数据
-    // const keysToRemove = [];
-    // for (let i = 0; i < localStorage.length; i++) {
-    //     const key = localStorage.key(i);
-    //     if (key && (key.startsWith('cache_') || key.startsWith('pending_'))) {
-    //         keysToRemove.push(key);
-    //     }
-    // }
-    // keysToRemove.forEach(key => localStorage.removeItem(key));
-    // console.log(`🧹 已清除 ${keysToRemove.length} 个缓存键`);
-    
+
     // ✨ 只初始化缺失的数据，保留现有数据
     const existingKeys = new Set();
     for (let i = 0; i < localStorage.length; i++) {

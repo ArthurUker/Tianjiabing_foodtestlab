@@ -1,4 +1,9 @@
 import { StorageService } from '../core/Storage.js';
+
+// TD-EventLeak / TD-EventLeak-Phase2: 模块级 AbortController 与 sync 监听句柄，
+// 在 init 重新执行时先注销旧监听，避免监听器随导航/重渲染累加
+let _dashboardAbortCtrl = null;
+let _dashboardSyncHandlers = [];
 import { UINotification } from '../utils/UINotification.js';
 import { NetworkHelper } from '../utils/NetworkHelper.js';
 import { calculatePathogenRisk } from '../utils/pathogenRisk.js';
@@ -58,20 +63,25 @@ export function initDashboard() {
         initCanteenFilter();
         
         // 绑定事件处理器
+        // TD-EventLeak: 重新初始化时先注销上一次的监听，避免监听器累加
+        _dashboardAbortCtrl?.abort();
+        _dashboardAbortCtrl = new AbortController();
+        const _dashSignal = _dashboardAbortCtrl.signal;
+
         const dateFilterType = document.getElementById('dateFilterType');
         if (dateFilterType) {
-            dateFilterType.addEventListener('change', updateDateFilterOptions);
+            dateFilterType.addEventListener('change', updateDateFilterOptions, { signal: _dashSignal });
         }
         
         const btnFilterDashboard = document.getElementById('btnFilterDashboard');
         if (btnFilterDashboard) {
-            btnFilterDashboard.addEventListener('click', loadDashboardData);
+            btnFilterDashboard.addEventListener('click', loadDashboardData, { signal: _dashSignal });
         }
 
         // ✅ 食堂下拉直接触发过滤，无需点筛选按钮
         const canteenFilterEl = document.getElementById('canteenFilter');
         if (canteenFilterEl) {
-            canteenFilterEl.addEventListener('change', loadDashboardData);
+            canteenFilterEl.addEventListener('change', loadDashboardData, { signal: _dashSignal });
         }
         
         // 初始化图表
@@ -93,20 +103,27 @@ export function initDashboard() {
         }
         
         // 监听数据变化（用户手动增删改时触发）
-        document.addEventListener('dataChanged', loadDashboardData);
+        document.addEventListener('dataChanged', loadDashboardData, { signal: _dashSignal });
         
         // P1-20: 使用 CustomEvent 替代 window 全局函数，供导航时刷新调用
-        document.addEventListener('dashboard:refresh', () => loadDashboardData());
+        document.addEventListener('dashboard:refresh', () => loadDashboardData(), { signal: _dashSignal });
 
         // P1-20: 合并多个 StorageService 的 sync 事件，防抖避免 5 次重复刷新看板
+        // TD-EventLeak: 先注销上一轮的 sync 监听，再重新注册，避免累加
+        _dashboardSyncHandlers.forEach(({ s, fn }) => s.off('sync', fn));
+        _dashboardSyncHandlers = [];
         let _syncRefreshTimer = null;
-        Object.values(services).forEach(s => s.on('sync', () => {
-            if (_syncRefreshTimer) clearTimeout(_syncRefreshTimer);
-            _syncRefreshTimer = setTimeout(() => {
-                initCanteenFilter();
-                loadDashboardData();
-            }, 200);
-        }));
+        Object.values(services).forEach(s => {
+            const fn = () => {
+                if (_syncRefreshTimer) clearTimeout(_syncRefreshTimer);
+                _syncRefreshTimer = setTimeout(() => {
+                    initCanteenFilter();
+                    loadDashboardData();
+                }, 200);
+            };
+            s.on('sync', fn);
+            _dashboardSyncHandlers.push({ s, fn });
+        });
         
         // 绑定详情链接
         document.querySelectorAll('a[data-target]').forEach(link => {
@@ -114,7 +131,7 @@ export function initDashboard() {
                 e.preventDefault();
                 const target = this.getAttribute('data-target');
                 document.querySelector(`button.nav-btn[data-target="${target}"]`).click();
-            });
+            }, { signal: _dashSignal });
         });
         
         // 绑定导出看板按钮

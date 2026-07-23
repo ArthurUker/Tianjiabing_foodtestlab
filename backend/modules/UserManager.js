@@ -8,9 +8,24 @@ import jwt from 'jsonwebtoken'
 import { createTenantClient } from '../lib/tenantClient.js'
 import { writeTenantAuditLog, writeSystemLog } from '../lib/auditLog.js'
 
+/**
+ * 解析 JWT 有效期表达式（如 '7d' / '12h' / '3600' / '30m'）为秒数。
+ * 解析失败或为空时回退到 7 天，避免 NaN 进入前端 expiresIn。
+ */
+function parseJwtExpirySeconds(expr) {
+    const raw = String(expr || '7d').trim().toLowerCase()
+    const match = raw.match(/^(\d+)\s*([smhdw]?)$/)
+    if (!match) return 7 * 24 * 3600
+    const value = parseInt(match[1], 10)
+    const unit = match[2]
+    const multiplier = { '': 1, s: 1, m: 60, h: 3600, d: 86400, w: 604800 }[unit]
+    return value * multiplier
+}
+
 export class UserManager {
     constructor(prismaClient, jwtSecret) {
         this.prisma = prismaClient
+        this.rootPrisma = prismaClient
         this.jwtSecret = jwtSecret
         this.schoolCode = null // 由 forTenant() 注入，用于写入 school_code
     }
@@ -41,17 +56,16 @@ export class UserManager {
     }
 
     buildAccessToken(user) {
-        return jwt.sign(
-            {
-                userId: user.id,
-                username: user.username,
-                email: user.email,
-                role: user.role,
-                schoolCode: user.school_code || this.schoolCode || null
-            },
-            this.jwtSecret,
-            { expiresIn: '7d' }
-        )
+        const payload = {
+            userId: user.id,
+            username: user.username,
+            email: user.email,
+            role: user.role,
+            schoolCode: user.school_code || user.schoolCode || this.schoolCode || null
+        }
+        const expiry = process.env.JWT_EXPIRE || '7d'
+        const token = jwt.sign(payload, this.jwtSecret, { expiresIn: expiry })
+        return { token, expiresIn: parseJwtExpirySeconds(expiry) }
     }
 
     async registerUser(username, phone, password, fullName) {
@@ -109,6 +123,26 @@ export class UserManager {
                 message: '注册成功'
             }
         } catch (error) {
+            // 并发注册导致唯一约束冲突（P2002）时幂等返回，避免将数据库错误直接抛给前端
+            if (error && error.code === 'P2002') {
+                const target = Array.isArray(error.meta?.target)
+                    ? error.meta.target
+                    : [String(error.meta?.target || '')]
+                const conflictErr = new Error(
+                    target.includes('username')
+                        ? '用户名已存在'
+                        : target.includes('phone')
+                            ? '手机号已被使用'
+                            : '该账户信息已存在'
+                )
+                conflictErr.status = 409
+                conflictErr.code = target.includes('username')
+                    ? 'USERNAME_EXISTS'
+                    : target.includes('phone')
+                        ? 'PHONE_EXISTS'
+                        : 'CONFLICT'
+                throw conflictErr
+            }
             console.error(`❌ 用户注册失败: ${error.message}`)
             throw error
         }
@@ -154,7 +188,7 @@ export class UserManager {
             }
 
             // 4. 生成JWT Token
-            const token = this.buildAccessToken(user)
+            const { token, expiresIn } = this.buildAccessToken(user)
 
             // 5. 更新最后登录时间
             await this.updateLastLogin(user.id)
@@ -167,7 +201,7 @@ export class UserManager {
             return {
                 success: true,
                 token,
-                expiresIn: 7 * 24 * 3600, // 7 天（秒）
+                expiresIn,
                 user: {
                     id: user.id,
                     username: user.username,
@@ -210,13 +244,15 @@ export class UserManager {
             // 4. 加密新密码
             const newPasswordHash = await bcryptjs.hash(newPassword, 10)
 
-            // 5. 更新密码
-            await this.prisma.user.update({
-                where: { id: userId },
-                data: {
-                    password_hash: newPasswordHash,
-                    updated_at: new Date()
-                }
+            // 5. 更新密码（包 $transaction，保证读取-更新原子化，避免并发覆盖）
+            await this.prisma.$transaction(async (tx) => {
+                await tx.user.update({
+                    where: { id: userId },
+                    data: {
+                        password_hash: newPasswordHash,
+                        updated_at: new Date()
+                    }
+                })
             })
 
             console.log(`✅ 用户 ${userId} 密码已更新`)
@@ -538,8 +574,9 @@ export class UserManager {
     validateUserInput({ username, phone, password, fullName }) {
         const errors = []
 
-        if (!username || username.length < 3) {
-            errors.push('用户名至少3个字符')
+        // TD-Username-Rule-Inconsistent: 与 validationMiddleware.fieldValidators.username 对齐（仅允许 3-50 位字母/数字/下划线）
+        if (!username || !/^[a-zA-Z0-9_]{3,50}$/.test(username)) {
+            errors.push('用户名需为 3-50 位字母、数字或下划线')
         }
 
         if (phone && !/^1[3-9]\d{9}$/.test(phone)) {
@@ -591,7 +628,9 @@ export class UserManager {
         try {
             // P2-03: userId 为 null 时（用户不存在），AuditLog 需有效 user_id 外键无法写入，改记 SystemLog
             if (!userId) {
-                await writeSystemLog(this.prisma, {
+                // systemLog 仅存在于 public.schema，必须用 rootPrisma（基础单例）写入，
+                // 避免租户客户端（forTenant 后的 this.prisma）落到不存在的租户 systemLog 表。
+                await writeSystemLog(this.rootPrisma, {
                     level: 'warn',
                     message: `登录失败（用户不存在）: ${username}`,
                     context: { username, timestamp: new Date().toISOString() },

@@ -91,6 +91,12 @@ export function createSyncRoutes(userManager, prisma) {
                 syncedAt: new Date()
             })
         } catch (error) {
+            if (error.code === 'P2002' && action === 'add' && data.record_code) {
+                const existing = await req.db.testRecord.findUnique({ where: { record_code: data.record_code } })
+                if (existing) {
+                    return res.json({ success: true, action, store, data: existing, syncedAt: new Date(), idempotent: true })
+                }
+            }
             console.error('[SYNC ERROR] /records:', error)
             res.status(500).json({ success: false, error: error.message })
         }
@@ -153,6 +159,15 @@ export function createSyncRoutes(userManager, prisma) {
 
                     results.push({ syncId, action, store, success: true, data: result })
                 } catch (error) {
+                    if (error.code === 'P2002' && action === 'add' && data.record_code) {
+                        try {
+                            const existing = await req.db.testRecord.findUnique({ where: { record_code: data.record_code } })
+                            if (existing) {
+                                results.push({ syncId, action, store, success: true, data: existing, idempotent: true })
+                                continue
+                            }
+                        } catch (e) { /* 回查失败走 errors */ }
+                    }
                     errors.push({ syncId: op.syncId, store: op.store, error: error.message })
                 }
             }

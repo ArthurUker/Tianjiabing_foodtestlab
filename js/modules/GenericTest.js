@@ -17,7 +17,11 @@ export class GenericTestModule {
         this.sortOrder = 'desc';
         this.selectedCanteenFilter = 'all';
         this.selectedMeatTypes = [];
-        
+
+        // TD-EventLeak-Phase2: 用于绑定事件时 abort 清理，避免重复 init 时监听器堆积
+        this._abortCtrl = null;
+        this._syncHandler = null;
+
         // ✨ 检查是否处于快速访问模式
         const guestAuthService = new GuestAuthService();
         this.isQuickAccess = guestAuthService.isQuickAccessMode();
@@ -26,10 +30,15 @@ export class GenericTestModule {
     }
 
     init() {
+        // TD-EventLeak-Phase2: 重置控制器，abort 掉上一次 init 绑定的监听器（重复进入页面时防止堆积）
+        this._abortCtrl?.abort();
+        this._abortCtrl = new AbortController();
+        const { signal } = this._abortCtrl;
+
         const form = document.getElementById(this.formId);
         if (form) {
             form.removeAttribute('onsubmit');
-            
+
             // 在快速访问模式下，隐藏整个表单区域，只显示数据表格
             if (this.isQuickAccess) {
                 form.style.display = 'none';
@@ -37,9 +46,9 @@ export class GenericTestModule {
                 // ✅ 访客模式同样需要创建筛选控件和分页容器
                 this.updateFormStructure();
             } else {
-                form.addEventListener('submit', (e) => this.handleSubmit(e));
+                form.addEventListener('submit', (e) => this.handleSubmit(e), { signal });
                 this.updateFormStructure();
-                
+
                 if (this.moduleName === 'oil') {
                     this.initOilQualityAutoUpdate();
                 }
@@ -73,17 +82,22 @@ export class GenericTestModule {
                 this.showDetailModal(detailBtn.dataset.id);
                 return;
             }
-        });
+        }, { signal });
 
         document.getElementById(`btnAdd${this.moduleName}Point`)?.addEventListener('click', () => {
             this.addTestPoint();
-        });
+        }, { signal });
 
         this.setupPaginationListeners();
         this.render();
 
         // 数据从服务器同步完成后重新渲染表格
-        this.storage.on('sync', () => this.render());
+        // TD-EventLeak: 跟踪 sync 处理器，重新 init 时先 off 移除旧处理器，避免重复绑定
+        if (this._syncHandler) {
+            this.storage.off('sync', this._syncHandler);
+        }
+        this._syncHandler = () => this.render();
+        this.storage.on('sync', this._syncHandler);
     }
 
     setupPaginationListeners() {

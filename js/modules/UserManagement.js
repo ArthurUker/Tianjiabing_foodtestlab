@@ -15,6 +15,16 @@ export class UserManagement {
         this.currentPage = 1;
         this.pageSize = 10;
         this.totalUsers = 0;
+        // TD-EventLeak-Phase2: 用于绑定事件时 abort 清理，避免重复 init 时监听器堆积
+        this._abortCtrl = null;
+    }
+
+    /**
+     * 角色权限等级（数值越高权限越大），用于 TD-Role-Guard 自我降级拦截
+     */
+    _roleRank(role) {
+        const rank = { admin: 5, manager: 4, operator: 3, viewer: 2, guest: 1 };
+        return rank[role] || 0;
     }
 
     /**
@@ -23,8 +33,12 @@ export class UserManagement {
     init() {
         console.log('🔧 ' + this.moduleName + ' 初始化中...');
 
+        // TD-EventLeak-Phase2: 重置控制器，abort 掉上一次 init 绑定的监听器
+        this._abortCtrl?.abort();
+        this._abortCtrl = new AbortController();
+
         this.renderUI();
-        this.bindEvents();
+        this.bindEvents(this._abortCtrl.signal);
         this.loadUsers();
 
         console.log('✅ ' + this.moduleName + ' 初始化完成');
@@ -155,12 +169,12 @@ export class UserManagement {
     /**
      * 绑定事件
      */
-    bindEvents() {
+    bindEvents(signal) {
         // 创建用户按钮
-        document.getElementById('btnCreateUser').addEventListener('click', () => this.showCreateModal());
+        document.getElementById('btnCreateUser').addEventListener('click', () => this.showCreateModal(), { signal });
 
         // 搜索
-        document.getElementById('btnSearch').addEventListener('click', () => this.loadUsers());
+        document.getElementById('btnSearch').addEventListener('click', () => this.loadUsers(), { signal });
 
         // 分页
         document.getElementById('btnPrevPage').addEventListener('click', () => {
@@ -168,18 +182,18 @@ export class UserManagement {
                 this.currentPage--;
                 this.loadUsers();
             }
-        });
+        }, { signal });
 
         document.getElementById('btnNextPage').addEventListener('click', () => {
             if (this.currentPage * this.pageSize < this.totalUsers) {
                 this.currentPage++;
                 this.loadUsers();
             }
-        });
+        }, { signal });
 
         // 模态框事件
-        document.getElementById('btnCancel').addEventListener('click', () => this.closeModal());
-        document.getElementById('userForm').addEventListener('submit', (e) => this.handleFormSubmit(e));
+        document.getElementById('btnCancel').addEventListener('click', () => this.closeModal(), { signal });
+        document.getElementById('userForm').addEventListener('submit', (e) => this.handleFormSubmit(e), { signal });
     }
 
     /**
@@ -333,6 +347,13 @@ export class UserManagement {
 
         try {
             if (this.currentEditId) {
+                // TD-Role-Guard: 禁止当前登录用户修改自己的角色（含降级），避免锁死管理员权限
+                const currentUser = authService.getUser();
+                if (currentUser && String(currentUser.id) === String(this.currentEditId) && role !== currentUser.role) {
+                    UINotification.error('❌ 不能修改当前登录账号的角色');
+                    return;
+                }
+
                 // 编辑用户
                 UINotification.loading('正在保存用户信息...');
                 const result = await authService.updateUser(this.currentEditId, { username, phone, fullName, role });
@@ -377,8 +398,24 @@ export class UserManagement {
      * 删除用户
      */
     async deleteUser(userId) {
-        // P1-17: 升级为两步确认，显示用户名，防止误删
+        // TD-Role-Guard: 禁止删除当前登录的账号
+        const currentUser = authService.getUser();
+        if (currentUser && String(currentUser.id) === String(userId)) {
+            UINotification.error('❌ 不能删除当前登录的账号');
+            return;
+        }
+
+        // TD-Role-Guard: 禁止删除最后一个管理员账号（前端尽职防御，权威校验在后端）
         const user = this.users?.find(u => String(u.id) === String(userId)) || {}
+        if (user.role === 'admin') {
+            const adminCount = this.users.filter(u => u.role === 'admin' && u.is_active !== false).length;
+            if (adminCount <= 1) {
+                UINotification.error('❌ 不能删除最后一个管理员账号');
+                return;
+            }
+        }
+
+        // P1-17: 升级为两步确认，显示用户名，防止误删
         const displayName = user.username || user.name || userId
         const firstConfirm = confirm(`⚠️ 即将删除用户「${displayName}」\n\n此操作不可撤销，确定要继续吗？`)
         if (!firstConfirm) return

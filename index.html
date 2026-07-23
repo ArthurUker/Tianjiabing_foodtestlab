@@ -730,8 +730,8 @@
                     
                     // 清除所有本地存储
                     console.log('  清除本地存储...');
-                    ['authToken', 'guestToken', 'user', 'guest', 'is_quick_access', 
-                     'cache_tableware', 'cache_pesticide', 'cache_oil', 'cache_lean', 
+                    ['auth_token', 'guest_token', 'user', 'guest', 'is_quick_access',
+                     'cache_tableware', 'cache_pesticide', 'cache_oil', 'cache_lean',
                      'cache_pathogen', 'saved_username'].forEach(key => {
                         localStorage.removeItem(key);
                         sessionStorage.removeItem(key);

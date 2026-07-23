@@ -11,7 +11,7 @@
 //   ④ 在租户 schema 内创建首个 admin 账号
 
 import bcryptjs from 'bcryptjs'
-import { spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { schemaNameOf } from './tenantClient.js'
@@ -29,6 +29,34 @@ export function isValidSchoolCode(code) {
 
 // schema 命名统一由 tenantClient.schemaNameOf 提供（单一事实源），此处再导出以兼容既有引用。
 export { schemaNameOf }
+
+/**
+ * 异步执行 `npx prisma db push`，返回 stdout 字符串。
+ * 用 spawn 替代 spawnSync，避免阻塞事件循环（TD-SpawnSync）。
+ * @param {string[]} args
+ * @param {string} databaseUrl
+ * @param {string} schema
+ * @returns {Promise<string>}
+ */
+function runPrismaPush(args, databaseUrl, schema) {
+  return new Promise((resolve, reject) => {
+    const child = spawn('npx', args, {
+      cwd: BACKEND_DIR,
+      env: { ...process.env, DATABASE_URL: databaseUrl },
+      timeout: 120000
+    })
+    let stdout = ''
+    let stderr = ''
+    child.stdout?.on('data', (d) => { stdout += d.toString() })
+    child.stderr?.on('data', (d) => { stderr += d.toString() })
+    child.on('error', reject)
+    child.on('close', (code, signal) => {
+      if (code === 0) return resolve(stdout)
+      const detail = stderr || stdout || (signal ? `被信号 ${signal} 终止` : `退出码 ${code}`)
+      reject(new Error(`prisma db push 失败 (schema=${schema}): ${detail.slice(0, 1000)}`))
+    })
+  })
+}
 
 /**
  * 初始化单个学校。
@@ -76,22 +104,13 @@ export async function provisionSchool({
   // ② 推送业务表到该 schema（prisma db push，指定 ?schema=）
   const tenantUrl = `${baseUrl}?schema=${encodeURIComponent(schema)}`
   log(`→ 推送表结构到 ${schema} ...`)
-  const res = spawnSync(
-    'npx',
+  // ② 推送业务表到该 schema（异步非阻塞，避免阻塞事件循环，TD-SpawnSync）
+  const pushOutput = await runPrismaPush(
     ['prisma', 'db', 'push', '--skip-generate', '--accept-data-loss'],
-    {
-      cwd: BACKEND_DIR,
-      env: { ...process.env, DATABASE_URL: tenantUrl },
-      encoding: 'utf-8',
-      timeout: 120000
-    }
+    tenantUrl,
+    schema
   )
-  if (res.status !== 0) {
-    throw new Error(
-      `prisma db push 失败 (schema=${schema}): ${res.stderr || res.stdout || res.error?.message || '未知错误'}`
-    )
-  }
-  log(`✅ ${schema} 表结构就绪`)
+  log(`✅ ${schema} 表结构就绪 (${pushOutput.split('\n').slice(-3).join(' | ')})`)
 
   // ③ 系统记录（public，幂等）
   await prisma.$executeRawUnsafe(

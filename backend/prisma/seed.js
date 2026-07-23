@@ -84,6 +84,35 @@ async function main() {
     console.error(`❌ 初始化默认账户失败: ${err.message}`)
   }
 
+  // [W6-SEED-School] 系统表 School / SchoolCustomization 种子
+  // 登录页主题/Logo 个性化依赖此数据；缺失时优雅降级（不影响功能）。
+  // 学校代码取 SCHOOL_CODES（与 provision-tenants 一致），缺省用 "demo"。
+  const schoolCodes = (process.env.SCHOOL_CODES || 'demo')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  async function ensureSchool(code, name, themeColor) {
+    const existed = await prisma.school.findUnique({ where: { code } })
+    if (existed) {
+      console.log(`ℹ️ School 已存在，跳过: ${code}`)
+      return
+    }
+    await prisma.school.create({
+      data: { code, name, theme_color: themeColor }
+    })
+    await prisma.schoolCustomization.create({
+      data: { school_code: code, theme_config: JSON.stringify({ theme_color: themeColor }) }
+    })
+    console.log(`✅ 已创建系统学校记录: ${code}`)
+  }
+  for (const code of schoolCodes) {
+    await ensureSchool(
+      code,
+      process.env[`SCHOOL_NAME_${code}`] || `学校(${code})`,
+      '#1a73e8'
+    )
+  }
+
   // 记录初始化日志（[FIX 3.1] 去重，避免每次部署重复插入）
   const existingLog = await prisma.systemLog.findFirst({
     where: { message: '数据库初始化完成' }

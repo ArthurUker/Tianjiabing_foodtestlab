@@ -14,6 +14,9 @@ export class Router {
     constructor() {
         this.currentPage = null;
         this.isInitialized = false;
+        this._abortCtrl = null;            // TD-EventLeak: 取消 init 阶段监听
+        this._setupAbortCtrl = null;       // TD-EventLeak: 取消 setupAll 阶段监听
+        this._tokenTimerId = null;         // TD-Router-Timer: Token 校验定时器句柄
     }
 
     /**
@@ -32,12 +35,10 @@ export class Router {
         const isGuestAuthenticated = guestAuthService.isLoggedIn();
         const isAuthenticated = isUserAuthenticated || isGuestAuthenticated;
         
-        // 🔍 调试日志
+        // 🔍 调试日志（不打印 token / 访客 PII，避免凭证泄露到控制台，TD-LogSecretLeak）
         console.log('🔍 Auth Check:');
         console.log('  - isUserAuthenticated:', isUserAuthenticated);
         console.log('  - isGuestAuthenticated:', isGuestAuthenticated);
-        console.log('  - guestAuthService.getToken():', guestAuthService.getToken());
-        console.log('  - guestAuthService.getCurrentGuest():', guestAuthService.getCurrentGuest());
         console.log('  - Final isAuthenticated:', isAuthenticated);
         
         const currentUrl = window.location.pathname;
@@ -58,6 +59,11 @@ export class Router {
 
         // 仅在第一次完全初始化时设置事件监听器
         if (shouldFullyInit) {
+            // TD-EventLeak: 重新初始化时先取消上一次注册的监听，避免监听器累加
+            this._abortCtrl?.abort();
+            this._abortCtrl = new AbortController();
+            const signal = this._abortCtrl.signal;
+
             // 监听存储变化（用于跨标签页登出同步）
             window.addEventListener('storage', (e) => {
                 if (e.key === 'auth_token' && !authService.getToken()) {
@@ -68,7 +74,7 @@ export class Router {
                     console.log('🔔 访客在其他标签页登出，本页面也进行登出');
                     this.handleLogout();
                 }
-            });
+            }, { signal });
 
             console.log('✅ Router 完全初始化完成');
             this.isInitialized = true;
@@ -280,7 +286,7 @@ export class Router {
     /**
      * 设置登出按钮事件
      */
-    setupLogoutButton() {
+    setupLogoutButton(signal) {
         console.log('🔧 setupLogoutButton() 被调用');
         
         // 找到所有的登出按钮（可能有多个）
@@ -295,7 +301,7 @@ export class Router {
                 e.stopPropagation();
                 console.log('  调用 handleLogout()...');
                 this.handleLogout();
-            });
+            }, { signal });
         });
         
         // 也可以通过菜单项登出
@@ -309,7 +315,7 @@ export class Router {
                 e.preventDefault();
                 e.stopPropagation();
                 this.handleLogout();
-            });
+            }, { signal });
         });
         
         console.log(`✅ setupLogoutButton() 完成 - 已绑定 ${logoutBtns.length + logoutMenuItems.length} 个登出元素`);
@@ -392,16 +398,27 @@ export class Router {
      */
     startTokenValidationTimer(intervalMs = 60000) {
         console.log('⏱️  启动 Token 定期验证 (间隔: ' + intervalMs / 1000 + '秒)');
-        
-        setInterval(async () => {
+        // TD-Router-Timer: 保存定时器句柄，便于页面卸载/重初始化时清除
+        this.stopTokenValidationTimer();
+        this._tokenTimerId = setInterval(async () => {
             await this.validateAndRefreshToken();
         }, intervalMs);
     }
 
     /**
+     * 停止 Token 定期验证定时器（TD-Router-Timer）
+     */
+    stopTokenValidationTimer() {
+        if (this._tokenTimerId) {
+            clearInterval(this._tokenTimerId);
+            this._tokenTimerId = null;
+        }
+    }
+
+    /**
      * 处理用户空闲超时（30分钟）
      */
-    setupIdleTimeout(timeoutMs = 30 * 60 * 1000) {
+    setupIdleTimeout(timeoutMs = 30 * 60 * 1000, signal) {
         let idleTimer;
 
         const resetIdleTimer = () => {
@@ -416,7 +433,7 @@ export class Router {
         // 监听用户活动
         const events = ['mousedown', 'keydown', 'scroll', 'touchstart', 'click'];
         events.forEach(event => {
-            document.addEventListener(event, resetIdleTimer, true);
+            document.addEventListener(event, resetIdleTimer, { capture: true, signal });
         });
 
         // 初始启动计时器
@@ -429,8 +446,13 @@ export class Router {
      * 初始化所有路由相关功能
      */
     setupAll() {
+        // TD-EventLeak: 重新 setup 前先取消上一次注册的监听，避免累加
+        this._setupAbortCtrl?.abort();
+        this._setupAbortCtrl = new AbortController();
+        const signal = this._setupAbortCtrl.signal;
+
         // 设置登出按钮
-        this.setupLogoutButton();
+        this.setupLogoutButton(signal);
 
         // 更新用户信息显示
         this.updateUserDisplay();
@@ -442,15 +464,35 @@ export class Router {
         this.startTokenValidationTimer(60000); // 每60秒检查一次
 
         // 设置用户空闲超时
-        this.setupIdleTimeout(30 * 60 * 1000); // 30分钟
+        this.setupIdleTimeout(30 * 60 * 1000, signal); // 30分钟
 
         // 监听权限变化，清除缓存
         window.addEventListener('permissionChanged', () => {
             permissionService.clearCache();
             this.updateNavigationByPermission();
-        });
+        }, { signal });
+
+        // TD-NoBeforeUnload: 页面隐藏时暂停 Token 定时校验，可见时恢复
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                this.stopTokenValidationTimer();
+            } else {
+                this.startTokenValidationTimer(60000);
+            }
+        }, { signal });
 
         console.log('✅ 路由与权限检查已就位');
+    }
+
+    /**
+     * 销毁：停止所有定时器与监听（TD-EventLeak / TD-NoBeforeUnload）
+     */
+    destroy() {
+        this.stopTokenValidationTimer();
+        this._abortCtrl?.abort();
+        this._setupAbortCtrl?.abort();
+        this._abortCtrl = null;
+        this._setupAbortCtrl = null;
     }
 }
 

@@ -106,7 +106,7 @@ export class StorageService {
             return { ...localDup };
         }
 
-        const tempId = `temp_${crypto.randomUUID()}`;
+        const tempId = `temp_${crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
         const tempRecord = { ...clean, id: tempId, _status: 'pending' };
 
         this._addToLocalCache(tempRecord);
@@ -127,7 +127,7 @@ export class StorageService {
 
     update(id, updatedData) {
         const cached = this._getLocalCacheData();
-        const index = cached.findIndex(r => r.id == id);
+        const index = cached.findIndex(r => String(r.id) === String(id));
         if (index === -1) return false;
 
         const clean = this._sanitizePayload(updatedData || {});
@@ -168,7 +168,7 @@ export class StorageService {
 
     delete(id) {
         const cached = this._getLocalCacheData();
-        const index = cached.findIndex(r => r.id == id);
+        const index = cached.findIndex(r => String(r.id) === String(id));
         if (index === -1) return false;
 
         cached.splice(index, 1);
@@ -193,6 +193,13 @@ export class StorageService {
 
     on(event, cb) {
         if (this.eventListeners[event]) this.eventListeners[event].push(cb);
+    }
+
+    // TD-EventLeak: 提供 off 方法，便于模块在重新初始化时移除 storage.on('sync') 等监听
+    off(event, cb) {
+        if (this.eventListeners[event]) {
+            this.eventListeners[event] = this.eventListeners[event].filter(fn => fn !== cb);
+        }
     }
 
     _getHeaders() {
@@ -222,58 +229,70 @@ export class StorageService {
         if (!this._canSyncWithServer()) return;
         this._lastSyncTime = now;
 
-        const res = await fetch(`${this.apiEndpoint}?limit=${this.maxSyncRows}&offset=0`, {
-            headers: this._getHeaders()
-        });
-        if (!res.ok) throw new Error(`Fetch failed: ${res.status} ${res.statusText}`);
+        // TD-Fetch-Timeout: 防止服务端 hang 住导致 Promise 永久 pending
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        try {
+            const res = await fetch(`${this.apiEndpoint}?limit=${this.maxSyncRows}&offset=0`, {
+                headers: this._getHeaders(),
+                signal: controller.signal
+            });
+            if (!res.ok) throw new Error(`Fetch failed: ${res.status} ${res.statusText}`);
 
-        const response = await res.json();
-        const serverRows = Array.isArray(response) ? response : (response.data || []);
+            const response = await res.json();
+            const serverRows = Array.isArray(response) ? response : (response.data || []);
 
-        const serverDataMap = new Map();
-        const serverFingerprintIndex = new Map();
-        for (const row of serverRows) {
-            const content = (row.data && typeof row.data === 'object') ? row.data : row;
-            const normalized = { ...content, id: row.id, _status: 'synced' };
-            serverDataMap.set(row.id, normalized);
-            serverFingerprintIndex.set(this._buildFingerprint(normalized), normalized);
-        }
-        this._serverFingerprintIndex = serverFingerprintIndex;
-        this._persistFingerprintIndex(serverFingerprintIndex);
+            const serverDataMap = new Map();
+            const serverFingerprintIndex = new Map();
+            for (const row of serverRows) {
+                const content = (row.data && typeof row.data === 'object') ? row.data : row;
+                const normalized = { ...content, id: row.id, _status: 'synced' };
+                serverDataMap.set(row.id, normalized);
+                serverFingerprintIndex.set(this._buildFingerprint(normalized), normalized);
+            }
+            this._serverFingerprintIndex = serverFingerprintIndex;
+            this._persistFingerprintIndex(serverFingerprintIndex);
 
-        const localCache = this._getLocalCacheData();
-        const mergedData = [];
-        const processedIds = new Set();
+            const localCache = this._getLocalCacheData();
+            const mergedData = [];
+            const processedIds = new Set();
 
-        for (const localItem of localCache) {
-            processedIds.add(localItem.id);
-            if (this._isTempId(localItem.id)) {
-                mergedData.push(localItem);
-                continue;
+            for (const localItem of localCache) {
+                processedIds.add(localItem.id);
+                if (this._isTempId(localItem.id)) {
+                    mergedData.push(localItem);
+                    continue;
+                }
+
+                if (localItem._status === 'updating' || localItem._status === 'pending') {
+                    mergedData.push(localItem);
+                    continue;
+                }
+
+                if (serverDataMap.has(localItem.id)) {
+                    mergedData.push(serverDataMap.get(localItem.id));
+                }
             }
 
-            if (localItem._status === 'updating' || localItem._status === 'pending') {
-                mergedData.push(localItem);
-                continue;
+            for (const [id, serverItem] of serverDataMap) {
+                if (!processedIds.has(id)) mergedData.push(serverItem);
             }
 
-            if (serverDataMap.has(localItem.id)) {
-                mergedData.push(serverDataMap.get(localItem.id));
-            }
+            mergedData.sort((a, b) => {
+                const idA = typeof a.id === 'string' ? 9999999999 : Number(a.id || 0);
+                const idB = typeof b.id === 'string' ? 9999999999 : Number(b.id || 0);
+                return idB - idA;
+            });
+
+            this._updateLocalCache(mergedData);
+            this._emit('sync', { type: 'full_sync' });
+        } catch (err) {
+            // 超时（AbortError）时重置冷却时间，允许尽快重试
+            if (err && err.name === 'AbortError') this._lastSyncTime = 0;
+            throw err;
+        } finally {
+            clearTimeout(timeoutId);
         }
-
-        for (const [id, serverItem] of serverDataMap) {
-            if (!processedIds.has(id)) mergedData.push(serverItem);
-        }
-
-        mergedData.sort((a, b) => {
-            const idA = typeof a.id === 'string' ? 9999999999 : Number(a.id || 0);
-            const idB = typeof b.id === 'string' ? 9999999999 : Number(b.id || 0);
-            return idB - idA;
-        });
-
-        this._updateLocalCache(mergedData);
-        this._emit('sync', { type: 'full_sync' });
     }
 
     async _processQueuedRequests() {
@@ -331,6 +350,13 @@ export class StorageService {
                     if (shouldRetry) {
                         const retryDelay = this._computeRetryDelay(currentRetry, e?.retryAfterMs);
                         if (isRateLimited) this._setGlobalBackoff(retryDelay);
+                        // TD-409-Retry: 版本冲突重试前先拉取服务端最新 version，避免用旧 version 永久 409
+                        if (isVersionConflict && req.type === 'update' && req.recordId) {
+                            try {
+                                const latestVersion = await this._fetchLatestVersion(req.recordId);
+                                if (latestVersion != null) req.data = { ...req.data, version: latestVersion };
+                            } catch (_) { /* 拉取失败则沿用原 payload，交给下层失败处理 */ }
+                        }
                         this._updateRequestRetry(req.id, currentRetry, Date.now() + retryDelay);
                     } else {
                         this._markRequestFailed(req.id, e.message || '请求失败');
@@ -421,6 +447,19 @@ export class StorageService {
         auditService.log('delete', this.tableName, null, `删除记录 #${recordId}`);
     }
 
+    // TD-409-Retry: 拉取服务端记录的最新 version，供版本冲突重试前更新 payload
+    async _fetchLatestVersion(recordId) {
+        try {
+            const res = await fetch(`${this.apiEndpoint}/${recordId}`, { headers: this._getHeaders() });
+            if (!res.ok) return null;
+            const json = await res.json();
+            const row = json && (json.data || json);
+            return row && row.version != null ? row.version : null;
+        } catch {
+            return null;
+        }
+    }
+
     _initializeLocalCache() {
         if (!localStorage.getItem(this.localCacheKey)) {
             localStorage.setItem(this.localCacheKey, JSON.stringify({ data: [] }));
@@ -456,7 +495,7 @@ export class StorageService {
 
     _replaceRecordInCache(recordId, record) {
         const rows = this._getLocalCacheData();
-        const idx = rows.findIndex(r => r.id == recordId);
+        const idx = rows.findIndex(r => String(r.id) === String(recordId));
         if (idx >= 0) {
             rows[idx] = record;
             this._updateLocalCache(rows);
@@ -520,7 +559,7 @@ export class StorageService {
 
     _updateCacheStatus(recordId, status) {
         const rows = this._getLocalCacheData();
-        const index = rows.findIndex(r => r.id == recordId);
+        const index = rows.findIndex(r => String(r.id) === String(recordId));
         if (index !== -1) {
             rows[index]._status = status;
             this._updateLocalCache(rows);

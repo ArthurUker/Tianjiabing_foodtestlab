@@ -14,7 +14,17 @@ let recordsPerPage = 10;
 let sortOrder = 'desc';
 let selectedCanteenFilter = 'all'; // ✅ 新增：食堂筛选状态
 
+// TD-EventLeak: 重新初始化时注销旧监听，避免累加
+let _pathogenAbortCtrl = null;
+let _pathogenSyncHandler = null;
+
 export function initPathogen() {
+    // TD-EventLeak: 重新初始化时先注销上一次注册的监听
+    _pathogenAbortCtrl?.abort();
+    _pathogenAbortCtrl = new AbortController();
+    const _signal = _pathogenAbortCtrl.signal;
+    if (_pathogenSyncHandler) { storage.off('sync', _pathogenSyncHandler); _pathogenSyncHandler = null; }
+
     // 🔒 权限检查：访客无权访问病原体检测模块
     const guestAuthService = new GuestAuthService();
     const isGuest = guestAuthService.isLoggedIn();
@@ -83,14 +93,17 @@ export function initPathogen() {
         if (resultSpan) {
             showDetailModal(resultSpan.dataset.id);
         }
-    });
+    }, { signal: _signal });
 
     loadMammothJS();
     setupPaginationListeners();
     renderTable();
 
     // 数据从服务器同步完成后重新渲染表格
-    storage.on('sync', () => renderTable());
+    // TD-EventLeak: 记录 handler 以便重新初始化时 off 注销
+    const _syncFn = () => renderTable();
+    storage.on('sync', _syncFn);
+    _pathogenSyncHandler = _syncFn;
 }
 
 function loadMammothJS() {

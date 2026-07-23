@@ -209,8 +209,4 @@ export class NetworkHelper {
     }
 }
 
-// 初始化网络状态监听
-if (typeof window !== 'undefined') {
-    // 在页面加载时自动监听网络状态
-    // 如果需要自定义回调，调用 watchNetworkStatus(onOnline, onOffline)
-}
+

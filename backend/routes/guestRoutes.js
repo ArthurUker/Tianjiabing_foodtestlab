@@ -53,7 +53,8 @@ function makeGuestToken(guest, schoolCode, jwtSecret) {
             iat: Math.floor(Date.now() / 1000)
         },
         jwtSecret,
-        { expiresIn: '7d' }
+        // ENV-JWT-Expire: 访客令牌有效期跟随全局 JWT_EXPIRE 环境变量
+        { expiresIn: process.env.JWT_EXPIRE || '7d' }
     )
 }
 
@@ -106,6 +107,13 @@ export function createGuestRoutes(userManager, prisma, jwtSecret) {
             const token = makeGuestToken(guest, schoolCode, jwtSecret)
             return res.status(201).json({ success: true, token, guest: serializeGuest(guest) })
         } catch (error) {
+            if (error.code === 'P2002') {
+                const existing = await db.guest.findUnique({ where: { username } })
+                if (existing) {
+                    const token = makeGuestToken(existing, schoolCode, jwtSecret)
+                    return res.status(200).json({ success: true, token, guest: serializeGuest(existing), idempotent: true })
+                }
+            }
             return res.status(400).json({ error: `❌ 注册失败: ${error.message}` })
         }
     })

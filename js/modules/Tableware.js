@@ -13,7 +13,17 @@ let recordsPerPage = 10;
 let sortOrder = 'desc'; 
 let selectedCanteenFilter = 'all'; // ✅ 新增：食堂筛选状态
 
+// TD-EventLeak: 重新初始化时注销旧监听，避免累加
+let _tablewareAbortCtrl = null;
+let _tablewareSyncHandler = null;
+
 export function initTableware() {
+    // TD-EventLeak: 重新初始化时先注销上一次注册的监听
+    _tablewareAbortCtrl?.abort();
+    _tablewareAbortCtrl = new AbortController();
+    const _signal = _tablewareAbortCtrl.signal;
+    if (_tablewareSyncHandler) { storage.off('sync', _tablewareSyncHandler); _tablewareSyncHandler = null; }
+
     // ✨ 检查是否处于快速访问模式 - 优先检查 URL 参数
     const urlParams = new URLSearchParams(window.location.search);
     let isQuickAccess = urlParams.get('quickAccess') === 'true';
@@ -47,9 +57,9 @@ export function initTableware() {
             // P2-10 阶段B：不再暴露 window.renderTablewareData；
             // 快速访问模式的数据渲染由下方 renderTable() 及 dataChanged / sync 监听统一处理
         } else {
-            form.addEventListener('submit', handleFormSubmit);
+            form.addEventListener('submit', handleFormSubmit, { signal: _signal });
             updateFormStructure();
-            document.getElementById('btnAddAtpPoint')?.addEventListener('click', addAtpPoint);
+            document.getElementById('btnAddAtpPoint')?.addEventListener('click', addAtpPoint, { signal: _signal });
         }
     }
     
@@ -88,21 +98,21 @@ export function initTableware() {
 
     setupPaginationListeners();
     
-    if (isQuickAccess) {
-        renderTable();
-    } else {
-        renderTable();
-    }
+    // TD-Orphan-2: 两分支逻辑相同，合并（快速访问与普通模式均渲染表格）
+    renderTable();
     
     // 监听数据变化事件（快速访问模式 + 普通模式均需要）
     document.addEventListener('dataChanged', (e) => {
         if (!e.detail || e.detail.table === 'tableware') {
             setTimeout(renderTable, 100);
         }
-    });
+    }, { signal: _signal });
 
     // 数据从服务器同步完成后重新渲染表格
-    storage.on('sync', () => renderTable());
+    // TD-EventLeak: 记录 handler 以便重新初始化时 off 注销
+    const _syncFn = () => renderTable();
+    storage.on('sync', _syncFn);
+    _tablewareSyncHandler = _syncFn;
 }
 
 // --- 核心业务逻辑：编辑与整改 ---

@@ -142,6 +142,11 @@ export class AuthService {
                 throw new Error('用户名和密码是必填项');
             }
 
+            // TD-Username-Rule-Inconsistent: 与后端 UserManager / validationMiddleware 对齐，提前给出反馈
+            if (!/^[a-zA-Z0-9_]{3,50}$/.test(username)) {
+                throw new Error('用户名需为 3-50 位字母、数字或下划线');
+            }
+
             const response = await fetch(`${this.apiBaseUrl}/api/user/register`, {
                 method: 'POST',
                 headers: {
@@ -171,30 +176,44 @@ export class AuthService {
      */
     async refreshToken() {
         try {
-            const currentToken = this.getToken();
+            const refreshToken = this.getRefreshToken();
+            const accessToken = this.getToken();
 
-            if (!currentToken) {
-                throw new Error('没有可用的访问令牌');
+            if (!refreshToken && !accessToken) {
+                throw new Error('没有可用的令牌，请重新登录');
             }
+
+            // TD-RefreshToken: 优先使用 refresh token；缺省时回退到访问令牌（兼容旧后端）
+            const headers = { 'Content-Type': 'application/json' };
+            if (refreshToken) headers['X-Refresh-Token'] = refreshToken;
+            if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
 
             const response = await fetch(`${this.apiBaseUrl}/api/user/refresh-token`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${currentToken}`
-                }
+                headers
             });
 
-            const data = await response.json();
+            const data = await response.json().catch(() => ({}));
 
-            if (!response.ok) {
-                // 刷新失败，清除认证
+            // 凭证失效（401/403）：必须重新登录，清理本地态
+            if (response.status === 401 || response.status === 403) {
                 this.clearAuth();
-                throw new Error('Token 刷新失败，请重新登录');
+                throw new Error('登录已失效，请重新登录');
             }
 
-            // 更新 Token
-            this.saveToken(data.token, data.expiresIn);
+            // 服务器错误（5xx 等）：保留本地认证态，避免误踢下线
+            if (!response.ok) {
+                throw new Error(data.error || 'Token 刷新失败，请稍后重试');
+            }
+
+            // 更新 Token（新后端可能一并下发 refresh token）
+            if (data.token) {
+                this.saveToken(data.token, data.expiresIn);
+            }
+            if (data.refreshToken) {
+                this.saveRefreshToken(data.refreshToken);
+            }
+
             console.log('✅ Token 已刷新');
             return { success: true, token: data.token };
         } catch (error) {
@@ -243,10 +262,17 @@ export class AuthService {
     isTokenExpired() {
         const expiry = localStorage.getItem(this.tokenExpiryKey);
         if (!expiry) return true;
-        
+
         const expiryTime = parseInt(expiry, 10);
+        // TD-TokenExpiry-NaN: 过期时间损坏/非数字时按已过期处理并清理本地态
+        if (isNaN(expiryTime)) {
+            console.warn('⚠️ Token 过期时间无效，按已过期处理');
+            this.clearAuth();
+            return true;
+        }
+
         const currentTime = Date.now();
-        
+
         // Token 在 5 分钟内过期时自动刷新
         return currentTime >= (expiryTime - 5 * 60 * 1000);
     }
@@ -256,11 +282,12 @@ export class AuthService {
      * @param {string} token - JWT Token
      * @param {number} expiresIn - 过期时间 (秒)
      */
-    saveToken(token, expiresIn = 3600) {
+    saveToken(token, expiresIn) {
+        const safeExpiresIn = Number.isFinite(Number(expiresIn)) ? Number(expiresIn) : 3600;
         localStorage.setItem(this.tokenKey, token);
-        
+
         // 计算过期时间 (当前时间 + 过期时间)
-        const expiryTime = Date.now() + (expiresIn * 1000);
+        const expiryTime = Date.now() + (safeExpiresIn * 1000);
         localStorage.setItem(this.tokenExpiryKey, expiryTime.toString());
     }
 
@@ -296,6 +323,13 @@ export class AuthService {
         localStorage.removeItem(this.userKey);
         localStorage.removeItem(this.tokenExpiryKey);
         localStorage.removeItem(this.refreshTokenKey);
+        // 同时清除访客态，避免登出后 guest_token 残留导致越权（TD-Logout-Token）
+        localStorage.removeItem('guest_token');
+        localStorage.removeItem('current_guest');
+        localStorage.removeItem('is_quick_access');
+        sessionStorage.removeItem('guest_token');
+        sessionStorage.removeItem('current_guest');
+        sessionStorage.removeItem('is_quick_access');
     }
 
     /**

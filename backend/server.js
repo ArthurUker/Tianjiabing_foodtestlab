@@ -320,7 +320,7 @@ app.use(cors({
     },
     credentials: true
 }))
-app.use(express.json({ limit: '10mb' }))
+app.use(express.json({ limit: process.env.BODY_LIMIT || '2mb' }))
 
 // Idempotency middleware for records API (helps avoid duplicate writes on retry)
 app.use('/api/records', idempotencyMiddleware)
@@ -534,7 +534,7 @@ app.post('/api/test-records', authenticateUser, requireEditorOrAbove, async (req
                 if (existing) {
                     return res.json({ success: true, deduplicated: true, data: existing, message: '记录已存在（并发写入），已按幂等策略返回现有数据' })
                 }
-            } catch (_) { /* fallthrough */ }
+            } catch (fallbackErr) { console.warn('[warn] POST /api/test-records 幂等降级回查失败:', fallbackErr.message); }
         }
         // P1-15: P2003 外键约束失败（created_by 用户不存在）：返回 422 而非 500
         if (error.code === 'P2003' || (error.message && error.message.includes('Foreign key constraint'))) {
@@ -632,7 +632,7 @@ app.post('/api/records/:tableName', authenticateUser, requireEditorOrAbove, asyn
             return res.status(400).json({ error: `未知记录类型: ${req.params.tableName}` })
         }
 
-        console.log(`[POST /api/records/${req.params.tableName}] userId=${req.userId} body=`, JSON.stringify(req.body || {}).slice(0, 200))
+        console.log(`[POST /api/records/${req.params.tableName}] userId=${req.userId} (请求体不写入日志)`)
 
         const payload = req.body || {}
 
@@ -761,10 +761,12 @@ app.post('/api/records/:tableName/bulk-upsert', authenticateUser, requireEditorO
                     created++
                 }
             } catch (error) {
-                failed.push({
-                    record_code: recordCode,
-                    message: error.message
-                })
+                if (error.code !== 'P2002') {
+                    failed.push({
+                        record_code: recordCode,
+                        message: error.message
+                    })
+                }
             }
         }
 

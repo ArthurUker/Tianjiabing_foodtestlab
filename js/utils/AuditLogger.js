@@ -7,8 +7,16 @@
 
 const MAX_DAYS = 30;
 
+function getLocalDateStr(d = new Date()) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
 function getTodayKey() {
-    return 'audit_' + new Date().toISOString().slice(0, 10);
+    // 使用 Asia/Shanghai 本地日期作为分组键，避免 UTC 日期导致跨天日志归错日（TD-Timezone-Chaos）
+    return 'audit_' + getLocalDateStr();
 }
 
 function getCurrentUser() {
@@ -53,52 +61,11 @@ export function logOperation(action, resourceType = null, resourceId = null, det
     }
 }
 
-/**
- * 获取指定日期的日志列表
- * @param {string} dateStr - 'YYYY-MM-DD'，默认今天
- * @returns {Array}
- */
-export function getLogsByDate(dateStr) {
-    const key = 'audit_' + (dateStr || new Date().toISOString().slice(0, 10));
-    try {
-        return JSON.parse(localStorage.getItem(key) || '[]');
-    } catch {
-        return [];
-    }
-}
-
-/**
- * 获取所有有日志的日期列表（降序）
- * @returns {string[]} - ['YYYY-MM-DD', ...]
- */
-export function getAvailableDates() {
-    const dates = [];
-    for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && k.startsWith('audit_')) {
-            dates.push(k.replace('audit_', ''));
-        }
-    }
-    return dates.sort((a, b) => b.localeCompare(a));
-}
-
-/**
- * 清除所有日志（仅管理员操作时调用）
- */
-export function clearAllLogs() {
-    const keysToRemove = [];
-    for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && k.startsWith('audit_')) keysToRemove.push(k);
-    }
-    keysToRemove.forEach(k => localStorage.removeItem(k));
-}
-
 /** 内部：清理超过 MAX_DAYS 的旧日志 */
 function _pruneOldLogs() {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - MAX_DAYS);
-    const cutoffStr = cutoff.toISOString().slice(0, 10);
+    const cutoffStr = getLocalDateStr(cutoff);
 
     const keysToRemove = [];
     for (let i = 0; i < localStorage.length; i++) {

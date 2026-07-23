@@ -893,54 +893,43 @@ export class ExportService {
                 const imgWidth = contentWidth;
                 const imgHeight = (canvas.height * imgWidth) / canvas.width;
                 
-                if (currentY + imgHeight > pageHeight - margin) {
-                    if (currentY > margin + 10) {
+                // TD-PDF-Export：超长 section 循环分页，任意高度均完整输出，避免截断丢失
+                let cropY = 0;                   // 源画布像素偏移
+                let remainingPx = canvas.height; // 剩余未绘制像素高度
+                const pxToMm = imgHeight / canvas.height;
+                while (remainingPx > 0) {
+                    const availableHeight = pageHeight - currentY - margin;
+                    if (availableHeight <= 0) {
                         pdf.addPage();
                         pageNumber++;
                         currentY = margin;
-                    } else {
-                        const availableHeight = pageHeight - currentY - margin;
-                        
-                        if (availableHeight > 50) {
-                            const ratio = availableHeight / imgHeight;
-                            const cropHeight = canvas.height * ratio;
-                            
-                            const croppedCanvas = document.createElement('canvas');
-                            croppedCanvas.width = canvas.width;
-                            croppedCanvas.height = cropHeight;
-                            const ctx = croppedCanvas.getContext('2d');
-                            ctx.drawImage(canvas, 0, 0);
-                            
-                            const croppedImgData = croppedCanvas.toDataURL('image/png', 1.0);
-                            pdf.addImage(croppedImgData, 'PNG', margin, currentY, imgWidth, availableHeight);
-                            
-                            pdf.addPage();
-                            pageNumber++;
-                            currentY = margin;
-                            
-                            const remainingCanvas = document.createElement('canvas');
-                            remainingCanvas.width = canvas.width;
-                            remainingCanvas.height = canvas.height - cropHeight;
-                            const ctx2 = remainingCanvas.getContext('2d');
-                            ctx2.drawImage(canvas, 0, -cropHeight);
-                            
-                            const remainingImgData = remainingCanvas.toDataURL('image/png', 1.0);
-                            const remainingHeight = imgHeight - availableHeight;
-                            pdf.addImage(remainingImgData, 'PNG', margin, currentY, imgWidth, remainingHeight);
-                            currentY += remainingHeight;
-                        } else {
-                            pdf.addPage();
-                            pageNumber++;
-                            currentY = margin;
-                            pdf.addImage(imgData, 'PNG', margin, currentY, imgWidth, imgHeight);
-                            currentY += imgHeight;
-                        }
                         continue;
                     }
+                    const slicePx = Math.min(
+                        remainingPx,
+                        Math.max(1, Math.round(availableHeight / pxToMm))
+                    );
+                    const sliceHeightMm = slicePx * pxToMm;
+
+                    const sliceCanvas = document.createElement('canvas');
+                    sliceCanvas.width = canvas.width;
+                    sliceCanvas.height = slicePx;
+                    const sctx = sliceCanvas.getContext('2d');
+                    sctx.drawImage(canvas, 0, -cropY);
+
+                    const sliceImgData = sliceCanvas.toDataURL('image/png', 1.0);
+                    pdf.addImage(sliceImgData, 'PNG', margin, currentY, imgWidth, sliceHeightMm);
+
+                    cropY += slicePx;
+                    remainingPx -= slicePx;
+                    currentY += sliceHeightMm + 5;
+
+                    if (remainingPx > 0) {
+                        pdf.addPage();
+                        pageNumber++;
+                        currentY = margin;
+                    }
                 }
-                
-                pdf.addImage(imgData, 'PNG', margin, currentY, imgWidth, imgHeight);
-                currentY += imgHeight + 5;
                 
                 const progressText = loadingDiv.querySelector('p:last-child');
                 if (progressText) {

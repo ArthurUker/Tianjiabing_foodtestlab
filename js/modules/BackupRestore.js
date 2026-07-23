@@ -15,17 +15,36 @@ export class BackupRestoreService {
             serverConnected: null,
             results: {}
         };
+        this._abortCtrl = null;            // TD-EventLeak-Phase2: 取消事件监听
+        this._connMonitorId = null;        // TD-BackupRestore-Bugs ②: 连接监控定时器句柄
+        this._trackedIntervals = [];        // TD-EventLeak-Phase2: 所有定时器句柄
     }
 
     init() {
+        // TD-EventLeak-Phase2: 重新初始化时先取消上一次注册的监听，避免监听器累加
+        this._abortCtrl?.abort();
+        this._abortCtrl = new AbortController();
+
         this.renderUI();
         this.bindEvents();
         this.startConnectionMonitor();
         // 检查是否有上次恢复后的同步结果
         this.checkPreviousSyncResult();
+
+        // TD-NoBeforeUnload: 页面隐藏时暂停监控，可见时恢复
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                this.stopConnectionMonitor();
+            } else {
+                this.startConnectionMonitor();
+            }
+        }, { signal: this._abortCtrl.signal });
     }
 
     startConnectionMonitor() {
+        // 若已有定时器先清除，避免重复累加（TD-BackupRestore-Bugs ② / 重入保护）
+        this.stopConnectionMonitor();
+
         NetworkHelper.watchNetworkStatus(
             () => this.checkSyncStatus({ silent: true }),
             () => {
@@ -35,9 +54,39 @@ export class BackupRestoreService {
         );
 
         // 定时刷新连接状态，确保服务器重启后能快速感知。
-        setInterval(() => {
+        this._connMonitorId = setInterval(() => {
             this.checkSyncStatus({ silent: true });
         }, 30000);
+        this._trackedIntervals.push(this._connMonitorId);
+    }
+
+    /**
+     * 停止连接状态监控定时器（TD-BackupRestore-Bugs ②）
+     */
+    stopConnectionMonitor() {
+        if (this._connMonitorId) {
+            clearInterval(this._connMonitorId);
+            this._connMonitorId = null;
+        }
+    }
+
+    /**
+     * 停止本模块所有定时器（TD-EventLeak-Phase2）
+     */
+    stopAllMonitors() {
+        this.stopConnectionMonitor();
+        while (this._trackedIntervals.length) {
+            clearInterval(this._trackedIntervals.pop());
+        }
+    }
+
+    /**
+     * 销毁：停止监控与所有监听（TD-EventLeak-Phase2 / TD-NoBeforeUnload）
+     */
+    destroy() {
+        this.stopAllMonitors();
+        this._abortCtrl?.abort();
+        this._abortCtrl = null;
     }
 
     // 检查上次同步结果
@@ -53,6 +102,10 @@ export class BackupRestoreService {
                 localStorage.removeItem('last_sync_result');
             } catch (e) {
                 console.error('无法解析同步结果', e);
+                // TD-BackupRestore-Bugs ③: 清除损坏的 localStorage，避免永久卡在旧状态
+                localStorage.removeItem('pending_sync_data');
+                localStorage.removeItem('last_sync_result');
+                UINotification.info('同步状态已重置');
             }
         }
     }
@@ -200,47 +253,52 @@ export class BackupRestoreService {
     }
 
     bindEvents() {
+        // TD-EventLeak-Phase2: 重新绑定前先取消上一次监听，避免累加
+        this._abortCtrl?.abort();
+        this._abortCtrl = new AbortController();
+        const signal = this._abortCtrl.signal;
+
         const btnDownload = document.getElementById('btn-backup-download');
         if (btnDownload) {
-            btnDownload.addEventListener('click', () => this.handleBackup());
+            btnDownload.addEventListener('click', () => this.handleBackup(), { signal });
         }
 
         const dropZone = document.getElementById('restore-drop-zone');
         const fileInput = document.getElementById('file-restore-input');
 
         if (dropZone && fileInput) {
-            dropZone.addEventListener('click', () => fileInput.click());
+            dropZone.addEventListener('click', () => fileInput.click(), { signal });
             
             dropZone.addEventListener('dragover', (e) => {
                 e.preventDefault();
                 dropZone.classList.add('border-blue-500', 'bg-blue-50');
-            });
+            }, { signal });
             dropZone.addEventListener('dragleave', (e) => {
                 e.preventDefault();
                 dropZone.classList.remove('border-blue-500', 'bg-blue-50');
-            });
+            }, { signal });
             dropZone.addEventListener('drop', (e) => {
                 e.preventDefault();
                 dropZone.classList.remove('border-blue-500', 'bg-blue-50');
                 if (e.dataTransfer.files.length) {
                     this.handleFileRestore(e.dataTransfer.files[0]);
                 }
-            });
+            }, { signal });
 
             fileInput.addEventListener('change', (e) => {
                 if (e.target.files.length) {
                     this.handleFileRestore(e.target.files[0]);
                 }
-            });
+            }, { signal });
         }
 
         // 云端恢复
-        document.getElementById('btn-cloud-restore')?.addEventListener('click', () => this.handleCloudRestore());
+        document.getElementById('btn-cloud-restore')?.addEventListener('click', () => this.handleCloudRestore(), { signal });
 
         // 绑定同步控制按钮
-        document.getElementById('btn-check-sync')?.addEventListener('click', () => this.checkSyncStatus());
-        document.getElementById('btn-force-sync')?.addEventListener('click', () => this.forceSync());
-        document.getElementById('btn-pause-sync')?.addEventListener('click', () => this.pauseSync());
+        document.getElementById('btn-check-sync')?.addEventListener('click', () => this.checkSyncStatus(), { signal });
+        document.getElementById('btn-force-sync')?.addEventListener('click', () => this.forceSync(), { signal });
+        document.getElementById('btn-pause-sync')?.addEventListener('click', () => this.pauseSync(), { signal });
 
         document.getElementById('btn-clear-local')?.addEventListener('click', async () => {
             const confirmed = await UINotification.confirm(
@@ -258,7 +316,7 @@ export class BackupRestoreService {
                     UINotification.error('❌ 清空缓存失败: ' + error.message);
                 }
             }
-        });
+        }, { signal });
 
         // 初始化同步状态显示
         this.updateSyncStatusIndicator();
@@ -291,10 +349,14 @@ export class BackupRestoreService {
         }
 
         statusDot.className = `inline-block w-3 h-3 rounded-full ${statusColor} mr-2`;
-        indicator.innerHTML = `
-            <span class="inline-block w-3 h-3 rounded-full ${statusColor} mr-2"></span>
-            同步状态: ${statusText}${extraText ? `（${extraText}）` : ''}
-        `;
+        // TD-BackupRestore-Bugs ①: 仅更新文本节点，避免整体重写 innerHTML 使上面的 className 赋值失效
+        let statusTextEl = indicator.querySelector('.status-text');
+        if (!statusTextEl) {
+            statusTextEl = document.createElement('span');
+            statusTextEl.className = 'status-text';
+            indicator.appendChild(statusTextEl);
+        }
+        statusTextEl.textContent = `同步状态: ${statusText}${extraText ? `（${extraText}）` : ''}`;
     }
 
     // 检查同步状态
@@ -588,7 +650,12 @@ export class BackupRestoreService {
             const processTable = (tableName, data) => {
                 const cacheKey = `cache_${tableName}`;
                 const pendingKey = `pending_${tableName}`;
-                
+
+                // [TD-BackupRestore-DataLoss] 先检查是否已有离线未同步队列，避免静默丢弃
+                const existingPendingRaw = localStorage.getItem(pendingKey);
+                let existingPending = [];
+                try { existingPending = existingPendingRaw ? JSON.parse(existingPendingRaw) : []; } catch (e) { existingPending = []; }
+
                 // 写入缓存 (标记为 pending)
                 let records = Array.isArray(data) ? data : (data.data || []);
                 records = this._dedupeRecordsByFingerprint(records);
@@ -596,12 +663,25 @@ export class BackupRestoreService {
                     records = records.map(r => ({ ...r, _status: 'pending' }));
                 }
 
-                restoredTableRecords[tableName] = records;
-
                 const dataObj = { data: records, timestamp: Date.now() };
                 localStorage.setItem(cacheKey, JSON.stringify(dataObj));
-                
+
+                if (Array.isArray(existingPending) && existingPending.length > 0) {
+                    const keep = confirm(
+                        `⚠️ 检测到表 [${tableName}] 存在 ${existingPending.length} 条尚未同步到服务器的离线数据。\n\n` +
+                        `点击"确定"：保留这些离线数据（推荐，避免丢失），恢复的数据仅写入缓存。\n` +
+                        `点击"取消"：用恢复的数据覆盖（将丢弃这些离线数据）。`
+                    );
+                    if (keep) {
+                        // 保留现有离线队列；恢复数据仅落入缓存，不加入上传队列
+                        delete restoredTableRecords[tableName];
+                        restoreCount++;
+                        return;
+                    }
+                }
+
                 localStorage.setItem(pendingKey, JSON.stringify([]));
+                restoredTableRecords[tableName] = records;
                 restoreCount++;
             };
 

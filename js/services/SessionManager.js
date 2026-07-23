@@ -19,12 +19,18 @@ export class SessionManager {
         this.sessions = [];
         this.maxConcurrentSessions = 5; // 最多允许同时活跃会话数
         this.sessionTimeout = 30 * 60 * 1000; // 30 分钟无活动自动登出
+        this._abortCtrl = null;          // TD-EventLeak-Phase2: 用于取消事件监听
+        this._monitorInterval = null;    // TD-NoBeforeUnload: 保存监控定时器句柄
     }
 
     /**
      * 初始化会话管理器
      */
     init() {
+        // TD-EventLeak-Phase2: 重新初始化时先取消上一次注册的监听，避免监听器累加
+        this._abortCtrl?.abort();
+        this._abortCtrl = new AbortController();
+
         console.log('🔧 ' + this.moduleName + ' 初始化中...');
 
         // 启动会话定期检查
@@ -33,11 +39,20 @@ export class SessionManager {
         // 启动设备检测
         this.startDeviceDetection();
 
-        // 监听登录事件
-        window.addEventListener('userLogin', () => this.onUserLogin());
+        // 监听登录事件（携带 signal，重初始化时自动移除）
+        window.addEventListener('userLogin', () => this.onUserLogin(), { signal: this._abortCtrl.signal });
 
-        // 监听登出事件
-        window.addEventListener('userLogout', () => this.onUserLogout());
+        // 监听登出事件（携带 signal，重初始化时自动移除）
+        window.addEventListener('userLogout', () => this.onUserLogout(), { signal: this._abortCtrl.signal });
+
+        // TD-NoBeforeUnload: 页面隐藏时暂停监控，恢复可见时重启监控
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                this.stopSessionMonitor();
+            } else {
+                this.startSessionMonitor();
+            }
+        }, { signal: this._abortCtrl.signal });
 
         console.log('✅ ' + this.moduleName + ' 初始化完成');
         return true;
@@ -185,7 +200,9 @@ export class SessionManager {
      * 启动会话监控
      */
     startSessionMonitor() {
-        setInterval(() => {
+        // 若已有定时器先清除，避免重复累加（TD-NoBeforeUnload/重入保护）
+        if (this._monitorInterval) clearInterval(this._monitorInterval);
+        this._monitorInterval = setInterval(() => {
             this.checkSessionExpiry();
             this.updateLastActivityTime();
             this.syncSessions();
@@ -194,6 +211,16 @@ export class SessionManager {
             const current = this.getCurrentSession();
             if (current) this.syncToBackend('heartbeat', current);
         }, 60000); // 每分钟检查一次
+    }
+
+    /**
+     * 暂停会话监控（TD-NoBeforeUnload: 页面隐藏时调用）
+     */
+    stopSessionMonitor() {
+        if (this._monitorInterval) {
+            clearInterval(this._monitorInterval);
+            this._monitorInterval = null;
+        }
     }
 
     /**
@@ -216,6 +243,14 @@ export class SessionManager {
                     });
                 }
             }
+        });
+
+        // TD-P2-15: 清理登出超过 10 分钟的 inactive/revoked 会话，避免内存无限增长
+        const _cutoff = new Date(Date.now() - 10 * 60 * 1000);
+        this.sessions = this.sessions.filter(s => {
+            if (s.status === 'active') return true;
+            const _t = s.logoutTime ? new Date(s.logoutTime) : null;
+            return !_t || _t > _cutoff;
         });
     }
 
@@ -243,7 +278,7 @@ export class SessionManager {
                 console.log('🔔 用户在其他设备/标签页登出');
                 this.syncSessions();
             }
-        });
+        }, { signal: this._abortCtrl.signal });
     }
 
     /**
@@ -313,18 +348,6 @@ export class SessionManager {
     }
 
     /**
-     * 获取用户的所有活跃会话
-     */
-    getUserActiveSessions() {
-        const user = authService.getUser();
-        if (!user) return [];
-
-        return this.sessions.filter(s => 
-            s.userId === user.id && s.status === 'active'
-        );
-    }
-
-    /**
      * 强制登出其他设备
      */
     forceLogoutOtherDevices() {
@@ -353,90 +376,6 @@ export class SessionManager {
         this.removeSession(sessionId);
         this.syncToBackend('logout-forced', { id: sessionId });
         UINotification.success('会话已注销');
-    }
-
-    /**
-     * 获取会话统计
-     */
-    getSessionStats() {
-        const now = new Date();
-        const activeSessions = this.sessions.filter(s => s.status === 'active');
-
-        return {
-            totalSessions: this.sessions.length,
-            activeSessions: activeSessions.length,
-            inactiveSessions: this.sessions.length - activeSessions.length,
-            avgSessionDuration: this.calculateAvgSessionDuration(),
-            peakConcurrentSessions: activeSessions.length,
-            deviceDistribution: this.getDeviceDistribution()
-        };
-    }
-
-    /**
-     * 计算平均会话时长
-     */
-    calculateAvgSessionDuration() {
-        if (this.sessions.length === 0) return 0;
-
-        const totalDuration = this.sessions.reduce((sum, s) => {
-            const start = new Date(s.loginTime);
-            const end = s.logoutTime ? new Date(s.logoutTime) : new Date();
-            return sum + (end - start);
-        }, 0);
-
-        return Math.round(totalDuration / this.sessions.length / 1000 / 60); // 转换为分钟
-    }
-
-    /**
-     * 获取设备分布统计
-     */
-    getDeviceDistribution() {
-        const distribution = {
-            Desktop: 0,
-            Mobile: 0,
-            Tablet: 0
-        };
-
-        this.sessions.forEach(s => {
-            distribution[s.deviceType] = (distribution[s.deviceType] || 0) + 1;
-        });
-
-        return distribution;
-    }
-
-    /**
-     * 记录会话事件（TD-Session 收口：发送后端落审计）
-     */
-    recordSessionEvent(eventType, details = {}) {
-        const currentSession = this.getCurrentSession();
-        if (!currentSession) return;
-
-        const event = {
-            sessionId: currentSession.id,
-            eventType: eventType,
-            timestamp: new Date().toISOString(),
-            details: details
-        };
-
-        this.sessionEvents.push(event);
-
-        // 发送到后端记录（落租户 auditLog，action=session_event）
-        const token = authService.getToken();
-        if (!token) return;
-        fetch('/api/session/event', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({
-                sessionId: currentSession.id,
-                eventType,
-                details,
-            }),
-        }).catch((err) => {
-            console.warn('⚠️ 会话事件发送失败（已忽略）:', err.message);
-        });
     }
 }
 

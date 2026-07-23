@@ -11,6 +11,7 @@ export class GuestDashboard {
         this.moduleName = '访客中心';
         this.currentGuest = null;
         this.exportRequests = [];
+        this._abortCtrl = null;   // TD-EventLeak-Phase2
     }
 
     /**
@@ -220,11 +221,22 @@ export class GuestDashboard {
             return;
         }
 
-        const result = await guestAuthService.getMyRequests();
+        const container = document.getElementById('exportRequestsList');
+        try {
+            const result = await guestAuthService.getMyRequests();
         
-        if (result.success) {
-            this.exportRequests = result.requests || [];
-            this.renderExportRequests();
+            if (result.success) {
+                this.exportRequests = result.requests || [];
+                this.renderExportRequests();
+            } else if (container) {
+                container.innerHTML = '<div class="text-center py-4 text-gray-500">暂无申请记录</div>';
+            }
+        } catch (err) {
+            console.error('加载导出申请失败:', err);
+            if (container) {
+                container.innerHTML = '<div class="text-center py-4 text-gray-500">暂无申请记录</div>';
+            }
+            UINotification.error('加载导出申请失败，请稍后重试');
         }
     }
 
@@ -290,10 +302,14 @@ export class GuestDashboard {
      * 绑定事件
      */
     bindEvents() {
+        // TD-EventLeak-Phase2: 重新绑定前先取消上一次监听，避免累加
+        this._abortCtrl?.abort();
+        this._abortCtrl = new AbortController();
+
         // 提交导出申请
         const btnSubmit = document.getElementById('btnSubmitExportRequest');
         if (btnSubmit) {
-            btnSubmit.addEventListener('click', () => this.submitExportRequest());
+            btnSubmit.addEventListener('click', () => this.submitExportRequest(), { signal: this._abortCtrl.signal });
         }
 
         // P2-10 阶段B：快速导航按钮改事件委托，派发 app:navigate 事件（不再依赖 window.handleNavigation）
@@ -305,7 +321,7 @@ export class GuestDashboard {
                 document.dispatchEvent(new CustomEvent('app:navigate', {
                     detail: { target: btn.dataset.navTarget }
                 }));
-            });
+            }, { signal: this._abortCtrl.signal });
         }
     }
 
@@ -321,20 +337,30 @@ export class GuestDashboard {
             return;
         }
 
+        const btnSubmit = document.getElementById('btnSubmitExportRequest');
+        if (btnSubmit) btnSubmit.disabled = true;
+
         UINotification.loading('正在提交申请...');
 
-        const result = await guestAuthService.submitExportRequest(
-            'report_export',
-            reason,
-            { request_date: new Date().toISOString() }
-        );
+        try {
+            const result = await guestAuthService.submitExportRequest(
+                'report_export',
+                reason,
+                { request_date: new Date().toISOString() }
+            );
 
-        if (result.success) {
-            UINotification.success('申请已提交，请等待管理员审批');
-            if (reasonEl) reasonEl.value = '';
-            await this.loadExportRequests();
-        } else {
-            UINotification.error('提交失败: ' + result.error);
+            if (result.success) {
+                UINotification.success('申请已提交，请等待管理员审批');
+                if (reasonEl) reasonEl.value = '';
+                await this.loadExportRequests();
+            } else {
+                UINotification.error('提交失败: ' + result.error);
+            }
+        } catch (err) {
+            console.error('提交导出申请失败:', err);
+            UINotification.error('提交导出申请失败，请稍后重试');
+        } finally {
+            if (btnSubmit) btnSubmit.disabled = false;
         }
     }
 }

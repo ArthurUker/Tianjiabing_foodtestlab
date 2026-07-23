@@ -8,6 +8,28 @@ import jwt from 'jsonwebtoken'
 import { createAuthMiddleware } from '../middleware/authMiddleware.js'
 import { writeTenantAuditLog } from '../lib/auditLog.js'
 
+/**
+ * CSV 字段安全转义（TD-CSV-Export）
+ * - 统一用双引号包裹；字段内双引号翻倍转义（RFC 4180）。
+ * - 以 = + - @ 开头的字段前置单引号，防护 Excel/WPS 公式注入
+ *   （如 `=cmd|...` / `=HYPERLINK(...)` 被执行）。
+ */
+function csvField(val) {
+    const s = val == null ? '' : String(val)
+    const guarded = /^=|\+|-|@/.test(s) ? `'${s}` : s
+    return `"${guarded.replace(/"/g, '""')}"`
+}
+
+/**
+ * 生产环境错误响应脱敏（TD-P2-13 收尾 / TD-Error-Leak 同构）
+ * 生产环境不向客户端返回 error.message（可能含 SQL/表名/栈信息），仅返回通用文案。
+ */
+function clientErr(error, baseMsg) {
+    return process.env.NODE_ENV === 'production'
+        ? baseMsg
+        : `${baseMsg}: ${error && error.message ? error.message : error}`
+}
+
 export function createAuditRoutes(userManager, prisma) {
     const router = express.Router()
 
@@ -52,7 +74,7 @@ export function createAuditRoutes(userManager, prisma) {
             })
         } catch (error) {
             console.error('❌ Error creating audit log:', error)
-            res.status(400).json({ error: `❌ 记录失败: ${error.message}` })
+            res.status(400).json({ error: clientErr(error, '❌ 记录失败') })
         }
     })
 
@@ -102,7 +124,7 @@ export function createAuditRoutes(userManager, prisma) {
             })
         } catch (error) {
             console.error('❌ Error fetching audit logs:', error)
-            res.status(400).json({ error: `❌ 查询失败: ${error.message}` })
+            res.status(400).json({ error: clientErr(error, '❌ 查询失败') })
         }
     })
 
@@ -118,8 +140,9 @@ export function createAuditRoutes(userManager, prisma) {
             const { date } = req.query
             let where = {}
             if (date) {
-                const start = new Date(date + 'T00:00:00')
-                const end = new Date(date + 'T23:59:59.999')
+                // 以 Asia/Shanghai 日历日为准，避免 UTC 解析导致日期边界错位（TD-Timezone-Chaos）
+                const start = new Date(date + 'T00:00:00+08:00')
+                const end = new Date(date + 'T23:59:59.999+08:00')
                 if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
                     where.created_at = { gte: start, lte: end }
                 }
@@ -164,7 +187,7 @@ export function createAuditRoutes(userManager, prisma) {
             })
         } catch (error) {
             console.error('❌ Error fetching audit stats:', error)
-            res.status(400).json({ error: `❌ 统计失败: ${error.message}` })
+            res.status(400).json({ error: clientErr(error, '❌ 统计失败') })
         }
     })
 
@@ -181,9 +204,10 @@ export function createAuditRoutes(userManager, prisma) {
             let where = {}
             if (start_date || end_date) {
                 where.created_at = {}
-                if (start_date) where.created_at.gte = new Date(start_date)
+                // 以 Asia/Shanghai 日历日为准，避免 UTC 解析导致日期边界错位（TD-Timezone-Chaos）
+                if (start_date) where.created_at.gte = new Date(start_date + 'T00:00:00+08:00')
                 if (end_date) {
-                    const endOfDay = new Date(end_date)
+                    const endOfDay = new Date(end_date + 'T00:00:00+08:00')
                     endOfDay.setDate(endOfDay.getDate() + 1)
                     where.created_at.lt = endOfDay
                 }
@@ -202,11 +226,19 @@ export function createAuditRoutes(userManager, prisma) {
 
             const header = '时间,用户,操作类型,资源类型,资源ID,详情,IP地址\n'
             const rows = logs.map(log => {
-                const time = new Date(log.created_at).toLocaleString('zh-CN')
-                const user = log.user ? `${log.user.username}(${log.user.full_name || ''})` : log.user_id
-                const details = (log.details || '').replace(/[\n\r,]/g, ' ')
+                const time = new Date(log.created_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
+                const user = log.user ? `${log.user.username}(${log.user.full_name || ''})` : (log.user_id || '')
+                const details = log.details || ''
                 const ip = log.ip_address || ''
-                return `${time},${user},${log.action},${log.resource_type || ''},${log.resource_id || ''},${details},${ip}`
+                return [
+                    csvField(time),
+                    csvField(user),
+                    csvField(log.action),
+                    csvField(log.resource_type || ''),
+                    csvField(log.resource_id || ''),
+                    csvField(details),
+                    csvField(ip),
+                ].join(',')
             }).join('\n')
 
             const csv = '\uFEFF' + header + rows
@@ -216,7 +248,7 @@ export function createAuditRoutes(userManager, prisma) {
             res.send(csv)
         } catch (error) {
             console.error('❌ Error exporting audit logs:', error)
-            res.status(400).json({ error: `❌ 导出失败: ${error.message}` })
+            res.status(400).json({ error: clientErr(error, '❌ 导出失败') })
         }
     })
 
@@ -263,7 +295,7 @@ export function createAuditRoutes(userManager, prisma) {
             })
         } catch (error) {
             console.error('❌ Error fetching audit log:', error)
-            res.status(400).json({ error: `❌ 查询失败: ${error.message}` })
+            res.status(400).json({ error: clientErr(error, '❌ 查询失败') })
         }
     })
 
