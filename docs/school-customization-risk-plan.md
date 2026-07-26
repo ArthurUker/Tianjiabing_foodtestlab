@@ -54,24 +54,55 @@
 
 > 说明：RK3 导航级与看板级消费均已完成，`visible_types` 已全链路生效。
 
-### ⬜ 仍待实施（未完成）
+### ✅ 第五批完成 + 审阅（2026-07-26：5 窗口并行修复后统一审阅）
 
-| 阶段 | 待办风险编号（摘要） | 说明 |
+> 五个并行窗口在 `fix/frontend-security` 分支工作，经逐文件 diff + 语法/依赖/安全/完整性四维审阅。**✅ = 通过；⚠️ = 有条件通过（待修项见下）。**
+
+| 窗口 | 任务 | 关键风险 | 审阅结论 | 待修问题 |
+|---|---|---|---|---|
+| **① 后端+访客** | 访客越权+BS-09+DS-09 | DS-09、BS-09 | ✅ 通过 | H5(db未定义)、H6(valid_days)、M1(全量加载)、M2(无缓存) |
+| **② 前端安全** | DS-16/17/18+BS-12 | DS-16、17、18、BS-12 | ✅ 通过 | M3(用户名未脱敏)、L3(死代码)、L4(console.error) |
+| **③ 管理端** | XR-02/04+RK33 | XR-02、04、RK33 | ✅ 通过 | M4(预览降级)、M6(重复回调)、L1(悬空标签) |
+| **④ 运维** | RK30/40/46/49+DS-19 | RK30、40、46、49、DS-19 | ⚠️ 有条件 | H1-H4(高严重)、M5(多余遍历) |
+| **⑤ 可维护性** | RK50/51+D-08 | RK50、51、D-08 | ✅ 通过 | 无关键问题 |
+
+### 🩺 审阅发现的关键问题
+
+#### 🔴 高严重度（合并主分支前建议修复）
+
+| 编号 | 文件:行号 | 问题 | 建议 |
+|---|---|---|---|
+| **H1** | `deploy.sh:84,488` | 迁移失败 `return 0` 仅warn不中止 → 旧学校NULL崩溃 | 关键列失败 `exit 1` |
+| **H2** | `deploy.sh:100-105` | UPDATE `SET col='{}' WHERE col IS NULL` 无LIMIT | 加 LIMIT 或注释 |
+| **H3** | `deploy.sh:441` | 基线迁移已就绪但仍用 `db push --accept-data-loss` | 切 `migrate deploy` |
+| **H4** | `BackupRestore.js:767` | `backupCode` 为空时仍恢复定制 → A校配置错写入B校 | 空则拒绝恢复 |
+| **H5** | `guestRoutes.js:118` | catch块引用try内声明的`db` → ReferenceError | `db` 提升到try外 |
+| **H6** | `guestRoutes.js:100` | `valid_days` 无上限 → 令牌几乎永久有效 | `Math.min(valid_days, 365)` |
+
+#### 🟡 中严重度（下迭代修）
+
+| 编号 | 文件:行号 | 问题 | 建议 |
+|---|---|---|---|
+| **M1** | `guestRoutes.js:252` | stats端点 findMany 全量加载 result_data | Prisma groupBy |
+| **M2** | `authMiddleware.js:86` | resolveGuestVisibleTypes 每次查DB | 加60s缓存 |
+| **M3** | `AuthService.js:103` | auditService.log仍传原始用户名 | maskSensitive |
+| **M4** | `admin-schools.html:699` | 预览API失败无用户感知降级 | toast提示 |
+| **M5** | `deploy.sh:95` | 迁移遍历多余schema（应仅public） | 加schema过滤 |
+| **M6** | `index.html:179-218` | 完全重复的DOMContentLoaded回调 | 删除第二个 |
+
+### ⬜ 剩余真正待办（审阅后精简）
+
+| 阶段 | 待办 | 说明 |
 |---|---|---|
-| Phase 1 认证/安全(剩余) | DS-08、DS-09、DS-11、DS-16、DS-17、DS-18、DS-19 | 登出全量吊销、refresh 轮换等未专门落地；**DS-08(CSRF/SameSite)、DS-11(预览 iframe postMessage 源校验) 经代码核查不适用**：认证为 `Authorization` header 模式（无 Cookie，CSRF 风险低），预览用同源 `contentDocument` 直接操作 DOM 而非 `postMessage`（index.html 无 message 监听器） |
-| Phase 2 数据基础(剩余) | D-08 | TestRecord↔SchoolCustomization 无外键（设计取舍，建议文档化） |
-| Phase 4 一致性校验(剩余) | — | CR-13/CR-14 已完成（见第四批）；其余一致性项评估中 |
-| Phase 5 运维/可观测(剩余) | **RK30、RK40、RK46、RK49**(+RK41、RK42) | 仍待做：定制配置备份、部署脚本列迁移、迁移收敛到 `prisma migrate`、降级监控 cron（需活体 DB 验证） |
-| Phase 6 层级B(剩余) | **RK33、XR-02** | 未做：动态预览复用；触摸排序(XR-05)与无障碍(RK43)已完成（见第四批） |
-| Phase 8 报表/体验(剩余) | BS-09(访客看板暂无统计逻辑)、BS-12、XR-04 | 部分未做 |
-| Phase 9 无障碍(剩余) | — | RK43 已随 XR-05 一并完成（见第四批）；其余无障碍项评估中 |
-| Phase 10 可维护性(剩余) | **RK50、RK51** | 代码拆分/OpenAPI 细化未做 |
+| Phase 5 | **H1/H2/H3修复** + RK41、RK42 | deploy.sh加固 + 原待办 |
+| 审阅遗留 | **H1-H6优先** / M1-M6下迭代 | 见上方 |
 
 ### 🚀 部署提醒（执行未完成项前必读）
-1. 部署需对 `public` schema 执行 `npx prisma db push`（新增 4 列）；租户 schema 由 `provisionSchool` 自动推。
-2. `constraints.sql` 需按文件头说明对各租户 schema 执行一次（status 等 CHECK）。
-3. 生产环境建议设置 `JWT_REFRESH_SECRET`（否则刷新令牌派生自 access 密钥）。
-4. **集成测试需在活体 PostgreSQL 上运行**，本轮未跑（CI 环境无活体 PG）。
+1. **优先修复 H1-H6**（见上表）后再合并到 main 分支。
+2. **H3修复后**切换到 `prisma migrate deploy` 流程（基线文件 `backend/prisma/migrations/20260726000000_baseline/` 已就绪）。
+3. `constraints.sql` 需按文件头说明对各租户 schema 执行一次（status 等 CHECK）。
+4. 生产环境建议设置 `JWT_REFRESH_SECRET`（否则刷新令牌派生自 access 密钥）。
+5. **集成测试需在活体 PostgreSQL 上运行**，本轮未跑（CI 环境无活体 PG）。
 
 ---
 
