@@ -562,6 +562,8 @@
 
     <script type="module">
         import { authService, getApiBaseUrl } from './js/services/AuthService.js';
+        // RK32/RK34: 统一模块注册中心——单一事实来源，取代本地重复的 MODULE_INFO / 导航映射
+        import { MODULE_REGISTRY, getAllModules, getNavTargetForModule } from './js/modules/registry.js';
 
         const API_BASE = getApiBaseUrl();
 
@@ -604,14 +606,10 @@
         // 当前选中的主题预设 id（null = 未选/自定义颜色）
         let selectedThemeId = null;
 
-        // 模块信息映射（代码 → 中文名 + 图标）
-        const MODULE_INFO = {
-            tableware: { name: '餐具洁净度', icon: 'fa-utensils' },
-            pesticide: { name: '果蔬农残', icon: 'fa-leaf' },
-            oil: { name: '食用油品质', icon: 'fa-oil-can' },
-            leanMeat: { name: '瘦肉精检测', icon: 'fa-drumstick-bite' },
-            pathogen: { name: '致病菌检测', icon: 'fa-virus' },
-        };
+        // 模块信息映射（代码 → 中文名 + 图标），统一由注册中心派生，避免与前端重复维护
+        const MODULE_INFO = Object.fromEntries(
+            getAllModules().map((m) => [m.code, { name: m.label, icon: m.icon }])
+        );
 
         // 预览用默认字段列表
         const PREVIEW_FIELDS = [
@@ -738,17 +736,9 @@
             }
             window.SchoolThemes.applyTheme(doc, getActiveTheme());
 
-            // 4. 根据可见检测类型显示/隐藏导航菜单
-            // 导航菜单按钮的 data-target 映射
-            const navTargetMap = {
-                tableware: 'tableware-test',
-                pesticide: 'pesticide-test',
-                oil: 'oil-test',
-                leanMeat: 'lean-meat-test',
-                pathogen: 'pathogen-test',
-            };
+            // 4. 根据可见检测类型显示/隐藏导航菜单（导航 target 由注册中心统一提供）
             allTypes.forEach(type => {
-                const target = navTargetMap[type];
+                const target = getNavTargetForModule(type);
                 if (!target) return;
                 const navBtn = doc.querySelector(`[data-target="${target}"]`);
                 if (navBtn) {
@@ -762,14 +752,10 @@
                 if (sectionTitles[key]) el.textContent = sectionTitles[key];
             });
 
-            // 5. 应用字段标签覆盖 + 隐藏 + 自定义字段到表格
-            const moduleSectionMap = {
-                'tableware-test': 'tableware',
-                'pesticide-test': 'pesticide',
-                'oil-test': 'oil',
-                'lean-meat-test': 'leanMeat',
-                'pathogen-test': 'pathogen',
-            };
+            // 5. 应用字段标签覆盖 + 隐藏 + 自定义字段到表格（sectionId → moduleCode 由注册中心派生）
+            const moduleSectionMap = Object.fromEntries(
+                getAllModules().map((m) => [m.navTarget, m.code])
+            );
             Object.entries(moduleSectionMap).forEach(([sectionId, moduleCode]) => {
                 const section = doc.getElementById(sectionId);
                 if (!section) return;
@@ -1013,15 +999,19 @@
                 nav.dataset.veType = 'navcolor';
             });
 
-            // 导航菜单项
-            const navTargetMap = { 'tableware-test':'tableware', 'pesticide-test':'pesticide', 'oil-test':'oil', 'lean-meat-test':'leanMeat', 'pathogen-test':'pathogen' };
+            // 导航菜单项（target → module 由注册中心派生）
+            const navTargetMap = Object.fromEntries(
+                getAllModules().map((m) => [m.navTarget, m.code])
+            );
             Object.entries(navTargetMap).forEach(([target, module]) => {
                 const btn = doc.querySelector(`[data-target="${target}"]`);
                 if (btn) { btn.classList.add('ve-editable'); btn.dataset.veType = 'navitem'; btn.dataset.veModule = module; }
             });
 
-            // 表格表头
-            const moduleSectionMap = { 'tableware-test':'tableware', 'pesticide-test':'pesticide', 'oil-test':'oil', 'lean-meat-test':'leanMeat', 'pathogen-test':'pathogen' };
+            // 表格表头（sectionId → module 由注册中心派生）
+            const moduleSectionMap = Object.fromEntries(
+                getAllModules().map((m) => [m.navTarget, m.code])
+            );
             Object.entries(moduleSectionMap).forEach(([sectionId, moduleCode]) => {
                 const section = doc.getElementById(sectionId);
                 if (!section) return;

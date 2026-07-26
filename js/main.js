@@ -7,7 +7,7 @@ import { ExportService } from './services/ExportService.js';
 import { initializeSampleData } from './utils/SampleDataGenerator.js';
 // ✨ 学校个性化配置：提取 schoolCode + 应用 SchoolCustomization 到静态录入表单
 import { extractSchoolCode } from './utils/schoolCode.js';
-import { ensureSchoolConfig, getSchoolCustomization, applyCustomizationToAllForms, applySchoolCustomizationToTitles, applySchoolBranding } from './utils/schoolCustomization.js';
+import { ensureSchoolConfig, getSchoolCustomization, applyCustomizationToAllForms, applySchoolCustomizationToTitles, applySchoolBranding, applyVisibleTypesToNav, onSchoolConfigChanged } from './utils/schoolCustomization.js';
 // 1. ✨ 引入新模块
 import { BackupRestoreService } from './modules/BackupRestore.js';
 // 2. ✨ 引入认证与路由
@@ -241,8 +241,29 @@ document.addEventListener('DOMContentLoaded', async () => {
             console.log('✅ 学校个性化配置已应用到录入表单', schoolCode || '(无 schoolCode，跳过)');
             // 主页顶部标题/校徽按校动态显示（README 品牌中立化要求）
             applySchoolBranding(schoolCode);
+            // RK3/RK36：配置就绪后再消费 visible_types，使导航/内容区反映该校可见模块；
+            // 随后由 Router 重新施加权限/访客规则，保证「不可见模块」不会因配置被强行显示。
+            applyVisibleTypesToNav(customization);
+            router.updateNavigationByPermission();
         } catch (e) {
             console.error('❌ 学校个性化配置应用失败:', e);
+        }
+
+        // CR-06：跨标签页配置同步。同一 origin 下其它标签页改写该校定制缓存后，
+        // 本标签页自动重应用可见性/标签/校徽/权限，保持多标签页一致。
+        try {
+            const syncCode = extractSchoolCode();
+            if (syncCode) {
+                onSchoolConfigChanged(syncCode, (cfg) => {
+                    applyVisibleTypesToNav(cfg);
+                    applyCustomizationToAllForms(cfg);
+                    applySchoolCustomizationToTitles(cfg);
+                    applySchoolBranding(syncCode);
+                    router.updateNavigationByPermission();
+                });
+            }
+        } catch (e) {
+            console.error('❌ 跨标签页配置同步注册失败:', e);
         }
 
         // 3. 看板初始化

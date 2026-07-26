@@ -37,15 +37,24 @@
 | Phase 5 运维(部分) | **RK39** ✅(Caddy 安全头 + 8MB body 上限) | `deploy/deploy.sh` 生成的 Caddyfile 增加 `header {}` 与 `request_body { max_size 8MB }` |
 | Phase 10 可维护性 | **RK64** ✅、**RK66** ✅(设计/API 文档) | `docs/customization-design.md`、`docs/api/customization-api.md` |
 
+### ✅ 本轮新增完成（2026-07-26 第三批：Phase 6 架构基建 + Phase 4 一致性）
+
+| 阶段 | 新增完成风险编号 | 落地证据 |
+|---|---|---|
+| Phase 6 层级B(部分) | **RK3** ✅(主应用消费 `visible_types`→导航按钮与内容区显隐)、**RK32** ✅(统一模块注册中心)、**RK34** ✅(注册中心驱动导航与管理端预览)、**RK36** ✅(配置先于模块初始化应用，消除竞态) | `js/modules/registry.js` 单一事实来源（`MODULE_REGISTRY`/`getAllModules`/`getNavTargetForModule`）；`schoolCustomization.js` 新增 `getVisibleTypes`/`applyVisibleTypesToNav`；`main.js` 配置就绪后调用 `applyVisibleTypesToNav` 并 `router.updateNavigationByPermission()` 重新施加权限；`admin-schools.html` 改用注册中心派生 `MODULE_INFO`/导航映射/预览映射 |
+| Phase 4 一致性 | **CR-06** ✅(多 tab 配置同步) | `schoolCustomization.js` `onSchoolConfigChanged`（订阅 `storage` 事件）；`main.js` 注册回调重应用可见性/标签/校徽/权限 |
+
+> 说明：RK3 本轮完成**导航级**消费；看板模块卡片/概览区块按 `visible_types` 隐藏（RK3 看板部分）仍待做。
+
 ### ⬜ 仍待实施（未完成）
 
 | 阶段 | 待办风险编号（摘要） | 说明 |
 |---|---|---|
 | Phase 1 认证/安全(剩余) | DS-08、DS-09、DS-11、DS-16、DS-17、DS-18、DS-19 | 登出全量吊销、refresh 轮换、id_token 作用域收敛、部分超时/代理头未专门落地 |
 | Phase 2 数据基础(剩余) | D-08 | TestRecord↔SchoolCustomization 无外键（设计取舍，建议文档化） |
-| Phase 4 一致性校验(剩余) | CR-06、CR-13(时区标准化)、CR-14(跨天统计边界) | 未做 |
+| Phase 4 一致性校验(剩余) | CR-13(时区标准化)、CR-14(跨天统计边界) | 未做 |
 | Phase 5 运维/可观测(剩余) | **RK30、RK40、RK46、RK49**(+RK41、RK42) | 仍待做：定制配置备份、部署脚本列迁移、迁移收敛到 `prisma migrate`、降级监控 cron（需活体 DB 验证） |
-| Phase 6 层级B(剩余) | **RK3、RK32、RK33、RK34、RK36、XR-02、XR-03、XR-05** | **全部未做**：动态导航/统一注册中心/初始化竞态/预览复用/登录页定制/触摸排序；后端 schema/校验/管理端数据通道已就绪 |
+| Phase 6 层级B(剩余) | **RK33、XR-02、XR-03、XR-05** | 未做：动态预览复用/登录页定制/触摸排序；动态导航与统一注册中心/初始化竞态已在本轮完成（见第三批） |
 | Phase 8 报表/体验(剩余) | BS-09(访客看板暂无统计逻辑)、BS-12、XR-03、XR-04 | 部分未做 |
 | Phase 9 无障碍(剩余) | **RK43** | reorderFormCells 无障碍（可随 XR-05 触摸排序一并补） |
 | Phase 10 可维护性(剩余) | **RK50、RK51** | 代码拆分/OpenAPI 细化未做 |
