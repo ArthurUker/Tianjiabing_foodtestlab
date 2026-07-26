@@ -2,6 +2,20 @@
 import { UINotification } from '../utils/UINotification.js';
 import { NetworkHelper } from '../utils/NetworkHelper.js';
 import { auditService } from '../services/AuditService.js';
+import { extractSchoolCode } from '../utils/schoolCode.js';
+import {
+    getSchoolCustomization,
+    setSchoolCustomization,
+    getSchoolInfo,
+    setSchoolInfo,
+} from '../utils/schoolCustomization.js';
+
+// RK30/RK49: 备份「结构版本」与「业务数据版本」，用于恢复时的兼容性校验。
+//   - BACKUP_SCHEMA_VERSION：备份文件结构版本；v3 起备份纳入学校定制配置（SchoolCustomization/School）。
+//   - BACKUP_DATA_VERSION：业务数据版本，对齐后端 schema.prisma 中 TestRecord.data_version 默认值。
+// 恢复时若备份版本高于当前系统 → 明确告警并要求显式确认；低于/缺失 → 兼容模式恢复并提示。
+export const BACKUP_SCHEMA_VERSION = 3;
+export const BACKUP_DATA_VERSION = 1;
 
 export class BackupRestoreService {
     constructor() {
@@ -488,7 +502,10 @@ export class BackupRestoreService {
     async handleBackup() {
         try {
             const backupData = {
-                version: '2.0',
+                // 兼容旧字段：保留字符串 version；新增结构化版本号供恢复时兼容性校验（RK49）
+                version: '3.0',
+                schemaVersion: BACKUP_SCHEMA_VERSION,
+                dataVersion: BACKUP_DATA_VERSION,
                 timestamp: new Date().toISOString(),
                 tables: {}
             };
@@ -508,6 +525,22 @@ export class BackupRestoreService {
                 }
             });
 
+            // RK30: 备份纳入当前学校的定制配置（SchoolCustomization）与外观信息（School），
+            // 使备份自包含，恢复到新环境/新学校时不丢定制。
+            let customizationIncluded = false;
+            try {
+                const schoolCode = extractSchoolCode();
+                if (schoolCode) {
+                    backupData.schoolCode = schoolCode;
+                    backupData.customization = getSchoolCustomization(schoolCode) || {};
+                    backupData.schoolInfo = getSchoolInfo(schoolCode) || {};
+                    customizationIncluded = Object.keys(backupData.customization).length > 0
+                        || Object.keys(backupData.schoolInfo).length > 0;
+                }
+            } catch (e) {
+                console.warn('读取学校定制配置失败，本次备份将不含定制配置:', e);
+            }
+
             const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -518,13 +551,13 @@ export class BackupRestoreService {
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
 
-            UINotification.success(`✅ 备份成功！共导出 ${count} 条记录`);
+            UINotification.success(`✅ 备份成功！共导出 ${count} 条记录${customizationIncluded ? '（含学校定制配置）' : ''}`);
             // 记录审计日志
             await auditService.log(
                 'export',
                 'system',
                 'backup',
-                `导出数据备份：共 ${count} 条记录`
+                `导出数据备份：共 ${count} 条记录${customizationIncluded ? '，含学校定制配置' : ''}（结构v${BACKUP_SCHEMA_VERSION}/数据v${BACKUP_DATA_VERSION}）`
             );
         } catch (error) {
             console.error('备份失败:', error);
@@ -630,9 +663,35 @@ export class BackupRestoreService {
             
             if (!isStandardFormat && !isSimpleFormat) throw new Error('无效的数据格式');
 
+            // 1.5 RK49: 版本兼容性校验（在覆盖任何本地数据前）——版本不符给出明确告警，
+            // 而非静默按旧结构解析导致字段错乱/丢失。
+            if (isStandardFormat) {
+                const check = this._checkBackupCompatibility(backupData);
+                if (!check.ok) {
+                    const proceed = confirm(
+                        `⚠️ 版本兼容性警告\n\n${check.message}\n\n` +
+                        `继续恢复可能导致数据与当前系统结构不匹配（字段错乱或丢失）。\n\n` +
+                        `点击"确定"：仍要继续恢复（风险自负）\n点击"取消"：中止恢复`
+                    );
+                    if (!proceed) {
+                        this.showStatus(`⏹️ 已中止恢复：${check.message}`, 'yellow');
+                        return;
+                    }
+                } else if (check.message) {
+                    // 兼容但需提示（如旧版本备份缺定制配置）
+                    UINotification.info(check.message);
+                }
+            }
+
             // 2. 确认提示
             let confirmMessage = `检测到来自 [${sourceName}] 的数据\n`;
-            if (isStandardFormat) confirmMessage += `版本: ${backupData.version}\n`;
+            if (isStandardFormat) {
+                confirmMessage += `版本: ${backupData.version}`;
+                if (Number.isFinite(Number(backupData.schemaVersion))) {
+                    confirmMessage += `（结构v${backupData.schemaVersion}/数据v${backupData.dataVersion ?? '?'}）`;
+                }
+                confirmMessage += '\n';
+            }
             confirmMessage += '\n⚠️ 警告：当前本地的同名数据将被覆盖！确定要恢复吗？';
             
             if (!confirm(confirmMessage)) {
@@ -699,6 +758,26 @@ export class BackupRestoreService {
                 });
             }
             
+            // 4.5 RK30: 恢复学校定制配置到本地缓存（若备份包含且与当前学校一致）。
+            // 写入 localStorage 后，页面 reload 时 schoolCustomization.js 会自动应用。
+            try {
+                if (isStandardFormat && backupData.customization) {
+                    const currentCode = extractSchoolCode();
+                    const backupCode = backupData.schoolCode;
+                    // H4: backupCode 为空（未标记学校归属）时拒绝恢复，防止 A 校配置错写入 B 校
+                    if (!backupCode) {
+                        UINotification.warn('备份未包含学校归属标识，已跳过定制配置恢复');
+                    } else if (currentCode && backupCode === currentCode) {
+                        setSchoolCustomization(currentCode, backupData.customization);
+                        if (backupData.schoolInfo) setSchoolInfo(currentCode, backupData.schoolInfo);
+                    } else if (currentCode && backupCode !== currentCode) {
+                        UINotification.info(`备份的定制配置属于学校 [${backupCode}]，与当前学校 [${currentCode}] 不一致，已跳过定制配置恢复`);
+                    }
+                }
+            } catch (e) {
+                console.warn('恢复学校定制配置失败:', e);
+            }
+
             // 5. 结果处理
             if (shouldSyncToServer) {
                 let uploadedSummary = null;
@@ -751,6 +830,48 @@ export class BackupRestoreService {
             el.innerHTML = msg;
             el.className = `mb-6 p-3 rounded text-center font-medium text-sm bg-${color}-50 text-${color}-700 border border-${color}-200`;
         }
+    }
+
+    /**
+     * RK49: 恢复前版本兼容性校验。
+     * @param {Object} backupData 备份文件对象
+     * @returns {{ok:boolean, message:string}}
+     *   ok=false 表示不兼容（备份版本高于当前系统），调用方应告警并要求显式确认；
+     *   ok=true 且 message 非空表示兼容但需提示（旧版本/缺版本标记）。
+     */
+    _checkBackupCompatibility(backupData) {
+        const backupSchema = Number(backupData && backupData.schemaVersion);
+        const backupDataVer = Number(backupData && backupData.dataVersion);
+
+        // 缺少结构版本号 → 视为旧版本备份（v2 及更早，不含定制配置）
+        if (!Number.isFinite(backupSchema)) {
+            return {
+                ok: true,
+                message: '检测到旧版本备份（无版本标记），将按兼容模式恢复；该备份可能不含学校定制配置。'
+            };
+        }
+        // 备份结构版本高于当前系统 → 不兼容
+        if (backupSchema > BACKUP_SCHEMA_VERSION) {
+            return {
+                ok: false,
+                message: `备份结构版本 v${backupSchema} 高于当前系统 v${BACKUP_SCHEMA_VERSION}，可能来自更新版本的系统。`
+            };
+        }
+        // 业务数据版本高于当前系统 → 不兼容
+        if (Number.isFinite(backupDataVer) && backupDataVer > BACKUP_DATA_VERSION) {
+            return {
+                ok: false,
+                message: `备份业务数据版本 v${backupDataVer} 高于当前系统 v${BACKUP_DATA_VERSION}。`
+            };
+        }
+        // 备份结构版本低于当前系统 → 兼容但提示
+        if (backupSchema < BACKUP_SCHEMA_VERSION) {
+            return {
+                ok: true,
+                message: `备份结构版本 v${backupSchema} 低于当前系统 v${BACKUP_SCHEMA_VERSION}，将按兼容模式恢复。`
+            };
+        }
+        return { ok: true, message: '' };
     }
 
     _canUseUpdate(id) {

@@ -97,6 +97,7 @@ export class GuestDashboard {
         this.applyVisibleTypes(customization);
         this.bindEvents();
         this.loadExportRequests();
+        this.loadStats(); // BS-09: 异步加载汇总统计，不阻塞初始化
 
         console.log('✅ ' + this.moduleName + ' 初始化完成');
         return true;
@@ -195,6 +196,18 @@ export class GuestDashboard {
                     </div>
                 </div>
 
+                <!-- BS-09: 数据概览（后端 /api/guest/stats 聚合，仅汇总不含明细） -->
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h3 class="text-lg font-semibold text-gray-800 mb-4">
+                        <i class="fas fa-chart-bar text-blue-600 mr-2"></i>数据概览
+                    </h3>
+                    <div id="guestStatsCards" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                        <div class="col-span-full text-center py-4 text-gray-400 text-sm">
+                            <i class="fas fa-spinner fa-spin mr-2"></i>统计加载中...
+                        </div>
+                    </div>
+                </div>
+
                 ${!isQuickAccess && guest.guest_type === 'export_applicant' ? this.renderExportSection() : ''}
 
                 <!-- 快速链接 -->
@@ -227,6 +240,61 @@ export class GuestDashboard {
                     </div>
                 </div>
             </div>
+        `;
+    }
+
+    /**
+     * BS-09: 加载访客汇总统计（总记录数 / 各可见模块计数 / 合格率）。
+     * 后端已按该校 visible_types 白名单聚合并强制排除 pathogen，前端只做渲染。
+     */
+    async loadStats() {
+        const container = document.getElementById('guestStatsCards');
+        if (!container) return;
+        try {
+            const token = guestAuthService.getToken();
+            if (!token) throw new Error('未登录');
+            const resp = await fetch('/api/guest/stats', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const data = await resp.json();
+            if (!resp.ok || !data.success) {
+                throw new Error(data.error || `HTTP ${resp.status}`);
+            }
+            this.renderStats(data.data || {});
+        } catch (err) {
+            console.warn('⚠️ 访客统计加载失败:', err);
+            container.innerHTML = '<div class="col-span-full text-center py-4 text-gray-400 text-sm">统计数据暂不可用</div>';
+        }
+    }
+
+    /**
+     * BS-09: 渲染汇总统计卡片（总数卡 + 各可见模块卡，含合格率）
+     */
+    renderStats(stats) {
+        const container = document.getElementById('guestStatsCards');
+        if (!container) return;
+
+        const byType = stats.byType || {};
+        const typeCards = Object.entries(byType).map(([code, item]) => {
+            const rateHtml = (item.passRate === null || item.passRate === undefined)
+                ? '<p class="text-xs text-gray-400 mt-1">—</p>'
+                : `<p class="text-xs mt-1 ${item.passRate >= 90 ? 'text-green-600' : 'text-yellow-600'}">合格率 ${item.passRate}%</p>`;
+            return `
+                <div class="border rounded-lg p-3 text-center bg-gray-50">
+                    <p class="text-xs text-gray-500 truncate" title="${item.label || code}">${item.label || code}</p>
+                    <p class="text-xl font-bold text-gray-800 mt-1">${item.count ?? 0}</p>
+                    ${rateHtml}
+                </div>
+            `;
+        }).join('');
+
+        container.innerHTML = `
+            <div class="border rounded-lg p-3 text-center bg-blue-50">
+                <p class="text-xs text-blue-600">总记录数</p>
+                <p class="text-xl font-bold text-blue-700 mt-1">${stats.total ?? 0}</p>
+                <p class="text-xs text-blue-400 mt-1">可见模块合计</p>
+            </div>
+            ${typeCards || '<div class="col-span-full text-center py-4 text-gray-400 text-sm">暂无可见模块</div>'}
         `;
     }
 

@@ -371,7 +371,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             const isAdminLoggedIn = router.getToken ? router.getToken() : localStorage.getItem('auth_token');
             const isGuestLoggedIn = guestAuthService.isLoggedIn();
             
-            console.log('🔍 管理员token:', !!isAdminLoggedIn);
+            // DS-16: 仅打印是否持有 token 的布尔值，严禁输出 token 内容
+            console.log('🔍 管理员已登录:', !!isAdminLoggedIn);
             console.log('🔍 访客状态:', isGuestLoggedIn);
             
             if (isGuestLoggedIn && !isAdminLoggedIn) {

@@ -7,6 +7,18 @@
 
 const MAX_DAYS = 30;
 
+// DS-16: 兜底脱敏——details 里若被调用方误拼入 JWT/手机号，落库前先打码，
+// 避免敏感凭证/PII 持久化到 localStorage 审计日志。
+const JWT_RE = /\b[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g;
+const CN_MOBILE_RE = /\b(1[3-9]\d)(\d{4})(\d{4})\b/g;
+
+function sanitizeDetails(text) {
+    if (typeof text !== 'string' || !text) return text;
+    return text
+        .replace(JWT_RE, (m) => m.slice(0, 6) + '…')
+        .replace(CN_MOBILE_RE, (_, p1, _p2, p3) => `${p1}****${p3}`);
+}
+
 function getLocalDateStr(d = new Date()) {
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -55,7 +67,7 @@ export function logOperation(action, resourceType = null, resourceId = null, det
             action,
             resource_type: resourceType,
             resource_id: resourceId,
-            details,
+            details: sanitizeDetails(details),
             status: 'success'
         });
 

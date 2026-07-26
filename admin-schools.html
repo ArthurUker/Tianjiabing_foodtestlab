@@ -115,7 +115,7 @@
     <nav class="glass-dark text-white sticky top-0 z-50">
         <div class="container mx-auto px-4 py-3 flex justify-between items-center">
             <div class="flex items-center space-x-3">
-                <i class="fas fa-school text-2xl"></i>
+                <span id="adminNavLogo"><i class="fas fa-school text-2xl"></i></span>
                 <h1 class="text-xl font-bold">学校管理控制台</h1>
                 <span class="text-xs px-2 py-0.5 bg-white/20 rounded-full">平台超管</span>
             </div>
@@ -563,7 +563,7 @@
     <script type="module">
         import { authService, getApiBaseUrl } from './js/services/AuthService.js';
         // RK32/RK34: 统一模块注册中心——单一事实来源，取代本地重复的 MODULE_INFO / 导航映射
-        import { MODULE_REGISTRY, getAllModules, getNavTargetForModule } from './js/modules/registry.js';
+        import { getAllModules } from './js/modules/registry.js';
 
         const API_BASE = getApiBaseUrl();
 
@@ -611,18 +611,6 @@
             getAllModules().map((m) => [m.code, { name: m.label, icon: m.icon }])
         );
 
-        // 预览用默认字段列表
-        const PREVIEW_FIELDS = [
-            { name: 'testDate', label: '日期' },
-            { name: 'canteen', label: '食堂' },
-            { name: 'location', label: '点位' },
-            { name: 'inspector', label: '检测员' },
-            { name: 'result', label: '结果' },
-            { name: 'sampler', label: '采样人' },
-            { name: 'batchNo', label: '批次号' },
-            { name: 'note', label: '备注' },
-        ];
-
         // 初始化主题预设选择器
         function initThemePresets() {
             const container = document.getElementById('themePresets');
@@ -669,6 +657,20 @@
             });
         }
 
+        // XR-04：管理后台自身应用（或还原）某校主题——与师生端同一 resolveTheme/applyTheme 实现
+        function applyAdminTheme(cfg) {
+            window.SchoolThemes.applyTheme(document, cfg ? window.SchoolThemes.resolveTheme(cfg) : null);
+        }
+
+        // XR-04：顶部导航展示该校校徽（离开配置页还原默认图标）
+        function setAdminNavLogo(logoUrl) {
+            const wrap = document.getElementById('adminNavLogo');
+            if (!wrap) return;
+            wrap.innerHTML = logoUrl
+                ? `<img src="${escapeHtml(logoUrl)}" alt="校徽" style="width:28px;height:28px;object-fit:contain;border-radius:6px;background:rgba(255,255,255,.85);padding:2px">`
+                : '<i class="fas fa-school text-2xl"></i>';
+        }
+
         // 获取当前生效主题对象（预设优先，否则用自定义强调色派生）
         function getActiveTheme() {
             const preset = selectedThemeId ? window.SchoolThemes.getPreset(selectedThemeId) : null;
@@ -677,9 +679,15 @@
             return accent ? window.SchoolThemes.themeFromAccent(accent) : null;
         }
 
-        // 渲染实时预览区（操作 iframe 内真实 index.html 的 DOM）
+        // ====== 实时预览（XR-02：与师生端共用同一套 apply 实现，消除双轨漂移）======
+        // 预览 iframe 加载真实 index.html；通过注入 <script type="module"> 在 iframe 自身的
+        // 模块环境中 import js/utils/schoolCustomization.js（与 iframe 内 main.js 命中同一模块缓存），
+        // 之后字段标签/隐藏/必填/下拉选项/自定义字段/字段排序/小标题/模块可见性全部直接调用
+        // 师生端函数，保证「预览所见 = 师生端实际」，此处不再重写任何 DOM 操作。
         let previewIframe = null;
         let previewReady = false;
+        let previewApi = null;        // iframe 内的 schoolCustomization 模块（师生端同一实现）
+        let previewBaseline = null;   // 预览基线快照：师生端 apply 是"一次性正向应用"语义，重放前先还原
 
         function initPreviewIframe() {
             const previewArea = document.getElementById('previewArea');
@@ -687,13 +695,98 @@
             previewArea.innerHTML = `<iframe src="./index.html?preview=true" style="width:100%;height:760px;border:none;" id="previewFrame" loading="lazy"></iframe>`;
             previewIframe = document.getElementById('previewFrame');
             previewIframe.onload = () => {
-                previewReady = true;
                 // 等待 iframe 内 JS 初始化完成后再操作 DOM
-                setTimeout(() => {
+                setTimeout(async () => {
+                    try {
+                        previewApi = await loadPreviewApi();
+                    } catch (e) {
+                        console.error('❌ 预览桥接加载失败（定制预览降级为仅主题/标题）:', e);
+                        // M4: 用户感知降级提示（避免静默失败）
+                        const notice = document.getElementById('notice');
+                        if (notice) {
+                            notice.className = 'mb-4 p-3 rounded-lg text-sm bg-yellow-50 border border-yellow-200 text-yellow-800';
+                            notice.innerHTML = '⚠️ 预览功能未能完全加载，当前仅显示主题与标题。请尝试刷新页面。';
+                            notice.classList.remove('hidden');
+                            setTimeout(() => { notice.classList.add('hidden'); }, 8000);
+                        }
+                    }
+                    snapshotPreviewBaseline();
+                    previewReady = true;
                     applyPreviewConfig();
                     // 若已开启可视化编辑，预览就绪后绑定编辑能力
                     if (document.getElementById('visualEditToggle')?.checked) enableVisualEdit();
                 }, 1500);
+            };
+        }
+
+        // 在 iframe 自身模块环境里 import 师生端定制模块，拿到与 main.js 完全相同的函数实例
+        function loadPreviewApi() {
+            return new Promise((resolve, reject) => {
+                const win = previewIframe.contentWindow;
+                const doc = previewIframe.contentDocument;
+                if (!win || !doc) return reject(new Error('预览 iframe 不可访问'));
+                if (win.__SCHOOL_CUSTOMIZATION_API__) return resolve(win.__SCHOOL_CUSTOMIZATION_API__);
+                const timer = setTimeout(() => reject(new Error('预览桥接超时')), 5000);
+                win.addEventListener('preview-api-ready', () => {
+                    clearTimeout(timer);
+                    resolve(win.__SCHOOL_CUSTOMIZATION_API__);
+                }, { once: true });
+                const s = doc.createElement('script');
+                s.type = 'module';
+                s.textContent = `
+                    import * as api from './js/utils/schoolCustomization.js';
+                    window.__SCHOOL_CUSTOMIZATION_API__ = api;
+                    window.dispatchEvent(new Event('preview-api-ready'));
+                `;
+                doc.head.appendChild(s);
+            });
+        }
+
+        // 基线快照：记录 iframe 初始（未定制）状态，供每次重放前还原，
+        // 使"取消隐藏/清除改名/删除自定义字段"等回退操作也能正确反映到预览
+        function snapshotPreviewBaseline() {
+            const doc = previewIframe?.contentDocument;
+            if (!doc) return;
+            const forms = {};
+            getAllModules().forEach((m) => {
+                if (!m.formId) return;
+                const f = doc.getElementById(m.formId);
+                if (f) forms[m.formId] = f.cloneNode(true);
+            });
+            const titles = {};
+            doc.querySelectorAll('[data-title-key]').forEach(el => { titles[el.dataset.titleKey] = el.textContent; });
+            previewBaseline = {
+                forms,
+                titles,
+                systemLogo: doc.getElementById('systemLogo')?.innerHTML || '<i class="fas fa-shield-alt"></i>',
+            };
+        }
+
+        function restorePreviewBaseline() {
+            const doc = previewIframe?.contentDocument;
+            if (!doc || !previewBaseline) return;
+            Object.entries(previewBaseline.forms).forEach(([id, pristine]) => {
+                const cur = doc.getElementById(id);
+                if (cur) cur.replaceWith(pristine.cloneNode(true));
+            });
+            Object.entries(previewBaseline.titles).forEach(([key, text]) => {
+                const el = doc.querySelector(`[data-title-key="${key}"]`);
+                if (el) el.textContent = text;
+            });
+        }
+
+        // 把编辑区当前状态组装成与服务端 SchoolCustomization 相同形态的"草稿"，
+        // 直接喂给师生端 apply 函数（师生端 parseJSONField 对象/JSON 字符串两种形态均兼容）
+        function buildDraftCustomization() {
+            return {
+                visible_types: Array.from(document.querySelectorAll('.vis-type:checked')).map(cb => cb.value),
+                field_labels: fieldLabels,
+                hidden_fields: Array.from(hiddenFields),
+                field_rules: fieldRules,
+                custom_fields: customFields,
+                field_options: fieldOptions,
+                field_order: fieldOrder,
+                theme_config: { section_titles: sectionTitles },
             };
         }
 
@@ -702,209 +795,43 @@
             const doc = previewIframe.contentDocument;
             if (!doc) return;
 
-            // 收集当前编辑状态
+            // 0. 还原基线后再正向应用（师生端函数按"页面加载时应用一次"设计）
+            restorePreviewBaseline();
+
+            // 1. 品牌（标题/校徽）：与师生端 applySchoolBranding 作用于相同元素
+            //    （#systemTitle / #systemLogo）。草稿未保存、无法走其服务端拉取路径，
+            //    故此处做同构的最小赋值，不涉及字段/表单等易漂移逻辑。
             const schoolName = (document.getElementById('bf_name').value.trim() || '示例学校');
-            const logoUrl = document.getElementById('bf_logoUrl').value.trim();
-
-            const visibleTypes = new Set(Array.from(document.querySelectorAll('.vis-type:checked')).map(cb => cb.value));
-            const allTypes = Array.from(document.querySelectorAll('.vis-type')).map(cb => cb.value);
-
-            // 字段标签覆盖与隐藏字段直接使用全局状态（由字段管理列表实时维护）
-            // 注意：此处必须使用全局 fieldLabels / hiddenFields，勿在此重新声明同名局部变量
-
-            // 1. 更新顶部标题
             const titleEl = doc.getElementById('systemTitle');
             if (titleEl) titleEl.textContent = `${schoolName}食品安全检验管理系统`;
-
-            // 2. 更新 Logo
             const logoEl = doc.getElementById('systemLogo');
             if (logoEl) {
-                if (logoUrl) {
-                    logoEl.innerHTML = `<img src="${escapeHtml(logoUrl)}" alt="校徽" style="width:28px;height:28px;object-fit:contain;border-radius:4px">`;
-                } else {
-                    logoEl.innerHTML = '<i class="fas fa-shield-alt"></i>';
+                const logoUrl = document.getElementById('bf_logoUrl').value.trim();
+                logoEl.innerHTML = logoUrl
+                    ? `<img src="${escapeHtml(logoUrl)}" alt="校徽" style="width:28px;height:28px;object-fit:contain;border-radius:4px">`
+                    : previewBaseline?.systemLogo || '<i class="fas fa-shield-alt"></i>';
+            }
+
+            // 2. 主题：与 index/login 同一实现（themePresets.js applyTheme 覆盖 CSS 变量）
+            const theme = getActiveTheme();
+            window.SchoolThemes.applyTheme(doc, theme);
+            // XR-04：管理后台自身同步呈现该校主题（联动编辑中的主题选择）
+            window.SchoolThemes.applyTheme(document, theme);
+
+            // 3. 核心：直接调用师生端同一套 apply 函数（iframe 模块实例，作用于 iframe 文档）
+            if (previewApi) {
+                const draft = buildDraftCustomization();
+                try {
+                    previewApi.applyVisibleTypesToNav(draft);          // 模块可见性（导航 + 内容区）
+                    previewApi.applyCustomizationToAllForms(draft);    // 标签/隐藏/必填/选项/自定义字段/排序
+                    previewApi.applySchoolCustomizationToTitles(draft);// 看板卡片 / 模块小标题
+                } catch (e) {
+                    console.error('❌ 预览应用定制失败:', e);
                 }
             }
 
-            // 3. 应用预设主题（覆盖 iframe 的 CSS 变量：壁纸 + 玻璃着色 + 强调色，保留玻璃质感）
-            const navEl = doc.querySelector('nav.glass-dark');
-            if (navEl) {
-                // 清理旧版预览可能留下的纯色覆盖
-                navEl.style.background = '';
-                navEl.style.backdropFilter = '';
-                navEl.style.webkitBackdropFilter = '';
-            }
-            window.SchoolThemes.applyTheme(doc, getActiveTheme());
-
-            // 4. 根据可见检测类型显示/隐藏导航菜单（导航 target 由注册中心统一提供）
-            allTypes.forEach(type => {
-                const target = getNavTargetForModule(type);
-                if (!target) return;
-                const navBtn = doc.querySelector(`[data-target="${target}"]`);
-                if (navBtn) {
-                    navBtn.style.display = visibleTypes.has(type) ? '' : 'none';
-                }
-            });
-
-            // 4.5 应用看板卡片 / 模块小标题覆盖
-            doc.querySelectorAll('[data-title-key]').forEach(el => {
-                const key = el.dataset.titleKey;
-                if (sectionTitles[key]) el.textContent = sectionTitles[key];
-            });
-
-            // 5. 应用字段标签覆盖 + 隐藏 + 自定义字段到表格（sectionId → moduleCode 由注册中心派生）
-            const moduleSectionMap = Object.fromEntries(
-                getAllModules().map((m) => [m.navTarget, m.code])
-            );
-            Object.entries(moduleSectionMap).forEach(([sectionId, moduleCode]) => {
-                const section = doc.getElementById(sectionId);
-                if (!section) return;
-
-                // 更新表头：标签覆盖 + contenteditable + 隐藏列
-                const tables = section.querySelectorAll('table');
-                tables.forEach(table => {
-                    const headerCells = table.querySelectorAll('thead th');
-                    headerCells.forEach((th, idx) => {
-                        // 记录原始标签（首次）
-                        if (!th.dataset.origLabel) th.dataset.origLabel = th.textContent.trim();
-
-                        // 匹配字段名（通过原始标签反查 MODULE_FIELDS）
-                        const origLabel = th.dataset.origLabel;
-                        const fieldDef = (MODULE_FIELDS[moduleCode] || []).find(f => f.label === origLabel);
-                        const fieldName = fieldDef?.name || origLabel;
-
-                        // 应用标签覆盖
-                        if (fieldLabels[fieldName]) {
-                            th.textContent = fieldLabels[fieldName];
-                        }
-
-                        // 隐藏列
-                        const cells = table.querySelectorAll('tbody tr td:nth-child(' + (idx + 1) + ')');
-                        if (hiddenFields.has(fieldName)) {
-                            th.style.display = 'none';
-                            cells.forEach(c => c.style.display = 'none');
-                        } else {
-                            th.style.display = '';
-                            cells.forEach(c => c.style.display = '');
-                        }
-
-                        // contenteditable：点击表头可直接编辑
-                        th.contentEditable = 'true';
-                        th.title = '点击编辑字段名';
-                        th.style.cursor = 'text';
-                        th.style.outline = '1px dashed rgba(59,130,246,0.4)';
-                        th.style.outlineOffset = '-1px';
-
-                        // 编辑后同步回编辑区
-                        th.onblur = () => {
-                            const newLabel = th.textContent.trim();
-                            const origLabel2 = th.dataset.origLabel;
-                            const fieldDef2 = (MODULE_FIELDS[moduleCode] || []).find(f => f.label === origLabel2);
-                            const fn = fieldDef2?.name || origLabel2;
-                            if (newLabel && newLabel !== origLabel2) {
-                                fieldLabels[fn] = newLabel;
-                                // 同步到左侧编辑区
-                                const input = document.querySelector(`.fl-label[data-field="${fn}"]`);
-                                if (input) input.value = newLabel;
-                            } else {
-                                delete fieldLabels[fn];
-                            }
-                        };
-                    });
-
-                    // 追加自定义字段列
-                    const custom = customFields[moduleCode] || [];
-                    if (custom.length && headerCells.length) {
-                        const tbody = table.querySelector('tbody');
-                        custom.forEach(cf => {
-                            // 检查列是否已存在
-                            const exists = Array.from(headerCells).some(th => th.dataset.origLabel === cf.label || th.textContent.trim() === cf.label);
-                            if (exists) return;
-                            // 新增表头
-                            const newTh = doc.createElement('th');
-                            newTh.textContent = fieldLabels[cf.name] || cf.label;
-                            newTh.dataset.origLabel = cf.label;
-                            newTh.contentEditable = 'true';
-                            newTh.title = '点击编辑字段名';
-                            newTh.style.cursor = 'text';
-                            newTh.style.outline = '1px dashed rgba(168,85,247,0.5)';
-                            newTh.onblur = () => {
-                                const nl = newTh.textContent.trim();
-                                if (nl && nl !== cf.label) { fieldLabels[cf.name] = nl; }
-                                else { delete fieldLabels[cf.name]; }
-                            };
-                            table.querySelector('thead tr').appendChild(newTh);
-                            // 给每行加空 td
-                            if (tbody) {
-                                tbody.querySelectorAll('tr').forEach(tr => {
-                                    const td = doc.createElement('td');
-                                    td.textContent = '—';
-                                    tr.appendChild(td);
-                                });
-                            }
-                        });
-                    }
-                });
-
-                // 应用 select 选项覆盖到表单
-                if (Object.keys(fieldOptions).length) {
-                    section.querySelectorAll('form select').forEach(sel => {
-                        const opts = fieldOptions[sel.name];
-                        if (!opts) return;
-                        sel.innerHTML = opts.map(o => `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`).join('');
-                    });
-                }
-
-                // 表单字段顺序：按拖拽顺序在各自网格内安全重排
-                const moduleOrder = fieldOrder[moduleCode];
-                if (Array.isArray(moduleOrder) && moduleOrder.length) {
-                    section.querySelectorAll('form').forEach(form => reorderFormFields(form, moduleOrder));
-                }
-            });
-        }
-
-        // ====== 表单字段安全重排（预览端使用；主应用 schoolCustomization.js 有对应实现）======
-        // 规则：只在同一父容器内重排、且该父容器的所有子元素都恰好是一个字段单元格，避免破坏原布局
-        function cellOf(field) {
-            const parent = field.parentElement;
-            if (parent && parent.classList && parent.classList.contains('grid')) return field;
-            let el = parent;
-            while (el && el.tagName === 'DIV') {
-                if (el.querySelector(':scope > label')) return el;
-                if (el.parentElement && el.parentElement.classList && el.parentElement.classList.contains('grid')) return el;
-                el = el.parentElement;
-            }
-            return field;
-        }
-        function isReorderableParent(parent) {
-            const kids = Array.from(parent.children);
-            if (kids.length < 2) return false;
-            return kids.every(k => {
-                const named = k.matches('input[name],select[name],textarea[name]')
-                    ? [k]
-                    : Array.from(k.querySelectorAll('input[name],select[name],textarea[name]'));
-                return named.length === 1;
-            });
-        }
-        function reorderFormFields(formEl, orderedNames) {
-            if (!formEl || !Array.isArray(orderedNames) || !orderedNames.length) return;
-            const pos = new Map(orderedNames.map((n, i) => [n, i]));
-            const parents = new Set();
-            formEl.querySelectorAll('input[name],select[name],textarea[name]').forEach(f => {
-                const cell = cellOf(f);
-                if (cell && cell.parentElement) parents.add(cell.parentElement);
-            });
-            parents.forEach(parent => {
-                if (!isReorderableParent(parent)) return;
-                const keyed = Array.from(parent.children).map((k, i) => {
-                    const f = k.matches('input[name],select[name],textarea[name]') ? k : k.querySelector('input[name],select[name],textarea[name]');
-                    const name = f ? f.name : null;
-                    const p = (name != null && pos.has(name)) ? pos.get(name) : Infinity;
-                    return { k, p, i };
-                });
-                keyed.sort((a, b) => (a.p !== b.p ? a.p - b.p : a.i - b.i));
-                keyed.forEach(x => parent.appendChild(x.k));
-            });
+            // 4. 基线还原会重建表单节点，可视化编辑开启时需重新标记可编辑元素
+            if (visualEditMode) enableVisualEdit();
         }
 
         // 兼容旧调用名
@@ -977,15 +904,17 @@
             const doc = previewIframe.contentDocument;
             if (!doc) return;
 
-            // 注入 hover 高亮样式
-            const style = doc.createElement('style');
-            style.id = 'visual-edit-style';
-            style.textContent = `
-                .ve-editable { cursor: pointer !important; transition: outline 0.15s !important; }
-                .ve-editable:hover { outline: 2px solid #3b82f6 !important; outline-offset: 1px !important; background-color: rgba(59,130,246,0.08) !important; }
-                .ve-badge { position: absolute; background: #3b82f6; color: #fff; font-size: 10px; padding: 1px 6px; border-radius: 3px; pointer-events: none; z-index: 9999; white-space: nowrap; }
-            `;
-            doc.head.appendChild(style);
+            // 注入 hover 高亮样式（幂等：预览每次重放后会重新调用本函数，样式只注入一次）
+            if (!doc.getElementById('visual-edit-style')) {
+                const style = doc.createElement('style');
+                style.id = 'visual-edit-style';
+                style.textContent = `
+                    .ve-editable { cursor: pointer !important; transition: outline 0.15s !important; }
+                    .ve-editable:hover { outline: 2px solid #3b82f6 !important; outline-offset: 1px !important; background-color: rgba(59,130,246,0.08) !important; }
+                    .ve-badge { position: absolute; background: #3b82f6; color: #fff; font-size: 10px; padding: 1px 6px; border-radius: 3px; pointer-events: none; z-index: 9999; white-space: nowrap; }
+                `;
+                doc.head.appendChild(style);
+            }
 
             // 标记可编辑元素
             const titleEl = doc.getElementById('systemTitle');
@@ -1428,6 +1357,11 @@
             document.getElementById('bf_status').value = school.status || 'active';
             updateLogoPreview(school.logo_url);
 
+            // XR-04：进入某校配置页时，管理后台自身应用该校主题色/校徽
+            // （先用基本信息的 theme_color 兜底；打开「界面定制」后 loadCustomization 会用完整 theme_config 精确化）
+            applyAdminTheme({ themeColor: school.theme_color });
+            setAdminNavLogo(school.logo_url);
+
             // 切到基本信息 Tab
             switchTab('basic');
         }
@@ -1484,6 +1418,9 @@
             if (customDirty && !confirm('「界面定制」有未保存的修改，确定关闭吗？修改将丢失。')) return;
             document.getElementById('detailPanel').classList.add('hidden');
             currentSchoolCode = null;
+            // XR-04：离开配置页，管理后台还原默认主题与图标
+            applyAdminTheme(null);
+            setAdminNavLogo(null);
         });
 
         // 主题色联动
@@ -1664,6 +1601,12 @@
                         document.getElementById('bf_themeColorPicker').value = savedTheme.accent;
                     }
                     highlightThemePreset();
+
+                    // XR-04：拿到完整 theme_config 后，用与师生端一致的 resolveTheme 精确化管理端主题
+                    applyAdminTheme({
+                        themeColor: document.getElementById('bf_themeColor').value.trim(),
+                        customization: c,
+                    });
 
                     const rules = parseJSON(c.field_rules) || {};
                     fieldRules = rules;

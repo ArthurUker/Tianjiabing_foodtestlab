@@ -4,6 +4,14 @@
  */
 
 import { auditService } from './AuditService.js';
+import { maskSensitive } from '../utils/fieldMasking.js';
+
+// DS-17: JWT 形态校验（三段 base64url）。读取处统一校验，
+// 拒绝被篡改/注入的非 JWT 值，降低脏数据与 token 固定风险。
+function isPlausibleJwt(token) {
+    return typeof token === 'string'
+        && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token);
+}
 
 export class AuthService {
     constructor(apiBaseUrl = '') {
@@ -12,7 +20,14 @@ export class AuthService {
         this.userKey = 'current_user';
         this.tokenExpiryKey = 'token_expiry';
         this.refreshTokenKey = 'refresh_token';
-        
+
+        // DS-17: 内存态 token 作为第一优先读取源（XSS 需精确命中该实例才能读到）。
+        // sessionStorage 为第二优先（页面关闭即清）；localStorage 仅作兼容层保留——
+        // Storage.js / BackupRestore.js / AuditService.js / Router.js（storage 事件跨标签登出）
+        // 等现有使用方直接读 localStorage['auth_token']，本窗口不允许改动它们，故不能移除。
+        this._memToken = null;
+        this._memRefreshToken = null;
+
         // 初始化时检查是否已登录
         this.init();
     }
@@ -30,7 +45,8 @@ export class AuthService {
                 console.warn('⚠️ Token 已过期，清除本地存储');
                 this.clearAuth();
             } else {
-                console.log('✅ 用户已登录:', user.username);
+                // DS-16: 日志不输出完整用户名（PII 脱敏）
+                console.log('✅ 用户已登录:', maskSensitive(user.username, 'name'));
             }
         }
     }
@@ -82,8 +98,9 @@ export class AuthService {
                     this.saveRefreshToken(data.refreshToken);
                 }
 
-                console.log('✅ 登录成功:', data.user.username);
-                auditService.log('login', 'auth', null, `用户 ${data.user.username} 登录系统`);
+                // DS-16 & M3: 日志不输出完整用户名（PII 脱敏），审计日志同样脱敏
+                console.log('✅ 登录成功:', maskSensitive(data.user.username, 'name'));
+                auditService.log('login', 'auth', null, `用户 ${maskSensitive(data.user.username, 'name')} 登录系统`);
                 return { success: true, user: data.user };
             } else {
                 throw new Error(data.message || '登录失败');
@@ -162,7 +179,8 @@ export class AuthService {
                 throw new Error(data.error || data.message || '注册失败');
             }
 
-            console.log('✅ 用户注册成功:', username);
+            // DS-16: 日志不输出完整用户名（PII 脱敏）
+            console.log('✅ 用户注册成功:', maskSensitive(username, 'name'));
             return { success: true, user: data.user };
         } catch (error) {
             console.error('❌ 注册错误:', error.message);
@@ -224,10 +242,41 @@ export class AuthService {
 
     /**
      * 获取当前 Token
+     * DS-17: 读取优先级 内存 → sessionStorage → localStorage（兼容层/跨标签同步），
+     * 每层读取均做 JWT 形态校验；命中低优先级源时回填高优先级源。
      * @returns {string|null}
      */
     getToken() {
-        return localStorage.getItem(this.tokenKey);
+        const fromLocal = localStorage.getItem(this.tokenKey);
+
+        // 兼容层副本不存在（未登录，或其它标签页已登出并清除）→ 同步失效内存/session 副本，
+        // 保证 Router.js / SessionManager.js 的跨标签登出逻辑（storage 事件 + getToken() 判空）依旧生效
+        if (!fromLocal) {
+            this._memToken = null;
+            try { sessionStorage.removeItem(this.tokenKey); } catch (e) { /* 存储不可用时忽略 */ }
+            return null;
+        }
+
+        // 优先返回内存/sessionStorage 中的可信副本（localStorage 被篡改时不采信其值）
+        if (isPlausibleJwt(this._memToken)) return this._memToken;
+
+        const fromSession = sessionStorage.getItem(this.tokenKey);
+        if (isPlausibleJwt(fromSession)) {
+            this._memToken = fromSession;
+            return fromSession;
+        }
+
+        if (isPlausibleJwt(fromLocal)) {
+            // 兼容路径：login.html 登录后跳转、或其它标签页写入 → 回填内存/sessionStorage
+            this._memToken = fromLocal;
+            try { sessionStorage.setItem(this.tokenKey, fromLocal); } catch (e) { /* 存储不可用时忽略 */ }
+            return fromLocal;
+        }
+
+        // 存在但形态非法（被篡改/脏数据）：清除，避免带着坏令牌请求后端
+        console.warn('⚠️ 检测到非法格式的 auth_token，已清除');
+        localStorage.removeItem(this.tokenKey);
+        return null;
     }
 
     /**
@@ -284,6 +333,11 @@ export class AuthService {
      */
     saveToken(token, expiresIn) {
         const safeExpiresIn = Number.isFinite(Number(expiresIn)) ? Number(expiresIn) : 3600;
+
+        // DS-17: 内存 + sessionStorage 为主存储；localStorage 保留为兼容层
+        // （Storage.js/BackupRestore.js/AuditService.js 直接读、Router/SessionManager 依赖其 storage 事件做跨标签登出）
+        this._memToken = token;
+        try { sessionStorage.setItem(this.tokenKey, token); } catch (e) { /* 存储不可用时忽略 */ }
         localStorage.setItem(this.tokenKey, token);
 
         // 计算过期时间 (当前时间 + 过期时间)
@@ -301,10 +355,15 @@ export class AuthService {
 
     /**
      * 保存刷新 Token
+     * DS-17: refresh token 敏感性更高——仅存内存 + sessionStorage，不落 localStorage
+     * （无跨文件使用方直接读 localStorage['refresh_token']，可安全收紧）。
      * @param {string} refreshToken
      */
     saveRefreshToken(refreshToken) {
-        localStorage.setItem(this.refreshTokenKey, refreshToken);
+        this._memRefreshToken = refreshToken;
+        try { sessionStorage.setItem(this.refreshTokenKey, refreshToken); } catch (e) { /* 存储不可用时忽略 */ }
+        // 清理历史遗留的 localStorage 副本（旧版本写入的）
+        localStorage.removeItem(this.refreshTokenKey);
     }
 
     /**
@@ -312,13 +371,30 @@ export class AuthService {
      * @returns {string|null}
      */
     getRefreshToken() {
-        return localStorage.getItem(this.refreshTokenKey);
+        if (isPlausibleJwt(this._memRefreshToken)) return this._memRefreshToken;
+        const fromSession = sessionStorage.getItem(this.refreshTokenKey);
+        if (isPlausibleJwt(fromSession)) {
+            this._memRefreshToken = fromSession;
+            return fromSession;
+        }
+        // 兼容旧版本残留在 localStorage 的 refresh token（读到后迁移并删除源）
+        const legacy = localStorage.getItem(this.refreshTokenKey);
+        if (isPlausibleJwt(legacy)) {
+            this.saveRefreshToken(legacy);
+            return legacy;
+        }
+        return null;
     }
 
     /**
      * 清除所有认证信息
      */
     clearAuth() {
+        // DS-17: 同步清除内存态与 sessionStorage 副本
+        this._memToken = null;
+        this._memRefreshToken = null;
+        sessionStorage.removeItem(this.tokenKey);
+        sessionStorage.removeItem(this.refreshTokenKey);
         localStorage.removeItem(this.tokenKey);
         localStorage.removeItem(this.userKey);
         localStorage.removeItem(this.tokenExpiryKey);

@@ -6,6 +6,7 @@
  *   POST /api/guest/login                 访客登录（签发 guest 作用域 JWT）
  *   POST /api/guest/verify-token          校验访客令牌
  *   POST /api/guest/quick-access          P0-07 快速访问：无需凭证，签发只读限权 JWT（2h）
+ *   GET  /api/guest/stats                 BS-09 访客看板汇总统计（仅聚合，不返回记录明细）
  *   POST /api/guest-export-request/submit           提交导出申请
  *   GET  /api/guest-export-request/my-requests      查看我的申请
  *   GET  /api/guest-export-request/check-permission 查看导出权限状态
@@ -60,10 +61,18 @@ function makeGuestToken(guest, schoolCode, jwtSecret) {
 
 export function createGuestRoutes(userManager, prisma, jwtSecret) {
     const router = express.Router()
-    const { authenticateUser } = createAuthMiddleware(userManager, prisma)
+    const { authenticateUser, requireGuestReadOnly } = createAuthMiddleware(userManager, prisma)
+
+    const requireGuest = (req, res, next) => {
+        if (!req.user || req.user.role !== 'guest') {
+            return res.status(403).json({ error: '❌ 仅访客可访问' })
+        }
+        next()
+    }
 
     // 访客自注册
     router.post('/register', async (req, res) => {
+        let db = null  // H5: 提升到 try 外，避免 catch 块 ReferenceError
         try {
             const {
                 username,
@@ -82,14 +91,16 @@ export function createGuestRoutes(userManager, prisma, jwtSecret) {
                 return res.status(400).json({ error: '❌ 非法学校代码' })
             }
 
-            const db = createTenantClient(prisma, schoolCode)
+            db = createTenantClient(prisma, schoolCode)
             const exists = await db.guest.findUnique({ where: { username } })
             if (exists) {
                 return res.status(409).json({ error: '❌ 用户名已存在' })
             }
 
             const passwordHash = await bcryptjs.hash(password, 10)
-            const validUntil = new Date(Date.now() + Number(valid_days) * 24 * 3600 * 1000)
+            // H6: valid_days 上限 365 天，防止令牌近乎永久有效
+            const cappedDays = Math.min(Number(valid_days) || 30, 365)
+            const validUntil = new Date(Date.now() + cappedDays * 24 * 3600 * 1000)
 
             const guest = await db.guest.create({
                 data: {
@@ -107,8 +118,10 @@ export function createGuestRoutes(userManager, prisma, jwtSecret) {
             const token = makeGuestToken(guest, schoolCode, jwtSecret)
             return res.status(201).json({ success: true, token, guest: serializeGuest(guest) })
         } catch (error) {
-            if (error.code === 'P2002') {
-                const existing = await db.guest.findUnique({ where: { username } })
+            // H5: 防御性处理——db 在 try 块中赋值，P2002 重复键冲突需要回查，
+            // 若 db 在赋值前已抛异常（如 createTenantClient 失败），则 db 为 null。
+            if (error.code === 'P2002' && db) {
+                const existing = await db.guest.findUnique({ where: { username: req.body?.username } })
                 if (existing) {
                     const token = makeGuestToken(existing, schoolCode, jwtSecret)
                     return res.status(200).json({ success: true, token, guest: serializeGuest(existing), idempotent: true })
@@ -201,6 +214,79 @@ export function createGuestRoutes(userManager, prisma, jwtSecret) {
         } catch (err) {
             console.error('快速访问接口错误:', err)
             return res.status(500).json({ error: '快速访问失败' })
+        }
+    })
+
+    // BS-09: 访客看板汇总统计 —— 只返回聚合结果（总数 / 各可见模块计数 / 合格率），不含任何记录明细。
+    // 口径与员工端一致：按该校 visible_types 白名单聚合、强制排除 pathogen（requireGuestReadOnly 注入）。
+    // 合格率规则（后端复刻员工端简单口径）：tableware/pesticide/leanMeat/oil 看
+    // result_data.result 含"合格"且不含"不合格"；pathogen 不纳入统计。
+    const PASS_RULE_TYPES = new Set(['tableware', 'pesticide', 'leanMeat', 'oil'])
+    const STATS_TYPE_LABELS = {
+        tableware: '餐具洁净度检测',
+        pesticide: '果蔬农残检测',
+        oil: '食用油品质检测',
+        leanMeat: '肉、蛋农残检测'
+    }
+
+    router.get('/stats', authenticateUser, requireGuest, requireGuestReadOnly, async (req, res) => {
+        try {
+            const allowed = req.guestVisibleTypes || []
+            if (!allowed.length) {
+                return res.json({ success: true, data: { total: 0, byType: {}, visibleTypes: [] } })
+            }
+
+            // 各可见模块计数（groupBy 聚合，不取明细）
+            const grouped = await req.db.testRecord.groupBy({
+                by: ['test_type'],
+                _count: { _all: true },
+                where: { test_type: { in: allowed } }
+            })
+
+            const byType = {}
+            let total = 0
+            for (const t of allowed) {
+                byType[t] = { label: STATS_TYPE_LABELS[t] || t, count: 0, passCount: null, passRate: null }
+            }
+            for (const g of grouped) {
+                if (!byType[g.test_type]) continue
+                byType[g.test_type].count = g._count._all
+                total += g._count._all
+            }
+
+            // 合格率：DB 侧 JSON 聚合（M1：避免 findMany 全量加载 result_data 到 Node.js 内存）
+            const ruleTypes = allowed.filter(t => PASS_RULE_TYPES.has(t))
+            if (ruleTypes.length) {
+                const passRows = await req.db.$queryRawUnsafe(
+                    `SELECT "test_type", COUNT(*)::int AS "total",
+                     COUNT(*) FILTER (
+                       WHERE ("result_data"::jsonb ->> 'result') LIKE '%' || '合格' || '%'
+                       AND ("result_data"::jsonb ->> 'result') NOT LIKE '%' || '不合格' || '%'
+                     )::int AS "pass"
+                     FROM "TestRecord"
+                     WHERE "test_type" = ANY($1::text[])
+                     GROUP BY "test_type"`,
+                    ruleTypes
+                )
+                for (const row of passRows) {
+                    if (!byType[row.test_type]) continue
+                    byType[row.test_type].passCount = row.pass
+                    byType[row.test_type].passRate = row.total ? Math.round((row.pass / row.total) * 1000) / 10 : null
+                }
+            }
+
+            return res.json({
+                success: true,
+                data: {
+                    total,
+                    byType,
+                    visibleTypes: allowed,
+                    generatedAt: new Date().toISOString()
+                }
+            })
+        } catch (error) {
+            console.error('❌ Error building guest stats:', error)
+            return res.status(500).json({ error: '获取访客统计失败' })
         }
     })
 

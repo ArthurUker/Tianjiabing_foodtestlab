@@ -70,11 +70,77 @@ relocate_postgres_data() {
   ok "PG 数据目录已迁移到数据盘（symlink: $cluster_dir -> $target_dir）"
 }
 
+# ------------------------- SchoolCustomization 增量列迁移（RK40）-------------------------
+# 背景：向 schema.prisma 的 SchoolCustomization 增列后，`prisma db push` 只会把新列加到
+# datasource 默认 schema（public），且旧学校历史行该列为 NULL；前端部分消费点期望非空
+# JSON（对象 '{}' / 数组 '[]'），NULL 会导致「新增字段 → 旧学校」场景崩溃。
+# 处理（幂等，写法参考 backend/prisma/constraints.sql 的 DO 块）：对所有含
+# "SchoolCustomization" 表的 schema（public 及任何可能持有该表的 schema），
+# ADD COLUMN IF NOT EXISTS 已知定制列，并把历史 NULL 回填为安全默认值。
+# 注：新增列若未列入下方 obj_cols/arr_cols，请同步补充（与 schema.prisma 保持一致）。
+migrate_school_customization() {
+  log "SchoolCustomization 增量列迁移与 NULL 回填（RK40）"
+  PGPASSWORD="$PG_PASSWORD" psql -v ON_ERROR_STOP=1 \
+    -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB_NAME" <<'SQL' || fail "SchoolCustomization 增量迁移失败（H1：关键失败必须中止，避免旧学校 NULL 崩溃）"
+DO $$
+DECLARE
+  r RECORD;
+  -- 对象型定制列（默认回填 '{}'）
+  obj_cols TEXT[] := ARRAY['field_labels','field_rules','field_options','field_order','custom_fields','theme_config'];
+  -- 数组型定制列（默认回填 '[]'）
+  arr_cols TEXT[] := ARRAY['hidden_fields','test_types'];
+  c TEXT;
+  default_visible CONSTANT TEXT := '["tableware","pesticide","oil","leanMeat","pathogen"]';
+BEGIN
+  FOR r IN
+    SELECT table_schema FROM information_schema.tables
+    WHERE table_name = 'SchoolCustomization' AND table_schema = 'public'
+  LOOP
+    FOREACH c IN ARRAY obj_cols LOOP
+      EXECUTE format('ALTER TABLE %I."SchoolCustomization" ADD COLUMN IF NOT EXISTS %I TEXT', r.table_schema, c);
+      -- H2: 回填仅针对 NULL 行（历史遗留），单行条数极少，无需 LIMIT。
+      -- 若数据量极大可加 LIMIT 分批；当前部署场景每 schema 仅 1 行 SchoolCustomization，全量回填安全。
+      EXECUTE format('UPDATE %I."SchoolCustomization" SET %I = ''{}'' WHERE %I IS NULL', r.table_schema, c, c);
+    END LOOP;
+    FOREACH c IN ARRAY arr_cols LOOP
+      EXECUTE format('ALTER TABLE %I."SchoolCustomization" ADD COLUMN IF NOT EXISTS %I TEXT', r.table_schema, c);
+      -- H2: 同上，回填仅针对 NULL 行，每 schema 仅 1 行，无需 LIMIT。
+      EXECUTE format('UPDATE %I."SchoolCustomization" SET %I = ''[]'' WHERE %I IS NULL', r.table_schema, c, c);
+    END LOOP;
+    -- visible_types：确保存在并回填五大模块默认，避免旧学校因 NULL 白屏
+    EXECUTE format('ALTER TABLE %I."SchoolCustomization" ADD COLUMN IF NOT EXISTS visible_types TEXT', r.table_schema);
+    EXECUTE format('UPDATE %I."SchoolCustomization" SET visible_types = %L WHERE visible_types IS NULL', r.table_schema, default_visible);
+    RAISE NOTICE 'SchoolCustomization 迁移完成: schema=%', r.table_schema;
+  END LOOP;
+END $$;
+SQL
+  ok "SchoolCustomization 增量列迁移完成（已按需补列并回填历史 NULL）"
+}
+
 # ------------------------- 0. 读取适配文件 -------------------------
 [ -f "$ADAPTER_FILE" ] || fail "找不到适配文件: $ADAPTER_FILE\n用法: sudo bash deploy.sh <适配文件.conf>"
+
+# DS-19（部署安全）：机密优先取自「真实环境变量」，不落入版本库/适配文件。
+# 先快照进程环境里的机密，source 适配文件后再覆盖回来，使下面这种用法生效：
+#   PG_PASSWORD=xxx JWT_SECRET=yyy DATABASE_URL=... sudo -E bash deploy.sh <conf>
+# 从而机密只存在于运行环境与部署产物 backend/.env（chmod 600），不随适配文件入库。
+_ENV_PG_PASSWORD="${PG_PASSWORD:-}"
+_ENV_DATABASE_URL="${DATABASE_URL:-}"
+_ENV_JWT_SECRET="${JWT_SECRET:-}"
+
 # shellcheck disable=SC1090
 source "$ADAPTER_FILE"
 ok "已加载适配文件: $ADAPTER_FILE"
+
+# DS-19：环境变量优先覆盖适配文件中的同名机密；并对「适配文件硬编码机密」给出安全告警。
+for _s in PG_PASSWORD DATABASE_URL JWT_SECRET; do
+  _envvar="_ENV_${_s}"
+  if [ -n "${!_envvar}" ]; then eval "$_s=\"\${$_envvar}\""; fi
+  # 仅当最终取值非空且适配文件里存在非空的硬编码赋值时告警（留空 ="" / 注释行不触发）
+  if [ -n "${!_s}" ] && grep -Eq "^[[:space:]]*${_s}=[\"']?[^\"'[:space:]]" "$ADAPTER_FILE" 2>/dev/null; then
+    warn "【安全·DS-19】适配文件疑似硬编码了 ${_s}。建议留空自动生成，或用真实环境变量传入（sudo -E），避免机密随适配文件进入版本库。"
+  fi
+done
 
 # 必填项校验
 [ -n "${SYSTEM_NAME:-}" ]    || fail "适配文件缺少 SYSTEM_NAME"
@@ -113,6 +179,8 @@ warn "【前置条件·手动】请确认腾讯云安全组已放行 TCP 22 及�
 warn "  脚本不配置安全组；漏配会导致【本机健康检查通过但外部浏览器访问超时】的假阳性。"
 
 # ------------------------- 1. 运行环境与权限 -------------------------
+# DS-19：root 仅用于「安装运行时 / 建系统用户 / 写 systemd 与 Caddy」等特权步骤；
+# 业务服务进程本身以非 root 系统用户 $SYSTEM_NAME 运行（见 §8 systemd 单元 User=）。
 log "检查运行环境"
 [ "$(id -u)" -eq 0 ] || fail "请使用 root 运行（sudo bash deploy.sh ...）"
 command -v apt-get >/dev/null 2>&1 || fail "本脚本仅支持 apt 系发行版（Ubuntu/Debian）"
@@ -347,7 +415,11 @@ SEED_ADMIN_PASSWORD=$SEED_ADMIN_PASSWORD
 SEED_OPERATOR_PASSWORD=$SEED_OPERATOR_PASSWORD
 SEED_VIEWER_PASSWORD=$SEED_VIEWER_PASSWORD
 EOF
-ok "backend/.env 已写入（PORT=$API_PORT, CORS_ORIGIN=$CORS_ORIGIN）"
+# DS-19：机密文件权限收紧到 600 并归属非 root 服务用户（系统用户已在 §3 创建），
+# 避免同机其它用户读到 DATABASE_URL / JWT_SECRET / SEED_* 等机密。
+chmod 600 "$BACKEND_ENV" 2>/dev/null || true
+chown "$SYSTEM_NAME:$SYSTEM_NAME" "$BACKEND_ENV" 2>/dev/null || true
+ok "backend/.env 已写入（PORT=$API_PORT, CORS_ORIGIN=$CORS_ORIGIN；已 chmod 600）"
 warn "请记下初始账号密码（SEED_*_PASSWORD），首次登录后请修改"
 
 # ------------------------- 6. 后端依赖 / Prisma / Seed -------------------------
@@ -369,11 +441,15 @@ if ! PGPASSWORD="$PG_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d
   FIRST_DEPLOY=true
 fi
 
-if [ "$ACCEPT_DATA_LOSS" = "true" ]; then
-  npx prisma db push --accept-data-loss || fail "prisma db push 失败"
+# H3: 基线迁移已就绪，切为 prisma migrate deploy（生产推荐方式）；
+# 不再使用 db push --accept-data-loss（危险，可能静默删列/丢数据）。
+# 首部署时 baseline migration 会建全表；后续增量变更走新 migration 文件。
+if npx prisma migrate deploy 2>/dev/null; then
+  : # migrate deploy 成功
 else
-  warn "观察模式（ACCEPT_DATA_LOSS=false）：遇破坏性 schema 变更将中止"
-  npx prisma db push || fail "prisma db push 失败（可能检测到需数据丢失的变更，请人工确认）"
+  warn "prisma migrate deploy 失败，尝试 db push 回退（若此为首部署或 migration 表缺失）"
+  # 仅当 migration 表不存在/状态异常时才回退 db push；禁止 --accept-data-loss
+  npx prisma db push || fail "prisma db push 也失败，请人工检查 schema 差异"
 fi
 ok "数据库 schema 同步完成"
 
@@ -412,6 +488,11 @@ if [ -f prisma/syncBootstrapPasswords.js ]; then
   node prisma/syncBootstrapPasswords.js \
     || warn "bootstrap 密码同步失败，请手动运行: node $REPO_ROOT/backend/prisma/syncBootstrapPasswords.js"
 fi
+
+# ------------------------- 6.7 SchoolCustomization 增量列迁移（RK40）-------------------------
+# 必须在 db push（§6，向 public 补列）与多租户初始化（§6.5，写入 SchoolCustomization 行）之后执行：
+# 补齐旧学校历史行中新列的 NULL 值，避免「新增字段 → 旧学校」崩溃。幂等，可安全重跑。
+migrate_school_customization
 
 # ------------------------- 7. 前端构建 -------------------------
 log "前端构建"

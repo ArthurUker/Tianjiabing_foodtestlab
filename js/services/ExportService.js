@@ -2,6 +2,8 @@ import { StorageService } from '../core/Storage.js';  // ✅ 添加导入
 import { UINotification } from '../utils/UINotification.js';
 import { isRecordQualifiedByCustomFields } from '../utils/schoolCustomization.js';
 import { getLocalDateStr } from '../utils/dateUtil.js';
+// BS-12: 敏感自定义字段（姓名/手机等）导出前脱敏
+import { maskSensitive, getSensitiveMarkedCustomFields } from '../utils/fieldMasking.js';
 
 export class ExportService {
     constructor() {
@@ -400,7 +402,8 @@ export class ExportService {
                 const t = new Date(raw).getTime();
                 if (Number.isNaN(t)) {
                     if (matchedLogCount < 3) {
-                        console.warn(`⚠️ 无法解析的日期:`, raw, record);
+                        // DS-16: 不整条打印 record（可能含姓名/手机等 PII），只输出定位所需字段
+                        console.warn(`⚠️ 无法解析的日期:`, raw, `(record id: ${record.id ?? '未知'})`);
                     }
                     return false;
                 }
@@ -456,7 +459,9 @@ export class ExportService {
 
     _doPreviewReport(config) {
         const data = this.collectData(config);
-        console.log('📊 收集到的数据:', data);
+        // DS-16: 不 dump 全量记录（可能含姓名/手机等 PII），只打印各类型条数
+        console.log('📊 收集到的数据条数:',
+            Object.fromEntries(Object.entries(data).map(([k, v]) => [k, v.length])));
         
         // 统计数据
         let totalCount = 0;
@@ -599,17 +604,49 @@ export class ExportService {
             .replace(/'/g, '&#39;')
     }
 
+    /**
+     * BS-12: 获取该模块的学校自定义字段列定义（已标记 sensitiveType）。
+     * 标记入口在 js/utils/fieldMasking.js（injectCustomFields 之外的独立入口）。
+     */
+    _getCustomFieldColumns(type) {
+        try {
+            return getSensitiveMarkedCustomFields(type)
+                .filter(d => d && typeof d.name === 'string' && d.name);
+        } catch (e) {
+            return [];
+        }
+    }
+
+    /**
+     * BS-12: 格式化单个自定义字段值——敏感字段（姓名/手机/身份证/邮箱）脱敏后输出，
+     * 如 13812348000 → 138****8000。checkbox 布尔值转 是/否。
+     */
+    _formatCustomFieldValue(def, value) {
+        if (value === undefined || value === null || value === '') return '-';
+        if (typeof value === 'boolean') return value ? '是' : '否';
+        if (def.sensitiveType) return maskSensitive(value, def.sensitiveType);
+        return String(value);
+    }
+
     generateTableForType(type, records) {
         let html = '<div class="overflow-x-auto"><table class="w-full text-xs border-collapse border"><thead class="bg-gray-200"><tr>';
         
-        const headers = this.getTableHeaders(type);
-        headers.forEach(h => html += `<th class="border border-gray-300 p-2 font-semibold">${h}</th>`);
+        // BS-12: 报表附带学校自定义字段列，敏感列（姓名/手机等）值脱敏
+        const customDefs = this._getCustomFieldColumns(type);
+        const headers = [
+            ...this.getTableHeaders(type),
+            ...customDefs.map(d => d.label || d.name)
+        ];
+        headers.forEach(h => html += `<th class="border border-gray-300 p-2 font-semibold">${this._escapeHtml(h)}</th>`);
         html += '</tr></thead><tbody>';
         
         records.forEach((record, index) => {
             const bgClass = index % 2 === 0 ? 'bg-white' : 'bg-gray-50';
             html += `<tr class="${bgClass}">`;
-            const values = this.getTableValues(type, record);
+            const values = [
+                ...this.getTableValues(type, record),
+                ...customDefs.map(d => this._formatCustomFieldValue(d, record[d.name]))
+            ];
             values.forEach(v => html += `<td class="border border-gray-300 p-2">${this._escapeHtml(v) || '-'}</td>`);
             html += '</tr>';
         });

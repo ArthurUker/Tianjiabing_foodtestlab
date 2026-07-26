@@ -63,7 +63,7 @@ const prisma = new PrismaClient()
 const userManager = new UserManager(prisma, JWT_SECRET)
 
 // Initialize unified auth middleware
-const { authenticateUser: _authUser, authorizeAdmin: _authAdmin, authorizeRoles } = createAuthMiddleware(userManager, prisma)
+const { authenticateUser: _authUser, authorizeAdmin: _authAdmin, authorizeRoles, requireGuestReadOnly } = createAuthMiddleware(userManager, prisma)
 
 function parseAllowedOrigins() {
     if (!process.env.CORS_ORIGIN) {
@@ -145,6 +145,9 @@ const TYPE_CODE_RE = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/
 const CUSTOM_FIELD_TYPES = new Set(['text', 'number', 'date', 'select', 'textarea', 'checkbox'])
 const MAX_JSON_FIELD_BYTES = 200 * 1024 // 单字段序列化后上限 200KB
 
+// DS-09 核查结论（Logo SSRF）：后端从不抓取/下载 logoUrl —— 全仓无 fetch(logoUrl)/https.get(logoUrl)
+// 等出站请求；logo_url 仅作为字符串校验后存库，由前端 <img src> 渲染。SSRF 风险 N/A。
+// 本函数只做格式白名单校验：http(s) 限长 2048 / data:image 位图 base64 限 1MB，禁止 SVG（DS-12）。
 function isSafeLogoUrl(url) {
     if (typeof url !== 'string') return false
     if (/^https?:\/\//i.test(url)) return url.length <= 2048
@@ -1108,13 +1111,26 @@ app.post('/api/test-records', authenticateUser, requireEditorOrAbove, async (req
 })
 
 // 获取所有测试记录
-app.get('/api/test-records', authenticateUser, async (req, res) => {
+// 越权修复：guest 令牌原可读取所有模块记录（含 pathogen）。现经 requireGuestReadOnly
+// 注入 req.guestVisibleTypes（该校 visible_types ∩ 非 pathogen），在查询层强制过滤。
+app.get('/api/test-records', authenticateUser, requireGuestReadOnly, async (req, res) => {
     try {
         const { limit = 100, offset = 0, test_type, status } = req.query
 
         const where = {}
         if (test_type) where.test_type = test_type
         if (status) where.status = status
+
+        if (req.user?.role === 'guest') {
+            const allowed = req.guestVisibleTypes || []
+            if (test_type) {
+                if (!allowed.includes(test_type)) {
+                    return res.status(403).json({ error: '❌ 访客无权访问该检测模块' })
+                }
+            } else {
+                where.test_type = { in: allowed }
+            }
+        }
 
         const records = await req.db.testRecord.findMany({
             where,
@@ -1143,7 +1159,8 @@ app.get('/api/test-records', authenticateUser, async (req, res) => {
 
 // ====== Legacy Frontend Compatibility: /api/records/:tableName ======
 
-app.get('/api/records/:tableName', authenticateUser, async (req, res) => {
+// 越权修复：guest 只能读取该校 visible_types 白名单模块（强制排除 pathogen），见 requireGuestReadOnly
+app.get('/api/records/:tableName', authenticateUser, requireGuestReadOnly, async (req, res) => {
     try {
         const testType = normalizeRecordType(req.params.tableName)
         if (!testType) {
@@ -1448,7 +1465,8 @@ app.delete('/api/records/:tableName/:id', authenticateUser, requireEditorOrAbove
     }
 })
 
-app.get('/api/records/:tableName/:id', authenticateUser, async (req, res) => {
+// 越权修复：详情端点与列表同口径，guest 仅可读白名单模块（排除 pathogen）
+app.get('/api/records/:tableName/:id', authenticateUser, requireGuestReadOnly, async (req, res) => {
     try {
         const testType = normalizeRecordType(req.params.tableName)
         if (!testType) {
@@ -1477,7 +1495,8 @@ app.get('/api/records/:tableName/:id', authenticateUser, async (req, res) => {
 })
 
 // 获取单个测试记录
-app.get('/api/test-records/:id', authenticateUser, async (req, res) => {
+// 越权修复：无 :tableName 参数，取回后按 req.guestVisibleTypes 校验 test_type
+app.get('/api/test-records/:id', authenticateUser, requireGuestReadOnly, async (req, res) => {
     try {
         const { id } = req.params
 
@@ -1498,6 +1517,10 @@ app.get('/api/test-records/:id', authenticateUser, async (req, res) => {
 
         if (!record) {
             return res.status(404).json({ error: '记录不存在' })
+        }
+
+        if (req.user?.role === 'guest' && !(req.guestVisibleTypes || []).includes(record.test_type)) {
+            return res.status(403).json({ error: '❌ 访客无权访问该检测模块' })
         }
 
         res.json({

@@ -82,11 +82,26 @@ backend/
 │   ├── tenantClient.js       # per-schema 专属 PrismaClient（Schema-per-tenant 隔离核心）
 │   ├── tenantProvisioner.js  # 新学校 schema 初始化（provisionSchool）
 │   └── auditLog.js           # 统一审计写入门面（writeTenantAuditLog / writeSystemLog）
-└── middleware/
-    ├── authMiddleware.js     # 统一认证 / 授权工厂（authenticateUser / authorizeAdmin / authorizeRoles）
-    ├── validationMiddleware.js  # 限流 / 文本消毒
-    └── idempotencyMiddleware.js # 幂等（records API）
+├── middleware/
+│   ├── authMiddleware.js     # 统一认证 / 授权工厂（authenticateUser / authorizeAdmin / authorizeRoles）
+│   ├── validationMiddleware.js  # 限流 / 文本消毒
+│   └── idempotencyMiddleware.js # 幂等（records API）
+└── scripts/                  # 一次性迁移 / 修复 / 导入脚本（规范见 scripts/README.md）
 ```
+
+---
+
+## 迁移脚本规范（RK50）
+
+一次性数据迁移 / 修复 / 导入脚本统一放在 [`scripts/`](./scripts/README.md)，要求：
+
+- **命名**：`NNN_description.mjs`（三位递增序号，ESM）；
+- **试运行**：必须支持 `--dry-run`（只打印计划不写库），危险写操作需显式 `--yes`；
+- **日志**：带 `[NNN_xxx]` 前缀的进度日志 + 结束汇总（成功/跳过/失败），失败非 0 退出；
+- **幂等**：重复执行不产生重复数据（确定性键位判重）；
+- **多租户**：操作租户 schema 必须经 `lib/tenantClient.js` 的 `createTenantClient`，不要依赖 `SET search_path`。
+
+完整规范与脚本模板见 [`scripts/README.md`](./scripts/README.md)。
 
 ---
 

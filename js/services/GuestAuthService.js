@@ -5,10 +5,32 @@
 
 import { extractSchoolCode } from '../utils/schoolCode.js'
 
+// DS-17: JWT 形态校验（三段 base64url），读取处统一校验
+function isPlausibleJwt(token) {
+    return typeof token === 'string'
+        && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token);
+}
+
 export class GuestAuthService {
     constructor(apiBaseUrl = '') {
         // 默认走同源 API，适配腾讯云 Nginx 反向代理。
         this.apiBaseUrl = apiBaseUrl || '';
+        // DS-17: 内存态 token 作为第一优先读取源；sessionStorage 第二；
+        // localStorage 仅作兼容层保留（PermissionService/Storage.js/BackupRestore.js/
+        // ExportService.js/Router.js 等现有使用方直接读 localStorage['guest_token']）。
+        this._memToken = null;
+    }
+
+    /**
+     * DS-17: 统一保存访客会话（内存 + sessionStorage 为主，localStorage 兼容层）
+     * @param {string} token
+     * @param {object} guest
+     */
+    _storeGuestSession(token, guest) {
+        this._memToken = token;
+        try { sessionStorage.setItem('guest_token', token); } catch (e) { /* 存储不可用时忽略 */ }
+        localStorage.setItem('guest_token', token);
+        localStorage.setItem('current_guest', JSON.stringify(guest));
     }
 
     /**
@@ -43,10 +65,9 @@ export class GuestAuthService {
                 return { success: false, error: data.error };
             }
 
-            // 保存 token 和访客信息到 localStorage
+            // 保存 token 和访客信息（DS-17：内存+sessionStorage 优先）
             if (data.token) {
-                localStorage.setItem('guest_token', data.token);
-                localStorage.setItem('current_guest', JSON.stringify(data.guest));
+                this._storeGuestSession(data.token, data.guest);
             }
 
             return { success: true, token: data.token, guest: data.guest };
@@ -77,10 +98,9 @@ export class GuestAuthService {
                 return { success: false, error: data.error };
             }
 
-            // 保存 token 和访客信息到 localStorage
+            // 保存 token 和访客信息（DS-17：内存+sessionStorage 优先）
             if (data.token) {
-                localStorage.setItem('guest_token', data.token);
-                localStorage.setItem('current_guest', JSON.stringify(data.guest));
+                this._storeGuestSession(data.token, data.guest);
             }
 
             return { success: true, token: data.token, guest: data.guest };
@@ -96,7 +116,7 @@ export class GuestAuthService {
      */
     async verifyToken() {
         try {
-            const token = localStorage.getItem('guest_token');
+            const token = this.getToken();
             if (!token) {
                 return { valid: false };
             }
@@ -134,16 +154,47 @@ export class GuestAuthService {
 
     /**
      * 获取访客 Token
+     * DS-17: 读取优先级 内存 → sessionStorage → localStorage（兼容层），逐层做 JWT 形态校验
      * @returns {string|null}
      */
     getToken() {
-        return localStorage.getItem('guest_token');
+        const fromLocal = localStorage.getItem('guest_token');
+
+        // 兼容层副本不存在（未登录/已在其它标签页登出）→ 同步失效内存/session 副本
+        if (!fromLocal) {
+            this._memToken = null;
+            try { sessionStorage.removeItem('guest_token'); } catch (e) { /* 存储不可用时忽略 */ }
+            return null;
+        }
+
+        if (isPlausibleJwt(this._memToken)) return this._memToken;
+
+        const fromSession = sessionStorage.getItem('guest_token');
+        if (isPlausibleJwt(fromSession)) {
+            this._memToken = fromSession;
+            return fromSession;
+        }
+
+        if (isPlausibleJwt(fromLocal)) {
+            // 兼容路径：login.html 注册/登录后跳转 → 回填内存/sessionStorage
+            this._memToken = fromLocal;
+            try { sessionStorage.setItem('guest_token', fromLocal); } catch (e) { /* 存储不可用时忽略 */ }
+            return fromLocal;
+        }
+
+        // 存在但形态非法（被篡改/脏数据）：清除
+        console.warn('⚠️ 检测到非法格式的 guest_token，已清除');
+        localStorage.removeItem('guest_token');
+        return null;
     }
 
     /**
      * 访客登出
      */
     logout() {
+        this._memToken = null;
+        sessionStorage.removeItem('guest_token');
+        sessionStorage.removeItem('current_guest');
         localStorage.removeItem('guest_token');
         localStorage.removeItem('current_guest');
     }
@@ -194,8 +245,7 @@ export class GuestAuthService {
             if (!response.ok) return false
             const data = await response.json()
             if (data.token) {
-                localStorage.setItem('guest_token', data.token)
-                localStorage.setItem('current_guest', JSON.stringify(data.guest))
+                this._storeGuestSession(data.token, data.guest)
                 console.log('✅ 快速访问模式已激活（后端签发 JWT）')
                 return true
             }
