@@ -50,12 +50,12 @@
 
 | 阶段 | 待办风险编号（摘要） | 说明 |
 |---|---|---|
-| Phase 1 认证/安全(剩余) | DS-08、DS-09、DS-11、DS-16、DS-17、DS-18、DS-19 | 登出全量吊销、refresh 轮换、id_token 作用域收敛、部分超时/代理头未专门落地 |
+| Phase 1 认证/安全(剩余) | DS-08、DS-09、DS-11、DS-16、DS-17、DS-18、DS-19 | 登出全量吊销、refresh 轮换等未专门落地；**DS-08(CSRF/SameSite)、DS-11(预览 iframe postMessage 源校验) 经代码核查不适用**：认证为 `Authorization` header 模式（无 Cookie，CSRF 风险低），预览用同源 `contentDocument` 直接操作 DOM 而非 `postMessage`（index.html 无 message 监听器） |
 | Phase 2 数据基础(剩余) | D-08 | TestRecord↔SchoolCustomization 无外键（设计取舍，建议文档化） |
 | Phase 4 一致性校验(剩余) | CR-13(时区标准化)、CR-14(跨天统计边界) | 未做 |
 | Phase 5 运维/可观测(剩余) | **RK30、RK40、RK46、RK49**(+RK41、RK42) | 仍待做：定制配置备份、部署脚本列迁移、迁移收敛到 `prisma migrate`、降级监控 cron（需活体 DB 验证） |
-| Phase 6 层级B(剩余) | **RK33、XR-02、XR-03、XR-05** | 未做：动态预览复用/登录页定制/触摸排序；动态导航与统一注册中心/初始化竞态已在本轮完成（见第三批） |
-| Phase 8 报表/体验(剩余) | BS-09(访客看板暂无统计逻辑)、BS-12、XR-03、XR-04 | 部分未做 |
+| Phase 6 层级B(剩余) | **RK33、XR-02、XR-05** | 未做：动态预览复用/触摸排序；动态导航与统一注册中心/初始化竞态已在本轮完成（见第三批）；登录页定制(**XR-03**) 已在 `login.html` `applySchoolTheme` 实现（校名/Logo/主题色） |
+| Phase 8 报表/体验(剩余) | BS-09(访客看板暂无统计逻辑)、BS-12、XR-04 | 部分未做 |
 | Phase 9 无障碍(剩余) | **RK43** | reorderFormCells 无障碍（可随 XR-05 触摸排序一并补） |
 | Phase 10 可维护性(剩余) | **RK50、RK51** | 代码拆分/OpenAPI 细化未做 |
 
