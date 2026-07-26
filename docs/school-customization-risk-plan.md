@@ -90,19 +90,29 @@
 | **M5** | `deploy.sh:95` | 迁移遍历多余schema（应仅public） | 加schema过滤 |
 | **M6** | `index.html:179-218` | 完全重复的DOMContentLoaded回调 | 删除第二个 |
 
+### ✅ 审阅遗留修复验证（2026-07-26：H1-H6 已确认落地）
+
+> 审阅发现的 6 个高严重问题经逐行验证，**均在 5 窗口代码中已修复**，无需额外改动：
+> - H1 ✅ `deploy.sh:84` — `|| fail` 替换了原 `return 0`
+> - H2 ✅ `deploy.sh:101-107` — 已加注释说明每 schema 仅 1 行无需 LIMIT
+> - H3 ✅ `deploy.sh:447` — 优先 `prisma migrate deploy`，仅失败时回退 db push
+> - H4 ✅ `BackupRestore.js:768` — `!backupCode` 时拒绝恢复并弹 warn
+> - H5 ✅ `guestRoutes.js:123` — catch 块加 `&& db` 守卫
+> - H6 ✅ `guestRoutes.js:102` — `Math.min(Number(valid_days)||30, 365)` 已将上限锁为 365 天
+
 ### ⬜ 剩余真正待办（审阅后精简）
 
 | 阶段 | 待办 | 说明 |
 |---|---|---|
-| Phase 5 | **H1/H2/H3修复** + RK41、RK42 | deploy.sh加固 + 原待办 |
-| 审阅遗留 | **H1-H6优先** / M1-M6下迭代 | 见上方 |
+| Phase 5 | RK41(空SCHOOL_CODES)、RK42(build-static) | 原待办，与本次窗口无关 |
+| 审阅遗留 | M1-M6（中严重6项，下迭代修） | 见上方中严重度表格 |
 
-### 🚀 部署提醒（执行未完成项前必读）
-1. **优先修复 H1-H6**（见上表）后再合并到 main 分支。
-2. **H3修复后**切换到 `prisma migrate deploy` 流程（基线文件 `backend/prisma/migrations/20260726000000_baseline/` 已就绪）。
+### 🚀 部署提醒（合并前必读）
+1. ~~H1-H6 已全部验证修复~~（见上节）。
+2. 生产部署切换为 `prisma migrate deploy` 流程（H3 已落地）。
 3. `constraints.sql` 需按文件头说明对各租户 schema 执行一次（status 等 CHECK）。
 4. 生产环境建议设置 `JWT_REFRESH_SECRET`（否则刷新令牌派生自 access 密钥）。
-5. **集成测试需在活体 PostgreSQL 上运行**，本轮未跑（CI 环境无活体 PG）。
+5. **集成测试需在活体 PostgreSQL 上运行**，本轮未跑。
 
 ---
 
