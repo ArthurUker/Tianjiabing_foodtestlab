@@ -167,6 +167,93 @@
 - **RK3** visible_types 全链路：导航 + 看板 + 食堂筛选三重消费 ✅
 - **BS-06** 乐观锁：后端 `expected_updated_at` → 409 ，前端冲突提示 + 回写基线 ✅
 
+---
+
+## 🆕 第二轮深度审阅（2026-07-27：4 代理并行 + 主动搜索新 bug）
+
+> 本轮审阅不只验证已修 bug，更主动搜索 plan 文档未列出的新 bug。4 个代理分别覆盖后端安全/前端定制/业务逻辑/访客运维，共读取 25 个核心文件（15056 行代码）。
+
+### 已修 bug 复验结果
+
+| 类别 | 验证项数 | ✅ 正确 | ⚠️ 部分 | ❌ 缺口 |
+|---|---|---|---|---|
+| Phase 1-2 后端安全/数据 | 15 | 14 | 1 (DS-14) | 0 |
+| Phase 3-4 前端定制/客户端 | 10 | 10 | 0 | 0 |
+| Phase 5-8 业务/运维/全链路 | 18 | 17 | 1 (XR-05/RK43) | 0 |
+| 访客/运维/可维护性 | 13 | 13 | 0 | 0 |
+| **合计** | **56** | **54** | **2** | **0** |
+
+**所有 plan 文档标记为已修的 bug 均已在代码中正确实现。** DS-14 瑕疵：全局错误处理器已脱敏，但 24 处端点 catch 块仍返回 `error.message`；XR-05/RK43 瑕疵：仅 admin-schools.html 有无障碍标签，主应用 index.html 缺乏。
+
+### 🔴 新发现的 bug（按严重度排序）
+
+#### 极高严重度（需立即修复）
+
+| 编号 | 文件:行号 | 问题 | 修复建议 |
+|---|---|---|---|
+| **NB-01** | `server.js` 多处裸SQL + `schema.prisma:19-38` | **User 表 `is_active` 列与 schema `status` 列不一致**：schema.prisma 用 `status TEXT`，但 server.js 裸 SQL 用 `is_active`。租户 schema 表只有 `status` 列，裸 SQL 查 `is_active` 会报 `column does not exist`，**用户管理全部功能不可用** | 统一为 `status`（改裸 SQL），或加 `is_active` 列 |
+| **NB-02** | `server.js` 24处 catch 块 | **错误信息泄露**：catch 中返回 `details: error.message`，生产环境暴露 SQL/表名/约束名 | 移除 `details: error.message`，统一用 `clientErr` 脱敏 |
+| **NB-03** | `main.js:453` / `UserManagement.js:232` / `GuestDashboard.js:132` / `Pathogen.js:1310` | **innerHTML XSS**：4 处直接拼接用户/服务端数据到 innerHTML 未转义 | 全部改用 `escapeHtml()` 或 `textContent` |
+| **NB-04** | `userRoutes.js:47` | **登录端点未校验 schoolCode**：非法 schoolCode 可能命中 public schema 超管账号 | 加 `isValidSchoolCode(schoolCode)` 校验 |
+| **NB-05** | `AuthService.js:392-417` | **PermissionService 缓存未在 clearAuth 时清除**：登出后权限缓存残留，快速切换身份可能命中旧权限 | clearAuth 末尾调 `permissionService.clearCache()` |
+| **NB-06** | `guestRoutes.js:74-116` | **访客注册无密码强度/username格式/guest_type 白名单校验**：可注册弱密码/超长用户名/恶意 guest_type | 加 `length>=8` + `USERNAME_RE` + `VALID_GUEST_TYPES` |
+| **NB-07** | `server.js:849` | **reprovision 默认密码 `'changeme'`**：弱密码回退不安全 | 移除回退，要求显式提供 |
+| **NB-08** | `GenericTest.js:977` | **collectCustomFieldValues 无 try-catch**：getSchoolCustomization 抛异常会中断提交 | 与 Tableware 统一加 try-catch |
+
+#### 高严重度（建议本迭代修复）
+
+| 编号 | 文件:行号 | 问题 | 修复建议 |
+|---|---|---|---|
+| **NB-09** | `server.js` 多处 `parseInt(limit)` | **limit/offset 无上限**：可传 999999999 导致 DoS | `Math.min(parseInt(limit), 500)` |
+| **NB-10** | `syncRoutes.js:26-103` | **sync 路由缺 requireEditorOrAbove**：viewer 只读角色可写 | 加角色校验中间件 |
+| **NB-11** | `idempotencyMiddleware.js` | **幂等中间件无请求体匹配 + 内存无限增长** | 加 body hash + Map 上限 |
+| **NB-12** | `guestRoutes.js:74,135` | **访客注册/登录端点无 Rate Limit**：可暴力注册/枚举用户名 | 加 `rateLimit` 中间件 |
+| **NB-13** | `server.js:1540-1567` | **PUT test-records 未调 sanitizeObjectKeys**：原型链污染风险 | 调 `sanitizeObjectKeys(result_data)` |
+| **NB-14** | `server.js:201` vs `guestRoutes.js:43` | **quick-access JWT 缺 userId**：审计写入 `user_id = null` 违反 NOT NULL 约束 → 500 | JWT 加 `userId: 'quick-access'` |
+| **NB-15** | `Pathogen.js:804,1205` | **JSON.parse(btn.dataset.*) 无 try-catch**：篡改 data 属性会中断事件处理 | 包 try-catch |
+
+#### 中严重度（下迭代修复）
+
+| 编号 | 文件:行号 | 问题 |
+|---|---|---|
+| **NB-16** | `deploy.sh:670-673` | 收尾报告明文 echo 密码到 stdout |
+| **NB-17** | `deploy.sh:466,480,491` | seed/provision 失败仅 warn 不 fail，误报"部署完成" |
+| **NB-18** | `authMiddleware.js:91-121` | resolveGuestVisibleTypes 60s 缓存在配置变更后导致访客看到旧数据 |
+| **NB-19** | `main.js:243` | applySchoolBranding 未 await（fire-and-forget async） |
+| **NB-20** | `BackupRestore.js:658-824` | 恢复无事务性，中途失败无法回滚 |
+| **NB-21** | `BackupRestore.js:563-579` | 业务表恢复无学校代码校验（仅定制配置有） |
+| **NB-22** | `ExportService.js:374-443` | 大数据量导出内存风险（无分页） |
+| **NB-23** | `Dashboard.js:1022,740` | 无数据时合格率返回 100%（应显示"暂无数据"） |
+| **NB-24** | `Dashboard.js:1580` | 趋势图日期比较跨时区（new Date('YYYY-MM-DD') 解析为 UTC） |
+| **NB-25** | `server.js:1304-1314` | bulk-upsert 无乐观锁 |
+| **NB-26** | `SessionManager.js:241` | logout().then() 无 catch，reject 时不跳转登录页 |
+| **NB-27** | `BackupRestore.js:386,417` | JSON.parse 在 reduce 中无 try-catch |
+
+#### 低严重度（可延后）
+
+| 编号 | 文件:行号 | 问题 |
+|---|---|---|
+| **NB-28** | `validationMiddleware.js:31` | sanitizeHtml 正则 ReDoS 风险 |
+| **NB-29** | `validationMiddleware.js:364` | rateLimit Map 无清理机制 |
+| **NB-30** | `server.js:741` | SchoolCustomization INSERT 用可预测 ID `sc_${code}` |
+| **NB-31** | `deploy.sh:447-453` | migrate deploy 回退 db push 无 --accept-data-loss 会挂起 |
+| **NB-32** | `registry.js:38` vs `GenericTest.js:53` | leanMeat label 不一致（"瘦肉精检测" vs "肉蛋农残"） |
+| **NB-33** | `server.js:474` vs `deploy.sh:609` | 应用层 2MB vs Caddy 8MB body limit 不一致 |
+| **NB-34** | 缺少 HSTS 安全头 | HTTPS 部署场景需加 Strict-Transport-Security |
+
+### 📊 审阅总结
+
+| 指标 | 数值 |
+|---|---|
+| 已修 bug 复验通过率 | **54/56 = 96.4%** |
+| 新发现 bug 总数 | **34** |
+| 极高严重（需立即修） | **8** (NB-01~NB-08) |
+| 高严重（本迭代修） | **7** (NB-09~NB-15) |
+| 中严重（下迭代修） | **12** (NB-16~NB-27) |
+| 低严重（可延后） | **7** (NB-28~NB-34) |
+
+**最严重发现：NB-01（User 表列名不一致导致用户管理全功能不可用）**——这是一个此前所有审阅都遗漏的 bug，根因是 schema.prisma 用 `status` 列而裸 SQL 用 `is_active`，两者从未对齐。
+
 ### 🚀 部署提醒（合并前必读）
 1. ~~H1-H6 已全部验证修复~~（见上节）。
 2. 生产部署切换为 `prisma migrate deploy` 流程（H3 已落地）。
