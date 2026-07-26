@@ -44,7 +44,15 @@
 | Phase 6 层级B(部分) | **RK3** ✅(主应用消费 `visible_types`→导航按钮与内容区显隐)、**RK32** ✅(统一模块注册中心)、**RK34** ✅(注册中心驱动导航与管理端预览)、**RK36** ✅(配置先于模块初始化应用，消除竞态) | `js/modules/registry.js` 单一事实来源（`MODULE_REGISTRY`/`getAllModules`/`getNavTargetForModule`）；`schoolCustomization.js` 新增 `getVisibleTypes`/`applyVisibleTypesToNav`；`main.js` 配置就绪后调用 `applyVisibleTypesToNav` 并 `router.updateNavigationByPermission()` 重新施加权限；`admin-schools.html` 改用注册中心派生 `MODULE_INFO`/导航映射/预览映射 |
 | Phase 4 一致性 | **CR-06** ✅(多 tab 配置同步) | `schoolCustomization.js` `onSchoolConfigChanged`（订阅 `storage` 事件）；`main.js` 注册回调重应用可见性/标签/校徽/权限 |
 
-> 说明：RK3 本轮完成**导航级**消费；看板模块卡片/概览区块按 `visible_types` 隐藏（RK3 看板部分）仍待做。
+### ✅ 本轮新增完成（2026-07-26 第四批：看板 visible_types + 时区/跨天 + 拖拽无障碍）
+
+| 阶段 | 新增完成风险编号 | 落地证据 |
+|---|---|---|
+| Phase 6 层级B | **RK3** ✅(看板部分：模块统计卡片按 `visible_types` 显隐、总计仅累加可见模块、食堂筛选器仅收集可见模块) | `js/modules/Dashboard.js` 新增 `getDashboardVisibleTypes`；卡片容器加 `data-module-card`；`renderDashboard`/`initCanteenFilter`/`calculateCanteenPassRate` 按可见集过滤 |
+| Phase 4 一致性 | **CR-13** ✅(时区标准化)、**CR-14** ✅(跨天统计边界) | 新增 `js/utils/dateUtil.js`（`getLocalDateStr`/`getLocalMonthStr`/`startOfLocalDay`/`endOfLocalDay`/`isWithinLocalDayRange`）；`Dashboard.js`/`Pathogen.js`/`SampleDataGenerator.js`/`ExportService.js` 改用本地时区日期，当日/当月/区间筛选以本地时区边界为准 |
+| Phase 6 层级B + Phase 9 | **XR-05** ✅(触摸排序)、**RK43** ✅(无障碍) | `admin-schools.html` 字段行增加上/下移动按钮（触摸可点）+ 键盘方向键重排 + `role`/`aria-label`（零依赖，不引入外部库） |
+
+> 说明：RK3 导航级与看板级消费均已完成，`visible_types` 已全链路生效。
 
 ### ⬜ 仍待实施（未完成）
 
@@ -52,11 +60,11 @@
 |---|---|---|
 | Phase 1 认证/安全(剩余) | DS-08、DS-09、DS-11、DS-16、DS-17、DS-18、DS-19 | 登出全量吊销、refresh 轮换等未专门落地；**DS-08(CSRF/SameSite)、DS-11(预览 iframe postMessage 源校验) 经代码核查不适用**：认证为 `Authorization` header 模式（无 Cookie，CSRF 风险低），预览用同源 `contentDocument` 直接操作 DOM 而非 `postMessage`（index.html 无 message 监听器） |
 | Phase 2 数据基础(剩余) | D-08 | TestRecord↔SchoolCustomization 无外键（设计取舍，建议文档化） |
-| Phase 4 一致性校验(剩余) | CR-13(时区标准化)、CR-14(跨天统计边界) | 未做 |
+| Phase 4 一致性校验(剩余) | — | CR-13/CR-14 已完成（见第四批）；其余一致性项评估中 |
 | Phase 5 运维/可观测(剩余) | **RK30、RK40、RK46、RK49**(+RK41、RK42) | 仍待做：定制配置备份、部署脚本列迁移、迁移收敛到 `prisma migrate`、降级监控 cron（需活体 DB 验证） |
-| Phase 6 层级B(剩余) | **RK33、XR-02、XR-05** | 未做：动态预览复用/触摸排序；动态导航与统一注册中心/初始化竞态已在本轮完成（见第三批）；登录页定制(**XR-03**) 已在 `login.html` `applySchoolTheme` 实现（校名/Logo/主题色） |
+| Phase 6 层级B(剩余) | **RK33、XR-02** | 未做：动态预览复用；触摸排序(XR-05)与无障碍(RK43)已完成（见第四批） |
 | Phase 8 报表/体验(剩余) | BS-09(访客看板暂无统计逻辑)、BS-12、XR-04 | 部分未做 |
-| Phase 9 无障碍(剩余) | **RK43** | reorderFormCells 无障碍（可随 XR-05 触摸排序一并补） |
+| Phase 9 无障碍(剩余) | — | RK43 已随 XR-05 一并完成（见第四批）；其余无障碍项评估中 |
 | Phase 10 可维护性(剩余) | **RK50、RK51** | 代码拆分/OpenAPI 细化未做 |
 
 ### 🚀 部署提醒（执行未完成项前必读）

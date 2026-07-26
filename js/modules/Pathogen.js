@@ -7,6 +7,7 @@ import { GuestAuthService } from '../services/GuestAuthService.js';
 import { calculatePathogenRisk, isPositiveResult } from '../utils/pathogenRisk.js';
 import { auditService } from '../services/AuditService.js';
 import { permissionService } from '../services/PermissionService.js';
+import { getLocalDateStr } from '../utils/dateUtil.js';
 
 const storage = new StorageService('pathogen');
 let currentPage = 1;
@@ -404,7 +405,7 @@ function parseDetectionReport(text) {
     const riskAssessment = calculatePathogenRisk(positiveList, allTestItems);
 
     return {
-        testDate: dateMatch ? formatDateStandard(dateMatch[1]) : new Date().toISOString().split('T')[0],
+        testDate: dateMatch ? formatDateStandard(dateMatch[1]) : getLocalDateStr(new Date()),
         sampleId: idMatch ? idMatch[1] : `Unknown-${Date.now()}`,
         canteen: canteen,
         sampleType: projectName.includes('水') ? '水样' : '食品/环境样本',
@@ -424,7 +425,7 @@ function parseDetectionReport(text) {
 function formatDateStandard(dateStr) {
     const date = new Date(dateStr.replace(/年|月/g, '-').replace(/日/g, ''));
     if (isNaN(date.getTime())) return dateStr;
-    return date.toISOString().split('T')[0];
+    return getLocalDateStr(date);
 }
 
 async function handleDeleteRecord(recordId) {

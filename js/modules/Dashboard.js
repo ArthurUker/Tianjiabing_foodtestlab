@@ -8,7 +8,9 @@ import { UINotification } from '../utils/UINotification.js';
 import { NetworkHelper } from '../utils/NetworkHelper.js';
 import { calculatePathogenRisk } from '../utils/pathogenRisk.js';
 import { auditService } from '../services/AuditService.js';
-import { isRecordQualifiedByCustomFields } from '../utils/schoolCustomization.js';
+import { isRecordQualifiedByCustomFields, getVisibleTypes, getSchoolCustomization } from '../utils/schoolCustomization.js';
+import { extractSchoolCode } from '../utils/schoolCode.js';
+import { getLocalDateStr, getLocalMonthStr, startOfLocalDay, endOfLocalDay } from '../utils/dateUtil.js';
 
 const services = {
     tableware: new StorageService('tableware'),
@@ -19,6 +21,17 @@ const services = {
 };
 
 const DEFAULT_CANTEENS = ['一食堂', '二食堂', '三食堂'];
+
+// RK3：看板应尊重该校 visible_types——未开启的模块不显示统计卡片且不计入总计。
+// 缺省回退到全部 5 个模块（与注册中心默认可见集一致）。
+function getDashboardVisibleTypes() {
+    try {
+        const types = getVisibleTypes(getSchoolCustomization(extractSchoolCode()));
+        return Array.isArray(types) && types.length ? types : ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'];
+    } catch (e) {
+        return ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'];
+    }
+}
 
 // 全局图表对象
 let trendChart, canteenChart;
@@ -56,7 +69,7 @@ export function initDashboard() {
         
         const monthFilterEl = document.getElementById('monthFilter');
         if (monthFilterEl) {
-            monthFilterEl.value = now.toISOString().substring(0, 7);
+            monthFilterEl.value = getLocalMonthStr(now);
         }
         
         // ✅ 初始化周选择器默认值
@@ -183,7 +196,7 @@ export function initDashboard() {
 // ✅ 新增：初始化食堂筛选器
 function initCanteenFilter() {
     const canteenSet = new Set();
-    const types = ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'];
+    const types = getDashboardVisibleTypes();
     const canteenFilter = document.getElementById('canteenFilter');
     const selectedBefore = canteenFilter?.value || 'all';
     
@@ -305,7 +318,7 @@ async function exportDashboardToPDF() {
         const imgData = canvas.toDataURL('image/png');
         
         pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
-        pdf.save(`数据看板_${new Date().toISOString().split('T')[0]}.pdf`);
+        pdf.save(`数据看板_${getLocalDateStr(new Date())}.pdf`);
         
         // 记录审计日志
         await auditService.log(
@@ -375,7 +388,7 @@ function createDashboardStructure() {
             <!-- 1. 统计卡片区域 -->
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-6 mb-6">
                 <!-- 餐具 -->
-                <div class="bg-gradient-to-br from-blue-400 to-blue-600 rounded-lg p-4 text-white shadow">
+                <div class="bg-gradient-to-br from-blue-400 to-blue-600 rounded-lg p-4 text-white shadow" data-module-card="tableware">
                     <div class="flex items-center justify-between">
                         <div>
                             <p class="text-sm opacity-90" data-title-key="dash_tableware">餐具洁净度检测</p>
@@ -386,7 +399,7 @@ function createDashboardStructure() {
                     </div>
                 </div>
                 <!-- 农残 -->
-                <div class="bg-gradient-to-br from-green-400 to-green-600 rounded-lg p-4 text-white shadow">
+                <div class="bg-gradient-to-br from-green-400 to-green-600 rounded-lg p-4 text-white shadow" data-module-card="pesticide">
                     <div class="flex items-center justify-between">
                         <div>
                             <p class="text-sm opacity-90" data-title-key="dash_pesticide">果蔬农残检测</p>
@@ -397,7 +410,7 @@ function createDashboardStructure() {
                     </div>
                 </div>
                 <!-- 食用油 -->
-                <div class="bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-lg p-4 text-white shadow">
+                <div class="bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-lg p-4 text-white shadow" data-module-card="oil">
                     <div class="flex items-center justify-between">
                         <div>
                             <p class="text-sm opacity-90" data-title-key="dash_oil">食用油品质快检</p>
@@ -408,7 +421,7 @@ function createDashboardStructure() {
                     </div>
                 </div>
                 <!-- 病原体 -->
-                <div class="bg-gradient-to-br from-purple-400 to-purple-600 rounded-lg p-4 text-white shadow">
+                <div class="bg-gradient-to-br from-purple-400 to-purple-600 rounded-lg p-4 text-white shadow" data-module-card="pathogen">
                     <div class="flex items-center justify-between">
                         <div>
                             <p class="text-sm opacity-90" data-title-key="dash_pathogen">食源性细菌/病毒</p>
@@ -441,7 +454,7 @@ function createDashboardStructure() {
             </div>
             
             <!-- 瘦肉精分类统计卡片 -->
-            <div class="mb-6">
+            <div class="mb-6" data-module-card="leanMeat">
                 <h3 class="font-semibold text-gray-800 mb-3" data-title-key="dash_leanMeat">肉、蛋农残检测</h3>
                 <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                     <!-- 猪肉 -->
@@ -619,10 +632,10 @@ function loadDashboardData() {
     
     switch (filterType) {
         case 'day':
-            const day = document.getElementById('dayFilter').value || now.toISOString().split('T')[0];
-            startDate = new Date(day);
-            endDate = new Date(day);
-            endDate.setHours(23, 59, 59, 999);
+            const day = document.getElementById('dayFilter').value || getLocalDateStr(now);
+            // CR-14：以本地时区当日边界为准，避免 YYYY-MM-DD 被按 UTC 解析导致跨天错位
+            startDate = startOfLocalDay(new Date(day));
+            endDate = endOfLocalDay(new Date(day));
             document.getElementById('date_range_text').textContent = `${day} 当日`;
             break;
             
@@ -635,12 +648,12 @@ function loadDashboardData() {
             break;
             
         case 'month':
-            const month = document.getElementById('monthFilter').value || now.toISOString().substring(0, 7);
-            startDate = new Date(month + '-01');
+            const month = document.getElementById('monthFilter').value || getLocalMonthStr(now);
+            startDate = startOfLocalDay(new Date(month + '-01'));
             endDate = new Date(startDate);
             endDate.setMonth(endDate.getMonth() + 1);
             endDate.setDate(0);
-            endDate.setHours(23, 59, 59, 999);
+            endDate = endOfLocalDay(endDate);
             document.getElementById('date_range_text').textContent = `${month} 月`;
             break;
             
@@ -648,9 +661,9 @@ function loadDashboardData() {
             const start = document.getElementById('startDateFilter').value;
             const end = document.getElementById('endDateFilter').value;
             if(start && end) {
-                startDate = new Date(start);
-                endDate = new Date(end);
-                endDate.setHours(23, 59, 59, 999);
+                // CR-14：区间起止按本地时区当日边界处理
+                startDate = startOfLocalDay(new Date(start));
+                endDate = endOfLocalDay(new Date(end));
                 document.getElementById('date_range_text').textContent = `${start} 至 ${end}`;
             } else {
                 startDate = new Date(0);
@@ -673,6 +686,13 @@ function loadDashboardData() {
 
     // ✅ 获取食堂筛选条件
     const selectedCanteen = document.getElementById('canteenFilter')?.value || 'all';
+
+    // RK3：依据 visible_types 显隐看板模块卡片（未开启的模块不显示统计）
+    const visibleTypes = getDashboardVisibleTypes();
+    ['tableware', 'pesticide', 'oil', 'pathogen', 'leanMeat'].forEach((code) => {
+        const card = document.querySelector(`[data-module-card="${code}"]`);
+        if (card) card.classList.toggle('hidden', !visibleTypes.includes(code));
+    });
 
     // 统计各模块数据（传入食堂筛选参数）
     const stats = {
@@ -707,27 +727,16 @@ function loadDashboardData() {
     const leanMeatByTypeAllTime = getLeanMeatStatsByType(new Date(0), new Date(2099, 11, 31), selectedCanteen);
     updateLeanMeatOverviewLists(leanMeatByTypeAllTime);
 
-    // ✅ 计算总检测数和总合格率
+    // ✅ 计算总检测数和总合格率（RK3：仅累加可见模块，避免隐藏模块污染总计）
     let totalCount = 0;
     let totalPassed = 0;
-    
-    // 餐具：按记录计数（已与其它类型统一口径）
-    totalCount += stats.tableware.count;
-    totalPassed += stats.tableware.passCount;
-    
-    // 其他模块：按记录计数
-    totalCount += stats.pesticide.count;
-    totalPassed += stats.pesticide.passCount;
-    
-    totalCount += stats.oil.count;
-    totalPassed += stats.oil.passCount;
-    
-    totalCount += stats.leanMeat.count;
-    totalPassed += stats.leanMeat.passCount;
-    
-    totalCount += stats.pathogen.count;
-    totalPassed += stats.pathogen.passCount;
-    
+    ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen']
+        .filter((t) => visibleTypes.includes(t))
+        .forEach((t) => {
+            totalCount += stats[t].count;
+            totalPassed += stats[t].passCount;
+        });
+
     const totalPassRate = totalCount > 0 ? Math.round((totalPassed / totalCount) * 100) : 100;
     
     document.getElementById('card_total_count').textContent = totalCount;
@@ -1624,7 +1633,7 @@ function calculateCanteenTrends(startDate, endDate, selectedCanteen = 'all', met
 // ✅ 修改：计算食堂合格率（增加食堂筛选）
 function calculateCanteenPassRate(startDate, endDate, selectedCanteen = 'all') {
     const canteenSet = new Set();
-    const types = ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'];
+    const types = getDashboardVisibleTypes();
     
     types.forEach(type => {
         const records = services[type].getAll();

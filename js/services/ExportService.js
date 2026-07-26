@@ -1,6 +1,7 @@
 import { StorageService } from '../core/Storage.js';  // ✅ 添加导入
 import { UINotification } from '../utils/UINotification.js';
 import { isRecordQualifiedByCustomFields } from '../utils/schoolCustomization.js';
+import { getLocalDateStr } from '../utils/dateUtil.js';
 
 export class ExportService {
     constructor() {
@@ -1019,7 +1020,7 @@ export class ExportService {
             const imgData = canvas.toDataURL('image/png');
             
             pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
-            pdf.save(`${filename}_${new Date().toISOString().split('T')[0]}.pdf`);
+            pdf.save(`${filename}_${getLocalDateStr(new Date())}.pdf`);
             
             alert('✅ PDF导出成功！');
         } catch (error) {

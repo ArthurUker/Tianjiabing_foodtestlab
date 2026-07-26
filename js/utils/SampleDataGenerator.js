@@ -3,6 +3,7 @@
  * 为快速访问模式生成示例检测数据
  */
 import { getSchoolCustomization, resolveCustomFields } from './schoolCustomization.js';
+import { getLocalDateStr } from './dateUtil.js';
 
 // RK45: 为学校自定义字段补示例值，避免快速访问示例数据缺少定制字段
 function withCustomFields(moduleCode, record) {
@@ -74,7 +75,7 @@ function initTableware() {
     const sampleData = [
         {
             id: 'temp_sample_1',
-            testDate: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            testDate: getLocalDateStr(new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)),
             canteen: '一食堂',
             inspector: '检测员A',
             atpPoints: [
@@ -85,7 +86,7 @@ function initTableware() {
         },
         {
             id: 'temp_sample_2',
-            testDate: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            testDate: getLocalDateStr(new Date(Date.now() - 1 * 24 * 60 * 60 * 1000)),
             canteen: '二食堂',
             inspector: '检测员B',
             atpPoints: [
@@ -96,7 +97,7 @@ function initTableware() {
         },
         {
             id: 'temp_sample_3',
-            testDate: new Date().toISOString().split('T')[0],
+            testDate: getLocalDateStr(new Date()),
             canteen: '一食堂',
             inspector: '检测员A',
             atpPoints: [
@@ -120,7 +121,7 @@ function initPesticide() {
     const sampleData = [
         {
             id: 'temp_sample_1',
-            testDate: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            testDate: getLocalDateStr(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)),
             canteen: '一食堂',
             vegetable: '青菜',
             testItem: '克百威-胶体金检测卡',
@@ -129,7 +130,7 @@ function initPesticide() {
         },
         {
             id: 'temp_sample_2',
-            testDate: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            testDate: getLocalDateStr(new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)),
             canteen: '二食堂',
             vegetable: '黄瓜',
             testItem: '克百威-胶体金检测卡',
@@ -138,7 +139,7 @@ function initPesticide() {
         },
         {
             id: 'temp_sample_3',
-            testDate: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            testDate: getLocalDateStr(new Date(Date.now() - 1 * 24 * 60 * 60 * 1000)),
             canteen: '一食堂',
             vegetable: '番茄',
             testItem: '克百威-胶体金检测卡',
@@ -161,7 +162,7 @@ function initOil() {
     const sampleData = [
         {
             id: 'temp_sample_1',
-            testDate: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            testDate: getLocalDateStr(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)),
             canteen: '一食堂',
             inspector: '检测员E',
             oilTemp: 180,
@@ -172,7 +173,7 @@ function initOil() {
         },
         {
             id: 'temp_sample_2',
-            testDate: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            testDate: getLocalDateStr(new Date(Date.now() - 1 * 24 * 60 * 60 * 1000)),
             canteen: '二食堂',
             inspector: '检测员F',
             oilTemp: 195,
@@ -197,7 +198,7 @@ function initMeat() {
     const sampleData = [
         {
             id: 'temp_sample_1',
-            testDate: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            testDate: getLocalDateStr(new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)),
             canteen: '一食堂',
             meatType: '猪肉',
             testItem: '恩诺沙星-胶体金检测卡',
@@ -206,7 +207,7 @@ function initMeat() {
         },
         {
             id: 'temp_sample_2',
-            testDate: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            testDate: getLocalDateStr(new Date(Date.now() - 1 * 24 * 60 * 60 * 1000)),
             canteen: '二食堂',
             meatType: '鸡蛋',
             testItem: '恩诺沙星-胶体金检测卡',
@@ -229,7 +230,7 @@ function initPathogen() {
     const sampleData = [
         {
             id: 'temp_sample_1',
-            testDate: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            testDate: getLocalDateStr(new Date(Date.now() - 5 * 24 * 60 * 60 * 1000)),
             sampleId: 'S001',
             canteen: '一食堂',
             pathogenType: '沙门氏菌',
@@ -239,7 +240,7 @@ function initPathogen() {
         },
         {
             id: 'temp_sample_2',
-            testDate: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            testDate: getLocalDateStr(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)),
             sampleId: 'S002',
             canteen: '二食堂',
             pathogenType: '李斯特菌',
