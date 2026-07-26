@@ -3,71 +3,560 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>学校管理 - 平台超管</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>学校管理控制台 - 平台超管</title>
+    <link rel="stylesheet" href="./css/tailwind.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <script src="./js/utils/themePresets.js"></script>
     <style>
-        body { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        /* ====== 预设主题选择卡片 ====== */
+        #themePresets {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 14px;
+        }
+        .theme-swatch {
+            position: relative;
+            border: none;
+            padding: 0;
+            background: none;
+            cursor: pointer;
+            text-align: left;
+            outline: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .theme-swatch .swatch-wall {
+            position: relative;
+            display: block;
+            height: 88px;
+            border-radius: 14px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(30, 44, 80, 0.12), inset 0 0 0 1px rgba(255, 255, 255, 0.55);
+            transition: transform .22s cubic-bezier(.2,.8,.3,1.1), box-shadow .22s ease;
+        }
+        .theme-swatch .swatch-aurora {
+            position: absolute;
+            inset: -18%;
+            filter: blur(10px) saturate(160%);
+            transition: transform .5s ease;
+        }
+        .theme-swatch:hover .swatch-wall { transform: translateY(-2px) scale(1.02); box-shadow: 0 8px 22px rgba(30, 44, 80, 0.20), inset 0 0 0 1px rgba(255,255,255,.6); }
+        .theme-swatch:hover .swatch-aurora { transform: scale(1.08) rotate(1.5deg); }
+        /* 迷你玻璃导航条：预览玻璃质感 */
+        .theme-swatch .swatch-glassbar {
+            position: absolute;
+            left: 10px; right: 10px; top: 10px;
+            height: 20px;
+            border-radius: 7px;
+            backdrop-filter: blur(6px) saturate(150%);
+            -webkit-backdrop-filter: blur(6px) saturate(150%);
+            border: 1px solid rgba(255,255,255,0.28);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.25);
+            display: flex; align-items: center; gap: 4px; padding: 0 7px;
+        }
+        .theme-swatch .swatch-glassbar i { font-size: 8px; color: rgba(255,255,255,0.9); }
+        .theme-swatch .swatch-glassbar .bar-line { height: 4px; border-radius: 2px; background: rgba(255,255,255,0.65); }
+        /* 迷你白玻璃卡片 */
+        .theme-swatch .swatch-card {
+            position: absolute;
+            left: 10px; right: 34px; top: 40px; bottom: 10px;
+            border-radius: 9px;
+            background: rgba(255,255,255,0.55);
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
+            border: 1px solid rgba(255,255,255,0.7);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);
+        }
+        /* 强调色圆点（右下角，模拟按钮） */
+        .theme-swatch .swatch-accent {
+            position: absolute;
+            right: 10px; bottom: 10px;
+            width: 18px; height: 18px;
+            border-radius: 50%;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.5);
+        }
+        /* 选中态 */
+        .theme-swatch.selected .swatch-wall {
+            box-shadow: 0 0 0 2.5px var(--sw-accent, #1a73e8), 0 8px 22px rgba(30,44,80,0.22);
+        }
+        .theme-swatch .swatch-check {
+            position: absolute;
+            top: -6px; right: -6px;
+            width: 22px; height: 22px;
+            border-radius: 50%;
+            background: var(--sw-accent, #1a73e8);
+            color: #fff;
+            display: none;
+            align-items: center; justify-content: center;
+            font-size: 11px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+            z-index: 2;
+        }
+        .theme-swatch.selected .swatch-check { display: flex; }
+        .theme-swatch .swatch-meta { display: block; padding: 7px 2px 0; }
+        .theme-swatch .swatch-name { font-size: 13px; font-weight: 600; color: #1f2937; line-height: 1.2; }
+        .theme-swatch .swatch-desc { font-size: 11px; color: #9ca3af; margin-top: 1px; }
     </style>
+    <!-- 玻璃折射滤镜 -->
+    <svg width="0" height="0" style="position:absolute"><defs>
+        <filter id="lg-refraction" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="0.8" result="blur"/>
+            <feOffset in="blur" dx="0" dy="1" result="offset"/>
+            <feSpecularLighting in="blur" surfaceScale="1.2" specularConstant="0.6" specularExponent="18" lighting-color="#ffffff" result="spec">
+                <feDistantLight azimuth="135" elevation="55"/>
+            </feSpecularLighting>
+            <feComposite in="spec" in2="SourceAlpha" operator="in" result="specMasked"/>
+            <feComposite in="SourceGraphic" in2="specMasked" operator="arithmetic" k1="0" k2="1" k3="1" k4="0" result="lit"/>
+            <feMerge><feMergeNode in="offset"/><feMergeNode in="lit"/></feMerge>
+        </filter>
+    </defs></svg>
 </head>
-<body class="py-10">
-    <div class="max-w-4xl mx-auto px-4">
-        <div class="bg-white rounded-lg shadow-2xl p-8">
-            <div class="flex items-center justify-between mb-6">
-                <h1 class="text-2xl font-bold text-gray-800"><i class="fas fa-school text-blue-600 mr-2"></i>学校管理（平台超管）</h1>
-                <a href="./index.html" class="text-sm text-blue-600 hover:underline"><i class="fas fa-arrow-left mr-1"></i>返回主界面</a>
+<body class="min-h-screen">
+    <!-- 顶部导航 -->
+    <nav class="glass-dark text-white sticky top-0 z-50">
+        <div class="container mx-auto px-4 py-3 flex justify-between items-center">
+            <div class="flex items-center space-x-3">
+                <i class="fas fa-school text-2xl"></i>
+                <h1 class="text-xl font-bold">学校管理控制台</h1>
+                <span class="text-xs px-2 py-0.5 bg-white/20 rounded-full">平台超管</span>
+            </div>
+            <a href="./index.html" class="text-sm text-blue-200 hover:text-white transition">
+                <i class="fas fa-arrow-left mr-1"></i>返回主界面
+            </a>
+        </div>
+    </nav>
+
+    <div class="container mx-auto px-4 py-6 max-w-7xl">
+        <!-- 通知区 -->
+        <div id="notice" class="hidden mb-4 p-3 rounded-lg text-sm"></div>
+
+        <!-- 工具栏 -->
+        <div class="glass rounded-2xl p-4 mb-6 flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+                <button id="btnShowCreate" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium flex items-center">
+                    <i class="fas fa-plus mr-2"></i>新增学校
+                </button>
+                <button id="refreshBtn" class="px-3 py-2 text-blue-600 hover:bg-blue-50 rounded-lg transition flex items-center text-sm">
+                    <i class="fas fa-sync mr-1"></i>刷新
+                </button>
+            </div>
+            <div class="flex items-center gap-2">
+                <input id="searchInput" type="text" placeholder="搜索学校代码或名称..." class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-64">
+            </div>
+        </div>
+
+        <!-- 学校列表 -->
+        <div class="glass rounded-2xl p-5 mb-6">
+            <h2 class="font-semibold text-gray-700 mb-3"><i class="fas fa-list mr-2 text-blue-600"></i>学校列表</h2>
+            <div class="overflow-x-auto">
+                <table class="glass-table">
+                    <thead>
+                        <tr>
+                            <th>代码</th>
+                            <th>名称</th>
+                            <th>简称</th>
+                            <th>状态</th>
+                            <th>校徽</th>
+                            <th>创建时间</th>
+                            <th>登录地址</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="schoolTbody">
+                        <tr><td colspan="8" class="text-center py-6 text-gray-400">加载中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 学校详情面板（默认隐藏） -->
+        <div id="detailPanel" class="glass rounded-2xl p-5 hidden">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="font-semibold text-gray-700">
+                    <i class="fas fa-cog mr-2 text-blue-600"></i>
+                    <span id="detailTitle">学校管理</span>
+                </h2>
+                <div class="flex items-center gap-3">
+                    <button id="btnReprovision" class="px-3 py-1.5 rounded-lg border border-orange-400 text-orange-600 text-sm hover:bg-orange-50 transition"><i class="fas fa-sync-alt mr-1"></i>重新初始化</button>
+                    <button id="closeDetail" class="text-gray-400 hover:text-gray-600 text-xl"><i class="fas fa-times"></i></button>
+                </div>
             </div>
 
-            <div id="notice" class="hidden mb-4 p-3 rounded-lg text-sm"></div>
+            <!-- Tab 导航 -->
+            <div class="flex border-b border-gray-200 mb-4 gap-1">
+                <button class="tab-btn active px-4 py-2 font-medium text-blue-600 border-b-2 border-blue-500" data-tab="basic">
+                    <i class="fas fa-info-circle mr-1"></i>基本信息
+                </button>
+                <button class="tab-btn px-4 py-2 font-medium text-gray-500 hover:text-blue-500 border-b-2 border-transparent" data-tab="custom">
+                    <i class="fas fa-palette mr-1"></i>界面定制
+                </button>
+                <button class="tab-btn px-4 py-2 font-medium text-gray-500 hover:text-blue-500 border-b-2 border-transparent" data-tab="users">
+                    <i class="fas fa-users mr-1"></i>用户管理
+                </button>
+            </div>
 
-            <!-- 新增学校 -->
-            <div class="border border-gray-200 rounded-lg p-5 mb-8">
-                <h2 class="font-semibold text-gray-700 mb-4"><i class="fas fa-plus-circle mr-2 text-green-600"></i>新增学校</h2>
-                <form id="createForm" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <!-- Tab: 基本信息 -->
+            <div id="tab-basic" class="tab-content">
+                <form id="basicForm" class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                        <label class="block text-sm text-gray-600 mb-1">学校代码（唯一，小写字母/数字/连字符）</label>
-                        <input id="code" type="text" required placeholder="如 tianjiabing" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <label class="block text-sm text-gray-600 mb-1">学校代码（只读）</label>
+                        <input id="bf_code" type="text" readonly class="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-500">
                     </div>
                     <div>
-                        <label class="block text-sm text-gray-600 mb-1">学校名称</label>
-                        <input id="name" type="text" placeholder="如 田家炳食品检验实验室" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <label class="block text-sm text-gray-600 mb-1">登录地址（只读）</label>
+                        <input id="bf_loginUrl" type="text" readonly class="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-500 text-sm">
                     </div>
                     <div>
-                        <label class="block text-sm text-gray-600 mb-1">该校 admin 初始密码（至少 8 位）</label>
-                        <input id="adminPassword" type="text" required placeholder="至少 8 位" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <label class="block text-sm text-gray-600 mb-1">学校全称</label>
+                        <input id="bf_name" type="text" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-600 mb-1">学校简称</label>
+                        <input id="bf_shortName" type="text" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-600 mb-1">主题色</label>
+                        <div class="flex items-center gap-2">
+                            <input id="bf_themeColor" type="text" placeholder="#1a73e8" class="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <input id="bf_themeColorPicker" type="color" class="w-10 h-10 rounded cursor-pointer border border-gray-300">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-600 mb-1">校徽 Logo</label>
+                        <div class="flex items-center gap-3">
+                            <div id="bf_logoPreview" class="w-12 h-12 flex items-center justify-center bg-gray-100 rounded border border-gray-300 overflow-hidden">
+                                <i class="fas fa-image text-gray-400 text-sm"></i>
+                            </div>
+                            <div class="flex-1 space-y-2">
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <label class="cursor-pointer inline-flex items-center gap-1 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-sm hover:bg-blue-100 border border-blue-100">
+                                        <i class="fas fa-upload"></i> 上传本地图片
+                                        <input type="file" id="bf_logoFile" accept="image/*" class="hidden">
+                                    </label>
+                                    <input id="bf_logoUrl" type="url" placeholder="https://... 或留空" class="flex-1 min-w-[160px] px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                                </div>
+                                <p class="text-xs text-gray-400">支持一键上传本地图片（自动压缩），也可直接填网络图片地址。</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-600 mb-1">状态</label>
+                        <select id="bf_status" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="active">启用</option>
+                            <option value="disabled">停用</option>
+                        </select>
                     </div>
                     <div class="flex items-end">
-                        <button id="createBtn" type="submit" class="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-semibold py-2 rounded-lg transition flex items-center justify-center">
-                            <i class="fas fa-check mr-2"></i><span id="createBtnText">创建学校</span>
+                        <button type="submit" id="saveBasicBtn" class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium flex items-center justify-center">
+                            <i class="fas fa-save mr-2"></i><span>保存修改</span>
                         </button>
                     </div>
                 </form>
-                <p class="text-xs text-gray-400 mt-3">创建后将自动建立独立数据空间（schema）、业务表与该校 admin 账号。访问地址：<code>/&lt;学校代码&gt;/login</code></p>
             </div>
 
-            <!-- 学校列表 -->
-            <div class="border border-gray-200 rounded-lg p-5">
-                <div class="flex items-center justify-between mb-4">
-                    <h2 class="font-semibold text-gray-700"><i class="fas fa-list mr-2 text-blue-600"></i>已有学校</h2>
-                    <button id="refreshBtn" class="text-sm text-blue-600 hover:underline"><i class="fas fa-sync mr-1"></i>刷新</button>
+            <!-- Tab: 界面定制 -->
+            <div id="tab-custom" class="tab-content hidden">
+                <!-- 傻瓜式编辑引导 -->
+                <div id="veHint" class="flex items-start gap-3 bg-blue-50 border border-blue-200 text-blue-800 text-sm rounded-xl p-3 mb-4">
+                    <i class="fas fa-lightbulb mt-0.5 text-blue-500"></i>
+                    <div class="flex-1 leading-relaxed">
+                        <b>傻瓜式编辑：</b>下方预览就是真实页面，<b>可视化编辑已自动开启</b>——直接点击预览里的任意文字（系统标题、模块名、表格列名、表单标签等）即可就地修改，所见即所得，无需懂技术。改完记得点右下角「保存定制」。
+                    </div>
+                    <button type="button" id="veHintClose" class="text-blue-400 hover:text-blue-600 shrink-0"><i class="fas fa-times"></i></button>
+                </div>
+                <!-- 主题预设选择器 -->
+                <div class="mb-4 p-4 border border-gray-200 rounded-lg bg-gray-50">
+                    <h3 class="font-medium text-gray-700 mb-3"><i class="fas fa-palette mr-1 text-blue-600"></i>预设主题</h3>
+                    <p class="text-xs text-gray-400 mb-3">选择预设主题可一键切换整体配色与壁纸风格，下方预览区实时联动（点击「保存定制」生效）</p>
+                    <div id="themePresets">
+                        <!-- JS 动态生成 -->
+                    </div>
+                </div>
+
+                <!-- 编辑区：整宽多栏 -->
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                    <!-- 可见检测类型 -->
+                    <div class="border border-gray-200 rounded-lg p-4">
+                        <h3 class="font-medium text-gray-700 mb-3"><i class="fas fa-check-square mr-1 text-blue-600"></i>可见检测类型</h3>
+                        <p class="text-xs text-gray-400 mb-3">勾选的模块在该校主界面显示</p>
+                        <div id="visibleTypes" class="flex flex-col gap-3">
+                            <label class="flex items-center gap-2"><input type="checkbox" value="tableware" class="vis-type"> 餐具洁净度</label>
+                            <label class="flex items-center gap-2"><input type="checkbox" value="pesticide" class="vis-type"> 果蔬农残</label>
+                            <label class="flex items-center gap-2"><input type="checkbox" value="oil" class="vis-type"> 食用油品质</label>
+                            <label class="flex items-center gap-2"><input type="checkbox" value="leanMeat" class="vis-type"> 瘦肉精检测</label>
+                            <label class="flex items-center gap-2"><input type="checkbox" value="pathogen" class="vis-type"> 致病菌检测</label>
+                        </div>
+                    </div>
+
+                    <!-- 字段管理（按模块分 Tab） -->
+                    <div class="border border-gray-200 rounded-lg p-4">
+                        <h3 class="font-medium text-gray-700 mb-3"><i class="fas fa-list-alt mr-1 text-blue-600"></i>字段管理</h3>
+                        <p class="text-xs text-gray-400 mb-3">拖动每行左侧 <i class="fas fa-grip-vertical"></i> 可调整字段顺序；点击预览区表头可直接编辑名称；此处可新增/删除/隐藏字段</p>
+                        <!-- 模块子 Tab -->
+                        <div id="fieldModuleTabs" class="flex flex-wrap gap-1 mb-3 border-b border-gray-200 pb-2"></div>
+                        <!-- 字段列表 -->
+                        <div id="fieldListContainer" class="space-y-2"></div>
+                        <!-- 新增字段 -->
+                        <div class="mt-3 pt-3 border-t border-gray-200 flex gap-2 items-center">
+                            <input id="newFieldLabel" type="text" placeholder="显示名称（如：抽样地点）" class="flex-1 px-2 py-1 border border-gray-300 rounded text-sm">
+                            <input id="newFieldName" type="text" placeholder="留空自动生成" class="w-32 px-2 py-1 border border-gray-300 rounded text-sm text-gray-400">
+                            <button id="addFieldBtn" class="px-3 py-1 text-sm bg-blue-50 text-blue-700 rounded hover:bg-blue-100 transition shrink-0">+ 新增</button>
+                        </div>
+                    </div>
+
+                    <!-- 统一编辑指南：三种入口一处看全 -->
+                    <div class="border border-gray-200 rounded-lg p-4 bg-gray-50/60">
+                        <h3 class="font-medium text-gray-700 mb-3"><i class="fas fa-hand-pointer mr-1 text-blue-600"></i>怎么改？一张表看全</h3>
+                        <ul class="text-xs text-gray-500 leading-relaxed space-y-2">
+                            <li><b class="text-gray-600">改文字</b>：直接点下方预览里的标题、菜单、列名、表单标签，就地输入（推荐）。</li>
+                            <li><b class="text-gray-600">改字段</b>：在左侧「字段管理」里勾选显示/隐藏、拖 <i class="fas fa-grip-vertical"></i> 排序、点 <span class="inline-block px-1 bg-gray-100 rounded">⚙</span> 设必填/字数。</li>
+                            <li><b class="text-gray-600">加字段</b>：字段管理底部填「显示名称」点 <span class="inline-block px-1 bg-blue-50 text-blue-600 rounded">+ 新增</span>，英文名可留空。</li>
+                            <li><b class="text-gray-600">改下拉选项</b>：开启可视化编辑后点预览表单里的下拉框。</li>
+                            <li><b class="text-gray-600">换配色</b>：点上方「预设主题」一键切换。</li>
+                        </ul>
+                        <p class="text-xs text-amber-600 mt-3"><i class="fas fa-info-circle mr-1"></i>所有修改都要点右下角「保存定制」才会生效。</p>
+                    </div>
+                </div>
+
+                <!-- 实时预览：单独一排，占满整宽（含左侧导航菜单） -->
+                <div class="border border-gray-200 rounded-xl p-4 bg-white">
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="font-medium text-gray-700"><i class="fas fa-desktop mr-1 text-blue-600"></i>实时预览
+                            <span class="text-xs text-gray-400 font-normal ml-1">含左侧导航菜单，修改上方配置后自动同步</span>
+                        </h3>
+                        <!-- 编辑模式切换 -->
+                        <label class="flex items-center gap-1 text-xs text-gray-500 cursor-pointer">
+                            <input type="checkbox" id="visualEditToggle" class="rounded">
+                            <span>可视化编辑模式</span>
+                        </label>
+                    </div>
+                    <div id="previewArea" class="border-2 border-gray-300 rounded-xl overflow-hidden shadow-lg bg-gray-100" style="min-height: 760px;">
+                        <!-- JS 动态渲染预览 -->
+                    </div>
+                </div>
+
+                <!-- 字段校验规则弹层（傻瓜式：无需手填字段名） -->
+                <div id="rulePopover" style="display:none;position:fixed;z-index:1000;width:268px;background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 12px 32px rgba(0,0,0,.16);padding:14px;">
+                    <div class="text-sm font-medium text-gray-800 mb-3">字段校验规则 · <span id="rpLabel" class="text-blue-600"></span></div>
+                    <label class="flex items-center gap-2 text-sm mb-3 cursor-pointer">
+                        <input type="checkbox" id="rpRequired" class="rounded"> 必填（不允许为空）
+                    </label>
+                    <div class="text-xs text-gray-500 mb-1">最大字数（选填，0 或不填表示不限）</div>
+                    <input type="number" id="rpMax" min="1" class="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-3">
+                    <div class="text-xs text-gray-500 mb-1">最小字数（选填）</div>
+                    <input type="number" id="rpMin" min="0" class="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-4">
+                    <div class="flex justify-end gap-2">
+                        <button type="button" id="rpCancel" class="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700">取消</button>
+                        <button type="button" id="rpDone" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">完成</button>
+                    </div>
+                </div>
+
+                <!-- RK35: 自定义字段「类型与统计」弹层（仅自定义字段可见） -->
+                <div id="statPopover" style="display:none;position:fixed;z-index:1000;width:300px;background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 12px 32px rgba(0,0,0,.16);padding:14px;">
+                    <div class="text-sm font-medium text-gray-800 mb-3">字段类型与统计 · <span id="spLabel" class="text-purple-600"></span></div>
+                    <div class="text-xs text-gray-500 mb-1">输入类型</div>
+                    <select id="spType" class="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-3">
+                        <option value="text">单行文本</option>
+                        <option value="number">数字</option>
+                        <option value="date">日期</option>
+                        <option value="select">下拉选择</option>
+                        <option value="textarea">多行文本</option>
+                        <option value="checkbox">勾选框</option>
+                    </select>
+                    <div id="spOptionsWrap" style="display:none;">
+                        <div class="text-xs text-gray-500 mb-1">下拉选项（逗号分隔，如：合格,不合格）</div>
+                        <input type="text" id="spOptions" class="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-3">
+                    </div>
+                    <div class="text-xs text-gray-500 mb-1">统计角色</div>
+                    <select id="spStatRole" class="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-3">
+                        <option value="">不参与统计（仅记录）</option>
+                        <option value="result">参与合格率统计</option>
+                    </select>
+                    <div id="spQualifiedWrap" style="display:none;">
+                        <div class="text-xs text-gray-500 mb-1">合格值（逗号分隔；记录该字段取值在此列表内才计为合格）</div>
+                        <input type="text" id="spQualified" class="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-3" placeholder="如：合格,阴性">
+                    </div>
+                    <div class="flex justify-end gap-2">
+                        <button type="button" id="spCancel" class="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700">取消</button>
+                        <button type="button" id="spDone" class="px-3 py-1.5 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700">完成</button>
+                    </div>
+                </div>
+
+                <!-- 底部操作栏：吸底，随时可保存/放弃 -->
+                <div class="sticky bottom-0 z-40 mt-4 -mx-5 -mb-5 px-5 py-3 bg-white/90 backdrop-blur border-t border-gray-200 flex items-center justify-between rounded-b-2xl">
+                    <span id="customDirtyHint" class="text-xs text-gray-400">修改会实时反映到预览，点「保存定制」后对该校生效</span>
+                    <div class="flex items-center gap-2">
+                        <button id="discardCustomBtn" class="hidden px-4 py-2 border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 transition text-sm">
+                            <i class="fas fa-undo mr-1"></i>放弃修改
+                        </button>
+                        <button id="saveCustomBtn" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium flex items-center">
+                            <i class="fas fa-save mr-2"></i>保存定制
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab: 用户管理 -->
+            <div id="tab-users" class="tab-content hidden">
+                <div class="flex items-center justify-between mb-3">
+                    <h4 class="font-medium text-gray-700">用户管理</h4>
+                    <button id="btnAddUser" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium">+ 新增用户</button>
                 </div>
                 <div class="overflow-x-auto">
-                    <table class="w-full text-sm">
+                    <table class="glass-table">
                         <thead>
-                            <tr class="text-left text-gray-500 border-b">
-                                <th class="py-2 pr-4">代码</th>
-                                <th class="py-2 pr-4">名称</th>
-                                <th class="py-2 pr-4">状态</th>
-                                <th class="py-2 pr-4">创建时间</th>
-                                <th class="py-2">登录地址</th>
+                            <tr>
+                                <th>用户名</th>
+                                <th>姓名</th>
+                                <th>角色 / 类别</th>
+                                <th>状态</th>
+                                <th>创建时间</th>
+                                <th>最后登录</th>
+                                <th>操作</th>
                             </tr>
                         </thead>
-                        <tbody id="schoolTbody">
-                            <tr><td colspan="5" class="py-4 text-center text-gray-400">加载中...</td></tr>
+                        <tbody id="usersTbody">
+                            <tr><td colspan="7" class="text-center py-4 text-gray-400">加载中...</td></tr>
                         </tbody>
                     </table>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- 新增学校对话框 -->
+    <div id="createModal" class="fixed inset-0 bg-black/40 z-50 hidden items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-lg font-bold text-gray-800"><i class="fas fa-plus-circle mr-2 text-green-600"></i>新增学校</h2>
+                <button id="closeCreateModal" class="text-gray-400 hover:text-gray-600 text-xl"><i class="fas fa-times"></i></button>
+            </div>
+            <form id="createForm" class="space-y-4">
+                <div>
+                    <label class="block text-sm text-gray-600 mb-1">学校代码 <span class="text-red-500">*</span></label>
+                    <input id="cf_code" type="text" required placeholder="如 tianjiabing" pattern="[a-z0-9-]+" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <p class="text-xs text-gray-400 mt-1">小写字母/数字/连字符，创建后不可修改</p>
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-600 mb-1">学校全称</label>
+                    <input id="cf_name" type="text" placeholder="如 田家炳中学" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm text-gray-600 mb-1">学校简称</label>
+                        <input id="cf_shortName" type="text" placeholder="如 田家炳" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-600 mb-1">主题色</label>
+                        <input id="cf_themeColor" type="text" value="#1a73e8" placeholder="#1a73e8" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-600 mb-1">校徽 URL</label>
+                    <input id="cf_logoUrl" type="url" placeholder="https://..." class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-600 mb-1">Manager 初始密码 <span class="text-red-500">*</span></label>
+                    <input id="cf_adminPassword" type="password" required minlength="8" placeholder="至少 8 位" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <p class="text-xs text-gray-400 mt-1">学校内最高权限为 manager（用户/记录/导出管理）；admin 角色仅平台超管拥有</p>
+                </div>
+                <p class="text-xs text-gray-400">创建后将自动建立独立数据空间（schema）、业务表与该校 manager 账号。访问地址：<code>/&lt;代码&gt;/login</code></p>
+                <div class="flex justify-end gap-3 pt-2">
+                    <button type="button" id="cancelCreate" class="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition">取消</button>
+                    <button type="submit" id="createBtn" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium flex items-center">
+                        <i class="fas fa-check mr-2"></i><span id="createBtnText">创建学校</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 重置密码对话框 -->
+    <div id="resetPwdModal" class="fixed inset-0 bg-black/40 z-50 hidden items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6">
+            <h2 class="text-lg font-bold text-gray-800 mb-4"><i class="fas fa-key mr-2 text-orange-500"></i>重置密码</h2>
+            <form id="resetPwdForm" class="space-y-4">
+                <p class="text-sm text-gray-500">为用户 <code id="rp_username" class="font-mono"></code> 设置新密码</p>
+                <input type="hidden" id="rp_userId">
+                <div>
+                    <label class="block text-sm text-gray-600 mb-1">新密码 <span class="text-red-500">*</span></label>
+                    <input id="rp_newPassword" type="password" required minlength="8" placeholder="至少 8 位" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500">
+                </div>
+                <div class="flex justify-end gap-3 pt-2">
+                    <button type="button" id="cancelResetPwd" class="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition">取消</button>
+                    <button type="submit" class="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition font-medium">确认重置</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 用户新增 / 编辑对话框 -->
+    <div id="userModal" class="fixed inset-0 bg-black/40 z-50 hidden items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 id="userModalTitle" class="text-lg font-bold text-gray-800"><i class="fas fa-user-plus mr-2 text-indigo-600"></i>新增用户</h2>
+                <button id="userModalClose" class="text-gray-400 hover:text-gray-600 text-xl"><i class="fas fa-times"></i></button>
+            </div>
+            <form id="userForm" class="space-y-4">
+                <input type="hidden" id="userEditId">
+                <div>
+                    <label class="block text-sm text-gray-600 mb-1">用户名 <span class="text-red-500">*</span></label>
+                    <input id="userUsername" type="text" maxlength="32" placeholder="3-32 位字母 / 数字 / 下划线" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <p class="text-xs text-gray-400 mt-1">创建后不可修改</p>
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-600 mb-1">姓名</label>
+                    <input id="userFullname" type="text" placeholder="真实姓名（选填）" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-600 mb-1">手机号</label>
+                    <input id="userPhone" type="text" maxlength="20" placeholder="选填" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-600 mb-1">用户类别 <span class="text-red-500">*</span></label>
+                    <select id="userRole" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <option value="manager">主管（管理人员）</option>
+                        <option value="operator">操作人员</option>
+                        <option value="viewer">查看者</option>
+                        <option value="user">普通用户</option>
+                    </select>
+                    <p class="text-xs text-gray-400 mt-1">平台管理员（admin）不可在学校中设置</p>
+                </div>
+                <div id="userPwdWrap">
+                    <label class="block text-sm text-gray-600 mb-1">初始密码 <span class="text-red-500">*</span></label>
+                    <input id="userPassword" type="text" placeholder="至少 8 位" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+                <div id="userStatusWrap" class="hidden items-center">
+                    <label class="flex items-center gap-2 text-sm text-gray-600">
+                        <input id="userActive" type="checkbox" checked class="rounded"> 启用该用户
+                    </label>
+                </div>
+                <div id="userFormError" class="text-sm text-red-600 hidden"></div>
+                <div class="flex justify-end gap-3 pt-2">
+                    <button type="button" id="userCancelUser" class="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition">取消</button>
+                    <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition font-medium">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 可视化编辑弹窗 -->
+    <div id="visualEditModal" class="fixed inset-0 bg-black/40 z-50 hidden items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-lg font-bold text-gray-800"><i id="veIcon" class="fas fa-edit mr-2 text-blue-600"></i><span id="veTitle">编辑</span></h2>
+                <button id="veClose" class="text-gray-400 hover:text-gray-600 text-xl"><i class="fas fa-times"></i></button>
+            </div>
+            <form id="veForm" class="space-y-4">
+                <input type="hidden" id="veType">
+                <input type="hidden" id="veField">
+                <input type="hidden" id="veModule">
+                <div id="veFields"></div>
+                <div class="flex justify-end gap-3 pt-2">
+                    <button type="button" id="veHideBtn" class="px-3 py-2 text-sm text-orange-600 hover:bg-orange-50 rounded-lg transition hidden"><i class="fas fa-eye-slash mr-1"></i>隐藏此字段</button>
+                    <button type="button" id="veCancel" class="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition">取消</button>
+                    <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium">应用</button>
+                </div>
+            </form>
         </div>
     </div>
 
@@ -76,11 +565,18 @@
 
         const API_BASE = getApiBaseUrl();
 
-        // 未登录则回登录页
+        // 权限守卫：未登录回登录页，非平台超管提示
         if (!authService.isAuthenticated()) {
             window.location.replace('./login.html');
         }
 
+        const currentUser = authService.getUser();
+        if (!currentUser || currentUser.role !== 'admin' || currentUser.schoolCode) {
+            document.body.innerHTML = '<div class="min-h-screen flex items-center justify-center"><div class="text-center"><i class="fas fa-lock text-5xl text-gray-400 mb-4"></i><h2 class="text-xl font-bold text-gray-600">权限不足</h2><p class="text-gray-400 mt-2">仅平台超级管理员可访问此页面</p><a href="./index.html" class="inline-block mt-4 text-blue-600 hover:underline">返回主界面</a></div></div>';
+            throw new Error('非平台超管，阻断执行');
+        }
+
+        // ====== 工具函数 ======
         const notice = document.getElementById('notice');
         function showNotice(msg, type = 'info') {
             notice.textContent = msg;
@@ -90,54 +586,1839 @@
                 : 'bg-blue-100 border border-blue-400 text-blue-700'
             );
             notice.classList.remove('hidden');
+            setTimeout(() => notice.classList.add('hidden'), 5000);
         }
 
         function authHeaders() {
-            return {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${authService.getToken()}`
+            return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authService.getToken()}` };
+        }
+
+        function escapeHtml(s) {
+            if (s == null) return '';
+            return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        }
+
+        // ====== 主题预设 ======
+        // 预设主题（定义见 js/utils/themePresets.js）
+        const THEME_PRESETS = window.SchoolThemes.PRESETS;
+        // 当前选中的主题预设 id（null = 未选/自定义颜色）
+        let selectedThemeId = null;
+
+        // 模块信息映射（代码 → 中文名 + 图标）
+        const MODULE_INFO = {
+            tableware: { name: '餐具洁净度', icon: 'fa-utensils' },
+            pesticide: { name: '果蔬农残', icon: 'fa-leaf' },
+            oil: { name: '食用油品质', icon: 'fa-oil-can' },
+            leanMeat: { name: '瘦肉精检测', icon: 'fa-drumstick-bite' },
+            pathogen: { name: '致病菌检测', icon: 'fa-virus' },
+        };
+
+        // 预览用默认字段列表
+        const PREVIEW_FIELDS = [
+            { name: 'testDate', label: '日期' },
+            { name: 'canteen', label: '食堂' },
+            { name: 'location', label: '点位' },
+            { name: 'inspector', label: '检测员' },
+            { name: 'result', label: '结果' },
+            { name: 'sampler', label: '采样人' },
+            { name: 'batchNo', label: '批次号' },
+            { name: 'note', label: '备注' },
+        ];
+
+        // 初始化主题预设选择器
+        function initThemePresets() {
+            const container = document.getElementById('themePresets');
+            container.innerHTML = THEME_PRESETS.map(t => `
+                <button type="button" class="theme-swatch" data-theme="${t.id}" style="--sw-accent:${t.accent}" title="${t.name} · ${t.desc}">
+                    <span class="swatch-check"><i class="fas fa-check"></i></span>
+                    <span class="swatch-wall">
+                        <span class="swatch-aurora" style="background:${window.SchoolThemes.swatchBackground(t)};background-color:${t.base}"></span>
+                        <span class="swatch-glassbar" style="background:${t.dark}">
+                            <i class="fas fa-shield-alt"></i>
+                            <span class="bar-line" style="width:26%"></span>
+                            <span class="bar-line" style="width:14%;opacity:.6"></span>
+                        </span>
+                        <span class="swatch-card"></span>
+                        <span class="swatch-accent" style="background:${t.accent}"></span>
+                    </span>
+                    <span class="swatch-meta">
+                        <span class="swatch-name block">${t.name}</span>
+                        <span class="swatch-desc block">${t.desc}</span>
+                    </span>
+                </button>
+            `).join('');
+            container.querySelectorAll('.theme-swatch').forEach(btn => {
+                btn.addEventListener('click', () => selectThemePreset(btn.dataset.theme, true));
+            });
+        }
+
+        // 选中主题预设：同步强调色到基本信息 Tab、高亮卡片、联动预览
+        function selectThemePreset(themeId, rerender) {
+            const preset = window.SchoolThemes.getPreset(themeId);
+            selectedThemeId = preset ? preset.id : null;
+            if (preset) {
+                document.getElementById('bf_themeColor').value = preset.accent;
+                document.getElementById('bf_themeColorPicker').value = preset.accent;
+            }
+            highlightThemePreset();
+            markDirty();
+            if (rerender) renderPreview();
+        }
+
+        function highlightThemePreset() {
+            document.querySelectorAll('#themePresets .theme-swatch').forEach(b => {
+                b.classList.toggle('selected', b.dataset.theme === selectedThemeId);
+            });
+        }
+
+        // 获取当前生效主题对象（预设优先，否则用自定义强调色派生）
+        function getActiveTheme() {
+            const preset = selectedThemeId ? window.SchoolThemes.getPreset(selectedThemeId) : null;
+            if (preset) return preset;
+            const accent = document.getElementById('bf_themeColor').value.trim();
+            return accent ? window.SchoolThemes.themeFromAccent(accent) : null;
+        }
+
+        // 渲染实时预览区（操作 iframe 内真实 index.html 的 DOM）
+        let previewIframe = null;
+        let previewReady = false;
+
+        function initPreviewIframe() {
+            const previewArea = document.getElementById('previewArea');
+            if (!previewArea || previewIframe) return;
+            previewArea.innerHTML = `<iframe src="./index.html?preview=true" style="width:100%;height:760px;border:none;" id="previewFrame" loading="lazy"></iframe>`;
+            previewIframe = document.getElementById('previewFrame');
+            previewIframe.onload = () => {
+                previewReady = true;
+                // 等待 iframe 内 JS 初始化完成后再操作 DOM
+                setTimeout(() => {
+                    applyPreviewConfig();
+                    // 若已开启可视化编辑，预览就绪后绑定编辑能力
+                    if (document.getElementById('visualEditToggle')?.checked) enableVisualEdit();
+                }, 1500);
             };
         }
 
+        function applyPreviewConfig() {
+            if (!previewIframe || !previewReady) return;
+            const doc = previewIframe.contentDocument;
+            if (!doc) return;
+
+            // 收集当前编辑状态
+            const schoolName = (document.getElementById('bf_name').value.trim() || '示例学校');
+            const logoUrl = document.getElementById('bf_logoUrl').value.trim();
+
+            const visibleTypes = new Set(Array.from(document.querySelectorAll('.vis-type:checked')).map(cb => cb.value));
+            const allTypes = Array.from(document.querySelectorAll('.vis-type')).map(cb => cb.value);
+
+            // 字段标签覆盖与隐藏字段直接使用全局状态（由字段管理列表实时维护）
+            // 注意：此处必须使用全局 fieldLabels / hiddenFields，勿在此重新声明同名局部变量
+
+            // 1. 更新顶部标题
+            const titleEl = doc.getElementById('systemTitle');
+            if (titleEl) titleEl.textContent = `${schoolName}食品安全检验管理系统`;
+
+            // 2. 更新 Logo
+            const logoEl = doc.getElementById('systemLogo');
+            if (logoEl) {
+                if (logoUrl) {
+                    logoEl.innerHTML = `<img src="${escapeHtml(logoUrl)}" alt="校徽" style="width:28px;height:28px;object-fit:contain;border-radius:4px">`;
+                } else {
+                    logoEl.innerHTML = '<i class="fas fa-shield-alt"></i>';
+                }
+            }
+
+            // 3. 应用预设主题（覆盖 iframe 的 CSS 变量：壁纸 + 玻璃着色 + 强调色，保留玻璃质感）
+            const navEl = doc.querySelector('nav.glass-dark');
+            if (navEl) {
+                // 清理旧版预览可能留下的纯色覆盖
+                navEl.style.background = '';
+                navEl.style.backdropFilter = '';
+                navEl.style.webkitBackdropFilter = '';
+            }
+            window.SchoolThemes.applyTheme(doc, getActiveTheme());
+
+            // 4. 根据可见检测类型显示/隐藏导航菜单
+            // 导航菜单按钮的 data-target 映射
+            const navTargetMap = {
+                tableware: 'tableware-test',
+                pesticide: 'pesticide-test',
+                oil: 'oil-test',
+                leanMeat: 'lean-meat-test',
+                pathogen: 'pathogen-test',
+            };
+            allTypes.forEach(type => {
+                const target = navTargetMap[type];
+                if (!target) return;
+                const navBtn = doc.querySelector(`[data-target="${target}"]`);
+                if (navBtn) {
+                    navBtn.style.display = visibleTypes.has(type) ? '' : 'none';
+                }
+            });
+
+            // 4.5 应用看板卡片 / 模块小标题覆盖
+            doc.querySelectorAll('[data-title-key]').forEach(el => {
+                const key = el.dataset.titleKey;
+                if (sectionTitles[key]) el.textContent = sectionTitles[key];
+            });
+
+            // 5. 应用字段标签覆盖 + 隐藏 + 自定义字段到表格
+            const moduleSectionMap = {
+                'tableware-test': 'tableware',
+                'pesticide-test': 'pesticide',
+                'oil-test': 'oil',
+                'lean-meat-test': 'leanMeat',
+                'pathogen-test': 'pathogen',
+            };
+            Object.entries(moduleSectionMap).forEach(([sectionId, moduleCode]) => {
+                const section = doc.getElementById(sectionId);
+                if (!section) return;
+
+                // 更新表头：标签覆盖 + contenteditable + 隐藏列
+                const tables = section.querySelectorAll('table');
+                tables.forEach(table => {
+                    const headerCells = table.querySelectorAll('thead th');
+                    headerCells.forEach((th, idx) => {
+                        // 记录原始标签（首次）
+                        if (!th.dataset.origLabel) th.dataset.origLabel = th.textContent.trim();
+
+                        // 匹配字段名（通过原始标签反查 MODULE_FIELDS）
+                        const origLabel = th.dataset.origLabel;
+                        const fieldDef = (MODULE_FIELDS[moduleCode] || []).find(f => f.label === origLabel);
+                        const fieldName = fieldDef?.name || origLabel;
+
+                        // 应用标签覆盖
+                        if (fieldLabels[fieldName]) {
+                            th.textContent = fieldLabels[fieldName];
+                        }
+
+                        // 隐藏列
+                        const cells = table.querySelectorAll('tbody tr td:nth-child(' + (idx + 1) + ')');
+                        if (hiddenFields.has(fieldName)) {
+                            th.style.display = 'none';
+                            cells.forEach(c => c.style.display = 'none');
+                        } else {
+                            th.style.display = '';
+                            cells.forEach(c => c.style.display = '');
+                        }
+
+                        // contenteditable：点击表头可直接编辑
+                        th.contentEditable = 'true';
+                        th.title = '点击编辑字段名';
+                        th.style.cursor = 'text';
+                        th.style.outline = '1px dashed rgba(59,130,246,0.4)';
+                        th.style.outlineOffset = '-1px';
+
+                        // 编辑后同步回编辑区
+                        th.onblur = () => {
+                            const newLabel = th.textContent.trim();
+                            const origLabel2 = th.dataset.origLabel;
+                            const fieldDef2 = (MODULE_FIELDS[moduleCode] || []).find(f => f.label === origLabel2);
+                            const fn = fieldDef2?.name || origLabel2;
+                            if (newLabel && newLabel !== origLabel2) {
+                                fieldLabels[fn] = newLabel;
+                                // 同步到左侧编辑区
+                                const input = document.querySelector(`.fl-label[data-field="${fn}"]`);
+                                if (input) input.value = newLabel;
+                            } else {
+                                delete fieldLabels[fn];
+                            }
+                        };
+                    });
+
+                    // 追加自定义字段列
+                    const custom = customFields[moduleCode] || [];
+                    if (custom.length && headerCells.length) {
+                        const tbody = table.querySelector('tbody');
+                        custom.forEach(cf => {
+                            // 检查列是否已存在
+                            const exists = Array.from(headerCells).some(th => th.dataset.origLabel === cf.label || th.textContent.trim() === cf.label);
+                            if (exists) return;
+                            // 新增表头
+                            const newTh = doc.createElement('th');
+                            newTh.textContent = fieldLabels[cf.name] || cf.label;
+                            newTh.dataset.origLabel = cf.label;
+                            newTh.contentEditable = 'true';
+                            newTh.title = '点击编辑字段名';
+                            newTh.style.cursor = 'text';
+                            newTh.style.outline = '1px dashed rgba(168,85,247,0.5)';
+                            newTh.onblur = () => {
+                                const nl = newTh.textContent.trim();
+                                if (nl && nl !== cf.label) { fieldLabels[cf.name] = nl; }
+                                else { delete fieldLabels[cf.name]; }
+                            };
+                            table.querySelector('thead tr').appendChild(newTh);
+                            // 给每行加空 td
+                            if (tbody) {
+                                tbody.querySelectorAll('tr').forEach(tr => {
+                                    const td = doc.createElement('td');
+                                    td.textContent = '—';
+                                    tr.appendChild(td);
+                                });
+                            }
+                        });
+                    }
+                });
+
+                // 应用 select 选项覆盖到表单
+                if (Object.keys(fieldOptions).length) {
+                    section.querySelectorAll('form select').forEach(sel => {
+                        const opts = fieldOptions[sel.name];
+                        if (!opts) return;
+                        sel.innerHTML = opts.map(o => `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`).join('');
+                    });
+                }
+
+                // 表单字段顺序：按拖拽顺序在各自网格内安全重排
+                const moduleOrder = fieldOrder[moduleCode];
+                if (Array.isArray(moduleOrder) && moduleOrder.length) {
+                    section.querySelectorAll('form').forEach(form => reorderFormFields(form, moduleOrder));
+                }
+            });
+        }
+
+        // ====== 表单字段安全重排（预览端使用；主应用 schoolCustomization.js 有对应实现）======
+        // 规则：只在同一父容器内重排、且该父容器的所有子元素都恰好是一个字段单元格，避免破坏原布局
+        function cellOf(field) {
+            const parent = field.parentElement;
+            if (parent && parent.classList && parent.classList.contains('grid')) return field;
+            let el = parent;
+            while (el && el.tagName === 'DIV') {
+                if (el.querySelector(':scope > label')) return el;
+                if (el.parentElement && el.parentElement.classList && el.parentElement.classList.contains('grid')) return el;
+                el = el.parentElement;
+            }
+            return field;
+        }
+        function isReorderableParent(parent) {
+            const kids = Array.from(parent.children);
+            if (kids.length < 2) return false;
+            return kids.every(k => {
+                const named = k.matches('input[name],select[name],textarea[name]')
+                    ? [k]
+                    : Array.from(k.querySelectorAll('input[name],select[name],textarea[name]'));
+                return named.length === 1;
+            });
+        }
+        function reorderFormFields(formEl, orderedNames) {
+            if (!formEl || !Array.isArray(orderedNames) || !orderedNames.length) return;
+            const pos = new Map(orderedNames.map((n, i) => [n, i]));
+            const parents = new Set();
+            formEl.querySelectorAll('input[name],select[name],textarea[name]').forEach(f => {
+                const cell = cellOf(f);
+                if (cell && cell.parentElement) parents.add(cell.parentElement);
+            });
+            parents.forEach(parent => {
+                if (!isReorderableParent(parent)) return;
+                const keyed = Array.from(parent.children).map((k, i) => {
+                    const f = k.matches('input[name],select[name],textarea[name]') ? k : k.querySelector('input[name],select[name],textarea[name]');
+                    const name = f ? f.name : null;
+                    const p = (name != null && pos.has(name)) ? pos.get(name) : Infinity;
+                    return { k, p, i };
+                });
+                keyed.sort((a, b) => (a.p !== b.p ? a.p - b.p : a.i - b.i));
+                keyed.forEach(x => parent.appendChild(x.k));
+            });
+        }
+
+        // 兼容旧调用名
+        const renderPreview = applyPreviewConfig;
+
+        // ====== 可视化编辑模式 ======
+        let visualEditMode = false;
+        let visualEditBound = false;
+
+        // 切换可视化编辑模式
+        document.getElementById('visualEditToggle').addEventListener('change', function() {
+            visualEditMode = this.checked;
+            localStorage.setItem('veEnabled', visualEditMode ? 'true' : 'false');
+            if (visualEditMode) {
+                enableVisualEdit();
+            } else {
+                disableVisualEdit();
+            }
+        });
+
+        // 引导横幅关闭
+        const veHintCloseEl = document.getElementById('veHintClose');
+        if (veHintCloseEl) veHintCloseEl.addEventListener('click', () => {
+            document.getElementById('veHint').style.display = 'none';
+            localStorage.setItem('veHintClosed', '1');
+        });
+
+        // Logo 一键上传（自动压缩为 data URL，傻瓜式免链接）
+        const bfLogoFile = document.getElementById('bf_logoFile');
+        if (bfLogoFile) bfLogoFile.addEventListener('change', (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (!file) return;
+            // 收口：类型与大小校验，避免误传非图片或超大文件卡死浏览器
+            if (!/^image\//.test(file.type)) {
+                showNotice('请选择图片文件（png / jpg / webp 等）', 'error');
+                e.target.value = '';
+                return;
+            }
+            if (file.size > 5 * 1024 * 1024) {
+                showNotice('图片过大（超过 5MB），请先压缩或换一张', 'error');
+                e.target.value = '';
+                return;
+            }
+            const reader = new FileReader();
+            reader.onerror = () => { showNotice('图片读取失败，请重试', 'error'); e.target.value = ''; };
+            reader.onload = () => {
+                const img = new Image();
+                img.onerror = () => { showNotice('图片解析失败，可能已损坏，请换一张', 'error'); e.target.value = ''; };
+                img.onload = () => {
+                    const max = 256;
+                    let { width, height } = img;
+                    if (width > height && width > max) { height = Math.round(height * max / width); width = max; }
+                    else if (height > max) { width = Math.round(width * max / height); height = max; }
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width; canvas.height = height;
+                    canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+                    document.getElementById('bf_logoUrl').value = dataUrl;
+                    const preview = document.getElementById('bf_logoPreview');
+                    preview.innerHTML = `<img src="${dataUrl}" alt="校徽" style="width:100%;height:100%;object-fit:contain">`;
+                    renderPreview();
+                };
+                img.src = reader.result;
+            };
+            reader.readAsDataURL(file);
+        });
+
+        function enableVisualEdit() {
+            if (!previewIframe || !previewReady) return;
+            const doc = previewIframe.contentDocument;
+            if (!doc) return;
+
+            // 注入 hover 高亮样式
+            const style = doc.createElement('style');
+            style.id = 'visual-edit-style';
+            style.textContent = `
+                .ve-editable { cursor: pointer !important; transition: outline 0.15s !important; }
+                .ve-editable:hover { outline: 2px solid #3b82f6 !important; outline-offset: 1px !important; background-color: rgba(59,130,246,0.08) !important; }
+                .ve-badge { position: absolute; background: #3b82f6; color: #fff; font-size: 10px; padding: 1px 6px; border-radius: 3px; pointer-events: none; z-index: 9999; white-space: nowrap; }
+            `;
+            doc.head.appendChild(style);
+
+            // 标记可编辑元素
+            const titleEl = doc.getElementById('systemTitle');
+            if (titleEl) { titleEl.classList.add('ve-editable'); titleEl.dataset.veType = 'title'; }
+
+            const logoEl = doc.getElementById('systemLogo');
+            if (logoEl) { logoEl.classList.add('ve-editable'); logoEl.dataset.veType = 'logo'; }
+
+            doc.querySelectorAll('nav.glass-dark').forEach(nav => {
+                nav.classList.add('ve-editable');
+                nav.dataset.veType = 'navcolor';
+            });
+
+            // 导航菜单项
+            const navTargetMap = { 'tableware-test':'tableware', 'pesticide-test':'pesticide', 'oil-test':'oil', 'lean-meat-test':'leanMeat', 'pathogen-test':'pathogen' };
+            Object.entries(navTargetMap).forEach(([target, module]) => {
+                const btn = doc.querySelector(`[data-target="${target}"]`);
+                if (btn) { btn.classList.add('ve-editable'); btn.dataset.veType = 'navitem'; btn.dataset.veModule = module; }
+            });
+
+            // 表格表头
+            const moduleSectionMap = { 'tableware-test':'tableware', 'pesticide-test':'pesticide', 'oil-test':'oil', 'lean-meat-test':'leanMeat', 'pathogen-test':'pathogen' };
+            Object.entries(moduleSectionMap).forEach(([sectionId, moduleCode]) => {
+                const section = doc.getElementById(sectionId);
+                if (!section) return;
+                // 显示所有模块表单（可视化编辑时需要看到表单）
+                section.classList.remove('hidden');
+                // 表格表头
+                section.querySelectorAll('table thead th').forEach((th, idx) => {
+                    th.classList.add('ve-editable');
+                    th.dataset.veType = 'th';
+                    th.dataset.veModule = moduleCode;
+                    th.dataset.veIndex = idx;
+                });
+                // 表单中的 select → 点击编辑选项
+                section.querySelectorAll('form select').forEach(sel => {
+                    sel.classList.add('ve-editable');
+                    sel.dataset.veType = 'formselect';
+                    sel.dataset.veModule = moduleCode;
+                    sel.dataset.veField = sel.name || '';
+                });
+                // 表单中的 label → 点击编辑标签文字
+                section.querySelectorAll('form label').forEach(lbl => {
+                    if (!lbl.textContent.trim()) return;
+                    lbl.classList.add('ve-editable');
+                    lbl.dataset.veType = 'formlabel';
+                    lbl.dataset.veModule = moduleCode;
+                    // 找到关联的 input/select
+                    const sibling = lbl.parentElement.querySelector('input,select,textarea');
+                    if (sibling && sibling.name) lbl.dataset.veField = sibling.name;
+                });
+                // 表单中的 input（有 placeholder 的）→ 点击编辑 placeholder
+                section.querySelectorAll('form input[placeholder]').forEach(inp => {
+                    if (!inp.name) return;
+                    inp.classList.add('ve-editable');
+                    inp.dataset.veType = 'forminput';
+                    inp.dataset.veModule = moduleCode;
+                    inp.dataset.veField = inp.name;
+                });
+            });
+
+            // 看板卡片标题 / 各模块小标题
+            doc.querySelectorAll('[data-title-key]').forEach(el => {
+                el.classList.add('ve-editable');
+                el.dataset.veType = 'heading';
+                el.dataset.veKey = el.dataset.titleKey;
+                if (!el.dataset.origTitle) el.dataset.origTitle = el.textContent.trim();
+            });
+
+            // 统一点击处理（避免重复绑定）
+            if (!visualEditBound) {
+                doc.addEventListener('click', veClickHandler, true);
+                visualEditBound = true;
+            }
+        }
+
+        function disableVisualEdit() {
+            if (!previewIframe) return;
+            const doc = previewIframe.contentDocument;
+            if (!doc) return;
+            const style = doc.getElementById('visual-edit-style');
+            if (style) style.remove();
+            doc.querySelectorAll('.ve-editable').forEach(el => {
+                el.classList.remove('ve-editable');
+                delete el.dataset.veType;
+                delete el.dataset.veModule;
+                delete el.dataset.veField;
+                delete el.dataset.veKey;
+            });
+            // 恢复 content-section 的 hidden 状态（保留第一个可见）
+            const sections = doc.querySelectorAll('.content-section');
+            sections.forEach((s, i) => { if (i > 0) s.classList.add('hidden'); });
+            if (visualEditBound) { doc.removeEventListener('click', veClickHandler, true); visualEditBound = false; }
+        }
+
+        function veClickHandler(e) {
+            if (!visualEditMode) return;
+            const target = e.target.closest('.ve-editable');
+            if (!target) return;
+            e.preventDefault();
+            e.stopPropagation();
+            openVisualEdit(target);
+        }
+
+        function openVisualEdit(el) {
+            const type = el.dataset.veType;
+            const fieldsContainer = document.getElementById('veFields');
+            document.getElementById('veType').value = type;
+            document.getElementById('veField').value = el.dataset.veField || '';
+            document.getElementById('veModule').value = el.dataset.veModule || '';
+
+            if (type === 'title') {
+                document.getElementById('veTitle').textContent = '编辑系统标题';
+                document.getElementById('veIcon').className = 'fas fa-heading mr-2 text-blue-600';
+                const currentName = document.getElementById('bf_name').value.trim() || '示例学校';
+                fieldsContainer.innerHTML = `
+                    <div>
+                        <label class="block text-sm text-gray-600 mb-1">学校名称（标题显示为"<名称>食品安全检验管理系统"）</label>
+                        <input id="ve_input" type="text" value="${escapeHtml(currentName)}" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>`;
+                document.getElementById('veHideBtn').classList.add('hidden');
+            } else if (type === 'logo') {
+                document.getElementById('veTitle').textContent = '编辑校徽';
+                document.getElementById('veIcon').className = 'fas fa-image mr-2 text-blue-600';
+                fieldsContainer.innerHTML = `
+                    <div>
+                        <label class="block text-sm text-gray-600 mb-1">校徽图片 URL（留空使用默认盾牌图标）</label>
+                        <input id="ve_input" type="url" value="${escapeHtml(document.getElementById('bf_logoUrl').value)}" placeholder="https://..." class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                    </div>`;
+                document.getElementById('veHideBtn').classList.add('hidden');
+            } else if (type === 'navcolor') {
+                document.getElementById('veTitle').textContent = '编辑导航栏主题色';
+                document.getElementById('veIcon').className = 'fas fa-palette mr-2 text-blue-600';
+                const currentColor = document.getElementById('bf_themeColor').value || '#1a73e8';
+                fieldsContainer.innerHTML = `
+                    <div>
+                        <label class="block text-sm text-gray-600 mb-1">主题色</label>
+                        <div class="flex items-center gap-2">
+                            <input id="ve_input" type="text" value="${escapeHtml(currentColor)}" class="flex-1 px-3 py-2 border border-gray-300 rounded-lg">
+                            <input id="ve_colorPicker" type="color" value="${escapeHtml(currentColor)}" class="w-10 h-10 rounded cursor-pointer border border-gray-300">
+                        </div>
+                    </div>`;
+                document.getElementById('veHideBtn').classList.add('hidden');
+                const picker = document.getElementById('ve_colorPicker');
+                const input = document.getElementById('ve_input');
+                picker.oninput = () => input.value = picker.value;
+                input.oninput = () => picker.value = input.value;
+            } else if (type === 'navitem') {
+                const moduleCode = el.dataset.veModule;
+                const info = MODULE_INFO[moduleCode] || { name: moduleCode };
+                document.getElementById('veTitle').textContent = `编辑模块：${info.name}`;
+                document.getElementById('veIcon').className = `fas ${info.icon} mr-2 text-blue-600`;
+                const visibleTypes = new Set(Array.from(document.querySelectorAll('.vis-type:checked')).map(cb => cb.value));
+                fieldsContainer.innerHTML = `
+                    <div class="space-y-2">
+                        <label class="flex items-center gap-2">
+                            <input id="ve_visible" type="checkbox" ${visibleTypes.has(moduleCode) ? 'checked' : ''}>
+                            <span class="text-sm">在主界面显示此模块</span>
+                        </label>
+                        <p class="text-xs text-gray-400">取消勾选后，该校用户将看不到此检测模块</p>
+                    </div>`;
+                document.getElementById('veHideBtn').classList.add('hidden');
+            } else if (type === 'th') {
+                const moduleCode = el.dataset.veModule;
+                const origLabel = el.dataset.origLabel || el.textContent.trim();
+                const fieldDef = (MODULE_FIELDS[moduleCode] || []).find(f => f.label === origLabel);
+                const fieldName = fieldDef?.name || origLabel;
+                const currentLabel = fieldLabels[fieldName] || origLabel;
+                const isHidden = hiddenFields.has(fieldName);
+                document.getElementById('veTitle').textContent = `编辑字段：${origLabel}`;
+                document.getElementById('veIcon').className = 'fas fa-tag mr-2 text-blue-600';
+                document.getElementById('veField').value = fieldName;
+                fieldsContainer.innerHTML = `
+                    <div>
+                        <label class="block text-sm text-gray-600 mb-1">显示名称</label>
+                        <input id="ve_input" type="text" value="${escapeHtml(currentLabel)}" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <p class="text-xs text-gray-400 mt-1">技术字段名：<code>${escapeHtml(fieldName)}</code></p>
+                    </div>`;
+                document.getElementById('veHideBtn').classList.remove('hidden');
+                document.getElementById('veHideBtn').textContent = isHidden ? '显示此字段' : '隐藏此字段';
+                document.getElementById('veHideBtn').onclick = () => {
+                    if (isHidden) hiddenFields.delete(fieldName);
+                    else hiddenFields.add(fieldName);
+                    renderFieldList();
+                    renderPreview();
+                    closeVisualEdit();
+                };
+            } else if (type === 'formselect') {
+                const fieldName = el.dataset.veField;
+                const moduleCode = el.dataset.veModule;
+                // 获取当前选项（优先用 fieldOptions 覆盖值，否则用 iframe 内 select 的实际选项）
+                const currentOpts = fieldOptions[fieldName] || Array.from(el.querySelectorAll('option')).map(o => o.textContent.trim());
+                document.getElementById('veTitle').textContent = `编辑选项：${fieldName}`;
+                document.getElementById('veIcon').className = 'fas fa-list mr-2 text-blue-600';
+                document.getElementById('veField').value = fieldName;
+                fieldsContainer.innerHTML = `
+                    <div>
+                        <label class="block text-sm text-gray-600 mb-2">选项列表（可增删改、拖拽排序）</label>
+                        <div id="veOptionsList" class="space-y-2"></div>
+                        <button type="button" id="veAddOption" class="mt-2 text-sm text-blue-600 hover:underline"><i class="fas fa-plus mr-1"></i>新增选项</button>
+                    </div>`;
+                document.getElementById('veHideBtn').classList.add('hidden');
+
+                const optsList = document.getElementById('veOptionsList');
+                function renderOptsList(opts) {
+                    optsList.innerHTML = opts.map((opt, i) => `
+                        <div class="flex items-center gap-2" data-idx="${i}">
+                            <input type="text" value="${escapeHtml(opt)}" class="ve-opt flex-1 px-2 py-1 border border-gray-300 rounded text-sm">
+                            <button type="button" class="ve-opt-up px-2 text-gray-400 hover:text-gray-700" title="上移"><i class="fas fa-arrow-up"></i></button>
+                            <button type="button" class="ve-opt-down px-2 text-gray-400 hover:text-gray-700" title="下移"><i class="fas fa-arrow-down"></i></button>
+                            <button type="button" class="ve-opt-del px-2 text-red-500 hover:bg-red-50 rounded" title="删除"><i class="fas fa-trash"></i></button>
+                        </div>
+                    `).join('');
+                    // 绑定排序/删除
+                    optsList.querySelectorAll('.ve-opt-up').forEach(btn => {
+                        btn.onclick = () => {
+                            const idx = parseInt(btn.parentElement.dataset.idx);
+                            if (idx === 0) return;
+                            const vals = getOptsValues();
+                            [vals[idx-1], vals[idx]] = [vals[idx], vals[idx-1]];
+                            renderOptsList(vals);
+                        };
+                    });
+                    optsList.querySelectorAll('.ve-opt-down').forEach(btn => {
+                        btn.onclick = () => {
+                            const idx = parseInt(btn.parentElement.dataset.idx);
+                            const vals = getOptsValues();
+                            if (idx >= vals.length - 1) return;
+                            [vals[idx+1], vals[idx]] = [vals[idx], vals[idx+1]];
+                            renderOptsList(vals);
+                        };
+                    });
+                    optsList.querySelectorAll('.ve-opt-del').forEach(btn => {
+                        btn.onclick = () => btn.parentElement.remove();
+                    });
+                }
+                function getOptsValues() {
+                    return Array.from(optsList.querySelectorAll('.ve-opt')).map(i => i.value.trim()).filter(v => v);
+                }
+                renderOptsList(currentOpts);
+                document.getElementById('veAddOption').onclick = () => {
+                    const div = document.createElement('div');
+                    div.className = 'flex items-center gap-2';
+                    div.dataset.idx = optsList.children.length;
+                    div.innerHTML = `
+                        <input type="text" value="" placeholder="新选项" class="ve-opt flex-1 px-2 py-1 border border-gray-300 rounded text-sm">
+                        <button type="button" class="ve-opt-up px-2 text-gray-400 hover:text-gray-700"><i class="fas fa-arrow-up"></i></button>
+                        <button type="button" class="ve-opt-down px-2 text-gray-400 hover:text-gray-700"><i class="fas fa-arrow-down"></i></button>
+                        <button type="button" class="ve-opt-del px-2 text-red-500 hover:bg-red-50 rounded"><i class="fas fa-trash"></i></button>
+                    `;
+                    optsList.appendChild(div);
+                    div.querySelector('.ve-opt-up').onclick = () => {
+                        const idx = parseInt(div.dataset.idx);
+                        const vals = getOptsValues();
+                        if (idx > 0) { [vals[idx-1], vals[idx]] = [vals[idx], vals[idx-1]]; renderOptsList(vals); }
+                    };
+                    div.querySelector('.ve-opt-down').onclick = () => {
+                        const idx = parseInt(div.dataset.idx);
+                        const vals = getOptsValues();
+                        if (idx < vals.length - 1) { [vals[idx+1], vals[idx]] = [vals[idx], vals[idx+1]]; renderOptsList(vals); }
+                    };
+                    div.querySelector('.ve-opt-del').onclick = () => div.remove();
+                    div.querySelector('.ve-opt').focus();
+                };
+                // 存储 getOptsValues 供 submit 使用
+                document.getElementById('veForm').dataset.getOpts = '1';
+            } else if (type === 'formlabel' || type === 'forminput') {
+                const fieldName = el.dataset.veField;
+                const moduleCode = el.dataset.veModule;
+                const isLabel = type === 'formlabel';
+                const currentText = isLabel
+                    ? (fieldLabels[fieldName] || el.textContent.replace(/[*\s]+$/,'').trim())
+                    : (fieldLabels[fieldName] || el.placeholder || '');
+                document.getElementById('veTitle').textContent = `编辑${isLabel ? '标签' : '提示文字'}：${fieldName}`;
+                document.getElementById('veIcon').className = 'fas fa-tag mr-2 text-blue-600';
+                document.getElementById('veField').value = fieldName;
+                fieldsContainer.innerHTML = `
+                    <div>
+                        <label class="block text-sm text-gray-600 mb-1">${isLabel ? '显示标签' : '输入框提示文字（placeholder）'}</label>
+                        <input id="ve_input" type="text" value="${escapeHtml(currentText)}" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <p class="text-xs text-gray-400 mt-1">技术字段名：<code>${escapeHtml(fieldName)}</code></p>
+                    </div>`;
+                document.getElementById('veHideBtn').classList.add('hidden');
+            } else if (type === 'heading') {
+                const key = el.dataset.veKey;
+                const origTitle = el.dataset.origTitle || el.textContent.trim();
+                const current = sectionTitles[key] || origTitle;
+                document.getElementById('veTitle').textContent = '编辑标题';
+                document.getElementById('veIcon').className = 'fas fa-heading mr-2 text-blue-600';
+                document.getElementById('veField').value = key; // 复用 veField 存放 titleKey
+                fieldsContainer.innerHTML = `
+                    <div>
+                        <label class="block text-sm text-gray-600 mb-1">显示标题</label>
+                        <input id="ve_input" type="text" value="${escapeHtml(current)}" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <p class="text-xs text-gray-400 mt-1">标识：<code>${escapeHtml(key)}</code></p>
+                    </div>`;
+                document.getElementById('veHideBtn').classList.add('hidden');
+            }
+
+            document.getElementById('visualEditModal').classList.remove('hidden');
+            document.getElementById('visualEditModal').classList.add('flex');
+        }
+
+        function closeVisualEdit() {
+            document.getElementById('visualEditModal').classList.add('hidden');
+            document.getElementById('visualEditModal').classList.remove('flex');
+        }
+
+        document.getElementById('veClose').addEventListener('click', closeVisualEdit);
+        document.getElementById('veCancel').addEventListener('click', closeVisualEdit);
+
+        document.getElementById('veForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const type = document.getElementById('veType').value;
+            const fieldName = document.getElementById('veField').value;
+            const input = document.getElementById('ve_input');
+            const val = input?.value.trim();
+
+            if (type === 'title') {
+                document.getElementById('bf_name').value = val || '';
+            } else if (type === 'logo') {
+                document.getElementById('bf_logoUrl').value = val || '';
+            } else if (type === 'navcolor') {
+                const color = val || '#1a73e8';
+                document.getElementById('bf_themeColor').value = color;
+                document.getElementById('bf_themeColorPicker').value = color;
+                selectedThemeId = null; // 手动改色 → 自定义主题
+                highlightThemePreset();
+            } else if (type === 'navitem') {
+                const moduleCode = document.getElementById('veModule').value;
+                const cb = document.querySelector(`.vis-type[value="${moduleCode}"]`);
+                if (cb) cb.checked = document.getElementById('ve_visible').checked;
+                renderFieldModuleTabs();
+            } else if (type === 'th') {
+                const moduleCode = document.getElementById('veModule').value;
+                const fieldDef = (MODULE_FIELDS[moduleCode] || []).find(f => f.name === fieldName);
+                const origLabel = fieldDef?.label || fieldName;
+                if (val && val !== origLabel) {
+                    fieldLabels[fieldName] = val;
+                } else {
+                    delete fieldLabels[fieldName];
+                }
+                renderFieldList();
+            } else if (type === 'formselect') {
+                // 收集选项列表
+                const optsList = document.getElementById('veOptionsList');
+                const opts = Array.from(optsList.querySelectorAll('.ve-opt')).map(i => i.value.trim()).filter(v => v);
+                if (opts.length) {
+                    fieldOptions[fieldName] = opts;
+                } else {
+                    delete fieldOptions[fieldName];
+                }
+            } else if (type === 'formlabel' || type === 'forminput') {
+                if (val) {
+                    fieldLabels[fieldName] = val;
+                } else {
+                    delete fieldLabels[fieldName];
+                }
+                renderFieldList();
+            } else if (type === 'heading') {
+                const key = document.getElementById('veField').value;
+                if (val) sectionTitles[key] = val;
+                else delete sectionTitles[key];
+            }
+
+            if (type !== 'title' && type !== 'logo') markDirty();
+            renderPreview();
+            closeVisualEdit();
+        });
+
+        // ====== 学校列表 ======
+        let allSchools = [];
+
         async function loadSchools() {
             const tbody = document.getElementById('schoolTbody');
-            tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-gray-400">加载中...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center py-4 text-gray-400">加载中...</td></tr>';
             try {
                 const resp = await fetch(`${API_BASE}/api/admin/schools`, { headers: authHeaders() });
                 const json = await resp.json();
                 if (!resp.ok) throw new Error(json.error || '加载失败');
-                const rows = json.data || [];
-                if (!rows.length) {
-                    tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-gray-400">暂无学校</td></tr>';
+                allSchools = json.data || [];
+                renderSchools();
+            } catch (e) {
+                tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-red-500">${escapeHtml(e.message)}</td></tr>`;
+            }
+        }
+
+        function renderSchools() {
+            const tbody = document.getElementById('schoolTbody');
+            const keyword = document.getElementById('searchInput').value.trim().toLowerCase();
+            const filtered = keyword
+                ? allSchools.filter(s => (s.code || '').toLowerCase().includes(keyword) || (s.name || '').toLowerCase().includes(keyword))
+                : allSchools;
+            if (!filtered.length) {
+                tbody.innerHTML = '<tr><td colspan="8" class="text-center py-4 text-gray-400">暂无学校</td></tr>';
+                return;
+            }
+            tbody.innerHTML = filtered.map(s => `
+                <tr>
+                    <td class="font-mono text-xs">${escapeHtml(s.code)}</td>
+                    <td>${escapeHtml(s.name || '')}</td>
+                    <td>${escapeHtml(s.short_name || '')}</td>
+                    <td>${s.status === 'active' ? '<span class="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs">启用</span>' : '<span class="px-2 py-0.5 bg-gray-200 text-gray-600 rounded-full text-xs">停用</span>'}</td>
+                    <td>${s.logo_url ? `<img src="${escapeHtml(s.logo_url)}" alt="logo" class="w-7 h-7 object-contain rounded">` : '<i class="fas fa-school text-gray-300"></i>'}</td>
+                    <td class="text-xs text-gray-500">${s.created_at ? new Date(s.created_at).toLocaleDateString() : ''}</td>
+                    <td><a class="text-blue-600 hover:underline text-xs" href="/${s.code}/login" target="_blank">/${escapeHtml(s.code)}/login</a></td>
+                    <td><button class="px-2 py-1 text-xs bg-blue-50 text-blue-700 rounded hover:bg-blue-100 transition btn-manage" data-code="${escapeHtml(s.code)}"><i class="fas fa-cog mr-1"></i>管理</button></td>
+                </tr>
+            `).join('');
+
+            tbody.querySelectorAll('.btn-manage').forEach(btn => {
+                btn.addEventListener('click', () => openDetail(btn.dataset.code));
+            });
+        }
+
+        // ====== 学校详情面板 ======
+        let currentSchoolCode = null;
+
+        async function openDetail(code) {
+            currentSchoolCode = code;
+            const school = allSchools.find(s => s.code === code);
+            if (!school) return;
+
+            document.getElementById('detailPanel').classList.remove('hidden');
+            document.getElementById('detailTitle').textContent = `${school.name || school.code} (${code})`;
+            document.getElementById('detailPanel').scrollIntoView({ behavior: 'smooth' });
+
+            // 填充基本信息
+            document.getElementById('bf_code').value = school.code;
+            document.getElementById('bf_loginUrl').value = `/${school.code}/login`;
+            document.getElementById('bf_name').value = school.name || '';
+            document.getElementById('bf_shortName').value = school.short_name || '';
+            document.getElementById('bf_themeColor').value = school.theme_color || '#1a73e8';
+            document.getElementById('bf_themeColorPicker').value = school.theme_color || '#1a73e8';
+            document.getElementById('bf_logoUrl').value = school.logo_url || '';
+            document.getElementById('bf_status').value = school.status || 'active';
+            updateLogoPreview(school.logo_url);
+
+            // 切到基本信息 Tab
+            switchTab('basic');
+        }
+
+        function updateLogoPreview(url) {
+            const preview = document.getElementById('bf_logoPreview');
+            if (url) {
+                preview.innerHTML = `<img src="${escapeHtml(url)}" alt="logo" class="w-full h-full object-contain rounded">`;
+            } else {
+                preview.innerHTML = '<i class="fas fa-image text-gray-400 text-sm"></i>';
+            }
+        }
+
+        // Tab 切换
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+        });
+
+        function switchTab(tab) {
+            // 离开「界面定制」时若有未保存修改，提醒用户
+            const activeTabEl = document.querySelector('.tab-btn.active');
+            const fromTab = activeTabEl?.dataset.tab;
+            if (fromTab === 'custom' && tab !== 'custom' && customDirty) {
+                if (!confirm('「界面定制」有未保存的修改，确定离开吗？离开后修改将丢失。')) return;
+            }
+
+            document.querySelectorAll('.tab-btn').forEach(b => {
+                if (b.dataset.tab === tab) {
+                    b.classList.add('active', 'text-blue-600', 'border-blue-500');
+                    b.classList.remove('text-gray-500', 'border-transparent');
+                } else {
+                    b.classList.remove('active', 'text-blue-600', 'border-blue-500');
+                    b.classList.add('text-gray-500', 'border-transparent');
+                }
+            });
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+            document.getElementById('tab-' + tab).classList.remove('hidden');
+
+            if (tab === 'custom') {
+                initThemePresets();
+                initPreviewIframe();
+                loadCustomization();
+                // 傻瓜式：默认开启可视化编辑，并展示引导横幅
+                const ve = document.getElementById('visualEditToggle');
+                if (ve && localStorage.getItem('veEnabled') !== 'false') ve.checked = true;
+                if (ve) ve.dispatchEvent(new Event('change'));
+                const hint = document.getElementById('veHint');
+                if (hint && localStorage.getItem('veHintClosed') !== '1') hint.style.display = 'flex';
+            }
+            if (tab === 'users') loadUsers();
+        }
+
+        document.getElementById('closeDetail').addEventListener('click', () => {
+            if (customDirty && !confirm('「界面定制」有未保存的修改，确定关闭吗？修改将丢失。')) return;
+            document.getElementById('detailPanel').classList.add('hidden');
+            currentSchoolCode = null;
+        });
+
+        // 主题色联动
+        document.getElementById('bf_themeColor').addEventListener('input', e => {
+            document.getElementById('bf_themeColorPicker').value = e.target.value || '#1a73e8';
+            selectedThemeId = null; // 手动改色 → 自定义主题
+            highlightThemePreset();
+        });
+        document.getElementById('bf_themeColorPicker').addEventListener('input', e => {
+            document.getElementById('bf_themeColor').value = e.target.value;
+            selectedThemeId = null;
+            highlightThemePreset();
+        });
+        document.getElementById('bf_logoUrl').addEventListener('input', e => updateLogoPreview(e.target.value));
+
+        // 保存基本信息
+        document.getElementById('basicForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('saveBasicBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>保存中...';
+            try {
+                const resp = await fetch(`${API_BASE}/api/admin/schools/${currentSchoolCode}`, {
+                    method: 'PUT',
+                    headers: authHeaders(),
+                    body: JSON.stringify({
+                        name: document.getElementById('bf_name').value.trim(),
+                        shortName: document.getElementById('bf_shortName').value.trim(),
+                        themeColor: document.getElementById('bf_themeColor').value.trim(),
+                        logoUrl: document.getElementById('bf_logoUrl').value.trim(),
+                    })
+                });
+                const json = await resp.json();
+                if (!resp.ok) throw new Error(json.error || '保存失败');
+                // 状态单独更新
+                const newStatus = document.getElementById('bf_status').value;
+                await fetch(`${API_BASE}/api/admin/schools/${currentSchoolCode}/status`, {
+                    method: 'PATCH',
+                    headers: authHeaders(),
+                    body: JSON.stringify({ status: newStatus })
+                });
+                showNotice('✅ 学校信息已保存', 'success');
+                loadSchools();
+            } catch (e) {
+                showNotice('❌ ' + e.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-save mr-2"></i><span>保存修改</span>';
+            }
+        });
+
+        // ====== 界面定制 ======
+        let currentCustomization = {};
+
+        // ====== 模块字段定义 ======
+        const MODULE_FIELDS = {
+            tableware: [
+                { name: 'testDate', label: '日期', builtin: true },
+                { name: 'canteen', label: '食堂', builtin: true },
+                { name: 'location', label: '检测点位', builtin: true },
+                { name: 'rluValue', label: 'RLU值', builtin: true },
+                { name: 'result', label: '结果', builtin: true },
+                { name: 'inspector', label: '检测员', builtin: true },
+            ],
+            pesticide: [
+                { name: 'testDate', label: '日期', builtin: true },
+                { name: 'canteen', label: '食堂', builtin: true },
+                { name: 'vegetableType', label: '蔬菜品种', builtin: true },
+                { name: 'batchNo', label: '检测项目', builtin: true },
+                { name: 'result', label: '结果', builtin: true },
+                { name: 'inspector', label: '检测员', builtin: true },
+            ],
+            oil: [
+                { name: 'testDate', label: '日期', builtin: true },
+                { name: 'canteen', label: '食堂', builtin: true },
+                { name: 'oilTemp', label: '油温', builtin: true },
+                { name: 'tpmValue', label: '油品颜色', builtin: true },
+                { name: 'acidValue', label: '酸价值', builtin: true },
+                { name: 'qualityLevel', label: '品质等级', builtin: true },
+                { name: 'inspector', label: '检测员', builtin: true },
+            ],
+            leanMeat: [
+                { name: 'testDate', label: '日期', builtin: true },
+                { name: 'canteen', label: '食堂', builtin: true },
+                { name: 'meatType', label: '肉类品种', builtin: true },
+                { name: 'batchNo', label: '检测项目', builtin: true },
+                { name: 'result', label: '结果', builtin: true },
+                { name: 'inspector', label: '检测员', builtin: true },
+            ],
+            pathogen: [
+                { name: 'testDate', label: '日期', builtin: true },
+                { name: 'sampleId', label: '样本ID', builtin: true },
+                { name: 'canteen', label: '食堂', builtin: true },
+                { name: 'type', label: '类型', builtin: true },
+                { name: 'positiveItem', label: '阳性项', builtin: true },
+                { name: 'risk', label: '风险', builtin: true },
+                { name: 'inspector', label: '检测员', builtin: true },
+            ],
+        };
+
+        // 当前编辑状态（字段维度）
+        let fieldLabels = {};       // { fieldName: customLabel }
+        let hiddenFields = new Set(); // [ fieldName, ... ]
+        let customFields = {};      // { moduleCode: [ { name, label }, ... ] }
+        let fieldOptions = {};      // { fieldName: [option1, option2, ...] }
+        let sectionTitles = {};     // { titleKey: "自定义标题" }  看板卡片 / 模块小标题
+        let fieldRules = {};        // { fieldName: { required, maxLength, minLength } }  傻瓜式校验规则
+        let fieldOrder = {};        // { moduleCode: [fieldName, ...] }  字段显示顺序（拖拽排序）
+        let customDirty = false;    // 界面定制是否有未保存修改
+
+        function markDirty() {
+            customDirty = true;
+            const b = document.getElementById('saveCustomBtn');
+            if (b) b.innerHTML = '<i class="fas fa-save mr-2"></i>保存定制 <span class="text-xs opacity-80">● 未保存</span>';
+            const d = document.getElementById('discardCustomBtn');
+            if (d) d.classList.remove('hidden');
+            const h = document.getElementById('customDirtyHint');
+            if (h) { h.textContent = '有未保存的修改'; h.classList.remove('text-gray-400'); h.classList.add('text-amber-600'); }
+        }
+        function resetDirty() {
+            customDirty = false;
+            const b = document.getElementById('saveCustomBtn');
+            if (b) b.innerHTML = '<i class="fas fa-save mr-2"></i>保存定制';
+            const d = document.getElementById('discardCustomBtn');
+            if (d) d.classList.add('hidden');
+            const h = document.getElementById('customDirtyHint');
+            if (h) { h.textContent = '修改会实时反映到预览，点「保存定制」后对该校生效'; h.classList.add('text-gray-400'); h.classList.remove('text-amber-600'); }
+        }
+
+        // 放弃修改：重新从服务端拉取配置并整体重渲染
+        const discardCustomBtnEl = document.getElementById('discardCustomBtn');
+        if (discardCustomBtnEl) discardCustomBtnEl.addEventListener('click', async () => {
+            if (!confirm('确定放弃「界面定制」的所有未保存修改吗？')) return;
+            await loadCustomization();
+            showNotice('已放弃修改，恢复为上次保存的配置', 'success');
+        });
+
+        // 刷新/关闭页面时的未保存保护
+        window.addEventListener('beforeunload', (e) => {
+            if (customDirty) { e.preventDefault(); e.returnValue = ''; }
+        });
+        let currentFieldModule = 'tableware';
+
+        async function loadCustomization() {
+            if (!currentSchoolCode) return;
+            // 重置状态
+            fieldLabels = {};
+            hiddenFields = new Set();
+            customFields = {};
+            fieldOptions = {};
+            sectionTitles = {};
+            fieldRules = {};
+            fieldOrder = {};
+
+            try {
+                const resp = await fetch(`${API_BASE}/api/admin/schools/${currentSchoolCode}/customization`, { headers: authHeaders() });
+                if (resp.ok) {
+                    const json = await resp.json();
+                    const c = json.data || {};
+                    currentCustomization = c;
+
+                    const visTypes = parseJSON(c.visible_types) || ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'];
+                    document.querySelectorAll('.vis-type').forEach(cb => { cb.checked = visTypes.includes(cb.value); });
+
+            fieldLabels = parseJSON(c.field_labels) || {};
+            hiddenFields = new Set(parseJSON(c.hidden_fields) || []);
+            // 顶层新列优先，回退 theme_config 嵌套（兼容旧数据）
+            customFields = parseJSON(c.custom_fields) || parseJSON(c.theme_config)?.custom_fields || {};
+            fieldOptions = parseJSON(c.field_options) || parseJSON(c.theme_config)?.field_options || {};
+            sectionTitles = parseJSON(c.theme_config)?.section_titles || {};
+            fieldOrder = parseJSON(c.field_order) || parseJSON(c.theme_config)?.field_order || {};
+
+                    // 回显已保存的预设主题
+                    const savedTheme = parseJSON(c.theme_config)?.theme;
+                    selectedThemeId = (savedTheme?.preset && window.SchoolThemes.getPreset(savedTheme.preset)) ? savedTheme.preset : null;
+                    if (savedTheme?.accent) {
+                        document.getElementById('bf_themeColor').value = savedTheme.accent;
+                        document.getElementById('bf_themeColorPicker').value = savedTheme.accent;
+                    }
+                    highlightThemePreset();
+
+                    const rules = parseJSON(c.field_rules) || {};
+                    fieldRules = rules;
+                } else {
+                    document.querySelectorAll('.vis-type').forEach(cb => { cb.checked = true; });
+                    fieldRules = {};
+                }
+            } catch (e) {
+                console.warn('⚠️ 加载定制配置失败，使用默认值:', e.message);
+                document.querySelectorAll('.vis-type').forEach(cb => { cb.checked = true; });
+                fieldRules = {};
+            }
+            renderFieldModuleTabs();
+            renderFieldList();
+            bindPreviewEvents();
+            renderPreview();
+            resetDirty();
+        }
+
+        function parseJSON(v) {
+            if (v == null) return null;
+            if (typeof v === 'object') return v;
+            try { return JSON.parse(v); } catch { return null; }
+        }
+
+        // 渲染模块子 Tab
+        function renderFieldModuleTabs() {
+            const container = document.getElementById('fieldModuleTabs');
+            const visibleModules = Array.from(document.querySelectorAll('.vis-type:checked')).map(cb => cb.value);
+            const modules = visibleModules.length ? visibleModules : Object.keys(MODULE_FIELDS);
+            if (!modules.includes(currentFieldModule)) currentFieldModule = modules[0] || 'tableware';
+            container.innerHTML = modules.map(code => {
+                const info = MODULE_INFO[code] || { name: code };
+                const active = code === currentFieldModule;
+                return `<button type="button" class="fm-tab px-2 py-1 text-xs rounded-t font-medium ${active ? 'bg-blue-50 text-blue-700 border-b-2 border-blue-500' : 'text-gray-500 hover:text-blue-500'}" data-module="${code}">${info.name}</button>`;
+            }).join('');
+            container.querySelectorAll('.fm-tab').forEach(btn => {
+                btn.addEventListener('click', () => { currentFieldModule = btn.dataset.module; renderFieldModuleTabs(); renderFieldList(); });
+            });
+        }
+
+        // 按保存的顺序对字段列表做稳定重排（未列出的保持原相对位置并排在后面）
+        function orderFields(list, order) {
+            if (!Array.isArray(order) || !order.length) return list;
+            const pos = new Map(order.map((n, i) => [n, i]));
+            return list
+                .map((f, i) => ({ f, i }))
+                .sort((a, b) => {
+                    const pa = pos.has(a.f.name) ? pos.get(a.f.name) : Infinity;
+                    const pb = pos.has(b.f.name) ? pos.get(b.f.name) : Infinity;
+                    return pa !== pb ? pa - pb : a.i - b.i;
+                })
+                .map(x => x.f);
+        }
+
+        // 获取当前模块的完整字段列表（内置 + 自定义），并应用拖拽排序
+        function getCurrentModuleFields() {
+            const builtin = MODULE_FIELDS[currentFieldModule] || [];
+            const custom = customFields[currentFieldModule] || [];
+            return orderFields([...builtin, ...custom], fieldOrder[currentFieldModule]);
+        }
+
+        // 渲染字段列表
+        function renderFieldList() {
+            const container = document.getElementById('fieldListContainer');
+            const fields = getCurrentModuleFields();
+            container.innerHTML = fields.map(f => {
+                const label = fieldLabels[f.name] || f.label;
+                const hidden = hiddenFields.has(f.name);
+                const isCustom = !f.builtin;
+                const rule = fieldRules[f.name] || {};
+                const reqBadge = rule.required ? '<span class="text-xs px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded" title="已设为必填">必填</span>' : '';
+                return `
+                    <div class="fl-row flex items-center gap-2 py-1 group" data-field="${escapeHtml(f.name)}">
+                        <span class="fl-drag cursor-grab text-gray-300 hover:text-gray-500 select-none" title="按住拖动调整顺序"><i class="fas fa-grip-vertical"></i></span>
+                        <label class="flex items-center cursor-pointer" title="${hidden ? '已隐藏，点击显示' : '显示中，点击隐藏'}">
+                            <input type="checkbox" class="fl-visible" data-field="${escapeHtml(f.name)}" ${!hidden ? 'checked' : ''}>
+                        </label>
+                        <span class="text-xs text-gray-400 font-mono w-28 truncate" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</span>
+                        <input type="text" value="${escapeHtml(label)}" class="fl-label flex-1 px-2 py-1 border border-gray-200 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-400" data-field="${escapeHtml(f.name)}" data-original="${escapeHtml(f.label)}">
+                        ${isCustom ? '<span class="text-xs px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded">自定义</span>' : ''}
+                        ${isCustom && (f.statRole === 'result') ? '<span class="text-xs px-1.5 py-0.5 bg-green-100 text-green-700 rounded" title="参与合格率统计">统计</span>' : ''}
+                        ${reqBadge}
+                        ${isCustom ? `<button type="button" class="sp-gear px-2 py-1 text-xs text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded transition" data-field="${escapeHtml(f.name)}" data-label="${escapeHtml(label)}" title="设置字段类型与统计规则"><i class="fas fa-chart-pie"></i></button>` : ''}
+                        <button type="button" class="rp-gear px-2 py-1 text-xs text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition" data-field="${escapeHtml(f.name)}" data-label="${escapeHtml(label)}" title="设置校验规则（必填 / 字数）"><i class="fas fa-cog"></i></button>
+                        <button type="button" class="fl-delete px-2 py-1 text-xs text-red-500 hover:bg-red-50 rounded transition" data-field="${escapeHtml(f.name)}" data-builtin="${f.builtin}" title="${f.builtin ? '隐藏该字段' : '删除该字段'}">
+                            <i class="fas ${f.builtin ? 'fa-eye-slash' : 'fa-trash'}"></i>
+                        </button>
+                    </div>
+                `;
+            }).join('');
+
+            // 绑定事件
+            container.querySelectorAll('.fl-visible').forEach(cb => {
+                cb.addEventListener('change', () => {
+                    if (cb.checked) hiddenFields.delete(cb.dataset.field);
+                    else hiddenFields.add(cb.dataset.field);
+                    markDirty();
+                    renderPreview();
+                });
+            });
+            container.querySelectorAll('.fl-label').forEach(input => {
+                input.addEventListener('input', () => {
+                    const field = input.dataset.field;
+                    const original = input.dataset.original;
+                    if (input.value.trim() && input.value.trim() !== original) {
+                        fieldLabels[field] = input.value.trim();
+                    } else {
+                        delete fieldLabels[field];
+                    }
+                    markDirty();
+                    renderPreview();
+                });
+            });
+            container.querySelectorAll('.fl-delete').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const field = btn.dataset.field;
+                    const isBuiltin = btn.dataset.builtin === 'true';
+                    if (isBuiltin) {
+                        // 内置字段：切换隐藏状态
+                        if (hiddenFields.has(field)) {
+                            hiddenFields.delete(field);
+                        } else {
+                            hiddenFields.add(field);
+                        }
+                    } else {
+                        // 自定义字段：从列表中删除（同步清理排序/标签/规则等残留引用）
+                        customFields[currentFieldModule] = (customFields[currentFieldModule] || []).filter(f => f.name !== field);
+                        delete fieldLabels[field];
+                        hiddenFields.delete(field);
+                        delete fieldRules[field];
+                        delete fieldOptions[field];
+                        if (Array.isArray(fieldOrder[currentFieldModule])) {
+                            fieldOrder[currentFieldModule] = fieldOrder[currentFieldModule].filter(n => n !== field);
+                        }
+                    }
+                    markDirty();
+                    renderFieldList();
+                    renderPreview();
+                });
+            });
+            container.querySelectorAll('.rp-gear').forEach(btn => {
+                btn.addEventListener('click', () => openRulePopover(btn, btn.dataset.field, btn.dataset.label));
+            });
+            container.querySelectorAll('.sp-gear').forEach(btn => {
+                btn.addEventListener('click', () => openStatPopover(btn, btn.dataset.field, btn.dataset.label));
+            });
+            bindFieldDrag(container);
+        }
+
+        // 字段拖拽排序：仅从左侧手柄发起，drop 后更新 fieldOrder 并联动预览
+        let draggingField = null;
+        function bindFieldDrag(container) {
+            container.querySelectorAll('.fl-row').forEach(row => {
+                const handle = row.querySelector('.fl-drag');
+                if (handle) {
+                    handle.addEventListener('mousedown', () => row.setAttribute('draggable', 'true'));
+                    handle.addEventListener('mouseup', () => row.setAttribute('draggable', 'false'));
+                }
+                row.addEventListener('dragstart', (e) => {
+                    draggingField = row.dataset.field;
+                    e.dataTransfer.effectAllowed = 'move';
+                    row.classList.add('opacity-40');
+                });
+                row.addEventListener('dragend', () => {
+                    row.classList.remove('opacity-40');
+                    row.setAttribute('draggable', 'false');
+                    draggingField = null;
+                });
+                row.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
+                row.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    const targetField = row.dataset.field;
+                    if (!draggingField || draggingField === targetField) return;
+                    const names = getCurrentModuleFields().map(f => f.name);
+                    const from = names.indexOf(draggingField);
+                    if (from < 0) return;
+                    names.splice(from, 1);
+                    const to = names.indexOf(targetField);
+                    if (to < 0) return;
+                    const rect = row.getBoundingClientRect();
+                    const after = e.clientY > rect.top + rect.height / 2;
+                    names.splice(after ? to + 1 : to, 0, draggingField);
+                    fieldOrder[currentFieldModule] = names;
+                    draggingField = null;
+                    markDirty();
+                    renderFieldList();
+                    renderPreview();
+                });
+            });
+        }
+
+        // 新增自定义字段（显示名必填，字段名可留空自动生成）
+        document.getElementById('addFieldBtn').addEventListener('click', () => {
+            const nameInput = document.getElementById('newFieldName');
+            const labelInput = document.getElementById('newFieldLabel');
+            const label = labelInput.value.trim();
+            if (!label) { showNotice('请输入字段显示名称', 'error'); return; }
+            let name = nameInput.value.trim();
+            if (!name) name = 'cf_' + Date.now().toString(36);
+            if (!/^[a-zA-Z_][\w]*$/.test(name)) { showNotice('字段名需为英文/下划线开头，可留空自动生成', 'error'); return; }
+            // 检查重名
+            const exists = getCurrentModuleFields().some(f => f.name === name);
+            if (exists) { showNotice('字段名已存在', 'error'); return; }
+            if (!customFields[currentFieldModule]) customFields[currentFieldModule] = [];
+            customFields[currentFieldModule].push({ name, label, builtin: false });
+            nameInput.value = '';
+            labelInput.value = '';
+            markDirty();
+            renderFieldList();
+            renderPreview();
+        });
+
+        // 绑定预览联动
+        function bindPreviewEvents() {
+            document.querySelectorAll('.vis-type').forEach(cb => {
+                cb.onchange = () => { renderFieldModuleTabs(); markDirty(); renderPreview(); };
+            });
+            ['bf_name', 'bf_logoUrl'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.oninput = () => renderPreview();
+            });
+            const themeEl = document.getElementById('bf_themeColor');
+            if (themeEl) themeEl.oninput = () => { markDirty(); renderPreview(); };
+            const themePicker = document.getElementById('bf_themeColorPicker');
+            if (themePicker) themePicker.oninput = () => { document.getElementById('bf_themeColor').value = themePicker.value; markDirty(); renderPreview(); };
+        }
+
+        // ====== 字段校验规则弹层（傻瓜式：无需手填字段名）======
+        let rulePopoverField = null;
+        function openRulePopover(btn, fieldName, label) {
+            closeRulePopover();
+            rulePopoverField = fieldName;
+            const r = fieldRules[fieldName] || {};
+            document.getElementById('rpLabel').textContent = label || fieldName;
+            document.getElementById('rpRequired').checked = !!r.required;
+            document.getElementById('rpMax').value = r.maxLength || '';
+            document.getElementById('rpMin').value = r.minLength || '';
+            const pop = document.getElementById('rulePopover');
+            const rect = btn.getBoundingClientRect();
+            let left = Math.min(rect.left, window.innerWidth - 284);
+            if (left < 8) left = 8;
+            pop.style.top = Math.min(rect.bottom + 6, window.innerHeight - 236) + 'px';
+            pop.style.left = left + 'px';
+            pop.style.display = 'block';
+        }
+        function saveRuleFromPopover() {
+            if (!rulePopoverField) return;
+            const r = {};
+            if (document.getElementById('rpRequired').checked) r.required = true;
+            let mx = parseInt(document.getElementById('rpMax').value, 10);
+            let mn = parseInt(document.getElementById('rpMin').value, 10);
+            if (!Number.isFinite(mx) || mx < 0) mx = 0;
+            if (!Number.isFinite(mn) || mn < 0) mn = 0;
+            // 最小字数不能大于最大字数：自动纠正并提示，避免保存出"永远填不对"的规则
+            if (mx > 0 && mn > mx) {
+                [mn, mx] = [mx, mn];
+                showNotice('最小字数大于最大字数，已自动交换', 'error');
+            }
+            if (mx > 0) r.maxLength = mx;
+            if (mn > 0) r.minLength = mn;
+            if (Object.keys(r).length) fieldRules[rulePopoverField] = r;
+            else delete fieldRules[rulePopoverField];
+            markDirty();
+            renderFieldList();
+        }
+        function closeRulePopover() {
+            if (rulePopoverField) saveRuleFromPopover();
+            rulePopoverField = null;
+            document.getElementById('rulePopover').style.display = 'none';
+        }
+        document.getElementById('rpDone').addEventListener('click', () => closeRulePopover());
+        document.getElementById('rpCancel').addEventListener('click', () => { rulePopoverField = null; document.getElementById('rulePopover').style.display = 'none'; });
+        document.addEventListener('click', (e) => {
+            const pop = document.getElementById('rulePopover');
+            if (pop.style.display === 'block' && !pop.contains(e.target) && !e.target.closest('.rp-gear')) {
+                closeRulePopover();
+            }
+        });
+        document.addEventListener('keydown', (e) => {
+            const pop = document.getElementById('rulePopover');
+            if (e.key === 'Escape' && pop.style.display === 'block') closeRulePopover();
+        });
+
+        // ====== RK35: 自定义字段「类型与统计」弹层 ======
+        let statPopoverField = null;
+        function findCustomFieldDef(fieldName) {
+            const list = customFields[currentFieldModule] || [];
+            return list.find(f => f.name === fieldName) || null;
+        }
+        function syncStatPopoverVisibility() {
+            document.getElementById('spOptionsWrap').style.display =
+                document.getElementById('spType').value === 'select' ? 'block' : 'none';
+            document.getElementById('spQualifiedWrap').style.display =
+                document.getElementById('spStatRole').value === 'result' ? 'block' : 'none';
+        }
+        function openStatPopover(btn, fieldName, label) {
+            closeStatPopover();
+            const def = findCustomFieldDef(fieldName);
+            if (!def) return;
+            statPopoverField = fieldName;
+            document.getElementById('spLabel').textContent = label || fieldName;
+            document.getElementById('spType').value = def.type || 'text';
+            document.getElementById('spOptions').value = Array.isArray(def.options) ? def.options.join(',') : '';
+            document.getElementById('spStatRole').value = def.statRole === 'result' ? 'result' : '';
+            document.getElementById('spQualified').value = Array.isArray(def.qualifiedValues) ? def.qualifiedValues.join(',') : '';
+            syncStatPopoverVisibility();
+            const pop = document.getElementById('statPopover');
+            const rect = btn.getBoundingClientRect();
+            let left = Math.min(rect.left, window.innerWidth - 316);
+            if (left < 8) left = 8;
+            pop.style.top = Math.min(rect.bottom + 6, window.innerHeight - 360) + 'px';
+            pop.style.left = left + 'px';
+            pop.style.display = 'block';
+        }
+        function saveStatFromPopover() {
+            if (!statPopoverField) return;
+            const def = findCustomFieldDef(statPopoverField);
+            if (!def) return;
+            const type = document.getElementById('spType').value;
+            const statRole = document.getElementById('spStatRole').value;
+            const optionsRaw = document.getElementById('spOptions').value.trim();
+            const qualifiedRaw = document.getElementById('spQualified').value.trim();
+            def.type = type;
+            if (type === 'select') {
+                def.options = optionsRaw ? optionsRaw.split(/[，,]/).map(s => s.trim()).filter(Boolean) : [];
+                if (!def.options.length) showNotice('下拉类型建议填写至少一个选项', 'error');
+            } else {
+                delete def.options;
+            }
+            if (statRole === 'result') {
+                def.statRole = 'result';
+                def.qualifiedValues = qualifiedRaw ? qualifiedRaw.split(/[，,]/).map(s => s.trim()).filter(Boolean) : [];
+                if (!def.qualifiedValues.length) {
+                    showNotice('参与统计需填写合格值，否则该字段不会计入合格率', 'error');
+                }
+            } else {
+                delete def.statRole;
+                delete def.qualifiedValues;
+            }
+            markDirty();
+            renderFieldList();
+            renderPreview();
+        }
+        function closeStatPopover() {
+            if (statPopoverField) saveStatFromPopover();
+            statPopoverField = null;
+            document.getElementById('statPopover').style.display = 'none';
+        }
+        document.getElementById('spType').addEventListener('change', syncStatPopoverVisibility);
+        document.getElementById('spStatRole').addEventListener('change', syncStatPopoverVisibility);
+        document.getElementById('spDone').addEventListener('click', () => closeStatPopover());
+        document.getElementById('spCancel').addEventListener('click', () => { statPopoverField = null; document.getElementById('statPopover').style.display = 'none'; });
+        document.addEventListener('click', (e) => {
+            const pop = document.getElementById('statPopover');
+            if (pop.style.display === 'block' && !pop.contains(e.target) && !e.target.closest('.sp-gear')) {
+                closeStatPopover();
+            }
+        });
+        document.addEventListener('keydown', (e) => {
+            const pop = document.getElementById('statPopover');
+            if (e.key === 'Escape' && pop.style.display === 'block') closeStatPopover();
+        });
+
+        // 保存定制
+        document.getElementById('saveCustomBtn').addEventListener('click', async () => {
+            const btn = document.getElementById('saveCustomBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>保存中...';
+
+            try {
+                // 收集可见检测类型
+                const visibleTypes = Array.from(document.querySelectorAll('.vis-type:checked')).map(cb => cb.value);
+                if (!visibleTypes.length && !confirm('当前没有勾选任何检测模块，该校主界面将不显示任何检测功能。确定要这样保存吗？')) {
+                    throw Object.assign(new Error('已取消保存'), { silent: true });
+                }
+
+                // 收口：清洗 fieldOrder —— 只保留有效字段名；与默认顺序一致的模块不再写入
+                const cleanedOrder = {};
+                Object.entries(fieldOrder).forEach(([mod, order]) => {
+                    if (!Array.isArray(order) || !order.length) return;
+                    const validNames = [
+                        ...(MODULE_FIELDS[mod] || []).map(f => f.name),
+                        ...((customFields[mod] || []).map(f => f.name)),
+                    ];
+                    const validSet = new Set(validNames);
+                    const filtered = order.filter(n => validSet.has(n));
+                    if (!filtered.length) return;
+                    // 与默认顺序完全一致则无需持久化
+                    const effective = orderFields(
+                        [...(MODULE_FIELDS[mod] || []), ...((customFields[mod] || []))],
+                        filtered
+                    ).map(f => f.name);
+                    if (effective.join(',') !== validNames.join(',')) cleanedOrder[mod] = filtered;
+                });
+                fieldOrder = cleanedOrder;
+
+                // 收集字段规则（已通过弹层写入全局 fieldRules 状态）
+                const collectedRules = {};
+                Object.entries(fieldRules).forEach(([k, r]) => {
+                    const rule = {};
+                    if (r && r.required) rule.required = true;
+                    if (r && r.maxLength > 0) rule.maxLength = r.maxLength;
+                    if (r && r.minLength > 0) rule.minLength = r.minLength;
+                    if (Object.keys(rule).length) collectedRules[k] = rule;
+                });
+
+                // fieldLabels / hiddenFields / customFields 已在状态变量中维护
+                // customFields 存入 theme_config.custom_fields；预设主题存入 theme_config.theme
+                const activeTheme = getActiveTheme();
+                const themePayload = activeTheme ? {
+                    preset: selectedThemeId,
+                    accent: activeTheme.accent,
+                    accentStrong: activeTheme.accentStrong,
+                    aurora: activeTheme.aurora,
+                    wash: activeTheme.wash,
+                    base: activeTheme.base,
+                    dark: activeTheme.dark,
+                    darkSolid: activeTheme.darkSolid,
+                } : null;
+                const themeConfig = { custom_fields: customFields, field_options: fieldOptions, section_titles: sectionTitles, field_order: fieldOrder, theme: themePayload };
+
+                // 层级A全链路：custom_fields 同步 required（来自校验规则），供录入端直接渲染必填
+                const customFieldsPayload = {};
+                Object.entries(customFields).forEach(([mod, list]) => {
+                    customFieldsPayload[mod] = (list || []).map(f => {
+                        const def = { ...f };
+                        delete def.builtin;
+                        if (collectedRules[f.name]?.required) def.required = true;
+                        return def;
+                    });
+                });
+
+                const resp = await fetch(`${API_BASE}/api/admin/schools/${currentSchoolCode}/customization`, {
+                    method: 'PUT',
+                    headers: authHeaders(),
+                    body: JSON.stringify({
+                        visible_types: visibleTypes,
+                        field_labels: fieldLabels,
+                        hidden_fields: Array.from(hiddenFields),
+                        field_rules: collectedRules,
+                        theme_config: themeConfig,
+                        // 顶层新列（与 theme_config 嵌套并行写入；录入/统计端消费顶层列）
+                        custom_fields: customFieldsPayload,
+                        field_options: fieldOptions,
+                        field_order: fieldOrder,
+                        // BS-06: 乐观锁——加载时的 updated_at，被他人改过则后端返回 409
+                        expected_updated_at: currentCustomization?.updated_at || undefined
+                    })
+                });
+                // BS-06: 并发冲突处理
+                if (resp.status === 409) {
+                    showNotice('保存失败：该校定制配置刚被其他人修改。请复制你的改动要点，点击学校重新打开后再改。', 'error');
                     return;
                 }
-                tbody.innerHTML = rows.map(s => `
-                    <tr class="border-b hover:bg-gray-50">
-                        <td class="py-2 pr-4 font-mono">${s.code}</td>
-                        <td class="py-2 pr-4">${s.name || ''}</td>
-                        <td class="py-2 pr-4">${s.status === 'active' ? '<span class="text-green-600">启用</span>' : '<span class="text-gray-400">停用</span>'}</td>
-                        <td class="py-2 pr-4">${s.created_at ? new Date(s.created_at).toLocaleString() : ''}</td>
-                        <td class="py-2"><a class="text-blue-600 hover:underline" href="/${s.code}/login">/${s.code}/login</a></td>
+                const json = await resp.json();
+                if (!resp.ok) throw new Error(json.error || '保存失败');
+
+                // BS-06: 刷新乐观锁基线，避免连续两次保存误报冲突
+                if (json.updated_at && currentCustomization) currentCustomization.updated_at = json.updated_at;
+
+                // 同步强调色到学校基本信息（theme_color），保证列表/兜底展示一致
+                if (themePayload?.accent) {
+                    try {
+                        await fetch(`${API_BASE}/api/admin/schools/${currentSchoolCode}`, {
+                            method: 'PUT',
+                            headers: authHeaders(),
+                            body: JSON.stringify({ themeColor: themePayload.accent })
+                        });
+                    } catch (_) { /* 非关键路径，忽略 */ }
+                }
+                showNotice('✅ 定制配置已保存，该校师生刷新页面后即可看到新界面', 'success');
+                resetDirty();
+            } catch (e) {
+                if (!e.silent) showNotice('❌ ' + e.message, 'error');
+            } finally {
+                btn.disabled = false;
+                if (customDirty) btn.innerHTML = '<i class="fas fa-save mr-2"></i>保存定制 <span class="text-xs opacity-80">● 未保存</span>';
+                else btn.innerHTML = '<i class="fas fa-save mr-2"></i>保存定制';
+            }
+        });
+
+        // ====== 用户管理 ======
+        let currentUsers = [];
+        async function loadUsers() {
+            if (!currentSchoolCode) return;
+            const tbody = document.getElementById('usersTbody');
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-gray-400">加载中...</td></tr>';
+            try {
+                const resp = await fetch(`${API_BASE}/api/admin/schools/${currentSchoolCode}/users`, { headers: authHeaders() });
+                const json = await resp.json();
+                if (!resp.ok) throw new Error(json.error || '加载失败');
+                const users = json.data || [];
+                currentUsers = users;
+                if (!users.length) {
+                    tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-gray-400">暂无用户</td></tr>';
+                    return;
+                }
+                const roleMap = { admin: '平台管理员', manager: '主管', operator: '操作人员', viewer: '查看者', user: '普通用户' };
+                tbody.innerHTML = users.map(u => `
+                    <tr>
+                        <td class="font-mono">${escapeHtml(u.username)}</td>
+                        <td>${escapeHtml(u.full_name || '-')}</td>
+                        <td>${roleMap[u.role] || u.role}</td>
+                        <td>${u.is_active !== false ? '<span class="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs">启用</span>' : '<span class="px-2 py-0.5 bg-gray-200 text-gray-600 rounded-full text-xs">停用</span>'}</td>
+                        <td class="text-xs text-gray-500">${u.created_at ? new Date(u.created_at).toLocaleDateString() : ''}</td>
+                        <td class="text-xs text-gray-500">${u.last_login ? new Date(u.last_login).toLocaleDateString() : '—'}</td>
+                        <td class="space-x-1 whitespace-nowrap">
+                            <button class="px-2 py-1 text-xs bg-indigo-50 text-indigo-700 rounded hover:bg-indigo-100 transition btn-edit-user" data-id="${escapeHtml(u.id)}"><i class="fas fa-edit mr-1"></i>编辑</button>
+                            <button class="px-2 py-1 text-xs bg-orange-50 text-orange-700 rounded hover:bg-orange-100 transition btn-reset-pwd" data-id="${escapeHtml(u.id)}" data-username="${escapeHtml(u.username)}"><i class="fas fa-key mr-1"></i>重置密码</button>
+                            ${u.is_active !== false
+                                ? `<button class="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition btn-toggle-user" data-id="${escapeHtml(u.id)}" data-active="false"><i class="fas fa-ban mr-1"></i>停用</button>`
+                                : `<button class="px-2 py-1 text-xs bg-green-50 text-green-700 rounded hover:bg-green-100 transition btn-toggle-user" data-id="${escapeHtml(u.id)}" data-active="true"><i class="fas fa-check mr-1"></i>启用</button>`
+                            }
+                            <button class="px-2 py-1 text-xs bg-red-50 text-red-700 rounded hover:bg-red-100 transition btn-delete-user" data-id="${escapeHtml(u.id)}" data-username="${escapeHtml(u.username)}"><i class="fas fa-trash mr-1"></i>删除</button>
+                        </td>
                     </tr>
                 `).join('');
+
+                tbody.querySelectorAll('.btn-reset-pwd').forEach(btn => {
+                    btn.addEventListener('click', () => openResetPwd(btn.dataset.id, btn.dataset.username));
+                });
+                tbody.querySelectorAll('.btn-toggle-user').forEach(btn => {
+                    btn.addEventListener('click', () => toggleUser(btn.dataset.id, btn.dataset.active === 'true'));
+                });
+                tbody.querySelectorAll('.btn-edit-user').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        const u = currentUsers.find(x => x.id === btn.dataset.id);
+                        if (u) openUserModal(u);
+                    });
+                });
+                tbody.querySelectorAll('.btn-delete-user').forEach(btn => {
+                    btn.addEventListener('click', () => deleteUser(btn.dataset.id, btn.dataset.username));
+                });
             } catch (e) {
-                if (e.message && (e.message.includes('超级管理员') || e.message.includes('403'))) {
-                    showNotice('当前账号非平台超管（需 public/无学校归属的 admin），无权管理学校。', 'error');
-                }
-                tbody.innerHTML = `<tr><td colspan="5" class="py-4 text-center text-red-500">${e.message}</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="7" class="text-center py-4 text-red-500">${escapeHtml(e.message)}</td></tr>`;
             }
+        }
+
+        // 重置密码
+        function openResetPwd(userId, username) {
+            document.getElementById('rp_userId').value = userId;
+            document.getElementById('rp_username').textContent = username;
+            document.getElementById('rp_newPassword').value = '';
+            document.getElementById('resetPwdModal').classList.remove('hidden');
+            document.getElementById('resetPwdModal').classList.add('flex');
+        }
+
+        document.getElementById('cancelResetPwd').addEventListener('click', () => {
+            document.getElementById('resetPwdModal').classList.add('hidden');
+            document.getElementById('resetPwdModal').classList.remove('flex');
+        });
+
+        document.getElementById('resetPwdForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const userId = document.getElementById('rp_userId').value;
+            const newPassword = document.getElementById('rp_newPassword').value;
+            try {
+                const resp = await fetch(`${API_BASE}/api/admin/schools/${currentSchoolCode}/users/${userId}/reset-password`, {
+                    method: 'POST',
+                    headers: authHeaders(),
+                    body: JSON.stringify({ newPassword })
+                });
+                const json = await resp.json();
+                if (!resp.ok) throw new Error(json.error || '重置失败');
+                showNotice('✅ 密码已重置', 'success');
+                document.getElementById('resetPwdModal').classList.add('hidden');
+                document.getElementById('resetPwdModal').classList.remove('flex');
+            } catch (e) {
+                showNotice('❌ ' + e.message, 'error');
+            }
+        });
+
+        // 启用/停用用户
+        async function toggleUser(userId, isActive) {
+            try {
+                const resp = await fetch(`${API_BASE}/api/admin/schools/${currentSchoolCode}/users/${userId}/status`, {
+                    method: 'PATCH',
+                    headers: authHeaders(),
+                    body: JSON.stringify({ isActive })
+                });
+                const json = await resp.json();
+                if (!resp.ok) throw new Error(json.error || '操作失败');
+                showNotice(`✅ 用户已${isActive ? '启用' : '停用'}`, 'success');
+                loadUsers();
+            } catch (e) {
+                showNotice('❌ ' + e.message, 'error');
+            }
+        }
+
+        // ====== 用户新增 / 编辑 ======
+        document.getElementById('btnAddUser').addEventListener('click', () => openUserModal(null));
+        document.getElementById('userModalClose').addEventListener('click', closeUserModal);
+        document.getElementById('userCancelUser').addEventListener('click', closeUserModal);
+
+        // 重新初始化学校（补全 schema / 表结构 / 首个 manager）
+        document.getElementById('btnReprovision').addEventListener('click', async () => {
+            if (!currentSchoolCode) return;
+            if (!confirm(`确定重新初始化学校「${currentSchoolCode}」吗？\n将补全数据库表结构与默认管理员账号，已存在的数据不会丢失。`)) return;
+            try {
+                const resp = await fetch(`${API_BASE}/api/admin/schools/${currentSchoolCode}/reprovision`, {
+                    method: 'POST',
+                    headers: authHeaders(),
+                    body: JSON.stringify({})
+                });
+                const json = await resp.json();
+                if (!resp.ok) throw new Error(json.error || '初始化失败');
+                showNotice('✅ ' + (json.message || '已重新初始化'), 'success');
+                loadUsers();
+            } catch (e) {
+                showNotice('❌ ' + e.message, 'error');
+            }
+        });
+
+        function openUserModal(user) {
+            const isEdit = !!user;
+            document.getElementById('userEditId').value = isEdit ? user.id : '';
+            document.getElementById('userModalTitle').innerHTML = isEdit
+                ? '<i class="fas fa-user-edit mr-2 text-indigo-600"></i>编辑用户'
+                : '<i class="fas fa-user-plus mr-2 text-indigo-600"></i>新增用户';
+            document.getElementById('userUsername').value = isEdit ? user.username : '';
+            document.getElementById('userUsername').disabled = isEdit;
+            document.getElementById('userFullname').value = isEdit ? (user.full_name || '') : '';
+            document.getElementById('userPhone').value = isEdit ? (user.phone || '') : '';
+            document.getElementById('userRole').value = (isEdit && user.role) ? user.role : 'manager';
+            document.getElementById('userPassword').value = '';
+            // 创建时显示初始密码；编辑时显示状态开关
+            document.getElementById('userPwdWrap').classList.toggle('hidden', isEdit);
+            const statusWrap = document.getElementById('userStatusWrap');
+            if (isEdit) {
+                statusWrap.classList.remove('hidden');
+                statusWrap.classList.add('flex');
+                document.getElementById('userActive').checked = (user.is_active !== false);
+            } else {
+                statusWrap.classList.add('hidden');
+                statusWrap.classList.remove('flex');
+            }
+            document.getElementById('userFormError').classList.add('hidden');
+            const m = document.getElementById('userModal');
+            m.classList.remove('hidden');
+            m.classList.add('flex');
+            if (!isEdit) document.getElementById('userUsername').focus();
+        }
+
+        function closeUserModal() {
+            const m = document.getElementById('userModal');
+            m.classList.add('hidden');
+            m.classList.remove('flex');
+        }
+
+        document.getElementById('userForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const errEl = document.getElementById('userFormError');
+            errEl.classList.add('hidden');
+            const id = document.getElementById('userEditId').value;
+            const isEdit = !!id;
+            const payload = {
+                full_name: document.getElementById('userFullname').value.trim(),
+                phone: document.getElementById('userPhone').value.trim(),
+                role: document.getElementById('userRole').value
+            };
+            const pwd = document.getElementById('userPassword').value;
+            if (!isEdit) {
+                payload.username = document.getElementById('userUsername').value.trim();
+                payload.password = pwd;
+                payload.is_active = true;
+                if (!payload.username || !/^[a-zA-Z0-9_]{3,32}$/.test(payload.username)) {
+                    errEl.textContent = '用户名需为 3-32 位字母、数字或下划线'; errEl.classList.remove('hidden'); return;
+                }
+                if (!pwd || pwd.length < 8) {
+                    errEl.textContent = '初始密码至少 8 位'; errEl.classList.remove('hidden'); return;
+                }
+            } else {
+                payload.is_active = document.getElementById('userActive').checked;
+                if (pwd) {
+                    if (pwd.length < 8) { errEl.textContent = '密码至少 8 位'; errEl.classList.remove('hidden'); return; }
+                    payload.password = pwd;
+                }
+            }
+            try {
+                const url = isEdit
+                    ? `${API_BASE}/api/admin/schools/${currentSchoolCode}/users/${id}`
+                    : `${API_BASE}/api/admin/schools/${currentSchoolCode}/users`;
+                const resp = await fetch(url, {
+                    method: isEdit ? 'PUT' : 'POST',
+                    headers: authHeaders(),
+                    body: JSON.stringify(payload)
+                });
+                const json = await resp.json();
+                if (!resp.ok) throw new Error(json.error || '保存失败');
+                closeUserModal();
+                showNotice('✅ ' + (json.message || '已保存'), 'success');
+                loadUsers();
+            } catch (err) {
+                errEl.textContent = err.message;
+                errEl.classList.remove('hidden');
+            }
+        });
+
+        async function deleteUser(id, username) {
+            if (!confirm(`确定删除用户「${username}」吗？此操作不可恢复。`)) return;
+            try {
+                const resp = await fetch(`${API_BASE}/api/admin/schools/${currentSchoolCode}/users/${id}`, {
+                    method: 'DELETE',
+                    headers: authHeaders()
+                });
+                const json = await resp.json();
+                if (!resp.ok) throw new Error(json.error || '删除失败');
+                showNotice('✅ ' + (json.message || '已删除'), 'success');
+                loadUsers();
+            } catch (e) {
+                showNotice('❌ ' + e.message, 'error');
+            }
+        }
+
+        // ====== 新增学校 ======
+        document.getElementById('btnShowCreate').addEventListener('click', () => {
+            document.getElementById('createForm').reset();
+            document.getElementById('cf_themeColor').value = '#1a73e8';
+            document.getElementById('createModal').classList.remove('hidden');
+            document.getElementById('createModal').classList.add('flex');
+        });
+
+        document.getElementById('closeCreateModal').addEventListener('click', closeCreateModal);
+        document.getElementById('cancelCreate').addEventListener('click', closeCreateModal);
+
+        function closeCreateModal() {
+            document.getElementById('createModal').classList.add('hidden');
+            document.getElementById('createModal').classList.remove('flex');
         }
 
         document.getElementById('createForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const code = document.getElementById('code').value.trim();
-            const name = document.getElementById('name').value.trim();
-            const adminPassword = document.getElementById('adminPassword').value;
+            const code = document.getElementById('cf_code').value.trim();
+            const name = document.getElementById('cf_name').value.trim();
+            const shortName = document.getElementById('cf_shortName').value.trim();
+            const themeColor = document.getElementById('cf_themeColor').value.trim();
+            const logoUrl = document.getElementById('cf_logoUrl').value.trim();
+            const adminPassword = document.getElementById('cf_adminPassword').value;
+
             const btn = document.getElementById('createBtn');
             const btnText = document.getElementById('createBtnText');
-
             btn.disabled = true;
             btnText.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>创建中...';
+
             try {
                 const resp = await fetch(`${API_BASE}/api/admin/schools`, {
                     method: 'POST',
@@ -146,8 +2427,18 @@
                 });
                 const json = await resp.json();
                 if (!resp.ok) throw new Error(json.error || json.details || '创建失败');
-                showNotice(`✅ ${json.message}（访问 /${code}/login，admin 密码即刚才填写的值）`, 'success');
-                document.getElementById('createForm').reset();
+
+                // 创建成功后如果有外观信息，更新它（provisionSchool 只接受 code/name/adminPassword）
+                if (shortName || themeColor || logoUrl) {
+                    await fetch(`${API_BASE}/api/admin/schools/${code}`, {
+                        method: 'PUT',
+                        headers: authHeaders(),
+                        body: JSON.stringify({ name, shortName, themeColor, logoUrl })
+                    });
+                }
+
+                showNotice(`✅ 学校 ${code} 创建成功（访问 /${code}/login，用 manager 账号登录）`, 'success');
+                closeCreateModal();
                 loadSchools();
             } catch (e) {
                 showNotice('❌ ' + e.message, 'error');
@@ -157,7 +2448,9 @@
             }
         });
 
+        // ====== 初始化 ======
         document.getElementById('refreshBtn').addEventListener('click', loadSchools);
+        document.getElementById('searchInput').addEventListener('input', renderSchools);
         loadSchools();
     </script>
 </body>

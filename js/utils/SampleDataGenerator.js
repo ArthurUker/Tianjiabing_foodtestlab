@@ -2,6 +2,16 @@
  * 示例数据生成器
  * 为快速访问模式生成示例检测数据
  */
+import { getSchoolCustomization, resolveCustomFields } from './schoolCustomization.js';
+
+// RK45: 为学校自定义字段补示例值，避免快速访问示例数据缺少定制字段
+function withCustomFields(moduleCode, record) {
+    const defs = resolveCustomFields(getSchoolCustomization(), moduleCode)
+    if (!defs.length) return record
+    const extra = {}
+    defs.forEach((d, i) => { extra[d.name] = d.label ? `示例${i + 1}` : '' })
+    return Object.assign({}, record, extra)
+}
 
 export function initializeSampleData() {
     // 检查是否是快速访问模式
@@ -96,7 +106,7 @@ function initTableware() {
         }
     ];
     
-    localStorage.setItem(storageKey, JSON.stringify({data: sampleData}));
+    localStorage.setItem(storageKey, JSON.stringify({ data: sampleData.map(r => withCustomFields('tableware', r)) }));
     console.log('✅ 初始化餐具洁净度示例数据:', sampleData.length, '条');
 }
 
@@ -137,7 +147,7 @@ function initPesticide() {
         }
     ];
     
-    localStorage.setItem(storageKey, JSON.stringify({data: sampleData}));
+    localStorage.setItem(storageKey, JSON.stringify({ data: sampleData.map(r => withCustomFields('pesticide', r)) }));
     console.log('✅ 初始化果蔬农残示例数据:', sampleData.length, '条');
 }
 
@@ -173,7 +183,7 @@ function initOil() {
         }
     ];
     
-    localStorage.setItem(storageKey, JSON.stringify({data: sampleData}));
+    localStorage.setItem(storageKey, JSON.stringify({ data: sampleData.map(r => withCustomFields('oil', r)) }));
     console.log('✅ 初始化食用油品质示例数据:', sampleData.length, '条');
 }
 
@@ -205,7 +215,7 @@ function initMeat() {
         }
     ];
     
-    localStorage.setItem(storageKey, JSON.stringify({data: sampleData}));
+    localStorage.setItem(storageKey, JSON.stringify({ data: sampleData.map(r => withCustomFields('leanMeat', r)) }));
     console.log('✅ 初始化肉、蛋农残示例数据:', sampleData.length, '条');
 }
 
@@ -239,7 +249,7 @@ function initPathogen() {
         }
     ];
     
-    localStorage.setItem(storageKey, JSON.stringify({data: sampleData}));
+    localStorage.setItem(storageKey, JSON.stringify({ data: sampleData.map(r => withCustomFields('pathogen', r)) }));
     console.log('✅ 初始化病原体检测示例数据:', sampleData.length, '条');
 }
 

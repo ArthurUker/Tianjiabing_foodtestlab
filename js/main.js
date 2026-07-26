@@ -7,7 +7,7 @@ import { ExportService } from './services/ExportService.js';
 import { initializeSampleData } from './utils/SampleDataGenerator.js';
 // ✨ 学校个性化配置：提取 schoolCode + 应用 SchoolCustomization 到静态录入表单
 import { extractSchoolCode } from './utils/schoolCode.js';
-import { ensureSchoolConfig, applyCustomizationToAllForms } from './utils/schoolCustomization.js';
+import { ensureSchoolConfig, getSchoolCustomization, applyCustomizationToAllForms, applySchoolCustomizationToTitles, applySchoolBranding } from './utils/schoolCustomization.js';
 // 1. ✨ 引入新模块
 import { BackupRestoreService } from './modules/BackupRestore.js';
 // 2. ✨ 引入认证与路由
@@ -222,11 +222,25 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // ✨ 按校个性化：将 SchoolCustomization 应用到静态录入表单（标签/显隐/必填规则）。
         // 若用户直接打开 index.html（localStorage 无缓存），ensureSchoolConfig 会自动调公开端点兜底拉取。
+        // CR-01: 必须在看板/表单可交互前 await 完成；带 3 秒超时降级，后端不可达时不阻塞页面。
+        let customization = {};
         try {
             const schoolCode = extractSchoolCode();
-            const customization = await ensureSchoolConfig(schoolCode);
+            const fetched = await Promise.race([
+                ensureSchoolConfig(schoolCode),
+                new Promise((resolve) => setTimeout(() => resolve(undefined), 3000))
+            ]);
+            if (fetched === undefined) {
+                console.warn('⚠️ 学校个性化配置拉取超时（3s），以缓存/默认配置继续初始化');
+                customization = getSchoolCustomization(schoolCode) || {};
+            } else {
+                customization = fetched || {};
+            }
             applyCustomizationToAllForms(customization);
+            applySchoolCustomizationToTitles(customization);
             console.log('✅ 学校个性化配置已应用到录入表单', schoolCode || '(无 schoolCode，跳过)');
+            // 主页顶部标题/校徽按校动态显示（README 品牌中立化要求）
+            applySchoolBranding(schoolCode);
         } catch (e) {
             console.error('❌ 学校个性化配置应用失败:', e);
         }
@@ -238,7 +252,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             const result = initDashboard();
             console.log('📊 initDashboard 返回值:', result);
             console.log('✅ initDashboard 完成');
-            
+            // 看板由 initDashboard 动态重建，必须在构建完成后再次应用小标题覆盖
+            applySchoolCustomizationToTitles(customization);
+
             // 🔥 强制确保Dashboard显示正确标题
             setTimeout(() => {
                 const dashboardH2 = document.querySelector('#dashboard h2');
@@ -347,7 +363,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
                 
                 const guestDashboard = new GuestDashboard();
-                guestDashboard.init();
+                await guestDashboard.init();
                 console.log('✅ GuestDashboard 初始化成功');
                 
                 // 显示访客菜单

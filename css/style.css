@@ -20,3 +20,13 @@ td, th { vertical-align: middle; }
     align-items: center;
     z-index: 9999;
 }
+
+/* 液态玻璃兜底：PDF 捕获时强制玻璃子元素白底，去除透明/模糊/阴影 */
+.pdf-capture-mode .glass,
+.pdf-capture-mode .glass-dark,
+.pdf-capture-mode .glass-panel {
+    background-color: #ffffff !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    box-shadow: none !important;
+}

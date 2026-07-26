@@ -62,13 +62,14 @@ model TestRecord {
   record_code   String   @unique
   test_type     String   // pathogen / tableware / generic / custom
   test_name     String
-  sample_info   String?  // JSON for sample details
-  result_data   String?  // JSON for test results
+  sample_info   String   @default("{}") // JSON for sample details (D-02: 非空，默认 {})
+  result_data   String   @default("{}") // JSON for test results (D-02: 非空，默认 {})
   status        String   @default("pending") // pending / completed / failed / archived
   created_by    String
   created_at    DateTime @default(now())
   updated_at    DateTime @updatedAt
   version       Int      @default(0)
+  data_version  Int      @default(1) // RK48: 业务数据版本，便于定制变更后的兼容性读取/回填
   completed_at  DateTime?
 
   created_user  User     @relation(fields: [created_by], references: [id], onDelete: Restrict) // P1-08: 改为 Restrict，防止删用户时级联删除检测记录
@@ -79,6 +80,9 @@ model TestRecord {
   @@index([status])
   @@index([created_by])
   @@index([created_at])
+  // D-10：统计查询常按「类型 + 时间」过滤（无独立 test_date 列，日期在 result_data JSON 内，
+  // 故用 created_at 组合索引兜底）
+  @@index([test_type, created_at])
 }
 
 // ========== 测试项目 ==========
@@ -237,7 +241,8 @@ model School {
 model SchoolCustomization {
   id            String   @id @default(cuid())
   school_code   String   @unique // 与 School.code 对应
-  school        School   @relation("SchoolCustomization", fields: [school_code], references: [code])
+  // D-04：学校删除时定制配置级联删除，避免孤儿记录
+  school        School   @relation("SchoolCustomization", fields: [school_code], references: [code], onDelete: Cascade)
   // 可见检测类型（JSON 数组，如 ["tableware","pathogen"]）
   visible_types String?  // JSON array
   // 字段标签覆盖（JSON，如 {"testDate":"检测日期"}）
@@ -248,5 +253,13 @@ model SchoolCustomization {
   theme_config  String?  // JSON object
   // 字段级规则（JSON，如 {"sampler":{"required":true},"note":{"required":false,"maxLength":200}}）
   field_rules   String?  // JSON object
+  // 下拉选项覆盖（JSON object，{ 字段名: [选项...] }）——顶层形态，兼容 theme_config 嵌套形态
+  field_options String?  // JSON object
+  // 字段顺序覆盖（JSON object，{ 模块code: [字段名...] }）
+  field_order   String?  // JSON object
+  // 层级A：模块内新增自定义字段（JSON object，{ 模块code: [{name,label,type,options,statRole,...}] }）
+  custom_fields String?  // JSON object
+  // 层级B：全新检测类型定义（JSON array，[{code,name,fields:[...],statRole,...}]）
+  test_types    String?  // JSON array
   updated_at    DateTime @updatedAt
 }

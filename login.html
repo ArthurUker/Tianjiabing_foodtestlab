@@ -42,14 +42,15 @@
         })()
     </script>
     
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Tailwind CSS (本地预编译) -->
+    <link rel="stylesheet" href="./css/tailwind.css">
+    <!-- 预设主题（学校换肤） -->
+    <script src="./js/utils/themePresets.js"></script>
     <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
     
     <style>
         body {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             display: flex;
             align-items: center;
@@ -110,13 +111,21 @@
     </style>
 </head>
 <body>
+    <!-- 玻璃折射滤镜（零侵入，供 .glass backdrop-filter 引用） -->
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+      <filter id="lg-refraction" x="-20%" y="-20%" width="140%" height="140%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.012 0.02" numOctaves="2" seed="7" result="noise" />
+        <feGaussianBlur in="noise" stdDeviation="2" result="blurredNoise" />
+        <feDisplacementMap in="SourceGraphic" in2="blurredNoise" scale="9" xChannelSelector="R" yChannelSelector="G" />
+      </filter>
+    </svg>
     <script>
         // 访客入口开关：false 时隐藏登录页中的访客入口，但保留相关实现代码
         window.__ENABLE_GUEST_ENTRY__ = false;
     </script>
     <div class="login-container w-full max-w-md">
         <!-- 登录卡片 -->
-        <div class="bg-white rounded-lg shadow-2xl p-8 backdrop-blur-sm">
+        <div class="glass p-8">
             <!-- Logo 和标题 -->
             <div class="text-center mb-8">
                 <div class="logo-animation mb-4">
@@ -285,13 +294,24 @@
                         localStorage.setItem('school_customization_' + schoolCode, JSON.stringify(cfg.customization));
                     } catch (e) { /* 存储不可用时忽略 */ }
                 }
-                if (cfg.themeColor) {
-                    const c = cfg.themeColor;
-                    document.body.style.background = `linear-gradient(135deg, ${c} 0%, ${shadeColor(c, -20)} 100%)`;
+                // 同时缓存学校外观信息（name/logoUrl/themeColor），供主页顶部标题动态显示
+                try {
+                    localStorage.setItem('school_info_' + schoolCode, JSON.stringify({
+                        name: cfg.name || '',
+                        shortName: cfg.shortName || '',
+                        logoUrl: cfg.logoUrl || '',
+                        themeColor: cfg.themeColor || '',
+                    }));
+                } catch (e) { /* 存储不可用时忽略 */ }
+                // 预设主题：覆盖 CSS 变量整体换肤（极光壁纸 + 强调色），保留玻璃质感
+                const theme = window.SchoolThemes && window.SchoolThemes.resolveTheme(cfg);
+                if (theme) {
+                    window.SchoolThemes.applyTheme(document, theme);
+                    const c = theme.accent;
                     const icon = document.querySelector('.logo-animation i');
                     if (icon) icon.style.color = c;
                     const btn = document.getElementById('loginBtn');
-                    if (btn) btn.style.background = `linear-gradient(90deg, ${c}, ${shadeColor(c, -12)})`;
+                    if (btn) btn.style.background = `linear-gradient(90deg, ${c}, ${theme.accentStrong || shadeColor(c, -12)})`;
                 }
                 if (cfg.logoUrl) {
                     const iconWrap = document.querySelector('.logo-animation');
@@ -491,7 +511,7 @@
                 window.location.href = './index.html';
                 return true;
             }
-            showError('快速访问失败，请稍后重试');
+            showError('快速访问失败：请通过学校专属入口（如 /学校代码/login.html）访问，或稍后重试');
             return false;
         }
 

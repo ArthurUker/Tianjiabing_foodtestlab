@@ -505,6 +505,14 @@ cat > "$SNIPPET" <<EOF
 $CADDY_ADDR {
     encode gzip
 
+    # RK39: 全局安全响应头（应用层 server.js 亦有兜底）
+    header {
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "no-referrer"
+        -Server
+    }
+
     # 方案A：路径前缀多租户识别（/school-a/login → 登录页，URL 不变）
     @schoolLogin path /school-*/login /school-*/login.html
     rewrite @schoolLogin /login.html
@@ -514,6 +522,10 @@ $CADDY_ADDR {
     # 导致所有 API 请求落到静态文件（返回 SPA HTML / 405）。用 handle 块保证
     # /api/* 优先反代、其余请求才走 SPA 回退。
     handle /api/* {
+        # RK39: 限制请求体大小，防止超大 payload（定制配置/批量导入）打满内存
+        request_body {
+            max_size 8MB
+        }
         reverse_proxy 127.0.0.1:$API_PORT
     }
     handle /health {

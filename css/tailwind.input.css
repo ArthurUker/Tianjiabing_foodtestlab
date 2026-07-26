@@ -1,0 +1,257 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   主题变量（预设主题系统）
+   由学校主题配置（theme_config.theme）在运行时覆盖，
+   默认值 = 「晨雾」主题，与原有视觉完全一致。
+   ============================================================ */
+:root {
+  /* 极光壁纸四角颜色 */
+  --aurora-1: #a9c8ff;
+  --aurora-2: #ffc2dd;
+  --aurora-3: #a9ecd9;
+  --aurora-4: #d9c6ff;
+  /* 底层线性渐变（洗染层）与底色 */
+  --aurora-w1: #bcd4ff;
+  --aurora-w2: #ffd9b0;
+  --aurora-w3: #c9b6ff;
+  --aurora-w4: #a9ecd9;
+  --aurora-base: #eef2f8;
+  /* 深色玻璃（导航/侧栏）着色 */
+  --glass-dark-bg: rgba(20, 28, 48, 0.42);
+  --glass-dark-solid: rgb(20, 28, 48);
+  /* 强调色（按钮/激活态） */
+  --accent: #1a73e8;
+  --accent-strong: #1d4ed8;
+}
+
+/* ============================================================
+   阶段 2：壁纸层（玻璃折射的「被折射对象」）
+   背后必须有高频多色结构，折射才可见。
+   ============================================================ */
+body::before {
+  content: "";
+  position: fixed;
+  inset: -20%;
+  z-index: -2;
+  background:
+    linear-gradient(135deg, var(--aurora-1) 0%, transparent 32%),
+    linear-gradient(225deg, var(--aurora-2) 0%, transparent 34%),
+    linear-gradient(315deg, var(--aurora-3) 0%, transparent 36%),
+    linear-gradient(45deg, var(--aurora-4) 0%, transparent 34%),
+    linear-gradient(135deg, var(--aurora-w1), var(--aurora-w2), var(--aurora-w3), var(--aurora-w4));
+  background-color: var(--aurora-base);
+  filter: blur(22px) saturate(165%);
+  animation: aurora 40s ease-in-out infinite alternate;
+  will-change: transform;
+}
+@keyframes aurora {
+  0%   { transform: scale(1.12) translate3d(0, 0, 0); }
+  50%  { transform: scale(1.18) translate3d(-2%, 1.5%, 0); }
+  100% { transform: scale(1.12) translate3d(0, 0, 0); }
+}
+
+/* ============================================================
+   阶段 3：.glass / .glass-dark 基础类
+   折射滤镜 url(#lg-refraction) 需 HTML 中内联 SVG 提供。
+   ============================================================ */
+@layer components {
+  .glass {
+    position: relative;
+    background: rgba(255, 255, 255, 0.56);
+    border: 1px solid rgba(255, 255, 255, 0.78);
+    border-radius: 1.7rem;
+    -webkit-backdrop-filter: blur(14px) saturate(180%);
+    backdrop-filter: url(#lg-refraction) blur(14px) saturate(180%);
+    box-shadow:
+      0 16px 46px rgba(40, 60, 100, 0.20),
+      inset 0 2px 0 rgba(255, 255, 255, 0.95),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.55),
+      inset 0 0 34px rgba(255, 255, 255, 0.30);
+    overflow: hidden;
+  }
+  /* 深色玻璃变体：用于原 nav.bg-blue-600 / 侧栏.bg-gray-800 */
+  .glass-dark {
+    position: relative;
+    background: var(--glass-dark-bg, rgba(20, 28, 48, 0.42));
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 1.7rem;
+    -webkit-backdrop-filter: blur(14px) saturate(160%);
+    backdrop-filter: url(#lg-refraction) blur(14px) saturate(160%);
+    box-shadow:
+      0 16px 46px rgba(10, 20, 40, 0.30),
+      inset 0 2px 0 rgba(255, 255, 255, 0.18),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.10);
+    overflow: hidden;
+  }
+
+  /* ============================================================
+     阶段 4：内层半透明面板（不嵌套玻璃，无 backdrop-filter）
+     ============================================================ */
+  .glass-panel {
+    background: rgba(255, 255, 255, 0.66);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    border-radius: 1rem;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.7), 0 4px 14px rgba(40,60,100,0.08);
+    /* 无 backdrop-filter，避免滤镜相乘 */
+  }
+}
+
+/* ============================================================
+   阶段 5：无障碍降级 + 特性探测兜底
+   ============================================================ */
+/* 1. 减少透明效果 */
+@media (prefers-reduced-transparency: reduce) {
+  .glass, .glass-dark {
+    backdrop-filter: blur(14px) saturate(150%);
+    -webkit-backdrop-filter: blur(14px) saturate(150%);
+  }
+  .glass { background: rgba(255, 255, 255, 0.86); }
+  .glass-dark { background: color-mix(in srgb, var(--glass-dark-solid, rgb(20, 28, 48)) 86%, transparent); }
+}
+/* 2. 增强对比 */
+@media (prefers-contrast: more) {
+  .glass { border-color: rgba(255,255,255,0.96); }
+  .glass-dark { border-color: rgba(255,255,255,0.5); }
+}
+/* 3. 减少动效（关闭壁纸 aurora） */
+@media (prefers-reduced-motion: reduce) {
+  body::before { animation: none; }
+}
+/* 4. 完全不支持 backdrop-filter 的兜底 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass { background: rgba(255, 255, 255, 0.92); }
+  .glass-dark { background: color-mix(in srgb, var(--glass-dark-solid, rgb(20, 28, 48)) 92%, transparent); }
+}
+
+/* ============================================================
+   自 css/style.css 并入的通用规则（普通 CSS，非 @layer）
+   保留 css/style.css 文件本身不动，以防其他页面仍引用。
+   ============================================================ */
+/* 基础样式 */
+.nav-btn.active { background-color: var(--accent-strong, #1d4ed8); color: white; } /* 默认 Tailwind blue-700 */
+.hidden { display: none; }
+.pdf-capture-mode { background-color: #ffffff !important; }
+
+/* 左侧菜单响应式控制（替代 hidden/md:block 避免与 glass-dark 冲突） */
+.sidebar-menu { display: none; }
+@media (min-width: 768px) {
+  .sidebar-menu { display: block; }
+}
+
+/* ============================================================
+   玻璃风格表格样式（阶段 4 补充：内容可读性优先）
+   解决玻璃背景下表格线条看不清的问题。
+   ============================================================ */
+
+/* 表格基础：统一边框 + 折叠 */
+.glass-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.875rem; /* text-sm */
+}
+.glass-table thead th {
+  background: rgba(255, 255, 255, 0.72);
+  border-bottom: 1.5px solid rgba(59, 130, 246, 0.25); /* blue-500 半透明 */
+  color: #1e3a5f;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.glass-table thead th:first-child { border-radius: 0.75rem 0 0 0; }
+.glass-table thead th:last-child { border-radius: 0 0.75rem 0 0; }
+
+/* 数据行 */
+.glass-table tbody tr {
+  transition: background-color 0.15s ease;
+}
+.glass-table tbody tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.28);
+}
+.glass-table tbody tr:nth-child(odd) {
+  background: rgba(255, 255, 255, 0.12);
+}
+.glass-table tbody tr:hover {
+  background: rgba(219, 234, 254, 0.45); /* blue-50 半透明 */
+}
+
+/* 单元格边框：左侧竖线分隔 + 底部横线 */
+.glass-table td,
+.glass-table th {
+  padding: 0.625rem 0.875rem !important; /* p-2.5 ~ p-3.5 */
+  border: none !important;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18) !important; /* slate-300 极淡 */
+  text-align: left;
+  vertical-align: middle;
+}
+.glass-table td:not(:last-child),
+.glass-table th:not(:last-child) {
+  border-right: 1px solid rgba(148, 163, 184, 0.12) !important;
+}
+/* 最后一行去掉底部边框 */
+.glass-table tbody tr:last-child td {
+  border-bottom: none;
+}
+/* 第一列左边框圆角 */
+.glass-table tbody tr:last-child td:first-child { border-radius: 0 0 0 0.75rem; }
+.glass-table tbody tr:last-child td:last-child { border-radius: 0 0 0.75rem 0; }
+
+/* 结果标签可读性增强 */
+.glass-table .result-badge {
+  display: inline-block;
+  padding: 0.25rem 0.625rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+.glass-table .result-pass { background: rgba(34, 197, 94, 0.14); color: #15803d; }   /* green */
+.glass-table .result-warn { background: rgba(245, 158, 11, 0.14); color: #b45309; }    /* amber */
+.glass-table .result-fail { background: rgba(239, 68, 68, 0.14); color: #b91c1c; }     /* red */
+
+/* 操作按钮区域 */
+.glass-table .action-cell {
+  white-space: nowrap;
+  text-align: center;
+}
+
+/* PDF 捕获模式：强制白底实线表格 */
+.pdf-capture-mode .glass-table thead th {
+  background: #f1f5f9 !important;
+  border-bottom: 2px solid #cbd5e1 !important;
+  color: #1e293b !important;
+}
+.pdf-capture-mode .glass-table tbody tr:nth-child(even),
+.pdf-capture-mode .glass-table tbody tr:nth-child(odd) {
+  background: #ffffff !important;
+}
+.pdf-capture-mode .glass-table tbody tr:hover {
+  background: #f8fafc !important;
+}
+.pdf-capture-mode .glass-table td,
+.pdf-capture-mode .glass-table th {
+  border-bottom: 1px solid #e2e8f0 !important;
+  border-right: 1px solid #f1f5f9 !important;
+}
+
+/* 页面加载防抖动 */
+body { opacity: 1; transition: opacity 0.3s; }
+body.loaded { opacity: 1; }
+
+/* 表格样式微调 */
+td, th { vertical-align: middle; }
+
+/* 加载遮罩层 */
+.loading-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(255,255,255,0.8);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+}

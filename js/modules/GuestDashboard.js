@@ -5,6 +5,13 @@
 
 import guestAuthService from '../services/GuestAuthService.js';
 import { UINotification } from '../utils/UINotification.js';
+import { extractSchoolCode } from '../utils/schoolCode.js';
+import {
+    ensureSchoolConfig,
+    getSchoolCustomization,
+    applySchoolCustomizationToTitles,
+    applySchoolBranding,
+} from '../utils/schoolCustomization.js';
 
 export class GuestDashboard {
     constructor() {
@@ -12,12 +19,68 @@ export class GuestDashboard {
         this.currentGuest = null;
         this.exportRequests = [];
         this._abortCtrl = null;   // TD-EventLeak-Phase2
+        // RK31: 快速导航 data-nav-target → visible_types 模块 code 映射（dashboard 恒显示）
+        this._navToModule = {
+            'tableware-test': 'tableware',
+            'pesticide-test': 'pesticide',
+            'oil-test': 'oil',
+            'lean-meat-test': 'leanMeat',
+        };
+    }
+
+    /**
+     * RK31: 拉取并应用学校定制（访客端与师生端一致）。
+     * 带 3 秒超时降级：后端不可达时不阻塞页面，继续用 localStorage 旧缓存。
+     */
+    async applySchoolCustomization() {
+        const schoolCode = extractSchoolCode();
+        if (!schoolCode) {
+            console.warn('⚠️ 访客端无法解析 schoolCode，跳过学校定制应用');
+            return {};
+        }
+        let customization = {};
+        try {
+            const fetched = await Promise.race([
+                ensureSchoolConfig(schoolCode),
+                new Promise((resolve) => setTimeout(() => resolve(undefined), 3000)),
+            ]);
+            customization = fetched === undefined
+                ? (getSchoolCustomization(schoolCode) || {})
+                : (fetched || {});
+            if (fetched === undefined) console.warn('⚠️ 访客端学校定制拉取超时（3s），以缓存继续');
+            applySchoolCustomizationToTitles(customization);
+            applySchoolBranding(schoolCode);
+        } catch (e) {
+            console.error('❌ 访客端学校定制应用失败:', e);
+        }
+        return customization;
+    }
+
+    /**
+     * RK31: 按 visible_types 隐藏访客快速导航中不可见的模块按钮。
+     */
+    applyVisibleTypes(customization) {
+        try {
+            const raw = customization && customization.visible_types;
+            const visible = typeof raw === 'string' ? JSON.parse(raw) : raw;
+            if (!Array.isArray(visible) || !visible.length) return;
+            const nav = document.getElementById('guestQuickNav');
+            if (!nav) return;
+            nav.querySelectorAll('[data-nav-target]').forEach(btn => {
+                const moduleCode = this._navToModule[btn.dataset.navTarget];
+                if (moduleCode && !visible.includes(moduleCode)) {
+                    btn.style.display = 'none';
+                }
+            });
+        } catch (e) {
+            console.warn('⚠️ 访客端 visible_types 应用失败:', e);
+        }
     }
 
     /**
      * 初始化模块
      */
-    init() {
+    async init() {
         console.log('🔧 ' + this.moduleName + ' 初始化中...');
 
         this.currentGuest = guestAuthService.getCurrentGuest();
@@ -27,7 +90,11 @@ export class GuestDashboard {
             return false;
         }
 
+        // RK31: 渲染前应用学校定制（标题/品牌/模块可见性）
+        const customization = await this.applySchoolCustomization();
+
         this.renderUI();
+        this.applyVisibleTypes(customization);
         this.bindEvents();
         this.loadExportRequests();
 

@@ -38,7 +38,8 @@
 
 ### 目标用户
 
-- **管理员 / 管理者（admin / manager）**：用户与权限管理、审计日志、全部业务操作。
+- **平台超管（admin，无学校归属）**：管理所有学校（新增/编辑/停用、配置界面定制、管理学校用户），拥有 `schools:manage` 权限。通过学校管理控制台（`admin-schools.html`）操作。
+- **学校管理者（manager）**：学校内最高权限，用户与权限管理、审计日志、全部业务操作。学校首个账号即为 manager。
 - **检测员（operator / user）**：录入与维护检测记录。
 - **只读用户（viewer）/ 访客（快速访问）**：仅查看看板与记录，无写入权限。
 
@@ -49,7 +50,7 @@
 - 前端为**原生 ES Module 静态资源**（无打包器），由 Caddy 直接托管 `dist/`。
 - **多学校架构（方案② Schema-per-tenant）**：50+ 学校共用同一套应用与同一份数据模型，每校数据存放在 PostgreSQL 的**独立 schema**（表结构一致）；应用层按当前登录学校经 `?schema=` 连接串路由（`backend/lib/tenantClient.js` 的 `createTenantClient` 为每校缓存独立 PrismaClient）。开发/测试环境使用单一共享 schema，不做隔离。
 
-> 命名已品牌中立化：根 `package.json` 的 `name` 为 `foodtestlab`，部署统一使用 `SYSTEM_NAME=foodtestlab`；具体学校名（如珠海一中 / 田家炳中学 / 珠海实验中学）均为 `School` 表中的数据，由登录时按 `schoolCode` 动态读取，代码层不出现任何学校专有命名。每校的界面 / 显示内容 / 字段要求的差异，统一由 `public` 系统表中的 `SchoolCustomization` 承载（外观 `theme_color`/`logo_url`/`theme_config`、可见检测类型 `visible_types`、字段标签 `field_labels`、隐藏字段 `hidden_fields`、字段必填/校验规则 `field_rules`），新增学校零改码。
+> 命名已品牌中立化：根 `package.json` 的 `name` 为 `foodtestlab`，部署统一使用 `SYSTEM_NAME=foodtestlab`；具体学校名（如珠海一中 / 田家炳中学 / 珠海实验中学）均为 `School` 表中的数据，由登录时按 `schoolCode` 动态读取，代码层不出现任何学校专有命名。每校的界面 / 显示内容 / 字段要求的差异，统一由 `public` 系统表中的 `SchoolCustomization` 承载（外观 `theme_color`/`logo_url`/`theme_config`、可见检测类型 `visible_types`、字段标签 `field_labels`、隐藏字段 `hidden_fields`、字段必填/校验规则 `field_rules`），新增学校零改码。学校管理控制台（`admin-schools.html`，平台超管独有）提供 GUI 完成学校全生命周期管理：新增学校（自动建 schema + 推表 + 首个 manager 账号）、编辑学校信息与外观、配置字段定制、管理学校用户（查看/重置密码/启停用）。
 
 ---
 
@@ -139,7 +140,7 @@ flowchart TB
 - 每校对应 PostgreSQL 中一个独立 schema（schema 名由 `schemaNameOf(schoolCode)` 归一为 `school_<code>`，如 `school-gtest` → `school_gtest`），**所有 schema 的表结构与迁移完全一致**（同一份 Prisma schema）。
 - 隔离由 `backend/lib/tenantClient.js` 的 `createTenantClient(prisma, schoolCode)` 实现：为每个 schema 缓存一个独立 `new PrismaClient`（连接串带 `?schema=<schema>`），Prisma 据此把 model 查询限定到该 schema。租户中间件在 `authenticateUser` 后挂 `req.db`（即当前校的 tenant client）。新增模型只需 `prisma db push` 推一次，新学校自动包含全部模型。
 - 备份/恢复/迁移按校独立：`pg_dump -n school_gtest mydb` 单独导出，`psql -d mydb -f school_gtest.sql` 单独恢复；迁校即导出该 schema 在目标库 `CREATE SCHEMA` 后恢复。
-- 新增学校：`tenantProvisioner.provisionSchool({ code })` 用 `prisma db push ?schema=<租户>` 推全表并建初始 admin（连字符代码，如 `school-gtest`）。
+- 新增学校：`tenantProvisioner.provisionSchool({ code })` 用 `prisma db push ?schema=<租户>` 推全表并建初始 **manager** 账号（admin 角色仅平台超管拥有，学校内最高权限为 manager）。也可通过学校管理控制台 GUI（`admin-schools.html`）完成，零改码。
 - 开发/测试：使用单一共享 schema（如 `public` 或 `dev`），无需逐校隔离。
 
 ### 4.1 ER 图
@@ -358,7 +359,27 @@ erDiagram
 | * | `/api/audit-logs`（`auditRoutes.js`） | 通用操作审计（字段完整：user_id/action/resource_type/resource_id/details/ip_address） |
 | * | `/api/sync`（`syncRoutes.js`） | 离线 / 多端数据同步 |
 
-### 5.6 用户管理（历史遗留，已移除）
+### 5.6 学校管理控制台（`/api/admin/schools/*`，平台超管独有）
+
+平台超管通过 GUI 管理控制台（`admin-schools.html`）完成学校全生命周期管理，**新增学校零改码**。所有端点由 `requirePlatformSuperAdmin` 中间件保护（`role=admin && !schoolCode`）。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/admin/schools` | 列出所有学校（public."School"） |
+| POST | `/api/admin/schools` | 新增学校（provisionSchool：建 schema + 推表 + 系统记录 + 首个 **manager** 账号） |
+| PUT | `/api/admin/schools/:code` | 更新学校基本信息（name/short_name/theme_color/logo_url） |
+| PATCH | `/api/admin/schools/:code/status` | 启用/停用学校（停用后该校用户无法登录） |
+| GET | `/api/admin/schools/:code/customization` | 获取该校定制配置（SchoolCustomization） |
+| PUT | `/api/admin/schools/:code/customization` | 更新定制配置（visible_types/field_labels/hidden_fields/field_rules，整体覆盖） |
+| GET | `/api/admin/schools/:code/users` | 列出该校用户（跨 schema 查询，经 createTenantClient 路由） |
+| POST | `/api/admin/schools/:code/users/:userId/reset-password` | 重置该校用户密码 |
+| PATCH | `/api/admin/schools/:code/users/:userId/status` | 启用/停用该校用户 |
+
+> **角色约定**：学校内最高权限为 `manager`（用户/记录/导出管理），`admin` 角色仅保留给平台超管（public schema，`schoolCode=null`），避免跨校越权。`provisionSchool` 创建的首个账号为 `manager`，而非 `admin`。
+
+> **前端入口**：主页左侧导航"管理"分组中的"学校管理"链接（`data-super-admin-only`），仅平台超管可见。管理控制台含三个 Tab：基本信息（校名/校徽/主题色）、界面定制（可见模块/字段标签/隐藏字段/字段规则）、用户管理（查看/重置密码/启停用）。
+
+### 5.7 用户管理（历史遗留，已移除）
 
 > ⚠️ 原 `server.js` 内联的 `/api/users`、`/api/users/:userId/disable|enable` 路由（技术债 TD-Users-Dup，见 §10）已于清理中**删除**，统一收敛到 `/api/user/*`（见 §5.2）。下方仅作历史索引归档，当前代码中已不存在：
 
@@ -374,8 +395,10 @@ erDiagram
 ### 6.1 路由结构（无框架路由，SPA 分区显隐）
 
 - 入口页：`login.html`（登录）、`index.html`（主应用）。
-- 侧边栏导航按钮用 `data-target` 标识目标区块（`dashboard`、`tableware-test`、`pesticide-test`、`oil-test`、`lean-meat-test`、`pathogen-test`、`export-data`、`backup-restore`、`user-management`、`audit-log`），`data-admin-only` 仅管理员可见。
-- `js/core/Router.js`：权限守卫（按角色显隐 admin/guest 菜单）、Token 定时校验、30 分钟空闲登出。
+- 侧边栏导航按钮用 `data-target` 标识目标区块（`dashboard`、`tableware-test`、`pesticide-test`、`oil-test`、`lean-meat-test`、`pathogen-test`、`export-data`、`backup-restore`、`user-management`、`audit-log`），`data-admin-only` 仅管理员可见，`data-super-admin-only` 仅平台超管可见（如"学校管理"入口）。
+- `js/core/Router.js`：权限守卫（按角色显隐 admin/guest 菜单、平台超管独有菜单）、Token 定时校验、30 分钟空闲登出。
+- `js/services/PermissionService.js`：RBAC 权限矩阵，`schools:manage` 权限仅当 `user.role==='admin' && !user.schoolCode` 时动态注入；`isPlatformSuperAdmin()` 方法供前端判断。
+- `admin-schools.html`：学校管理控制台（独立页面），含学校列表、新增学校、学校详情三 Tab（基本信息/界面定制/用户管理），液态玻璃风格。
 - 导航通信统一走**事件委托 + `CustomEvent`**（已移除 `window.*` 全局耦合）：`app:navigate`、`dashboard:refresh`。
 
 ### 6.2 组件划分（`js/`）
@@ -410,15 +433,18 @@ js/
 
 ### 7.1 RBAC 角色矩阵
 
-| 能力 \ 角色 | admin | manager | operator | user | viewer | guest(快速访问) |
-|-------------|:-----:|:-------:|:--------:|:----:|:------:|:--------------:|
-| 查看看板 / 记录 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| 创建 / 编辑 / 删除记录 | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
-| 用户管理（增删改角色） | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| 审计日志管理 | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| 能力 \ 角色 | 平台超管(admin,无校) | 学校admin | manager | operator | user | viewer | guest(快速访问) |
+|-------------|:-----:|:-------:|:-------:|:--------:|:----:|:------:|:--------------:|
+| 查看看板 / 记录 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 创建 / 编辑 / 删除记录 | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| 用户管理（增删改角色） | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| 审计日志管理 | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **学校管理控制台** | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 
+- **平台超管**（`role=admin` 且 `schoolCode=null`，位于 public schema）：拥有 `schools:manage` 权限，可管理所有学校（新增/编辑/停用、配置界面定制、管理学校用户）。学校内最高权限为 `manager`，`admin` 角色不分配给学校用户，避免跨校越权。
 - 写入判定由 `requireEditorOrAbove` 实现：角色为 `guest` / `viewer` 一律拒绝（403），其余允许写。
 - 用户管理由 `authorizeRoles('admin','manager')`。
+- 学校管理 API 由 `requirePlatformSuperAdmin` 中间件保护（`role=admin && !schoolCode`）。
 
 ### 7.2 JWT 结构
 
@@ -580,6 +606,7 @@ npm install
 npx prisma generate
 npx prisma db push            # 同步 schema 到 PostgreSQL（本地库）
 node prisma/seed.js           # 初始化 admin/operator/viewer（需 SEED_*_PASSWORD）
+# 注意：此 admin 为 public schema 的平台超管；学校首个账号为 manager（由 provisionSchool 创建）
 npm run dev                   # 或 npm start（默认端口 3002）
 ```
 

@@ -109,7 +109,14 @@ export function createUserRoutes(userManager) {
             const refreshToken = req.headers['x-refresh-token']
             if (refreshToken) {
                 try {
-                    const decoded = jwt.verify(refreshToken, jwtSecret)
+                    // DS-02: refresh token 使用独立密钥（无 JWT_REFRESH_SECRET 时派生，保证与 access 密钥不同）
+                    // DS-01: 显式限定算法白名单，防 'none'/RS256 混淆绕过
+                    const refreshSecret = process.env.JWT_REFRESH_SECRET || `${jwtSecret}:refresh`
+                    const decoded = jwt.verify(refreshToken, refreshSecret, { algorithms: ['HS256'] })
+                    // DS-02: 令牌类型隔离——access token 不得当 refresh token 用
+                    if (decoded.type !== 'refresh') {
+                        return res.status(401).json({ error: '❌ Refresh token 类型无效' })
+                    }
                     userId = decoded.userId
                     schoolCode = decoded.schoolCode
                 } catch (e) {
@@ -122,7 +129,12 @@ export function createUserRoutes(userManager) {
                     return res.status(401).json({ error: '❌ 缺少授权令牌' })
                 }
                 try {
-                    const decoded = jwt.verify(authHeader.substring(7), jwtSecret)
+                    // DS-01: 显式限定算法白名单
+                    const decoded = jwt.verify(authHeader.substring(7), jwtSecret, { algorithms: ['HS256'] })
+                    // DS-02: refresh token 不得当 access token 用（类型隔离双向生效）
+                    if (decoded.type === 'refresh') {
+                        return res.status(401).json({ error: '❌ 令牌类型无效' })
+                    }
                     userId = decoded.userId
                     schoolCode = decoded.schoolCode
                 } catch (e) {

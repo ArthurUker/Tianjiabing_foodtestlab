@@ -83,6 +83,12 @@ export function initTableware() {
                 handleEditRecord(editBtn.dataset.id, user);
             });
         }
+
+        const detailBtn = e.target.closest('.btn-detail');
+        if (detailBtn) {
+            showTablewareDetail(detailBtn.dataset.id);
+            return;
+        }
         
         const resultSpan = e.target.closest('.result-value');
         if (resultSpan) {
@@ -612,7 +618,8 @@ function updateFormStructure() {
             tableContainer.parentNode.insertBefore(paginationContainer, tableContainer.nextSibling);
         }
         
-        tableContainer.className = 'w-full text-sm border-collapse border border-gray-200 rounded-lg overflow-hidden';
+        // 与其他检测表（GenericTest）保持一致：保留 glass-table 类，不覆盖
+        tableContainer.className = 'glass-table';
     }
 }
 
@@ -779,19 +786,19 @@ function renderTable() {
         return;
     }
 
-    // 表头
+    // 表头（由 .glass-table th 统一接管样式）
     const thead = tbody.parentElement.querySelector('thead');
     if (thead) {
         thead.innerHTML = `
             <tr>
-                <th class="px-4 py-3 text-left font-medium text-gray-700 border border-gray-200 text-center">日期</th>
-                <th class="px-4 py-3 text-left font-medium text-gray-700 border border-gray-200 text-center">食堂</th>
-                <th class="px-4 py-3 text-left font-medium text-gray-700 border border-gray-200">检测点位</th>
-                <th class="px-4 py-3 text-left font-medium text-gray-700 border border-gray-200 text-center">检测项目</th>
-                <th class="px-4 py-3 text-left font-medium text-gray-700 border border-gray-200 text-center">数值</th>
-                <th class="px-4 py-3 text-left font-medium text-gray-700 border border-gray-200">结果</th>
-                <th class="px-4 py-3 text-left font-medium text-gray-700 border border-gray-200 text-center">检测员</th>
-                <th class="px-4 py-3 text-left font-medium text-gray-700 border border-gray-200 text-center">操作</th>
+                <th>日期</th>
+                <th>食堂</th>
+                <th>检测点位</th>
+                <th>检测项目</th>
+                <th>数值</th>
+                <th>结果</th>
+                <th>检测员</th>
+                <th>操作</th>
             </tr>
         `;
     }
@@ -823,7 +830,7 @@ function renderTable() {
     
     if (!currentRecords || currentRecords.length === 0) {
         console.log('⚠️ 没有当前记录要显示，显示空消息');
-        tbody.innerHTML = `<tr><td colspan="7" class="text-center py-6 text-gray-500 bg-gray-50">暂无检测数据记录</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-gray-500">暂无数据</td></tr>`;
         return;
     }
 
@@ -849,12 +856,14 @@ function renderTable() {
             // 兼容无点位数据的旧记录
             tableContent += `
                 <tr class="border-b hover:bg-gray-50">
-                    <td class="border px-4 py-3 text-center align-middle">${record.testDate}</td>
-                    <td class="border px-4 py-3 text-center align-middle">${record.canteen}</td>
-                    <td class="border px-4 py-3 text-gray-500" colspan="4">无数据</td>
-                    <td class="border px-4 py-3 text-center align-middle">${record.inspector}</td>
-                    <td class="border px-4 py-3 text-center align-middle">
-                        <button class="px-3 py-1.5 bg-red-50 text-red-700 rounded btn-delete" data-id="${record.id}">删除</button>
+                    <td class="border px-4 py-2">${record.testDate}</td>
+                    <td class="border px-4 py-2">${record.canteen}</td>
+                    <td class="border px-4 py-2 text-gray-500" colspan="4">无数据</td>
+                    <td class="border px-4 py-2">${record.inspector}</td>
+                    <td class="border px-4 py-2">
+                        <div class="flex gap-2 justify-center">
+                            <button class="text-red-600 hover:text-red-800 btn-delete" data-id="${record.id}" title="删除"><i class="fas fa-trash"></i></button>
+                        </div>
                     </td>
                 </tr>`;
             return;
@@ -863,37 +872,38 @@ function renderTable() {
         points.forEach((p, idx) => {
             const isDetergent = p.testType === 'detergent';
             const typeLabel = isDetergent ? '洗涤剂残留' : '表面清洁度';
-            const typeClass = isDetergent ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700';
             const valueDisplay = isDetergent
                 ? `${p.rlu} <span class="text-xs text-gray-500">mg/100cm<sup>2</sup></span>`
                 : p.rlu;
+            const resultText = p.res || '-';
+            // P2-24: 与 GenericTest 统一——结果徽标用三元色、无图标、圆角胶囊
+            const resultColorClass = (resultText.includes('合格') && !resultText.includes('不合格'))
+                ? 'bg-green-100 text-green-800'
+                : resultText.includes('不合格')
+                    ? 'bg-red-100 text-red-800'
+                    : resultText.includes('警戒')
+                        ? 'bg-yellow-100 text-yellow-800'
+                        : 'bg-gray-100 text-gray-800';
+
             tableContent += `
-                <tr class="border-b hover:bg-gray-50 transition duration-150">
-                    ${idx === 0 ? `<td rowspan="${rowSpan}" class="border px-4 py-3 bg-white align-middle text-center">${record.testDate}</td>` : ''}
-                    ${idx === 0 ? `<td rowspan="${rowSpan}" class="border px-4 py-3 bg-white align-middle text-center">${record.canteen}</td>` : ''}
-                    <td class="border px-4 py-3 align-middle">${p.loc}</td>
-                    <td class="border px-4 py-3 align-middle text-center">
-                        <span class="px-2 py-0.5 rounded-full text-xs font-medium ${typeClass}">${typeLabel}</span>
+                <tr class="border-b hover:bg-gray-50">
+                    ${idx === 0 ? `<td rowspan="${rowSpan}" class="border px-4 py-2">${record.testDate}</td>` : ''}
+                    ${idx === 0 ? `<td rowspan="${rowSpan}" class="border px-4 py-2">${record.canteen}</td>` : ''}
+                    <td class="border px-4 py-2">${p.loc}</td>
+                    <td class="border px-4 py-2">${typeLabel}</td>
+                    <td class="border px-4 py-2">${valueDisplay}</td>
+                    <td class="border px-4 py-2">
+                        <span class="px-2 py-1 rounded-full text-xs cursor-pointer btn-detail ${resultColorClass}" data-id="${record.id}" title="点击查看详情">
+                            ${resultText}
+                        </span>
+                        ${idx === 0 && displayStatusHtml ? displayStatusHtml : ''}
                     </td>
-                    <td class="border px-4 py-3 align-middle text-center">${valueDisplay}</td>
-                    <td class="border px-4 py-3 align-middle">
-                        <div class="flex flex-col items-start">
-                            <span class="result-value px-3 py-1 rounded-full text-xs font-medium ${getResultClass(p.res)} cursor-pointer hover:opacity-80" 
-                                  data-id="${record.id}" title="点击查看详情">
-                                <i class="${getResultIcon(p.res)} mr-1"></i>${p.res}
-                            </span>
-                            ${idx === 0 && displayStatusHtml ? displayStatusHtml : ''}
-                        </div>
-                    </td>
-                    ${idx === 0 ? `<td rowspan="${rowSpan}" class="border px-4 py-3 bg-white align-middle text-center">${record.inspector}</td>` : ''}
-                    ${idx === 0 ? `<td rowspan="${rowSpan}" class="border px-4 py-3 bg-white align-middle text-center">
-                        <div class="flex flex-row gap-2 justify-center">
-                            <button class="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-md hover:bg-blue-100 transition btn-edit flex items-center justify-center" data-id="${record.id}">
-                                <i class="fas fa-edit text-xs mr-1"></i>编辑
-                            </button>
-                            <button class="px-3 py-1.5 bg-red-50 text-red-700 rounded-md hover:bg-red-100 transition btn-delete flex items-center justify-center" data-id="${record.id}">
-                                <i class="fas fa-trash text-xs mr-1"></i>删除
-                            </button>
+                    ${idx === 0 ? `<td rowspan="${rowSpan}" class="border px-4 py-2">${record.inspector}</td>` : ''}
+                    ${idx === 0 ? `<td rowspan="${rowSpan}" class="border px-4 py-2">
+                        <div class="flex gap-2 justify-center">
+                            <button class="text-blue-600 hover:text-blue-800 btn-edit" data-id="${record.id}" title="整改/复检"><i class="fas fa-edit"></i></button>
+                            <button class="text-green-600 hover:text-green-800 btn-detail" data-id="${record.id}" title="查看详情"><i class="fas fa-info-circle"></i></button>
+                            <button class="text-red-600 hover:text-red-800 btn-delete" data-id="${record.id}" title="删除"><i class="fas fa-trash"></i></button>
                         </div>
                     </td>` : ''}
                 </tr>

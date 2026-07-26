@@ -5,6 +5,7 @@ import { UINotification } from '../utils/UINotification.js';
 import { NetworkHelper } from '../utils/NetworkHelper.js';
 import { GuestAuthService } from '../services/GuestAuthService.js';
 import { permissionService } from '../services/PermissionService.js';
+import { collectCustomFieldValues, getSchoolCustomization } from '../utils/schoolCustomization.js';
 
 export class GenericTestModule {
     constructor(config) {
@@ -971,7 +972,9 @@ export class GenericTestModule {
         const baseInfo = {
             testDate: formData.get('testDate'),
             canteen: formData.get('canteen'),
-            inspector: formData.get('inspector')
+            inspector: formData.get('inspector'),
+            // 层级A：学校自定义字段（整单级，随每条点位记录一并存入 result_data）
+            ...collectCustomFieldValues(e.target, getSchoolCustomization())
         };
 
         // 验证基础信息

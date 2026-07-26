@@ -29,6 +29,7 @@ export class PermissionService {
                 'settings:view', 'settings:update',
                 // 模块权限
                 'module:tableware', 'module:pesticide', 'module:oil', 'module:leanMeat', 'module:pathogen'
+                // 注意：schools:manage 为平台超管独有，在 getCurrentUserPermissions() 中动态注入
             ],
             'manager': [
                 // 主管权限
@@ -80,29 +81,42 @@ export class PermissionService {
             return [];
         }
 
+        // RK28: 缓存键加入 schoolCode 维度，防止跨校同 id 用户权限串号
+        const cacheKey = `${user.schoolCode || 'public'}:${user.id}`;
         // 检查缓存（P1-10: 增加 TTL 过期检查，过期则清除并回源）
-        if (this.permissionCache.has(user.id)) {
-            const cached = this.permissionCache.get(user.id);
+        if (this.permissionCache.has(cacheKey)) {
+            const cached = this.permissionCache.get(cacheKey);
             if (cached && (Date.now() - cached.cachedAt) < this.PERMISSION_CACHE_TTL) {
                 return cached.permissions;
             }
-            this.permissionCache.delete(user.id); // 过期则清除
+            this.permissionCache.delete(cacheKey); // 过期则清除
         }
 
         // 获取用户权限
-        const permissions = this.rolePermissionMap[user.role] || [];
+        let permissions = [...(this.rolePermissionMap[user.role] || [])];
+
+        // 平台超管独有权限：仅 role=admin 且无 schoolCode（public schema 归属）才有 schools:manage
+        if (user.role === 'admin' && !user.schoolCode) {
+            permissions.push('schools:manage');
+        }
 
         // 如果用户有自定义权限，合并处理
         if (user.permissions && Array.isArray(user.permissions)) {
-            const combinedPermissions = [...new Set([...permissions, ...user.permissions])];
-            // P1-10: 缓存写入时记录时间戳
-            this.permissionCache.set(user.id, { permissions: combinedPermissions, cachedAt: Date.now() });
-            return combinedPermissions;
+            permissions = [...new Set([...permissions, ...user.permissions])];
         }
 
-        // 缓存权限（P1-10: 记录时间戳）
-        this.permissionCache.set(user.id, { permissions: permissions, cachedAt: Date.now() });
+        // 缓存权限（P1-10: 记录时间戳；RK28: 键含 schoolCode）
+        this.permissionCache.set(cacheKey, { permissions, cachedAt: Date.now() });
         return permissions;
+    }
+
+    /**
+     * 判断当前用户是否为平台超级管理员（role=admin 且无 schoolCode）
+     * @returns {boolean}
+     */
+    isPlatformSuperAdmin() {
+        const user = authService.getUser();
+        return !!(user && user.role === 'admin' && !user.schoolCode);
     }
 
     /**

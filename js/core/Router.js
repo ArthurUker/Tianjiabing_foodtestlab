@@ -44,7 +44,10 @@ export class Router {
         const currentUrl = window.location.pathname;
 
         // 如果用户未登录且不在快速访问模式，重定向到登录页
-        if (!isAuthenticated && !this.isLoginPage(currentUrl)) {
+        // 预览模式（被 iframe 加载）跳过登录检查
+        if (window.__PREVIEW_MODE__) {
+            console.log('👁️ 预览模式，跳过登录检查');
+        } else if (!isAuthenticated && !this.isLoginPage(currentUrl)) {
             console.log('⚠️ 用户未登录，重定向到登录页...');
             window.location.href = './login.html';
             return;
@@ -187,6 +190,10 @@ export class Router {
             // 管理员显示所有菜单项
             this.toggleElementByPermission('[data-admin-only]', true);
         }
+
+        // 平台超管独有菜单项（学校管理）：仅 role=admin 且无 schoolCode
+        const isSuperAdmin = !!(user && user.role === 'admin' && !user.schoolCode);
+        this.toggleElementByPermission('[data-super-admin-only]', isSuperAdmin);
 
         // 访客菜单项
         if (isGuest) {

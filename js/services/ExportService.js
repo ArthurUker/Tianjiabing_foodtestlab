@@ -1,5 +1,6 @@
 import { StorageService } from '../core/Storage.js';  // ✅ 添加导入
 import { UINotification } from '../utils/UINotification.js';
+import { isRecordQualifiedByCustomFields } from '../utils/schoolCustomization.js';
 
 export class ExportService {
     constructor() {
@@ -587,6 +588,16 @@ export class ExportService {
         return html;
     }
 
+    _escapeHtml(value) {
+        if (value === null || value === undefined) return ''
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;')
+    }
+
     generateTableForType(type, records) {
         let html = '<div class="overflow-x-auto"><table class="w-full text-xs border-collapse border"><thead class="bg-gray-200"><tr>';
         
@@ -598,7 +609,7 @@ export class ExportService {
             const bgClass = index % 2 === 0 ? 'bg-white' : 'bg-gray-50';
             html += `<tr class="${bgClass}">`;
             const values = this.getTableValues(type, record);
-            values.forEach(v => html += `<td class="border border-gray-300 p-2">${v || '-'}</td>`);
+            values.forEach(v => html += `<td class="border border-gray-300 p-2">${this._escapeHtml(v) || '-'}</td>`);
             html += '</tr>';
         });
         
@@ -645,7 +656,9 @@ export class ExportService {
                     // 业务口径（2026-07-02业务方裁定）：仅"合格"计为合格，"警戒""不合格"等其余结果均计为不合格
                     // 当前表达式已满足该口径：警戒类结果不含"合格"子串，自动归入不合格分支，请勿改为宽松匹配
                     // ⚠️ 注意："不合格"也包含"合格"子串，必须先排除"不合格"
-                    return (r.result?.includes('合格') && !r.result?.includes('不合格')) || r.colorLevel === '合格';
+                    const baseQualified = (r.result?.includes('合格') && !r.result?.includes('不合格')) || r.colorLevel === '合格';
+                    // RK21/BS-10: 与看板一致，学校自定义字段判定取 AND
+                    return baseQualified && isRecordQualifiedByCustomFields(type, r);
                 }).length;
                 
                 const passRate = total > 0 ? ((passCount / total) * 100).toFixed(0) + '%' : '100%';
@@ -686,7 +699,7 @@ export class ExportService {
             <div class="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-300">
                 <h3 class="font-bold mb-2 text-gray-800 text-base">📝 备注</h3>
                 <p class="text-sm ${config.notes ? 'text-gray-700' : 'text-gray-400'}">
-                    ${config.notes || '无'}
+                    ${this._escapeHtml(config.notes) || '无'}
                 </p>
             </div>
         `;
@@ -873,6 +886,8 @@ export class ExportService {
                     box-sizing: border-box;
                 `;
                 tempContainer.innerHTML = section.outerHTML;
+                // 液态玻璃兜底：强制白底，避免玻璃透明背景透出
+                tempContainer.classList.add('pdf-capture-mode');
                 document.body.appendChild(tempContainer);
                 
                 await new Promise(resolve => setTimeout(resolve, 50));
@@ -987,10 +1002,13 @@ export class ExportService {
         }
 
         try {
+            // 液态玻璃兜底：捕获前强制白底
+            element.classList.add('pdf-capture-mode');
             const canvas = await html2canvas(element, {
                 scale: 2,
                 useCORS: true,
-                logging: false
+                logging: false,
+                backgroundColor: '#ffffff'
             });
 
             const { jsPDF } = window.jspdf;
@@ -1007,6 +1025,8 @@ export class ExportService {
         } catch (error) {
             console.error('PDF导出失败:', error);
             alert('❌ PDF导出失败');
+        } finally {
+            element.classList.remove('pdf-capture-mode');
         }
     }
 }

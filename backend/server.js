@@ -23,7 +23,8 @@ import { createAuthMiddleware } from './middleware/authMiddleware.js'
 import { createTenantMiddleware } from './middleware/tenantMiddleware.js'
 import { createSyncRoutes } from './routes/syncRoutes.js'
 import { provisionSchool, isValidSchoolCode } from './lib/tenantProvisioner.js'
-import { disconnectAllTenantClients } from './lib/tenantClient.js'
+import { disconnectAllTenantClients, createTenantClient, schemaNameOf } from './lib/tenantClient.js'
+import bcryptjs from 'bcryptjs'
 
 dotenv.config()
 
@@ -123,9 +124,155 @@ function safeParseJson(value, fallback) {
     }
 }
 
+// D-06: 递归剔除原型链污染键（__proto__ / constructor / prototype），深度上限 10。
+// 所有解析用户提交 JSON（result_data / sample_info / 定制配置）的入口都必须过此函数。
+const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
+function sanitizeObjectKeys(value, depth = 0) {
+    if (depth > 10 || value === null || typeof value !== 'object') return value
+    if (Array.isArray(value)) return value.map(item => sanitizeObjectKeys(item, depth + 1))
+    const clean = {}
+    for (const key of Object.keys(value)) {
+        if (DANGEROUS_KEYS.has(key)) continue
+        clean[key] = sanitizeObjectKeys(value[key], depth + 1)
+    }
+    return clean
+}
+
+// ====== RK8/RK10/RK12: 学校定制配置服务器端校验 ======
+const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/
+const CUSTOM_FIELD_NAME_RE = /^[a-zA-Z][a-zA-Z0-9_]{0,63}$/
+const TYPE_CODE_RE = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/
+const CUSTOM_FIELD_TYPES = new Set(['text', 'number', 'date', 'select', 'textarea', 'checkbox'])
+const MAX_JSON_FIELD_BYTES = 200 * 1024 // 单字段序列化后上限 200KB
+
+function isSafeLogoUrl(url) {
+    if (typeof url !== 'string') return false
+    if (/^https?:\/\//i.test(url)) return url.length <= 2048
+    // DS-12: 明确拒绝 data:image/svg+xml（SVG 可携带脚本）
+    if (/^data:image\/(png|jpeg|jpg|gif|webp);base64,/i.test(url)) {
+        return url.length <= 1024 * 1024 // base64 上限约 1MB
+    }
+    return false
+}
+
+function jsonDepthOf(value, depth = 0) {
+    if (depth > 8) return depth
+    if (value === null || typeof value !== 'object') return depth
+    let max = depth
+    const items = Array.isArray(value) ? value : Object.values(value)
+    for (const item of items) {
+        const d = jsonDepthOf(item, depth + 1)
+        if (d > max) max = d
+    }
+    return max
+}
+
+// 校验单个 JSON 定制字段的通用约束（可解析性 / 体积 / 深度），返回错误信息或 null
+function checkJsonField(name, value, expect /* 'object' | 'array' */) {
+    if (value === undefined || value === null) return null
+    let parsed = value
+    if (typeof value === 'string') {
+        try { parsed = JSON.parse(value) } catch { return `${name} 不是合法 JSON` }
+    }
+    const serialized = JSON.stringify(parsed)
+    if (Buffer.byteLength(serialized, 'utf8') > MAX_JSON_FIELD_BYTES) return `${name} 超过 200KB 上限`
+    if (jsonDepthOf(parsed) > 6) return `${name} 嵌套深度超过 6 层`
+    if (expect === 'object' && (Array.isArray(parsed) || typeof parsed !== 'object')) return `${name} 必须是 JSON 对象`
+    if (expect === 'array' && !Array.isArray(parsed)) return `${name} 必须是 JSON 数组`
+    return parsed
+}
+
+// RK8/RK10/RK11/RK12/DS-12: 定制配置载荷校验。返回 { valid, errors, normalized }
+function validateCustomizationPayload(body) {
+    const errors = []
+    const b = sanitizeObjectKeys(body || {})
+
+    const spec = {
+        visible_types: 'array',
+        field_labels: 'object',
+        hidden_fields: 'array',
+        theme_config: 'object',
+        field_rules: 'object',
+        field_options: 'object',
+        field_order: 'object',
+        custom_fields: 'object',
+        test_types: 'array'
+    }
+    const normalized = {}
+    for (const [key, expect] of Object.entries(spec)) {
+        if (!Object.prototype.hasOwnProperty.call(b, key)) continue
+        if (b[key] === null) { normalized[key] = null; continue } // BS-03: 显式 null = 清空
+        const result = checkJsonField(key, b[key], expect)
+        if (typeof result === 'string') { errors.push(result); continue }
+        normalized[key] = result
+    }
+
+    // theme_config 内颜色值校验
+    if (normalized.theme_config && typeof normalized.theme_config === 'object') {
+        for (const [k, v] of Object.entries(normalized.theme_config)) {
+            if (/color/i.test(k) && typeof v === 'string' && v && !HEX_COLOR_RE.test(v)) {
+                errors.push(`theme_config.${k} 必须为 #RRGGBB 格式`)
+            }
+            if (/logo/i.test(k) && typeof v === 'string' && v && !isSafeLogoUrl(v)) {
+                errors.push(`theme_config.${k} 必须为 http(s) 或 data:image/(png|jpeg|gif|webp) URL（禁止 SVG）`)
+            }
+        }
+    }
+
+    // visible_types / test_types 元素合法性
+    if (Array.isArray(normalized.visible_types)) {
+        for (const t of normalized.visible_types) {
+            if (typeof t !== 'string' || !TYPE_CODE_RE.test(t)) errors.push(`visible_types 含非法类型码: ${JSON.stringify(t)}`)
+        }
+    }
+    if (Array.isArray(normalized.test_types)) {
+        const seen = new Set()
+        for (const t of normalized.test_types) {
+            if (!t || typeof t !== 'object' || typeof t.code !== 'string' || !TYPE_CODE_RE.test(t.code)) {
+                errors.push('test_types 每项必须含合法 code（字母开头，字母/数字/_/-）')
+                continue
+            }
+            if (seen.has(t.code)) errors.push(`test_types 类型码重复: ${t.code}`)
+            seen.add(t.code)
+            if (t.name !== undefined && (typeof t.name !== 'string' || t.name.length > 100)) errors.push(`test_types.${t.code}.name 需为 ≤100 字符的字符串`)
+            if (t.fields !== undefined && !Array.isArray(t.fields)) errors.push(`test_types.${t.code}.fields 必须是数组`)
+            if (Array.isArray(t.fields)) validateCustomFieldList(t.fields, `test_types.${t.code}.fields`, errors)
+        }
+    }
+
+    // custom_fields: { 模块code: [字段定义...] }
+    if (normalized.custom_fields && typeof normalized.custom_fields === 'object') {
+        for (const [moduleCode, list] of Object.entries(normalized.custom_fields)) {
+            if (!TYPE_CODE_RE.test(moduleCode)) { errors.push(`custom_fields 模块码非法: ${moduleCode}`); continue }
+            if (!Array.isArray(list)) { errors.push(`custom_fields.${moduleCode} 必须是数组`); continue }
+            validateCustomFieldList(list, `custom_fields.${moduleCode}`, errors)
+        }
+    }
+
+    return { valid: errors.length === 0, errors, normalized }
+}
+
+// RK11: 自定义字段定义列表校验（name 白名单 / type 白名单 / 同域 name 唯一）
+function validateCustomFieldList(list, ctx, errors) {
+    const names = new Set()
+    for (const f of list) {
+        if (!f || typeof f !== 'object') { errors.push(`${ctx} 含非法字段定义`); continue }
+        if (typeof f.name !== 'string' || !CUSTOM_FIELD_NAME_RE.test(f.name) || DANGEROUS_KEYS.has(f.name)) {
+            errors.push(`${ctx} 字段名非法: ${JSON.stringify(f.name)}（须字母开头，≤64 位字母/数字/_）`)
+            continue
+        }
+        if (names.has(f.name)) errors.push(`${ctx} 字段名重复: ${f.name}`)
+        names.add(f.name)
+        if (f.label !== undefined && (typeof f.label !== 'string' || f.label.length > 100)) errors.push(`${ctx}.${f.name}.label 需为 ≤100 字符字符串`)
+        if (f.type !== undefined && !CUSTOM_FIELD_TYPES.has(f.type)) errors.push(`${ctx}.${f.name}.type 非法（允许: ${[...CUSTOM_FIELD_TYPES].join('/')}）`)
+        if (f.options !== undefined && !Array.isArray(f.options)) errors.push(`${ctx}.${f.name}.options 必须是数组`)
+    }
+}
+
 function buildRecordPayload(record) {
-    const sampleInfo = safeParseJson(record.sample_info, {})
-    const resultData = safeParseJson(record.result_data, {})
+    // D-06: 展开前净化，防止 __proto__ 等键随响应传播到前端造成原型链污染
+    const sampleInfo = sanitizeObjectKeys(safeParseJson(record.sample_info, {}))
+    const resultData = sanitizeObjectKeys(safeParseJson(record.result_data, {}))
 
     return {
         id: record.id,
@@ -142,7 +289,8 @@ function buildRecordPayload(record) {
 }
 
 function buildRecordWriteData(tableName, payload) {
-    const baseData = { ...payload }
+    // D-06: 写库前净化用户可控 JSON 键
+    const baseData = sanitizeObjectKeys({ ...payload })
     delete baseData.id
     delete baseData._status
 
@@ -322,8 +470,28 @@ app.use(cors({
 }))
 app.use(express.json({ limit: process.env.BODY_LIMIT || '2mb' }))
 
+// DS-10: 应用层安全响应头兜底（反向代理 deploy/ 亦应设置）
+app.use((_req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+    res.setHeader('X-Frame-Options', 'DENY')
+    res.setHeader('Referrer-Policy', 'no-referrer')
+    res.setHeader('X-XSS-Protection', '1; mode=block')
+    if (_req.path.startsWith('/api/')) {
+        res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'")
+    }
+    next()
+})
+
 // Idempotency middleware for records API (helps avoid duplicate writes on retry)
 app.use('/api/records', idempotencyMiddleware)
+
+// Favicon (inline SVG) so the browser's default /favicon.ico request won't 404.
+app.get('/favicon.ico', (_req, res) => {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#2563eb"/><path d="M9 21V11h4.2c3 0 4.8 1.6 4.8 5s-1.8 5-4.8 5H9zm2.4-2.2h1.6c1.6 0 2.4-.8 2.4-2.8s-.8-2.8-2.4-2.8H11.4v5.6z" fill="#fff"/></svg>`
+    res.setHeader('Content-Type', 'image/svg+xml')
+    res.setHeader('Cache-Control', 'public, max-age=86400')
+    res.send(svg)
+})
 
 // Optional static hosting for local convenience.
 // Production Tencent Cloud deployment should use Nginx/COS for static files.
@@ -348,7 +516,7 @@ app.get('/api/school/config', authenticateUser, async (req, res) => {
             code
         )
         const customRows = await prisma.$queryRawUnsafe(
-            `SELECT "visible_types","field_labels","hidden_fields","theme_config","updated_at" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`,
+            `SELECT "visible_types","field_labels","hidden_fields","theme_config","field_rules","field_options","field_order","custom_fields","test_types","updated_at" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`,
             code
         )
         const school = schoolRows?.[0] || null
@@ -374,15 +542,22 @@ app.get('/api/school/config', authenticateUser, async (req, res) => {
 // ====== School 个性化配置（登录前公开查询，方案A 访问层）======
 // 在用户登录前即可按 schoolCode 返回 Logo / 主题色 / 字段定制，实现登录页个性化。
 // schoolCode 来自 URL 路径前缀（前端 extractSchoolCode），系统表位于 public。
-app.get('/api/schools/:schoolCode/config', async (req, res) => {
+// DS-04: 公开端点加限速（同 IP 每分钟 ≤ 60 次），防枚举/刷接口
+// RK22 说明：返回字段均为前端渲染/录入校验所需（schoolCustomization.js 消费
+// visible_types/field_labels/hidden_fields/theme_config/field_rules；Wave2 起消费
+// field_options/field_order/custom_fields/test_types），无可剔除的内部字段。
+app.get('/api/schools/:schoolCode/config', rateLimit(60, 60 * 1000), async (req, res) => {
     try {
         const code = req.params.schoolCode
+        if (!isValidSchoolCode(code)) {
+            return res.status(400).json({ error: '非法学校代码' })
+        }
         const schoolRows = await prisma.$queryRawUnsafe(
             `SELECT "code","name","short_name","theme_color","logo_url","status" FROM public."School" WHERE "code" = $1 LIMIT 1`,
             code
         )
         const customRows = await prisma.$queryRawUnsafe(
-            `SELECT "visible_types","field_labels","hidden_fields","theme_config","field_rules" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`,
+            `SELECT "visible_types","field_labels","hidden_fields","theme_config","field_rules","field_options","field_order","custom_fields","test_types","updated_at" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`,
             code
         )
         const school = schoolRows?.[0] || null
@@ -440,7 +615,7 @@ app.post('/api/admin/schools', authenticateUser, requirePlatformSuperAdmin, asyn
             return res.status(400).json({ error: '❌ 非法学校代码（仅允许小写字母、数字、连字符，长度 1~40）' })
         }
         if (!adminPassword || String(adminPassword).length < 8) {
-            return res.status(400).json({ error: '❌ 必须提供该校 admin 初始密码（至少 8 位）' })
+            return res.status(400).json({ error: '❌ 必须提供该校 manager 初始密码（至少 8 位）' })
         }
 
         const result = await provisionSchool({
@@ -459,6 +634,382 @@ app.post('/api/admin/schools', authenticateUser, requirePlatformSuperAdmin, asyn
     } catch (error) {
         console.error('❌ Error provisioning school:', error)
         res.status(500).json({ error: '学校初始化失败', details: error.message })
+    }
+})
+
+// 更新学校基本信息（name/short_name/theme_color/logo_url）
+app.put('/api/admin/schools/:code', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
+    try {
+        const { code } = req.params
+        const { name, shortName, themeColor, logoUrl } = req.body || {}
+        // RK8/DS-12: 主题色/Logo 服务器端校验
+        if (themeColor != null && !HEX_COLOR_RE.test(themeColor)) {
+            return res.status(400).json({ error: '主题色必须为 #RRGGBB 格式' })
+        }
+        if (logoUrl != null && logoUrl !== '' && !isSafeLogoUrl(logoUrl)) {
+            return res.status(400).json({ error: 'Logo 必须为 http(s) 或 data:image/(png|jpeg|gif|webp) URL（禁止 SVG）' })
+        }
+        if (name != null && (typeof name !== 'string' || name.length > 100)) {
+            return res.status(400).json({ error: '学校名称需为 ≤100 字符的字符串' })
+        }
+        if (shortName != null && (typeof shortName !== 'string' || shortName.length > 50)) {
+            return res.status(400).json({ error: '学校简称需为 ≤50 字符的字符串' })
+        }
+        const exists = await prisma.$queryRawUnsafe(
+            `SELECT 1 FROM public."School" WHERE "code" = $1`, code
+        )
+        if (!exists.length) return res.status(404).json({ error: '学校不存在' })
+        const updated = await prisma.$queryRawUnsafe(
+            `UPDATE public."School"
+             SET "name" = COALESCE($2, "name"),
+                 "short_name" = COALESCE($3, "short_name"),
+                 "theme_color" = COALESCE($4, "theme_color"),
+                 "logo_url" = COALESCE($5, "logo_url"),
+                 "updated_at" = now()
+             WHERE "code" = $1
+             RETURNING "code","name","short_name","theme_color","logo_url","status"`,
+            code, name ?? null, shortName ?? null, themeColor ?? null, logoUrl ?? null
+        )
+        res.json({ success: true, data: updated[0] })
+    } catch (error) {
+        console.error('❌ Error updating school:', error)
+        res.status(500).json({ error: '更新学校信息失败', details: error.message })
+    }
+})
+
+// 启用/停用学校
+app.patch('/api/admin/schools/:code/status', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
+    try {
+        const { code } = req.params
+        const { status } = req.body || {}
+        if (!['active', 'disabled'].includes(status)) {
+            return res.status(400).json({ error: '状态值无效（仅允许 active/disabled）' })
+        }
+        const updated = await prisma.$queryRawUnsafe(
+            `UPDATE public."School" SET "status" = $2, "updated_at" = now()
+             WHERE "code" = $1 RETURNING "code","name","status"`,
+            code, status
+        )
+        if (!updated.length) return res.status(404).json({ error: '学校不存在' })
+        res.json({ success: true, data: updated[0] })
+    } catch (error) {
+        res.status(500).json({ error: '更新学校状态失败', details: error.message })
+    }
+})
+
+// 定制配置的全部 JSON 列（与 schema.prisma SchoolCustomization 对齐）
+const CUSTOMIZATION_COLUMNS = [
+    'visible_types', 'field_labels', 'hidden_fields', 'theme_config', 'field_rules',
+    'field_options', 'field_order', 'custom_fields', 'test_types'
+]
+
+// 获取学校定制配置
+app.get('/api/admin/schools/:code/customization', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
+    try {
+        const { code } = req.params
+        const rows = await prisma.$queryRawUnsafe(
+            `SELECT ${CUSTOMIZATION_COLUMNS.map(c => `"${c}"`).join(',')},"updated_at"
+             FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`, code
+        )
+        res.json({ success: true, data: rows[0] || null })
+    } catch (error) {
+        res.status(500).json({ error: '获取定制配置失败', details: error.message })
+    }
+})
+
+// 更新学校定制配置
+// 语义（BS-03）：body 中未出现的字段保持不变；显式传 null 的字段清空为 NULL；其余整体覆盖。
+// 并发（BS-06）：body 可带 expected_updated_at（乐观锁），与 DB 当前 updated_at 不一致时返回 409。
+app.put('/api/admin/schools/:code/customization', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
+    try {
+        const { code } = req.params
+        const body = req.body || {}
+
+        // RK8/RK10/RK11/RK12/DS-12/D-06: 服务器端校验 + 净化
+        const { valid, errors, normalized } = validateCustomizationPayload(body)
+        if (!valid) {
+            return res.status(400).json({ error: '定制配置校验失败', details: errors })
+        }
+
+        // 确保 SchoolCustomization 记录存在
+        await prisma.$queryRawUnsafe(
+            `INSERT INTO public."SchoolCustomization" ("id","school_code","updated_at")
+             VALUES ($1,$2,now()) ON CONFLICT ("school_code") DO NOTHING`,
+            `sc_${code}`, code
+        )
+
+        // BS-06: 乐观锁（向后兼容——不传 expected_updated_at 时保持旧行为）
+        if (Object.prototype.hasOwnProperty.call(body, 'expected_updated_at') && body.expected_updated_at) {
+            const cur = await prisma.$queryRawUnsafe(
+                `SELECT "updated_at" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`, code
+            )
+            const currentUpdatedAt = cur?.[0]?.updated_at ? new Date(cur[0].updated_at).toISOString() : null
+            const expected = new Date(body.expected_updated_at).toISOString()
+            if (currentUpdatedAt && expected !== currentUpdatedAt) {
+                return res.status(409).json({
+                    error: 'conflict',
+                    message: '定制配置已被其他人修改，请刷新后重试',
+                    current_updated_at: currentUpdatedAt
+                })
+            }
+        }
+
+        // 动态拼 SET 子句：仅更新 body 中出现的字段（列名来自固定白名单，无注入面）
+        const sets = []
+        const params = [code]
+        for (const col of CUSTOMIZATION_COLUMNS) {
+            if (!Object.prototype.hasOwnProperty.call(normalized, col)) continue
+            params.push(normalized[col] === null ? null : JSON.stringify(normalized[col]))
+            sets.push(`"${col}" = $${params.length}`)
+        }
+        if (sets.length === 0) {
+            return res.status(400).json({ error: '未提供任何可更新的定制字段' })
+        }
+        await prisma.$queryRawUnsafe(
+            `UPDATE public."SchoolCustomization" SET ${sets.join(', ')}, "updated_at" = now()
+             WHERE "school_code" = $1`,
+            ...params
+        )
+
+        // BS-11: 审计（失败不阻断主流程）
+        try {
+            await prisma.systemLog.create({
+                data: {
+                    level: 'info',
+                    message: `update_customization school=${code} fields=[${Object.keys(normalized).join(',')}]`,
+                    context: JSON.stringify({
+                        action: 'update_customization',
+                        actor: req.user?.userId ?? null,
+                        actorName: req.user?.username ?? null,
+                        schoolCode: code,
+                        changedFields: Object.keys(normalized)
+                    })
+                }
+            })
+        } catch (auditErr) {
+            console.error('⚠️ customization audit log failed:', auditErr.message)
+        }
+
+        const after = await prisma.$queryRawUnsafe(
+            `SELECT "updated_at" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`, code
+        )
+        res.json({ success: true, message: '定制配置已更新', updated_at: after?.[0]?.updated_at ?? null })
+    } catch (error) {
+        console.error('❌ Error updating customization:', error)
+        res.status(500).json({ error: '更新定制配置失败', details: error.message })
+    }
+})
+
+// 列出该校用户（跨 schema 查询）
+app.get('/api/admin/schools/:code/users', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
+    try {
+        const { code } = req.params
+        const schema = schemaNameOf(code)
+        if (!schema) return res.status(400).json({ error: '无效的学校代码' })
+        const tenantPrisma = createTenantClient(prisma, code)
+        const users = await tenantPrisma.$queryRawUnsafe(
+            `SELECT "id","username","role","is_active","created_at","last_login"
+             FROM "${schema}"."User" ORDER BY "created_at" DESC`
+        )
+        res.json({ success: true, data: users })
+    } catch (error) {
+        const msg = error.message || String(error)
+        // 学校尚未初始化（schema / User 表不存在）时返回空列表，而不是 500
+        const missingTable =
+            error.code === '42P01' ||
+            error.code === 'P2021' ||
+            /does not exist/i.test(msg)
+        if (missingTable) {
+            console.warn(`⚠️ 学校 ${code} 尚未初始化（缺 User 表），返回空列表`)
+            return res.json({
+                success: true,
+                data: [],
+                warning: `学校「${code}」尚未初始化，请点击「重新初始化」或检查 provision`
+            })
+        }
+        console.error('❌ Error listing school users:', error)
+        res.status(500).json({ error: '获取用户列表失败', details: msg })
+    }
+})
+
+// 重新初始化某学校（幂等：补全 schema / 表结构 / 首个 manager）
+app.post('/api/admin/schools/:code/reprovision', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
+    try {
+        const { code } = req.params
+        if (!isValidSchoolCode(code)) return res.status(400).json({ error: '非法学校代码' })
+        const schema = schemaNameOf(code)
+        if (!schema) return res.status(400).json({ error: '无效的学校代码' })
+        const result = await provisionSchool({
+            prisma,
+            code,
+            name: req.body?.name,
+            adminPassword: req.body?.adminPassword || process.env.SEED_ADMIN_PASSWORD || 'changeme'
+        })
+        res.json({ success: true, message: `学校「${code}」已重新初始化`, result })
+    } catch (error) {
+        console.error('❌ Error reprovisioning school:', error)
+        res.status(500).json({ error: '重新初始化失败', details: error.message })
+    }
+})
+
+// 重置该校用户密码
+app.post('/api/admin/schools/:code/users/:userId/reset-password', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
+    try {
+        const { code, userId } = req.params
+        const { newPassword } = req.body || {}
+        if (!newPassword || String(newPassword).length < 8) {
+            return res.status(400).json({ error: '新密码至少 8 位' })
+        }
+        const schema = schemaNameOf(code)
+        if (!schema) return res.status(400).json({ error: '无效的学校代码' })
+        const hash = await bcryptjs.hash(newPassword, 10)
+        const tenantPrisma = createTenantClient(prisma, code)
+        const result = await tenantPrisma.$executeRawUnsafe(
+            `UPDATE "${schema}"."User" SET "password_hash" = $2 WHERE "id" = $1`,
+            userId, hash
+        )
+        if (!result) return res.status(404).json({ error: '用户不存在' })
+        res.json({ success: true, message: '密码已重置' })
+    } catch (error) {
+        console.error('❌ Error resetting password:', error)
+        res.status(500).json({ error: '重置密码失败', details: error.message })
+    }
+})
+
+// 启用/停用该校用户
+app.patch('/api/admin/schools/:code/users/:userId/status', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
+    try {
+        const { code, userId } = req.params
+        const { isActive } = req.body
+        const schema = schemaNameOf(code)
+        if (!schema) return res.status(400).json({ error: '无效的学校代码' })
+        const tenantPrisma = createTenantClient(prisma, code)
+        const result = await tenantPrisma.$executeRawUnsafe(
+            `UPDATE "${schema}"."User" SET "is_active" = $2 WHERE "id" = $1`,
+            userId, !!isActive
+        )
+        if (!result) return res.status(404).json({ error: '用户不存在' })
+        res.json({ success: true, message: `用户已${isActive ? '启用' : '停用'}` })
+    } catch (error) {
+        console.error('❌ Error updating user status:', error)
+        res.status(500).json({ error: '更新用户状态失败', details: error.message })
+    }
+})
+
+// 学校用户可设置的角色（不含平台超管 admin）
+const SCHOOL_USER_ROLES = ['manager', 'operator', 'viewer', 'user']
+const isSchoolUserRole = (r) => SCHOOL_USER_ROLES.includes(r)
+const USERNAME_RE = /^[a-zA-Z0-9_]{3,32}$/
+const PHONE_RE = /^[0-9+\-\s]{5,20}$/
+
+// 新增用户（平台超管为学校创建用户）
+app.post('/api/admin/schools/:code/users', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
+    try {
+        const { code } = req.params
+        const { username, full_name, phone, role, password, is_active } = req.body || {}
+        const schema = schemaNameOf(code)
+        if (!schema) return res.status(400).json({ error: '无效的学校代码' })
+        if (!USERNAME_RE.test(username || '')) return res.status(400).json({ error: '用户名需为 3-32 位字母、数字或下划线' })
+        if (!isSchoolUserRole(role)) return res.status(400).json({ error: '用户类别无效（不能为平台管理员 admin）' })
+        if (!password || String(password).length < 8) return res.status(400).json({ error: '初始密码至少 8 位' })
+        if (phone && !PHONE_RE.test(phone)) return res.status(400).json({ error: '手机号格式不正确' })
+        const tenantPrisma = createTenantClient(prisma, code)
+        const exist = await tenantPrisma.$queryRawUnsafe(
+            `SELECT "id" FROM "${schema}"."User" WHERE "username" = $1`, username
+        )
+        if (exist.length) return res.status(409).json({ error: '用户名已存在' })
+        const hash = await bcryptjs.hash(String(password), 10)
+        const id = crypto.randomUUID()
+        await tenantPrisma.$executeRawUnsafe(
+            `INSERT INTO "${schema}"."User" ("id","username","password_hash","role","full_name","phone","is_active","created_at","updated_at")
+             VALUES ($1,$2,$3,$4,$5,$6,$7,NOW(),NOW())`,
+            id, username, hash, role, full_name || null, phone || null, is_active !== false
+        )
+        res.status(201).json({
+            success: true,
+            message: '用户创建成功',
+            user: { id, username, role, full_name: full_name || null, phone: phone || null, is_active: is_active !== false }
+        })
+    } catch (error) {
+        console.error('❌ Error creating user:', error)
+        res.status(500).json({ error: '创建用户失败', details: error.message })
+    }
+})
+
+// 更新用户（姓名 / 手机号 / 类别 / 状态 / 可选重置密码）
+app.put('/api/admin/schools/:code/users/:userId', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
+    try {
+        const { code, userId } = req.params
+        const { full_name, phone, role, is_active, password } = req.body || {}
+        const schema = schemaNameOf(code)
+        if (!schema) return res.status(400).json({ error: '无效的学校代码' })
+        const tenantPrisma = createTenantClient(prisma, code)
+        const cur = await tenantPrisma.$queryRawUnsafe(
+            `SELECT "id","role","is_active" FROM "${schema}"."User" WHERE "id" = $1`, userId
+        )
+        if (!cur.length) return res.status(404).json({ error: '用户不存在' })
+        const current = cur[0]
+        if (role !== undefined) {
+            if (role === 'admin') return res.status(400).json({ error: '不能将学校用户设置为平台管理员' })
+            if (!isSchoolUserRole(role)) return res.status(400).json({ error: '用户类别无效' })
+        }
+        if (phone !== undefined && phone && !PHONE_RE.test(phone)) return res.status(400).json({ error: '手机号格式不正确' })
+        // 防止学校失去唯一可管理人员（仅剩一名在职主管时，禁止停用或降级）
+        const becomingNonManager = (role !== undefined && role !== 'manager')
+        const willDisable = (is_active !== undefined && is_active === false)
+        if ((becomingNonManager || willDisable) && current.role === 'manager' && current.is_active) {
+            const cnt = await tenantPrisma.$queryRawUnsafe(
+                `SELECT COUNT(*)::int AS c FROM "${schema}"."User" WHERE "role"='manager' AND "is_active"=true`
+            )
+            if (Number(cnt[0].c) <= 1) return res.status(409).json({ error: '该校仅剩一名在职主管，无法停用或更改其类别' })
+        }
+        const sets = []
+        const params = [userId]
+        let i = 2
+        if (full_name !== undefined) { sets.push(`"full_name"=$${i++}`); params.push(full_name || null) }
+        if (phone !== undefined) { sets.push(`"phone"=$${i++}`); params.push(phone || null) }
+        if (role !== undefined) { sets.push(`"role"=$${i++}`); params.push(role) }
+        if (is_active !== undefined) { sets.push(`"is_active"=$${i++}`); params.push(!!is_active) }
+        if (password) {
+            if (String(password).length < 8) return res.status(400).json({ error: '密码至少 8 位' })
+            const hash = await bcryptjs.hash(String(password), 10)
+            sets.push(`"password_hash"=$${i++}`); params.push(hash)
+        }
+        if (!sets.length) return res.status(400).json({ error: '没有需要更新的字段' })
+        sets.push(`"updated_at"=NOW()`)
+        await tenantPrisma.$executeRawUnsafe(
+            `UPDATE "${schema}"."User" SET ${sets.join(',')} WHERE "id" = $1`, ...params
+        )
+        res.json({ success: true, message: '用户更新成功' })
+    } catch (error) {
+        console.error('❌ Error updating user:', error)
+        res.status(500).json({ error: '更新用户失败', details: error.message })
+    }
+})
+
+// 删除用户
+app.delete('/api/admin/schools/:code/users/:userId', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
+    try {
+        const { code, userId } = req.params
+        const schema = schemaNameOf(code)
+        if (!schema) return res.status(400).json({ error: '无效的学校代码' })
+        const tenantPrisma = createTenantClient(prisma, code)
+        const cur = await tenantPrisma.$queryRawUnsafe(
+            `SELECT "id","role","is_active" FROM "${schema}"."User" WHERE "id" = $1`, userId
+        )
+        if (!cur.length) return res.status(404).json({ error: '用户不存在' })
+        const current = cur[0]
+        if (current.role === 'manager' && current.is_active) {
+            const cnt = await tenantPrisma.$queryRawUnsafe(
+                `SELECT COUNT(*)::int AS c FROM "${schema}"."User" WHERE "role"='manager' AND "is_active"=true`
+            )
+            if (Number(cnt[0].c) <= 1) return res.status(409).json({ error: '该校仅剩一名在职主管，无法删除' })
+        }
+        await tenantPrisma.$executeRawUnsafe(`DELETE FROM "${schema}"."User" WHERE "id" = $1`, userId)
+        res.json({ success: true, message: '用户已删除' })
+    } catch (error) {
+        console.error('❌ Error deleting user:', error)
+        res.status(500).json({ error: '删除用户失败', details: error.message })
     }
 })
 
@@ -487,6 +1038,9 @@ app.use('/api/sync', syncRoutes)
 // ====== Test Records API ======
 
 // 创建测试记录
+// CR-11: 写接口幂等中间件覆盖（与 /api/records 一致，避免重试导致重复写入）
+app.use('/api/test-records', idempotencyMiddleware)
+
 app.post('/api/test-records', authenticateUser, requireEditorOrAbove, async (req, res) => {
     try {
         const { test_type, test_name, sample_info, result_data } = req.body
@@ -618,10 +1172,7 @@ app.get('/api/records/:tableName', authenticateUser, async (req, res) => {
         })
     } catch (error) {
         console.error('❌ Error fetching legacy records:', error)
-        res.status(500).json({
-            error: '获取失败',
-            details: error.message
-        })
+        res.status(500).json({ error: '获取失败' })
     }
 })
 
@@ -697,12 +1248,8 @@ app.post('/api/records/:tableName', authenticateUser, requireEditorOrAbove, asyn
                 code: 'INVALID_USER'
             })
         }
-        console.error('❌ Error creating legacy record:', error.message, '\nCode:', error.code, '\nStack:', error.stack)
-        res.status(500).json({
-            error: '创建失败',
-            details: error.message,
-            code: error.code || undefined
-        })
+        console.error('❌ Error creating legacy record:', error)
+        res.status(500).json({ error: '创建失败', code: error.code || undefined })
     }
 })
 

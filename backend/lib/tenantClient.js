@@ -28,27 +28,46 @@ const TENANT_CONNECTION_LIMIT = Number(process.env.TENANT_CONNECTION_LIMIT || 3)
 // schema -> { client: PrismaClient, lastUsed: number }
 const tenantClients = new Map()
 
-function sanitizeSchoolCode(schoolCode) {
-  if (!schoolCode) return null
-  // 仅保留字母数字下划线连字符，防止 schema 名注入
-  const safe = String(schoolCode).replace(/[^a-zA-Z0-9_-]/g, '')
-  return safe || null
+// —— 对外学校代码白名单（DS-06：全系统单一事实源）——
+// 对外输入 schoolCode 只允许小写字母、数字、连字符，长度 1~40，不允许下划线。
+const CODE_RE = /^[a-z0-9-]{1,40}$/
+
+export function isValidSchoolCode(code) {
+  return typeof code === 'string' && CODE_RE.test(code)
+}
+
+// —— schema 名白名单（DS-05）——
+// 必须 school_ 前缀 + 小写字母数字下划线，且 ≤ 63 字符（PG 标识符上限）。
+// 任何把 schema 名拼进 DDL/连接串前都必须先过此校验，不匹配立即 throw。
+const SAFE_SCHEMA_RE = /^school_[a-z0-9_]+$/
+const MAX_SCHEMA_LEN = 63
+
+export function assertSafeSchemaName(name) {
+  if (typeof name !== 'string' || name.length === 0 || name.length > MAX_SCHEMA_LEN || !SAFE_SCHEMA_RE.test(name)) {
+    throw new Error(`非法 schema 名: ${JSON.stringify(name)}（必须满足 /^school_[a-z0-9_]+$/ 且长度 ≤ 63）`)
+  }
+  return name
 }
 
 // 由学校代码推导 schema 名 —— 全系统 schema 命名的【单一事实源】。
 // 统一加 "school_" 前缀，避免学校代码与系统 schema（public / pg_catalog /
 // information_schema）冲突，并防止 schema 名注入。
-// 归一规则（幂等）：
+// 归一规则（幂等、注入安全，DS-06 统一后）：
 //   - 空/非法 → null（由 resolveSchemaName 回落到默认 schema）
-//   - 已是 "school_xxx" → 原样返回（避免重复加前缀）
+//   - 已带 "school_" 前缀 → 去前缀后按 code 白名单（-→_ 还原）校验再归一
 //   - 历史/URL 写法 "school-xxx" → 归一为 "school_xxx"
-//   - 普通代码 "tianjiabing" → "school_tianjiabing"
+//   - 普通代码 "tianjiabing" → "school_tianjiabing"，code 中 "-" 替换为 "_"
 export function schemaNameOf(schoolCode) {
-  const code = sanitizeSchoolCode(schoolCode)
-  if (!code) return null
-  if (/^school_/i.test(code)) return code
-  const bare = code.replace(/^school-/i, '')
-  return `school_${bare}`
+  if (typeof schoolCode !== 'string' || schoolCode.length === 0) return null
+  let code = schoolCode.toLowerCase()
+  if (/^school_/.test(code)) {
+    // 已是 schema 形态：去前缀，把 _ 视作历史 - 的归一结果还原后校验
+    code = code.slice('school_'.length).replace(/_/g, '-')
+  } else {
+    code = code.replace(/^school-/, '')
+  }
+  if (!CODE_RE.test(code)) return null
+  return `school_${code.replace(/-/g, '_')}`
 }
 
 // 由 schoolCode 推导 schema 名；为空时回落到默认 schema（dev/test 共享）。
@@ -61,6 +80,7 @@ function baseDatabaseUrl() {
 }
 
 function buildTenantUrl(schema) {
+  assertSafeSchemaName(schema) // DS-05: 连接串拼接前强制白名单校验
   const base = baseDatabaseUrl()
   if (!base) throw new Error('缺少 DATABASE_URL，无法创建租户客户端')
   return `${base}?schema=${encodeURIComponent(schema)}&connection_limit=${TENANT_CONNECTION_LIMIT}`

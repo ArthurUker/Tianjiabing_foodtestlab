@@ -330,6 +330,15 @@ export class AuthService {
         sessionStorage.removeItem('guest_token');
         sessionStorage.removeItem('current_guest');
         sessionStorage.removeItem('is_quick_access');
+        // RK14/RK26: 清除学校定制缓存，防止上一账号/学校的配置泄漏到下次会话
+        try {
+            const staleKeys = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i);
+                if (k && (k.startsWith('school_customization_') || k.startsWith('school_info_'))) staleKeys.push(k);
+            }
+            staleKeys.forEach(k => localStorage.removeItem(k));
+        } catch (e) { /* 存储不可用时忽略 */ }
     }
 
     /**

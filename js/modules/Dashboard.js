@@ -8,6 +8,7 @@ import { UINotification } from '../utils/UINotification.js';
 import { NetworkHelper } from '../utils/NetworkHelper.js';
 import { calculatePathogenRisk } from '../utils/pathogenRisk.js';
 import { auditService } from '../services/AuditService.js';
+import { isRecordQualifiedByCustomFields } from '../utils/schoolCustomization.js';
 
 const services = {
     tableware: new StorageService('tableware'),
@@ -21,8 +22,15 @@ const DEFAULT_CANTEENS = ['一食堂', '二食堂', '三食堂'];
 
 // 全局图表对象
 let trendChart, canteenChart;
+// 趋势图当前指标：'rate' = 合格率，'volume' = 检测量
+let trendMetric = 'rate';
+// 记录最近一次趋势图的计算范围，供指标切换时重算
+let _lastTrendRange = null;
 // 统一配色（洋红 / 绿色 / 蓝色），后续按索引复用
 const CAN_COLOR_PALETTE = ['#ff00a0', '#4daf4a', '#377eb8', '#8b5cf6', '#ef4444', '#06b6d4', '#a3e635'];
+// ✅ 各食堂线型（虚线模式），与颜色叠加区分，避免多条线贴近 100% 时难以分辨
+const CAN_DASH_PATTERNS = [[], [8, 4], [2, 4], [7, 3, 2, 3], [10, 3, 2, 3], [4, 4], [1, 3]];
+const CANTEEN_TARGET_RATE = 90; // 合格率合格基准线（可按实际要求调整）
 
 export function initDashboard() {
     console.log('📊 Dashboard.initDashboard() 开始执行');
@@ -83,6 +91,30 @@ export function initDashboard() {
         if (canteenFilterEl) {
             canteenFilterEl.addEventListener('change', loadDashboardData, { signal: _dashSignal });
         }
+
+        // ✅ 趋势图指标切换（合格率 / 检测量）
+        const trendMetricRate = document.getElementById('trendMetricRate');
+        const trendMetricVolume = document.getElementById('trendMetricVolume');
+        const syncTrendMetricBtns = () => {
+            [['rate', trendMetricRate], ['volume', trendMetricVolume]].forEach(([m, btn]) => {
+                if (!btn) return;
+                const active = trendMetric === m;
+                btn.classList.toggle('bg-blue-600', active);
+                btn.classList.toggle('text-white', active);
+                btn.classList.toggle('bg-white', !active);
+                btn.classList.toggle('text-gray-600', !active);
+            });
+        };
+        const applyTrendMetric = (m) => {
+            trendMetric = m;
+            syncTrendMetricBtns();
+            if (_lastTrendRange) {
+                updateCharts(_lastTrendRange.start, _lastTrendRange.end, _lastTrendRange.canteen);
+            }
+        };
+        if (trendMetricRate) trendMetricRate.addEventListener('click', () => applyTrendMetric('rate'), { signal: _dashSignal });
+        if (trendMetricVolume) trendMetricVolume.addEventListener('click', () => applyTrendMetric('volume'), { signal: _dashSignal });
+        syncTrendMetricBtns();
         
         // 初始化图表
         console.log('🔧 初始化图表...');
@@ -255,10 +287,14 @@ async function exportDashboardToPDF() {
     try {
         UINotification.info('ℹ️ 正在生成 PDF，请稍候...');
         
+        // 液态玻璃兜底：捕获前强制白底，避免玻璃透明背景透出壁纸
+        element.classList.add('pdf-capture-mode');
+
         const canvas = await html2canvas(element, {
             scale: 2,
             useCORS: true,
-            logging: false
+            logging: false,
+            backgroundColor: '#ffffff'
         });
 
         const { jsPDF } = window.jspdf;
@@ -283,6 +319,8 @@ async function exportDashboardToPDF() {
     } catch (error) {
         console.error('PDF导出失败:', error);
         UINotification.error('❌ PDF 导出失败: ' + error.message);
+    } finally {
+        element.classList.remove('pdf-capture-mode');
     }
 }
 
@@ -340,7 +378,7 @@ function createDashboardStructure() {
                 <div class="bg-gradient-to-br from-blue-400 to-blue-600 rounded-lg p-4 text-white shadow">
                     <div class="flex items-center justify-between">
                         <div>
-                            <p class="text-sm opacity-90">餐具洁净度检测</p>
+                            <p class="text-sm opacity-90" data-title-key="dash_tableware">餐具洁净度检测</p>
                             <p class="text-3xl font-bold" id="card_tableware_count">0</p>
                             <p class="text-xs mt-1">合格率: <span id="card_tableware_pass">0%</span></p>
                         </div>
@@ -351,7 +389,7 @@ function createDashboardStructure() {
                 <div class="bg-gradient-to-br from-green-400 to-green-600 rounded-lg p-4 text-white shadow">
                     <div class="flex items-center justify-between">
                         <div>
-                            <p class="text-sm opacity-90">果蔬农残检测</p>
+                            <p class="text-sm opacity-90" data-title-key="dash_pesticide">果蔬农残检测</p>
                             <p class="text-3xl font-bold" id="card_pesticide_count">0</p>
                             <p class="text-xs mt-1">合格率: <span id="card_pesticide_pass">0%</span></p>
                         </div>
@@ -362,7 +400,7 @@ function createDashboardStructure() {
                 <div class="bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-lg p-4 text-white shadow">
                     <div class="flex items-center justify-between">
                         <div>
-                            <p class="text-sm opacity-90">食用油品质快检</p>
+                            <p class="text-sm opacity-90" data-title-key="dash_oil">食用油品质快检</p>
                             <p class="text-3xl font-bold" id="card_oil_count">0</p>
                             <p class="text-xs mt-1">合格率: <span id="card_oil_pass">0%</span></p>
                         </div>
@@ -373,7 +411,7 @@ function createDashboardStructure() {
                 <div class="bg-gradient-to-br from-purple-400 to-purple-600 rounded-lg p-4 text-white shadow">
                     <div class="flex items-center justify-between">
                         <div>
-                            <p class="text-sm opacity-90">食源性细菌/病毒</p>
+                            <p class="text-sm opacity-90" data-title-key="dash_pathogen">食源性细菌/病毒</p>
                             <p class="text-3xl font-bold" id="card_pathogen_count">0</p>
                             <p class="text-xs mt-1">
                                 阳性数: <span id="card_pathogen_positive">0</span>
@@ -404,7 +442,7 @@ function createDashboardStructure() {
             
             <!-- 瘦肉精分类统计卡片 -->
             <div class="mb-6">
-                <h3 class="font-semibold text-gray-800 mb-3">肉、蛋农残检测</h3>
+                <h3 class="font-semibold text-gray-800 mb-3" data-title-key="dash_leanMeat">肉、蛋农残检测</h3>
                 <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                     <!-- 猪肉 -->
                     <div class="bg-gradient-to-br from-red-400 to-red-600 rounded-lg p-3 text-white shadow">
@@ -460,20 +498,20 @@ function createDashboardStructure() {
             <!-- 2. 概览列表区域 -->
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                 <div class="bg-white border rounded-lg p-4">
-                    <h3 class="font-semibold text-gray-800 mb-3">餐具洁净度概览 (最新5条)</h3>
+                    <h3 class="font-semibold text-gray-800 mb-3" data-title-key="dash_tableware_overview">餐具洁净度概览 (最新5条)</h3>
                     <ul id="list_tableware_overview" class="text-sm text-gray-700 space-y-2"></ul>
                 </div>
                 <div class="bg-white border rounded-lg p-4">
-                    <h3 class="font-semibold text-gray-800 mb-3">果蔬农残概览 (最新5条)</h3>
+                    <h3 class="font-semibold text-gray-800 mb-3" data-title-key="dash_pesticide_overview">果蔬农残概览 (最新5条)</h3>
                     <ul id="list_pesticide_overview" class="text-sm text-gray-700 space-y-2"></ul>
                 </div>
                 <div class="bg-white border rounded-lg p-4">
-                    <h3 class="font-semibold text-gray-800 mb-3">食用油品质概览 (最新5条)</h3>
+                    <h3 class="font-semibold text-gray-800 mb-3" data-title-key="dash_oil_overview">食用油品质概览 (最新5条)</h3>
                     <ul id="list_oil_overview" class="text-sm text-gray-700 space-y-2"></ul>
                 </div>
                 <!-- ✅ 病原体检测概览移到右边 -->
                 <div class="bg-white border rounded-lg p-4">
-                    <h3 class="font-semibold text-gray-800 mb-3">病原体检测概览 (最新5条)</h3>
+                    <h3 class="font-semibold text-gray-800 mb-3" data-title-key="dash_pathogen_overview">病原体检测概览 (最新5条)</h3>
                     <ul id="list_pathogen_overview" class="text-sm text-gray-700 space-y-2"></ul>
                 </div>
             </div>
@@ -481,27 +519,27 @@ function createDashboardStructure() {
             <!-- 瘦肉精分类概览 -->
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
                 <div class="bg-white border rounded-lg p-4">
-                    <h3 class="font-semibold text-gray-800 mb-3">猪肉检测概览 (最新5条)</h3>
+                    <h3 class="font-semibold text-gray-800 mb-3" data-title-key="dash_lean_pork_overview">猪肉检测概览 (最新5条)</h3>
                     <ul id="list_lean_pork_overview" class="text-sm text-gray-700 space-y-2"></ul>
                 </div>
                 <div class="bg-white border rounded-lg p-4">
-                    <h3 class="font-semibold text-gray-800 mb-3">羊肉检测概览 (最新5条)</h3>
+                    <h3 class="font-semibold text-gray-800 mb-3" data-title-key="dash_lean_mutton_overview">羊肉检测概览 (最新5条)</h3>
                     <ul id="list_lean_mutton_overview" class="text-sm text-gray-700 space-y-2"></ul>
                 </div>
                 <div class="bg-white border rounded-lg p-4">
-                    <h3 class="font-semibold text-gray-800 mb-3">牛肉检测概览 (最新5条)</h3>
+                    <h3 class="font-semibold text-gray-800 mb-3" data-title-key="dash_lean_beef_overview">牛肉检测概览 (最新5条)</h3>
                     <ul id="list_lean_beef_overview" class="text-sm text-gray-700 space-y-2"></ul>
                 </div>
                 <div class="bg-white border rounded-lg p-4">
-                    <h3 class="font-semibold text-gray-800 mb-3">禽肉检测概览 (最新5条)</h3>
+                    <h3 class="font-semibold text-gray-800 mb-3" data-title-key="dash_lean_poultry_overview">禽肉检测概览 (最新5条)</h3>
                     <ul id="list_lean_poultry_overview" class="text-sm text-gray-700 space-y-2"></ul>
                 </div>
                 <div class="bg-white border rounded-lg p-4">
-                    <h3 class="font-semibold text-gray-800 mb-3">鱼肉检测概览 (最新5条)</h3>
+                    <h3 class="font-semibold text-gray-800 mb-3" data-title-key="dash_lean_fish_overview">鱼肉检测概览 (最新5条)</h3>
                     <ul id="list_lean_fish_overview" class="text-sm text-gray-700 space-y-2"></ul>
                 </div>
                 <div class="bg-white border rounded-lg p-4">
-                    <h3 class="font-semibold text-gray-800 mb-3">禽蛋检测概览 (最新5条)</h3>
+                    <h3 class="font-semibold text-gray-800 mb-3" data-title-key="dash_lean_egg_overview">禽蛋检测概览 (最新5条)</h3>
                     <ul id="list_lean_egg_overview" class="text-sm text-gray-700 space-y-2"></ul>
                 </div>
             </div>
@@ -517,14 +555,25 @@ function createDashboardStructure() {
             <!-- 3. 图表区域 -->
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div class="bg-gray-50 rounded-lg p-4 md:col-span-2">
-                    <h3 class="font-semibold mb-3 text-gray-700">本月检测趋势</h3>
-                    <div class="h-64">
+                    <div class="flex items-center justify-between mb-3 gap-3">
+                        <h3 class="font-semibold text-gray-700" id="trendChartTitle">检测趋势</h3>
+                        <div class="flex items-center gap-3 flex-wrap justify-end">
+                            <div id="trendChartLegend" class="flex items-center gap-3 flex-wrap text-xs text-gray-600"></div>
+                            <div class="inline-flex rounded-lg border border-gray-300 overflow-hidden text-xs" data-html2canvas-ignore="true">
+                                <button id="trendMetricRate" type="button" class="trend-metric-btn px-3 py-1 bg-blue-600 text-white">合格率</button>
+                                <button id="trendMetricVolume" type="button" class="trend-metric-btn px-3 py-1 bg-white text-gray-600 hover:bg-gray-100">检测量</button>
+                            </div>
+                        </div>
+                    </div>
+                    <p class="text-xs text-gray-400 mb-2" id="trend_chart_caption"></p>
+                    <div class="h-96">
                         <canvas id="trendChart"></canvas>
                     </div>
                 </div>
                 <div class="bg-gray-50 rounded-lg p-4 md:col-span-1">
                     <h3 class="font-semibold mb-3 text-gray-700">各食堂合格率对比</h3>
-                    <div class="h-64">
+                    <p class="text-xs text-gray-400 mb-2" id="canteen_chart_caption"></p>
+                    <div class="h-96">
                         <canvas id="canteenChart"></canvas>
                     </div>
                 </div>
@@ -615,6 +664,13 @@ function loadDashboardData() {
             document.getElementById('date_range_text').textContent = `全部数据`;
     }
 
+    // ✅ 趋势图标题随筛选范围动态变化（避免写死"本月"却显示全部数据造成误解）
+    {
+        const rangeText = (document.getElementById('date_range_text')?.textContent || '全部数据').trim();
+        const trendTitleEl = document.getElementById('trendChartTitle');
+        if (trendTitleEl) trendTitleEl.textContent = `检测趋势（${rangeText}）`;
+    }
+
     // ✅ 获取食堂筛选条件
     const selectedCanteen = document.getElementById('canteenFilter')?.value || 'all';
 
@@ -655,7 +711,7 @@ function loadDashboardData() {
     let totalCount = 0;
     let totalPassed = 0;
     
-    // 餐具：按点位计数
+    // 餐具：按记录计数（已与其它类型统一口径）
     totalCount += stats.tableware.count;
     totalPassed += stats.tableware.passCount;
     
@@ -724,11 +780,9 @@ function getLeanMeatStatsByType(startDate, endDate, selectedCanteen = 'all') {
             meatTypes[meatType].count++;
             meatTypes[meatType].records.push(r);
             
-            const result = (r.result || '').toString().trim();
             // 业务口径（2026-07-02业务方裁定）：仅"合格"计为合格，"警戒""不合格"等其余结果均计为不合格
-            // 当前表达式已满足该口径：警戒类结果不含"合格"子串，自动归入不合格分支，请勿改为宽松匹配
-            // ⚠️ 注意："不合格"也包含"合格"子串，必须先排除"不合格"，否则会把不合格误判为合格
-            if (result.includes('合格') && !result.includes('不合格')) {
+            // RK21: 统一走 isQualified，含学校自定义字段判定
+            if (isQualified('leanMeat', r)) {
                 meatTypes[meatType].passCount++;
             }
         }
@@ -836,6 +890,43 @@ function getWeekRange(weekString) {
     };
 }
 
+// ✅ 食用油合格率判定（2026-07-23 业务方裁定）：
+//    按"品质等级"(colorLevel) 判定，仅"不合格"为不合格；
+//    其余（合格 / 警戒 / 其它等级）均视为合格。
+//    无 colorLevel 时（如联调测试记录）以 result 兜底。
+function isOilQualified(record) {
+    const colorLevel = (record.colorLevel || '').toString().trim();
+    if (colorLevel) {
+        return !colorLevel.includes('不合格');
+    }
+    const result = (record.result || '').toString().trim();
+    return result.includes('合格') && !result.includes('不合格');
+}
+
+// ✅ 统一合格率判定（所有统计函数共用，避免各模块口径分叉导致趋势图/卡片/总合格率不一致）
+// 业务口径（2026-07-02 业务方裁定）：仅"合格"计为合格；"不合格""警戒"等其余结果均计为不合格
+// 注意："不合格"包含"合格"子串，必须先排除"不合格"
+function isQualified(type, record) {
+    // RK21: 学校自定义字段判定（statRole='result'）与模块原有判定取 AND；
+    // 无相关自定义字段配置时恒为 true，不改变原有口径。
+    const customVerdict = isRecordQualifiedByCustomFields(type, record);
+    if (type === 'tableware') {
+        const result = (record.result || '').toString().trim();
+        return result.includes('合格') && !result.includes('不合格') && customVerdict;
+    }
+    if (type === 'pathogen') {
+        // ✅ 实时算法，与卡片/风险提示/对比图完全一致（不复用可能过期的 positiveItems 字符串）
+        const risk = calculatePathogenRisk(record.positiveDetails || [], record.allTestItems || []);
+        return risk.riskLevel === '无风险' && customVerdict;
+    }
+    if (type === 'oil') {
+        return isOilQualified(record) && customVerdict;
+    }
+    // pesticide / leanMeat / 其它通用类型：仅按 result 判定
+    const result = (record.result || '').toString().trim();
+    return result.includes('合格') && !result.includes('不合格') && customVerdict;
+}
+
 // ✅ 修改：通用统计函数 - 增加食堂筛选参数
 function getStats(type, startDate, endDate, selectedCanteen = 'all') {
   // ✨ 快速访问模式：直接从localStorage读取，绕过StorageService缓存
@@ -875,18 +966,14 @@ function getStats(type, startDate, endDate, selectedCanteen = 'all') {
   let positiveCount = 0;
 
   if (type === 'tableware') {
+      // ✅ 修正：与其它类型一致，按"记录(次检测)"计数，而非按 ATP 子点位计数，
+      //        避免"检测总数/合格率"单位混用（餐具按点位、其余按记录）
       sortedRecords.forEach(r => {
-          if (r.atpPoints && Array.isArray(r.atpPoints)) {
-              r.atpPoints.forEach(point => {
-                  count++;
-                  const result = (point.result || point.res || '').toString().trim();
-                  // 业务口径（2026-07-02业务方裁定）：仅"合格"计为合格，"警戒""不合格"等其余结果均计为不合格
-                  // 当前表达式已满足该口径：警戒类结果不含"合格"子串，自动归入不合格分支，请勿改为宽松匹配
-                  // ⚠️ 注意："不合格"也包含"合格"子串，必须先排除"不合格"，否则会把不合格误判为合格
-                  if (result.includes('合格') && !result.includes('不合格')) {
-                      passCount++;
-                  }
-              });
+          count++;
+          // 业务口径（2026-07-02业务方裁定）：仅"合格"计为合格，"警戒""不合格"等其余结果均计为不合格
+          // RK21: 统一走 isQualified，含学校自定义字段判定
+          if (isQualified('tableware', r)) {
+              passCount++;
           }
       });
   } else if (type === 'pathogen') {
@@ -927,16 +1014,15 @@ function getStats(type, startDate, endDate, selectedCanteen = 'all') {
           records: sortedRecords,
           riskLevels
       };
-  } else {
+  } else if (type === 'oil') {
+      // ✅ 食用油：按品质等级判定，仅"不合格"为不合格，其余(合格/警戒/其它等级)均合格
+      // RK21: 统一走 isQualified，含学校自定义字段判定
       count = sortedRecords.length;
-      passCount = sortedRecords.filter(r => {
-          const result = (r.result || '').toString().trim();
-          const colorLevel = (r.colorLevel || '').toString().trim();
-          // 业务口径（2026-07-02业务方裁定）：仅"合格"计为合格，"警戒""不合格"等其余结果均计为不合格
-          // 当前表达式已满足该口径：警戒类结果不含"合格"子串，自动归入不合格分支，请勿改为宽松匹配
-          // ⚠️ 注意："不合格"也包含"合格"子串，必须先排除"不合格"
-          return (result.includes('合格') && !result.includes('不合格')) || colorLevel === '合格';
-      }).length;
+      passCount = sortedRecords.filter(r => isQualified('oil', r)).length;
+  } else {
+      // ✅ 统一口径：使用 isQualified()，与卡片/对比图/趋势图一致（默认仅"合格"计合格，不依赖 colorLevel 误判）
+      count = sortedRecords.length;
+      passCount = sortedRecords.filter(r => isQualified(type, r)).length;
   }
 
   const passRate = count > 0 ? Math.round((passCount / count) * 100) : 100;
@@ -1111,6 +1197,8 @@ function updateRiskAlerts(stats, leanMeatByType) {
 // ================= 图表逻辑 =================
 
 let dashedPointPluginRegistered = false; // P2-10 阶段A：原 window._dashedPointPluginRegistered 本地化，避免全局暴露
+let canteenChartPluginRegistered = false; // "各食堂合格率对比"专用插件（数值标签+基准线）注册标记
+let trendTargetLinePluginRegistered = false; // 趋势图：合格基准线 + 空状态提示 插件注册标记
 
 function initCharts() {
     const trendCtx = document.getElementById('trendChart')?.getContext('2d');
@@ -1144,6 +1232,95 @@ function initCharts() {
         Chart.register(dashedPointPlugin);
         dashedPointPluginRegistered = true;
     }
+
+    // 注册"各食堂合格率对比"专用插件：横向条尾数值标签 + 合格基准线
+    if (window.Chart && !canteenChartPluginRegistered) {
+        const canteenChartPlugin = {
+            id: 'canteenChartPlugin',
+            afterDatasetsDraw(chart) {
+                const canvas = chart.canvas;
+                if (!canvas || canvas.id !== 'canteenChart') return;
+                const ctx = chart.ctx;
+                const meta = chart.getDatasetMeta(0);
+                if (!meta || !meta.data || !meta.data.length) return;
+                ctx.save();
+                // 条尾数值标签
+                ctx.font = 'bold 12px sans-serif';
+                ctx.fillStyle = '#374151';
+                ctx.textBaseline = 'middle';
+                ctx.textAlign = 'left';
+                meta.data.forEach((bar, i) => {
+                    const value = chart.data.datasets[0].data[i];
+                    if (value == null) return;
+                    ctx.fillText(value + '%', bar.x + 6, bar.y);
+                });
+                // 合格基准线
+                const target = CANTEEN_TARGET_RATE;
+                const xPos = chart.scales.x.getPixelForValue(target);
+                if (xPos != null && !Number.isNaN(xPos)) {
+                    ctx.strokeStyle = '#ef4444';
+                    ctx.setLineDash([4, 4]);
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath();
+                    ctx.moveTo(xPos, chart.chartArea.top);
+                    ctx.lineTo(xPos, chart.chartArea.bottom);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                    ctx.fillStyle = '#ef4444';
+                    ctx.textAlign = 'center';
+                    ctx.font = '10px sans-serif';
+                    ctx.fillText(`合格线 ${target}%`, xPos, chart.chartArea.top + 10);
+                }
+                ctx.restore();
+            }
+        };
+        Chart.register(canteenChartPlugin);
+        canteenChartPluginRegistered = true;
+    }
+
+    // 注册趋势图专用插件：合格率视图绘制 90% 合格基准线；无数据时居中提示
+    if (window.Chart && !trendTargetLinePluginRegistered) {
+        const trendTargetLinePlugin = {
+            id: 'trendTargetLinePlugin',
+            afterDatasetsDraw(chart) {
+                const canvas = chart.canvas;
+                if (!canvas || canvas.id !== 'trendChart') return;
+                const ctx = chart.ctx;
+                const hasData = chart.data.labels && chart.data.labels.length > 0 &&
+                    chart.data.datasets.some(ds => ds.data && ds.data.some(v => v !== null));
+                if (!hasData) {
+                    ctx.save();
+                    ctx.fillStyle = '#9ca3af';
+                    ctx.font = '13px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('暂无检测数据', (chart.chartArea.left + chart.chartArea.right) / 2, (chart.chartArea.top + chart.chartArea.bottom) / 2);
+                    ctx.restore();
+                    return;
+                }
+                if (trendMetric !== 'rate') return;
+                const target = CANTEEN_TARGET_RATE;
+                const yPos = chart.scales.y.getPixelForValue(target);
+                if (yPos == null || Number.isNaN(yPos)) return;
+                ctx.save();
+                ctx.strokeStyle = '#ef4444';
+                ctx.setLineDash([4, 4]);
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.moveTo(chart.chartArea.left, yPos);
+                ctx.lineTo(chart.chartArea.right, yPos);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.fillStyle = '#ef4444';
+                ctx.textAlign = 'left';
+                ctx.font = '10px sans-serif';
+                ctx.fillText(`合格线 ${target}%`, chart.chartArea.left + 4, yPos - 4);
+                ctx.restore();
+            }
+        };
+        Chart.register(trendTargetLinePlugin);
+        trendTargetLinePluginRegistered = true;
+    }
     if (trendCtx) {
         trendChart = new Chart(trendCtx, {
             type: 'line',
@@ -1154,21 +1331,28 @@ function initCharts() {
             options: { 
                 responsive: true,
                 maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
                 plugins: {
-                    legend: { display: true, position: 'bottom' },
+                    legend: { display: false },
                     tooltip: {
                         callbacks: {
                             label: function(context) {
                                 const ds = context.dataset || {};
                                 const val = context.parsed && context.parsed.y !== undefined ? context.parsed.y : context.raw;
                                 const missing = ds._missing && ds._missing[context.dataIndex];
-                                if (missing) return `${ds.label}: ${val}% （无检测记录）`;
-                                return `${ds.label}: ${val}%`;
+                                if (missing || val === null || val === undefined) return `${ds.label}: 无检测`;
+                                if (ds._metric === 'volume') return `${ds.label}: ${val} 次检测`;
+                                const n = ds._totals ? (ds._totals[context.dataIndex] || 0) : 0;
+                                return `${ds.label}: ${val}% （检测 ${n} 次）`;
                             }
                         }
                     }
                 },
                 scales: {
+                    x: {
+                        grid: { display: false },
+                        ticks: { autoSkip: true, autoSkipPadding: 16, maxRotation: 0, minRotation: 0 }
+                    },
                     y: { 
                         beginAtZero: true, 
                         max: 110,
@@ -1187,23 +1371,32 @@ function initCharts() {
             type: 'bar',
             data: {
                 labels: [],
-                datasets: [{ label: '合格率%', data: [], backgroundColor: [] }]
+                datasets: [{ label: '合格率%', data: [], backgroundColor: [], borderColor: [], borderWidth: [] }]
             },
-            options: { 
-                responsive: true, 
+            options: {
+                responsive: true,
                 maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
-                scales: { 
-                    y: { 
-                        beginAtZero: true, 
-                        max: 110,
-                        ticks: {
-                            callback: function(value) {
-                                return value <= 100 ? value : null;
+                indexAxis: 'y', // 横向条形图，更适配窄列、更易读
+                layout: { padding: { right: 38 } }, // 给条尾数值标签留空间
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const v = context.parsed && context.parsed.x !== undefined ? context.parsed.x : context.raw;
+                                return `合格率: ${v}%`;
                             }
                         }
-                    } 
-                } 
+                    }
+                },
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        max: 110,
+                        ticks: { callback: function(value) { return value <= 100 ? value : null; } }
+                    },
+                    y: { grid: { display: false } }
+                }
             }
         });
     }
@@ -1220,26 +1413,29 @@ function updateCharts(startDate, endDate, selectedCanteen = 'all') {
         endDate.setHours(23, 59, 59, 999);
     }
 
-    const trendData = calculateCanteenTrends(startDate, endDate, selectedCanteen);
+    // 记录本次范围，供指标切换时重算
+    _lastTrendRange = { start: startDate, end: endDate, canteen: selectedCanteen };
+
+    const trendData = calculateCanteenTrends(startDate, endDate, selectedCanteen, trendMetric);
     if (trendChart) {
         trendChart.data.labels = trendData.labels;
 
         const palette = CAN_COLOR_PALETTE;
-        const canteenNames = Object.keys(trendData.datasets || {}).filter(name => {
-            const missing = (trendData.missing && trendData.missing[name]) || [];
-            if (!missing.length) return true;
-            return missing.some(m => m === false);
-        });
+        const canteenNames = Object.keys(trendData.datasets || {});
         trendChart.data.datasets = canteenNames.map((name, idx) => {
             const color = palette[idx % palette.length];
             const values = trendData.datasets[name] || [];
+            const totals = (trendData.totals && trendData.totals[name]) || values.map(() => 0);
             const missingFlags = (trendData.missing && trendData.missing[name]) || values.map(v => v === null);
             return {
                 label: name,
                 data: values,
                 borderColor: color,
-                backgroundColor: color + '33',
-                tension: 0.4,
+                backgroundColor: color + '22',
+                borderWidth: 2.5,
+                // ✅ 线型区分：每条食堂线叠加不同虚线模式，贴近 100% 时也能分辨
+                borderDash: CAN_DASH_PATTERNS[idx % CAN_DASH_PATTERNS.length],
+                tension: 0.3,
                 fill: false,
                 spanGaps: true,
                 segment: {
@@ -1254,171 +1450,174 @@ function updateCharts(startDate, endDate, selectedCanteen = 'all') {
                         return undefined;
                     }
                 },
-                pointRadius: missingFlags.map(m => (m ? 0 : 4)),
-                pointHoverRadius: missingFlags.map(m => 6),
-                pointHitRadius: missingFlags.map(m => (m ? 10 : 6)),
-                _missing: missingFlags
+                // ✅ 点更小、更清爽；无检测点不绘制。合格率视图下样本量<n的桶点略小，提示读者谨慎采信
+                pointRadius: values.map((v, i) => {
+                    if (v === null) return 0;
+                    if (trendMetric === 'volume') return 2.5;
+                    const n = totals[i] || 0;
+                    return (n > 0 && n < 5) ? 2 : 3;
+                }),
+                pointHoverRadius: values.map(v => (v === null ? 0 : 5)),
+                pointHitRadius: values.map(v => (v === null ? 8 : 6)),
+                _missing: missingFlags,
+                _totals: totals,
+                _metric: trendMetric
             };
         });
+
+        // ✅ 自定义 HTML 图例（带圆点的各食堂），放在标题栏切换按钮左侧，随数据集同步
+        const legendContainer = document.getElementById('trendChartLegend');
+        if (legendContainer) {
+            legendContainer.innerHTML = canteenNames.map((name, idx) => {
+                const color = palette[idx % palette.length];
+                return `<span class="inline-flex items-center gap-1"><span class="inline-block w-2.5 h-2.5 rounded-full" style="background:${color}"></span>${name}</span>`;
+            }).join('');
+        }
+
+        // ✅ 根据指标切换 y 轴（合格率 0~110；检测量 从 0 自适应）
+        const yScale = trendChart.options.scales.y;
+        if (trendMetric === 'rate') {
+            yScale.beginAtZero = true;
+            yScale.min = 0;
+            yScale.max = 110;
+            yScale.ticks.callback = function(value) { return (value <= 100) ? value : null; };
+        } else {
+            yScale.beginAtZero = true;
+            yScale.min = 0;
+            yScale.max = undefined;
+            yScale.ticks.callback = function(value) { return value; };
+        }
 
         trendChart.update();
     }
 
+    // ✅ 在趋势图下方标注当前聚合粒度，让"平滑"被理解为区间聚合而非原始日数据
+    const captionEl = document.getElementById('trend_chart_caption');
+    if (captionEl) {
+        const g = trendData.granularity;
+        const gText = g === 'daily' ? '按日聚合，每点 = 当日合格率'
+            : (g === 'weekly' ? '按周聚合，每点 = 当周合格率' : '按月聚合，每点 = 当月合格率');
+        captionEl.textContent = `${gText}（悬停查看样本量与具体数值）`;
+    }
+
+    // 在"各食堂合格率对比"图上方标注当前时间范围（复用总卡片的 date_range_text）
+    const canteenCaptionEl = document.getElementById('canteen_chart_caption');
+    if (canteenCaptionEl) {
+        const rangeText = document.getElementById('date_range_text')?.textContent || '';
+        canteenCaptionEl.textContent = rangeText ? `${rangeText} · 按当前范围汇总` : '按当前范围汇总';
+    }
+
     const canteenResult = calculateCanteenPassRate(startDate, endDate, selectedCanteen);
     if(canteenChart) {
-        canteenChart.data.labels = canteenResult.labels;
-        canteenChart.data.datasets[0].data = canteenResult.data;
-        canteenChart.data.datasets[0].backgroundColor = canteenResult.labels.map((_, i) => CAN_COLOR_PALETTE[i % CAN_COLOR_PALETTE.length]);
-        canteenChart.data.datasets[0].borderColor = canteenChart.data.datasets[0].backgroundColor;
+        // 按合格率降序排序，便于直观排名
+        const paired = canteenResult.labels.map((name, i) => ({ name, rate: canteenResult.data[i] }));
+        paired.sort((a, b) => b.rate - a.rate);
+        const sortedLabels = paired.map(p => p.name);
+        const sortedData = paired.map(p => p.rate);
+
+        canteenChart.data.labels = sortedLabels;
+        canteenChart.data.datasets[0].data = sortedData;
+        // 选中具体食堂时仍展示全部食堂，仅高亮所选；否则用调色板原色
+        const selected = canteenResult.selected;
+        canteenChart.data.datasets[0].backgroundColor = sortedLabels.map((name, i) => {
+            const base = CAN_COLOR_PALETTE[i % CAN_COLOR_PALETTE.length];
+            return (selected !== 'all' && name === selected) ? base : base + '40';
+        });
+        canteenChart.data.datasets[0].borderColor = sortedLabels.map((name, i) => {
+            const base = CAN_COLOR_PALETTE[i % CAN_COLOR_PALETTE.length];
+            return (selected !== 'all' && name === selected) ? base : base + '99';
+        });
+        canteenChart.data.datasets[0].borderWidth = sortedLabels.map((name) =>
+            (selected !== 'all' && name === selected) ? 3 : 1
+        );
         canteenChart.update();
     }
 }
 
 
-// ✅ 修改：计算食堂趋势（增加食堂筛选）
-function calculateCanteenTrends(startDate, endDate, selectedCanteen = 'all') {
-  const rawDates = [];
-  const rawLabels = [];
-  
-  const canteenData = {
-      '一食堂': {},
-      '二食堂': {},
-      '三食堂': {}
-  };
+// ✅ 重写：计算食堂趋势（自适应粒度 + 统一合格率口径 + 空桶留空不填 100）
+// metric: 'rate' = 合格率(%)，'volume' = 检测量(次数)
+function calculateCanteenTrends(startDate, endDate, selectedCanteen = 'all', metric = 'rate') {
+    const types = ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'];
 
-  const types = ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'];
-  
-  types.forEach(type => {
-      const records = services[type].getAll();
-      records.forEach(record => {
-          const recordDate = record.testDate || (record.timestamp ? record.timestamp.split('T')[0] : null);
-          if (!recordDate) return;
-          
-          const testDate = new Date(recordDate);
-          if (testDate < startDate || testDate > endDate) return;
-          
-          // ✅ 食堂筛选
-          const canteen = getRecordCanteen(record) || '未知食堂';
-          if (selectedCanteen !== 'all' && canteen !== selectedCanteen) return;
-          
-          if (!canteenData[canteen]) canteenData[canteen] = {};
-          if (!canteenData[canteen][recordDate]) {
-              canteenData[canteen][recordDate] = { passed: 0, total: 0 };
-          }
-          
-          if (type === 'tableware' && record.atpPoints) {
-              record.atpPoints.forEach(point => {
-                  canteenData[canteen][recordDate].total++;
-                  const result = (point.result || point.res || '').toString().trim();
-                  // 业务口径（2026-07-02业务方裁定）：仅"合格"计为合格，"警戒""不合格"等其余结果均计为不合格
-                  // 当前表达式已满足该口径：警戒类结果不含"合格"子串，自动归入不合格分支，请勿改为宽松匹配
-                  // ⚠️ 注意："不合格"也包含"合格"子串，必须先排除"不合格"
-                  if (result.includes('合格') && !result.includes('不合格')) {
-                      canteenData[canteen][recordDate].passed++;
-                  }
-              });
-          } else if (type === 'pathogen') {
-              canteenData[canteen][recordDate].total++;
-              if (!record.positiveItems || record.positiveItems === '无') {
-                  canteenData[canteen][recordDate].passed++;
-              }
-          } else {
-              canteenData[canteen][recordDate].total++;
-              const result = (record.result || '').toString().trim();
-              const colorLevel = (record.colorLevel || '').toString().trim();
-              // 业务口径（2026-07-02业务方裁定）：仅"合格"计为合格，"警戒""不合格"等其余结果均计为不合格
-              // 当前表达式已满足该口径：警戒类结果不含"合格"子串，自动归入不合格分支，请勿改为宽松匹配
-              // ⚠️ 注意："不合格"也包含"合格"子串，必须先排除"不合格"
-              if ((result.includes('合格') && !result.includes('不合格')) || colorLevel === '合格') {
-                  canteenData[canteen][recordDate].passed++;
-              }
-          }
-      });
-  });
+    // 1) 按时间范围选择聚合粒度，减少点数、降低线密度
+    const spanDays = Math.round((endDate - startDate) / 86400000) + 1;
+    const granularity = spanDays <= 31 ? 'daily' : (spanDays <= 150 ? 'weekly' : 'monthly');
 
-  let currentDate = new Date(startDate);
-  while (currentDate <= endDate) {
-      const dayOfWeek = currentDate.getDay();
-      if (dayOfWeek > 0 && dayOfWeek < 6) {
-          const dateStr = currentDate.toISOString().split('T')[0];
-          const day = currentDate.getDate();
-          const month = currentDate.getMonth() + 1;
-          rawDates.push(dateStr);
-          rawLabels.push(`${month}-${day}`);
-      }
-      currentDate.setDate(currentDate.getDate() + 1);
-  }
+    function bucketOf(dateStr) {
+        const d = new Date(dateStr);
+        if (Number.isNaN(d.getTime())) return null;
+        const y = d.getFullYear();
+        if (granularity === 'daily') {
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return { key: `${y}-${m}-${day}`, label: `${d.getMonth() + 1}-${d.getDate()}` };
+        }
+        if (granularity === 'weekly') {
+            const oneJan = new Date(y, 0, 1);
+            const week = Math.ceil((((d - oneJan) / 86400000) + oneJan.getDay() + 1) / 7);
+            return { key: `${y}-W${String(week).padStart(2, '0')}`, label: `${y}第${week}周` };
+        }
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        return { key: `${y}-${m}`, label: `${y}-${d.getMonth() + 1}` };
+    }
 
-  const rawDatasets = {};
-  const canteens = Object.keys(canteenData);
-  canteens.forEach(canteen => {
-      rawDatasets[canteen] = rawDates.map(dateStr => {
-          const daily = canteenData[canteen][dateStr];
-          if (daily && daily.total > 0) {
-              return Math.round((daily.passed / daily.total) * 100);
-          }
-          return null;
-      });
-  });
+    const canteenData = {};   // canteen -> periodKey -> { passed, total }
+    const periodMeta = {};    // periodKey -> label
 
-  const rawMissing = {};
-  canteens.forEach(canteen => {
-      rawMissing[canteen] = rawDates.map(dateStr => {
-          const daily = canteenData[canteen][dateStr];
-          return !(daily && daily.total > 0);
-      });
-  });
+    types.forEach(type => {
+        const records = services[type].getAll();
+        records.forEach(record => {
+            const recordDate = record.testDate || (record.timestamp ? record.timestamp.split('T')[0] : null);
+            if (!recordDate) return;
 
-  const finalLabels = [];
-  const finalDatasets = {};
-  const finalMissing = {};
-  canteens.forEach(c => {
-      finalDatasets[c] = [];
-      finalMissing[c] = [];
-  });
+            const testDate = new Date(recordDate);
+            if (testDate < startDate || testDate > endDate) return;
 
-  const hasDataFlags = rawDates.map((_, index) => {
-      return canteens.some(c => rawDatasets[c][index] !== null);
-  });
+            const canteen = getRecordCanteen(record) || '未知食堂';
+            if (selectedCanteen !== 'all' && canteen !== selectedCanteen) return;
 
-  const dataPointCount = hasDataFlags.filter(Boolean).length;
-  const enableCompression = dataPointCount >= 3;
+            const bucket = bucketOf(recordDate);
+            if (!bucket) return;
+            periodMeta[bucket.key] = bucket.label;
 
-  let emptyCounter = 0;
-  const MAX_CONSECUTIVE_EMPTY = 1; 
+            if (!canteenData[canteen]) canteenData[canteen] = {};
+            if (!canteenData[canteen][bucket.key]) canteenData[canteen][bucket.key] = { passed: 0, total: 0 };
 
-  for (let i = 0; i < rawDates.length; i++) {
-      const hasData = hasDataFlags[i];
+            canteenData[canteen][bucket.key].total++;
+            if (isQualified(type, record)) {
+                canteenData[canteen][bucket.key].passed++;
+            }
+        });
+    });
 
-      if (hasData) {
-          finalLabels.push(rawLabels[i]);
-          canteens.forEach(c => {
-              finalDatasets[c].push(rawDatasets[c][i]);
-              finalMissing[c].push(rawMissing[c][i]);
-          });
-          emptyCounter = 0;
-      } else {
-          if (!enableCompression) {
-              finalLabels.push(rawLabels[i]);
-              canteens.forEach(c => {
-                  finalDatasets[c].push(100);
-                  finalMissing[c].push(true);
-              });
-          } else {
-              if (emptyCounter < MAX_CONSECUTIVE_EMPTY) {
-                  finalLabels.push(rawLabels[i]);
-                  canteens.forEach(c => {
-                      finalDatasets[c].push(100);
-                      finalMissing[c].push(true);
-                  });
-                  emptyCounter++;
-              } else {
-                  continue;
-              }
-          }
-      }
-  }
-  return { labels: finalLabels, datasets: finalDatasets, missing: finalMissing };
+    const canteens = Object.keys(canteenData).length ? Object.keys(canteenData) : DEFAULT_CANTEENS;
+
+    // 2) 仅保留"至少一家食堂有检测"的时间桶，避免空轴与 100% 平板假象
+    const periodKeys = Array.from(new Set(
+        canteens.flatMap(c => Object.keys(canteenData[c] || {}))
+    )).sort();
+
+    const finalLabels = periodKeys.map(k => periodMeta[k]);
+    const finalDatasets = {};
+    const finalMissing = {};
+    const finalTotals = {};   // ✅ 每个桶的检测次数（样本量），供 tooltip 展示、避免"n=1 的 100%"被误读为稳健
+    canteens.forEach(c => {
+        finalDatasets[c] = periodKeys.map(k => {
+            const b = canteenData[c] && canteenData[c][k];
+            if (!b || b.total === 0) return null;
+            return metric === 'rate'
+                ? Math.round((b.passed / b.total) * 100)
+                : b.total;
+        });
+        finalMissing[c] = periodKeys.map(k => !(canteenData[c] && canteenData[c][k] && canteenData[c][k].total > 0));
+        finalTotals[c] = periodKeys.map(k => {
+            const b = canteenData[c] && canteenData[c][k];
+            return (b && b.total > 0) ? b.total : 0;
+        });
+    });
+
+    return { labels: finalLabels, datasets: finalDatasets, missing: finalMissing, totals: finalTotals, metric, granularity };
 }
 
 
@@ -1439,8 +1638,7 @@ function calculateCanteenPassRate(startDate, endDate, selectedCanteen = 'all') {
             
             // ✅ 食堂筛选
             const canteen = getRecordCanteen(r);
-            if (selectedCanteen !== 'all' && canteen !== selectedCanteen) return;
-
+            // 对比图始终纳入全部食堂（不受 selectedCanteen 过滤），仅用于高亮所选
             if (canteen) canteenSet.add(canteen);
         });
     });
@@ -1462,40 +1660,13 @@ function calculateCanteenPassRate(startDate, endDate, selectedCanteen = 'all') {
                 if (d < startDate || d > endDate) return;
             }
             
-            // ✅ 食堂筛选
             const canteen = getRecordCanteen(record);
-            if (selectedCanteen !== 'all' && canteen !== selectedCanteen) return;
-
             if (!canteen || !stats[canteen]) return;
 
-            if (type === 'tableware') {
-                if (record.atpPoints && Array.isArray(record.atpPoints)) {
-                    record.atpPoints.forEach(point => {
-                        stats[canteen].total++;
-                        const result = (point.result || point.res || '').toString().trim();
-                        // 业务口径（2026-07-02业务方裁定）：仅"合格"计为合格，"警戒""不合格"等其余结果均计为不合格
-                        // 当前表达式已满足该口径：警戒类结果不含"合格"子串，自动归入不合格分支，请勿改为宽松匹配
-                        // ⚠️ 注意："不合格"也包含"合格"子串，必须先排除"不合格"
-                        if (result.includes('合格') && !result.includes('不合格')) {
-                            stats[canteen].passed++;
-                        }
-                    });
-                }
-            } else if (type === 'pathogen') {
-                stats[canteen].total++;
-                if (!record.positiveItems || record.positiveItems === '无') {
-                    stats[canteen].passed++;
-                }
-            } else {
-                stats[canteen].total++;
-                const result = (record.result || '').toString().trim();
-                const colorLevel = (record.colorLevel || '').toString().trim();
-                // 业务口径（2026-07-02业务方裁定）：仅"合格"计为合格，"警戒""不合格"等其余结果均计为不合格
-                // 当前表达式已满足该口径：警戒类结果不含"合格"子串，自动归入不合格分支，请勿改为宽松匹配
-                // ⚠️ 注意："不合格"也包含"合格"子串，必须先排除"不合格"
-                if ((result.includes('合格') && !result.includes('不合格')) || colorLevel === '合格') {
-                    stats[canteen].passed++;
-                }
+            // ✅ 统一口径（isQualified）：与卡片/趋势图完全一致，避免合格率算法分叉
+            stats[canteen].total++;
+            if (isQualified(type, record)) {
+                stats[canteen].passed++;
             }
         });
     });
@@ -1508,7 +1679,7 @@ function calculateCanteenPassRate(startDate, endDate, selectedCanteen = 'all') {
         data.push(rate);
     });
 
-    return { labels, data };
+    return { labels, data, selected: selectedCanteen };
 }
 
 // P1-20: 移除 window.initDashboard 全局暴露，main.js 已通过 import 使用

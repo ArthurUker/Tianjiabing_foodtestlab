@@ -158,6 +158,8 @@ export class UserManager {
             })
 
             if (!user) {
+                // DS-15: 用户不存在时也执行一次假哈希比较，拉平与"密码错误"路径的响应时间，防用户名枚举
+                await bcryptjs.compare(password, '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy')
                 // P2-03: 用户不存在时也记录失败登录（写入 SystemLog，因 AuditLog 需有效 user_id 外键）
                 await this.logFailedLogin(null, username)
                 throw new Error('用户不存在或密码错误')
@@ -649,7 +651,12 @@ export class UserManager {
 
     verifyToken(token) {
         try {
-            const decoded = jwt.verify(token, this.jwtSecret)
+            // DS-01: 显式限定算法白名单，防 'none' 算法/算法混淆绕过
+            const decoded = jwt.verify(token, this.jwtSecret, { algorithms: ['HS256'] })
+            // DS-02: refresh token 不得当 access token 用（类型隔离）
+            if (decoded && decoded.type === 'refresh') {
+                return { valid: false, error: 'refresh token 不可用于访问接口' }
+            }
             return {
                 valid: true,
                 user: decoded

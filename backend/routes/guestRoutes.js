@@ -169,9 +169,17 @@ export function createGuestRoutes(userManager, prisma, jwtSecret) {
     // 原内联在 server.js，现收口到 guestRoutes 保持结构统一。
     router.post('/quick-access', async (req, res) => {
         try {
+            // RK23: 快速访问令牌必须携带 schoolCode，否则 tenantMiddleware 回退 public schema，
+            // 造成跨租户数据泄漏。无法确定学校时拒绝签发。
+            const { schoolCode } = req.body || {}
+            if (!schoolCode || !isValidSchoolCode(schoolCode)) {
+                return res.status(400).json({ error: '❌ 缺少或非法学校代码（schoolCode）' })
+            }
             const payload = {
                 guestId: 0,
                 username: '快速访问用户',
+                role: 'guest',
+                schoolCode,
                 guest_type: 'viewer',
                 has_export_permission: false,
                 is_quick_access: true,

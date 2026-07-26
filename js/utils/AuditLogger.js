@@ -37,15 +37,21 @@ function getCurrentUser() {
  * @param {string} [resourceId]   - 资源 ID（可选）
  * @param {string} [details]      - 操作详情（可选）
  */
-export function logOperation(action, resourceType = null, resourceId = null, details = '') {
+export function logOperation(action, resourceType = null, resourceId = null, details = '', schoolCode = null) {
     try {
         const key = getTodayKey();
         const existing = JSON.parse(localStorage.getItem(key) || '[]');
+
+        // RK44: 审计日志补充 school_code，便于多租户审计检索
+        let userObj = null;
+        try { userObj = JSON.parse(localStorage.getItem('current_user') || 'null'); } catch { /* ignore */ }
+        const sc = schoolCode || (userObj && (userObj.schoolCode || userObj.school_code)) || '未知学校';
 
         existing.push({
             id: Date.now(),
             timestamp: new Date().toISOString(),
             user: getCurrentUser(),
+            school_code: sc,
             action,
             resource_type: resourceType,
             resource_id: resourceId,

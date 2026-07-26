@@ -178,11 +178,18 @@ export class GuestAuthService {
      * 快速访问模式 - 调用后端接口获取真实 JWT（P0-07 修复）
      * @returns {Promise<boolean>}
      */
-    async quickAccessAsViewer() {
+    async quickAccessAsViewer(schoolCode = null) {
         try {
+            // RK23: 后端现要求 body 携带 schoolCode（否则 400），确保租户隔离
+            const resolvedSchool = schoolCode || extractSchoolCode()
+            if (!resolvedSchool) {
+                console.error('❌ 快速访问失败：无法从 URL 解析学校代码（需通过学校专属入口访问）')
+                return false
+            }
             const response = await fetch(`${this.apiBaseUrl}/api/guest/quick-access`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ schoolCode: resolvedSchool })
             })
             if (!response.ok) return false
             const data = await response.json()
