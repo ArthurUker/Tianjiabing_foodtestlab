@@ -455,6 +455,8 @@ ok "数据库 schema 同步完成"
 
 # 透传学校代码给 seed（与 provision-tenants 一致），确保种子学校与租户 schema 对齐
 for v in "${!SCHOOL_NAME_@}"; do export "$v"; done
+# RK41: 若 SCHOOL_CODES 为空，多租户初始化将被跳过。生产部署前请在适配文件中
+# 将 SCHOOL_CODES 设为学校代码列表（空格分隔），如：SCHOOL_CODES="tianjiabing zhuhaiyizhong"
 export SCHOOL_CODES
 
 if [ -f prisma/seed.js ] && { [ "$FIRST_DEPLOY" = "true" ] && [ "$SEED_ON_FIRST_DEPLOY" = "true" ]; }; then

@@ -195,27 +195,6 @@
                 });
                 console.log('✅ 表单隐藏二次确认完成');
             });
-            
-            // 在DOMContentLoaded时再次确保隐藏
-            document.addEventListener('DOMContentLoaded', () => {
-                console.log('📍 DOMContentLoaded - 二次确认隐藏表单');
-                ['tablewareTestForm', 'pesticideTestForm', 'oilTestForm', 'leanMeatTestForm'].forEach(formId => {
-                    const form = document.getElementById(formId);
-                    if (form) {
-                        form.style.display = 'none !important';
-                        form.style.visibility = 'hidden';
-                        form.parentElement?.querySelectorAll('form').forEach(f => {
-                            f.style.display = 'none !important';
-                        });
-                    }
-                });
-                
-                // 隐藏所有提交按钮
-                document.querySelectorAll('button[type="submit"]').forEach(btn => {
-                    btn.style.display = 'none !important';
-                });
-                console.log('✅ 表单隐藏二次确认完成');
-            });
         }
     </script>
 </head>
@@ -305,7 +284,6 @@
                     <i class="fas fa-sign-out-alt mr-3 w-5"></i>退出登录
                 </button>
             </div>
-            </nav>
         </div>
 
         <!-- 右侧内容 -->

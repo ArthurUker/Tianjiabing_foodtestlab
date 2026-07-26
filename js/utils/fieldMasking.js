@@ -98,6 +98,8 @@ export function maskSensitive(value, type) {
 
 /**
  * token 脱敏（DS-16 日志用）：只显示前 6 位 + …，绝不输出完整令牌。
+ * 当前采用"完全不输出 token"策略（更安全），故本函数暂为保留 API；
+ * 若未来需要在开发日志中打印 token 标识（非完整令牌），可用此函数。
  * @param {string} token
  * @returns {string}
  */

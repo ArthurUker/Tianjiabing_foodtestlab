@@ -311,7 +311,7 @@
                     const icon = document.querySelector('.logo-animation i');
                     if (icon) icon.style.color = c;
                     const btn = document.getElementById('loginBtn');
-                    if (btn) btn.style.background = `linear-gradient(90deg, ${c}, ${theme.accentStrong || shadeColor(c, -12)})`;
+                    if (btn) btn.style.background = `linear-gradient(90deg, ${c}, ${theme.accentStrong || window.SchoolThemes.shade(c, -12)})`;
                 }
                 if (cfg.logoUrl) {
                     const iconWrap = document.querySelector('.logo-animation');
@@ -324,14 +324,7 @@
             }
         }
 
-        // 将十六进制颜色按百分比调亮/调暗
-        function shadeColor(hex, percent) {
-            const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-            if (!m) return hex;
-            const adj = i => Math.max(0, Math.min(255, parseInt(i, 16) + Math.round(255 * percent / 100)));
-            const h = n => adj(n).toString(16).padStart(2, '0');
-            return `#${h(m[1])}${h(m[2])}${h(m[3])}`;
-        }
+        // 颜色工具已收敛至 window.SchoolThemes.shade（L2：消除 login.html 本地 shadeColor 副本）
 
         // 若用户已登录（含页面意外重载场景），直接跳转主界面
         if (authService.isAuthenticated()) {

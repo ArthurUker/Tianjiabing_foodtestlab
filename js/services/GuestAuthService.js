@@ -72,7 +72,8 @@ export class GuestAuthService {
 
             return { success: true, token: data.token, guest: data.guest };
         } catch (error) {
-            console.error('访客注册错误:', error);
+            // L4: 仅打错误摘要，不输出可能含 PII 的完整 error 对象
+            console.error('访客注册错误:', error.message);
             return { success: false, error: error.message };
         }
     }
@@ -105,7 +106,8 @@ export class GuestAuthService {
 
             return { success: true, token: data.token, guest: data.guest };
         } catch (error) {
-            console.error('访客登录错误:', error);
+            // L4: 仅打错误摘要
+            console.error('访客登录错误:', error.message);
             return { success: false, error: error.message };
         }
     }
@@ -131,7 +133,8 @@ export class GuestAuthService {
             const data = await response.json();
             return data;
         } catch (error) {
-            console.error('Token 验证错误:', error);
+            // L4: 仅打错误摘要
+            console.error('Token 验证错误:', error.message);
             return { valid: false };
         }
     }
