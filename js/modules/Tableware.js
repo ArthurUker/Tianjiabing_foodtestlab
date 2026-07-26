@@ -6,6 +6,8 @@ import { NetworkHelper } from '../utils/NetworkHelper.js';
 import { GuestAuthService } from '../services/GuestAuthService.js';
 import { auditService } from '../services/AuditService.js';
 import { permissionService } from '../services/PermissionService.js';
+// RK2: 补齐餐具洁净度模块的自定义字段收集（此前仅有 GenericTest 收集，Tableware 遗漏）
+import { collectCustomFieldValues, getSchoolCustomization } from '../utils/schoolCustomization.js';
 
 const storage = new StorageService('tableware');
 let currentPage = 1;
@@ -663,6 +665,14 @@ function handleFormSubmit(e) {
     e.preventDefault();
     const formData = new FormData(e.target);
     const data = Object.fromEntries(formData.entries());
+
+    // RK2: 收集学校自定义字段（层级A），与 GenericTest 提交口径统一
+    try {
+        const customFields = collectCustomFieldValues(e.target, getSchoolCustomization());
+        Object.assign(data, customFields);
+    } catch (e) {
+        console.warn('⚠️ Tableware 自定义字段收集失败，继续提交通用字段:', e.message);
+    }
 
     // 验证基础信息
     const baseValidationSchema = {
