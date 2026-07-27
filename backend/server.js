@@ -35,6 +35,15 @@ const app = express()
 const PORT = process.env.PORT || 3002
 const serveStatic = process.env.SERVE_STATIC === 'true'
 const allowCorsWildcard = process.env.CORS_ORIGIN === '*'
+// DS-FIX: 多租户路径重写白名单 — 排除静态资源目录，避免 /css/xxx、/js/xxx 被误判为 /<schoolCode>/<resource>
+// 学校代码经 schemaNameOf() 归一为 school_<code> 或 school-<code>，以及用户自定义的纯字母数字短横线。
+// 这里列出项目内已知的静态目录名（含 vite 构建产物、测试配置等），防止与 schoolCode 冲突。
+const RESERVED_STATIC_DIRS = new Set([
+    'css', 'js', 'images', 'img', 'assets', 'static', 'media', 'fonts',
+    'dist', 'public', 'uploads', 'locales', 'icons', 'favicon.ico',
+    'node_modules', 'cypress', 'tests', 'docs', 'scripts', 'deploy',
+    'backend', 'coverage', 'logs', '.well-known',
+])
 const JWT_SECRET = process.env.JWT_SECRET
 if (!JWT_SECRET) {
   console.error('[FATAL] JWT_SECRET is not set. Server startup aborted.')
@@ -63,7 +72,7 @@ const prisma = new PrismaClient()
 const userManager = new UserManager(prisma, JWT_SECRET)
 
 // Initialize unified auth middleware
-const { authenticateUser: _authUser, authorizeAdmin: _authAdmin, authorizeRoles, requireGuestReadOnly } = createAuthMiddleware(userManager, prisma)
+const { authenticateUser: _authUser, authorizeAdmin: _authAdmin, authorizeRoles, requireGuestReadOnly, clearGuestVisibleTypesCache } = createAuthMiddleware(userManager, prisma)
 
 function parseAllowedOrigins() {
     if (!process.env.CORS_ORIGIN) {
@@ -445,6 +454,9 @@ app.use(rateLimit(RATE_LIMIT_MAX_REQUESTS, RATE_LIMIT_WINDOW_MS))
 const allowedOrigins = parseAllowedOrigins()
 const allowedHostnames = parseAllowedHostnames()
 
+// TST-3: 反向代理后正确获取客户端真实 IP（rateLimit/审计日志依赖）
+app.set('trust proxy', 1)
+
 app.use(cors({
     origin: (origin, callback) => {
         // Allow requests with no origin (curl, Postman, server-side)
@@ -501,6 +513,23 @@ app.get('/favicon.ico', (_req, res) => {
     res.setHeader('Content-Type', 'image/svg+xml')
     res.setHeader('Cache-Control', 'public, max-age=86400')
     res.send(svg)
+})
+
+// 多租户路径重写：/<schoolCode>/<resource> → /<resource>
+// 本地开发 / 路径式部署下，静态文件统一在根目录，前端 extractSchoolCode() 自动提取路径中的 schoolCode。
+// query 参数 ?school= 作为兜底入口，不受此重写影响。
+app.use((req, _res, next) => {
+    // 仅匹配静态资源路径，跳过 API，也不干涉根路径请求（/favicon.ico 等）
+    if (req.path.startsWith('/api/')) return next()
+    // /<schoolCode>  →  /（主页）
+    const bare = req.path.match(/^\/([a-z0-9-]{1,40})$/)
+    if (bare && !RESERVED_STATIC_DIRS.has(bare[1])) { req.url = '/'; return next() }
+    // /<schoolCode>/<resource>  →  /<resource>
+    const m = req.path.match(/^\/([a-z0-9-]{1,40})\/(?!api\/)(.+)$/)
+    // 排除已知静态资源目录，避免把 /css/xxx、/js/xxx 误判成 /<schoolCode>/<resource>
+    // schoolCode 经 schemaNameOf() 归一为 school_<code> 或以 school- 前缀开头（不会出现 css/js/images 等保留名）
+    if (m && !RESERVED_STATIC_DIRS.has(m[1])) req.url = '/' + m[2]
+    next()
 })
 
 // Optional static hosting for local convenience.
@@ -800,6 +829,9 @@ app.put('/api/admin/schools/:code/customization', authenticateUser, requirePlatf
             console.error('⚠️ customization audit log failed:', auditErr.message)
         }
 
+        // REG-01/NB-18: 清除访客 visible_types 缓存，使新配置立即对访客生效
+        try { clearGuestVisibleTypesCache(code) } catch (e) { console.warn('⚠️ clearGuestVisibleTypesCache failed:', e.message) }
+
         const after = await prisma.$queryRawUnsafe(
             `SELECT "updated_at" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`, code
         )
@@ -838,7 +870,7 @@ app.get('/api/admin/schools/:code/users', authenticateUser, requirePlatformSuper
             })
         }
         console.error('❌ Error listing school users:', error)
-        res.status(500).json({ error: '获取用户列表失败', details: msg })
+        res.status(500).json({ error: '获取用户列表失败' })
     }
 })
 
@@ -1086,8 +1118,8 @@ app.post('/api/test-records', authenticateUser, requireEditorOrAbove, async (req
                 record_code: recordCode,
                 test_type: test_type || 'generic',
                 test_name,
-                sample_info: JSON.stringify(sample_info || {}),
-                result_data: JSON.stringify(result_data || {}),
+                sample_info: JSON.stringify(sanitizeObjectKeys(sample_info || {})),
+                result_data: JSON.stringify(sanitizeObjectKeys(result_data || {})),
                 created_by: req.userId,
                 status: 'pending'
             }
@@ -1657,18 +1689,31 @@ const server = app.listen(PORT, () => {
 // Graceful shutdown
 process.on('SIGTERM', async () => {
     console.log('📌 SIGTERM signal received: closing HTTP server')
+    // TST-6: 10秒超时兜底，避免长连接导致进程挂起被 systemd SIGKILL
+    const forceExit = setTimeout(() => {
+        console.error('⚠️ Graceful shutdown 超时，强制退出')
+        process.exit(1)
+    }, 10000)
+    forceExit.unref()
     server.close(async () => {
         await disconnectAllTenantClients()
         await prisma.$disconnect()
+        clearTimeout(forceExit)
         process.exit(0)
     })
 })
 
 process.on('SIGINT', async () => {
     console.log('📌 SIGINT signal received: closing HTTP server')
+    const forceExit = setTimeout(() => {
+        console.error('⚠️ Graceful shutdown 超时，强制退出')
+        process.exit(1)
+    }, 10000)
+    forceExit.unref()
     server.close(async () => {
         await disconnectAllTenantClients()
         await prisma.$disconnect()
+        clearTimeout(forceExit)
         process.exit(0)
     })
 })

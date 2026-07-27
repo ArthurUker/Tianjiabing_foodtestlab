@@ -209,7 +209,10 @@ export class UserManager {
                     username: user.username,
                     email: user.email,
                     fullName: user.full_name,
-                    role: user.role
+                    role: user.role,
+                    // 返回真实 schoolCode，供前端 Router 判定平台超管（schoolCode 为空时才是超管）。
+                    // 之前缺失此字段，导致租户 admin 也会被误判为超管、错误展示学校管理入口。
+                    schoolCode: user.school_code || this.schoolCode || null
                 }
             }
         } catch (error) {

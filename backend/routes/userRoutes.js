@@ -65,6 +65,32 @@ export function createUserRoutes(userManager) {
         }
     })
 
+    // 平台超管专用登录（与普通用户登录完全分离，无需 schoolCode）
+    // 平台超管账号（role=admin 且 school_code 为空）落在 public schema，
+    // 普通租户用户无法以此入口登录，天然隔离。
+    router.post('/super-admin/login', async (req, res) => {
+        try {
+            const { username, password } = req.body
+
+            if (!username || !password) {
+                return res.status(400).json({ error: '❌ 用户名或密码缺失' })
+            }
+
+            // forTenant(null) 返回使用全局 prisma（public schema）的实例，直接查询平台超管账号
+            const result = await userManager.forTenant(null).loginUser(username, password)
+
+            // 二次校验：必须是平台超管（role=admin 且无 schoolCode）；
+            // 普通租户用户/operator/viewer 即使密码正确也一律拒绝，强制走普通登录入口
+            if (result.user.role !== 'admin' || result.user.schoolCode) {
+                return res.status(403).json({ error: '❌ 该账号不是平台超级管理员，请从普通登录入口登录' })
+            }
+
+            res.json(result)
+        } catch (error) {
+            res.status(401).json({ error: `❌ 登录失败: ${error.message}` })
+        }
+    })
+
     // 验证Token有效性（未认证接口，单独限流防枚举）
     router.post('/verify-token', verifyTokenRateLimit, (req, res) => {
         const authHeader = req.headers.authorization
@@ -236,7 +262,7 @@ export function createUserRoutes(userManager) {
     router.get('/list', authenticateUser, authorizeRoles('admin', 'manager'), async (req, res) => {
         try {
             const { limit = 100, offset = 0 } = req.query
-            const result = await userManager.forTenant(req.user.schoolCode).getUserList(parseInt(limit), parseInt(offset))
+            const result = await userManager.forTenant(req.user.schoolCode).getUserList(Math.min(parseInt(limit) || 100, 500), Math.max(0, parseInt(offset) || 0))
             res.json(result)
         } catch (error) {
             res.status(400).json({ error: `❌ 获取用户列表失败: ${error.message}` })

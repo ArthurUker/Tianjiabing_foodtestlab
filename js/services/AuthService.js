@@ -5,6 +5,8 @@
 
 import { auditService } from './AuditService.js';
 import { maskSensitive } from '../utils/fieldMasking.js';
+// REG-02/NB-05: 导入 permissionService 以便 clearAuth 清除权限缓存
+import { permissionService } from './PermissionService.js';
 
 // DS-17: JWT 形态校验（三段 base64url）。读取处统一校验，
 // 拒绝被篡改/注入的非 JWT 值，降低脏数据与 token 固定风险。
@@ -115,6 +117,53 @@ export class AuthService {
     }
 
     /**
+     * 平台超管登录（独立入口，区别于普通用户登录）
+     * @param {string} username - 平台超管用户名
+     * @param {string} password - 密码
+     * @returns {Promise<{success: boolean, user?: object, message?: string}>}
+     */
+    async loginSuperAdmin(username, password) {
+        try {
+            if (!username || !password) {
+                throw new Error('用户名和密码不能为空');
+            }
+
+            const response = await fetch(`${this.apiBaseUrl}/api/user/super-admin/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || data.message || '登录失败');
+            }
+
+            if (data.success && data.token) {
+                // 切换身份前清除所有访客信息
+                localStorage.removeItem('current_guest');
+                localStorage.removeItem('guest_token');
+                localStorage.removeItem('is_quick_access');
+                sessionStorage.removeItem('current_guest');
+                sessionStorage.removeItem('guest_token');
+
+                this.saveToken(data.token, data.expiresIn);
+                this.saveUser(data.user);
+
+                console.log('✅ 平台超管登录成功:', maskSensitive(data.user.username, 'name'));
+                auditService.log('login', 'auth', null, `平台超管 ${maskSensitive(data.user.username, 'name')} 登录系统`);
+                return { success: true, user: data.user };
+            } else {
+                throw new Error(data.message || '登录失败');
+            }
+        } catch (error) {
+            console.error('❌ 平台超管登录错误:', error.message);
+            return { success: false, message: error.message };
+        }
+    }
+
+    /**
      * 登出
      */
     async logout() {
@@ -160,7 +209,7 @@ export class AuthService {
             }
 
             // TD-Username-Rule-Inconsistent: 与后端 UserManager / validationMiddleware 对齐，提前给出反馈
-            if (!/^[a-zA-Z0-9_]{3,50}$/.test(username)) {
+            if (!/^[a-zA-Z0-9_]{3,32}$/.test(username)) {
                 throw new Error('用户名需为 3-50 位字母、数字或下划线');
             }
 

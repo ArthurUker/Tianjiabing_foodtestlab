@@ -268,7 +268,7 @@ export class Router {
             
             // 清除所有本地存储数据
             console.log('  3️⃣ 清除本地存储...');
-            const clearKeys = ['auth_token', 'current_user', 'token_expiry', 'refresh_token', 'guest_token', 'current_guest', 'is_quick_access', 'cache_tableware', 'cache_pesticide', 'cache_oil', 'cache_lean', 'cache_pathogen'];
+            const clearKeys = ['auth_token', 'current_user', 'token_expiry', 'refresh_token', 'guest_token', 'current_guest', 'is_quick_access', 'cache_tableware', 'cache_pesticide', 'cache_oil', 'cache_leanMeat', 'cache_pathogen'];
             clearKeys.forEach(key => {
                 localStorage.removeItem(key);
                 sessionStorage.removeItem(key);

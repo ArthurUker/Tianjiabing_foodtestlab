@@ -50,7 +50,7 @@ export class GuestDashboard {
                 : (fetched || {});
             if (fetched === undefined) console.warn('⚠️ 访客端学校定制拉取超时（3s），以缓存继续');
             applySchoolCustomizationToTitles(customization);
-            applySchoolBranding(schoolCode);
+            await applySchoolBranding(schoolCode);
         } catch (e) {
             console.error('❌ 访客端学校定制应用失败:', e);
         }

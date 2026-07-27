@@ -453,7 +453,8 @@ export class BackupRestoreService {
         this.targetTables.forEach(table => {
             const cacheKey = `cache_${table}`;
             const pendingKey = `pending_${table}`;
-            const cache = JSON.parse(localStorage.getItem(cacheKey) || '{"data":[]}');
+            let cache;
+            try { cache = JSON.parse(localStorage.getItem(cacheKey) || '{"data":[]}'); } catch { cache = { data: [] }; }
             
             if (cache.data && cache.data.length > 0) {
                 const uniqueRecords = this._dedupeRecordsByFingerprint(cache.data);
@@ -1038,7 +1039,8 @@ export class BackupRestoreService {
             summary.failed += result.failed || 0;
 
             const cacheKey = `cache_${tableName}`;
-            const cacheData = JSON.parse(localStorage.getItem(cacheKey) || '{"data":[]}');
+            let cacheData;
+            try { cacheData = JSON.parse(localStorage.getItem(cacheKey) || '{"data":[]}'); } catch { cacheData = { data: [] }; }
             const syncedData = (cacheData.data || []).map(item => ({ ...item, _status: 'synced' }));
             localStorage.setItem(cacheKey, JSON.stringify({ ...cacheData, data: syncedData, timestamp: Date.now() }));
             localStorage.setItem(`pending_${tableName}`, JSON.stringify([]));

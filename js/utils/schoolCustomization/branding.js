@@ -49,6 +49,14 @@ export function applySchoolCustomizationToTitles(customization) {
 /**
  * 把学校外观信息应用到主页顶部：系统标题、Logo、document.title、主题色。
  * 由 main.js 在初始化时调用，实现"品牌中立化 —— 按校动态显示"。
+ *
+ * 校徽呈现设计（DS-BRAND-01）：
+ * - 48×48 圆形/圆角徽章容器：白底 + ring + 阴影，与顶部彩色导航条形成对比
+ * - 加载成功：图片以 object-contain 完整展示，保持原比例
+ * - 加载失败：onerror 优雅降级为「校名首字 + 渐变色块」首字徽章
+ * - 无 logoUrl：直接渲染首字徽章（不显示缺失图标）
+ * - 首字徽章颜色按校名 hash 从 5 种渐变里挑一种，避免全校同一个颜色
+ * - 整个容器是 layout-shrink-safe：长学校名截断时徽章不被压扁
  * @param {string} schoolCode
  */
 export async function applySchoolBranding(schoolCode) {
@@ -63,17 +71,82 @@ export async function applySchoolBranding(schoolCode) {
         document.title = `${info.name} - 食品安全检验管理系统`
     }
 
-    // 2. 校徽 Logo（替换默认 FontAwesome 图标）
+    // 2. 校徽 Logo
     // RK9: 不用 innerHTML 拼接服务端数据；URL 白名单校验（禁止 javascript:/data:image/svg+xml 等）
+    const logoWrap = document.getElementById('systemLogo')
+    if (!logoWrap) return
+
+    // 重置容器为统一徽章样式（替换默认 FontAwesome 图标的扁平外观）
+    logoWrap.className = [
+        'flex', 'items-center', 'justify-center',
+        'w-12', 'h-12', 'shrink-0',
+        'rounded-2xl',
+        'bg-white/95', 'backdrop-blur',
+        'ring-1', 'ring-white/40',
+        'shadow-md', 'shadow-black/10',
+        'overflow-hidden',
+        'transition-all', 'duration-200',
+    ].join(' ')
+    logoWrap.textContent = ''
+
     if (info.logoUrl && isSafeLogoUrl(info.logoUrl)) {
-        const logoWrap = document.getElementById('systemLogo')
-        if (logoWrap) {
-            const img = document.createElement('img')
-            img.src = info.logoUrl
-            img.alt = info.name || '校徽'
-            img.className = 'w-8 h-8 object-contain'
-            logoWrap.textContent = ''
-            logoWrap.appendChild(img)
-        }
+        const img = document.createElement('img')
+        img.src = info.logoUrl
+        img.alt = info.name || '校徽'
+        img.title = info.name || '校徽'
+        img.loading = 'lazy'
+        img.decoding = 'async'
+        // p-1 给图片留内边距，避免小尺寸校徽贴边（透明背景 PNG 视觉上更透气）
+        img.className = 'w-full h-full p-1 object-contain transition-opacity duration-200 opacity-0'
+        // 图片加载完成后淡入（避免白底闪烁）
+        img.addEventListener('load', () => { img.classList.remove('opacity-0') }, { once: true })
+        // 加载失败 → 降级为首字徽章
+        img.addEventListener('error', () => renderSchoolInitialBadge(logoWrap, info.name), { once: true })
+        logoWrap.appendChild(img)
+        // 兜底：若 3 秒后仍未触发 load/error（极少见但 CDN 卡死时可能），主动降级
+        setTimeout(() => {
+            if (!img.complete || img.naturalWidth === 0) {
+                renderSchoolInitialBadge(logoWrap, info.name)
+            }
+        }, 3000)
+    } else {
+        // 无 logoUrl：直接显示首字徽章
+        renderSchoolInitialBadge(logoWrap, info.name)
     }
+}
+
+// DS-BRAND-01: 首字徽章 fallback。颜色按校名首字 hash 从 5 种渐变里挑一种。
+function renderSchoolInitialBadge(wrap, schoolName) {
+    // 取第一个可见字符（兼容中英文混合校名）
+    const trimmed = (schoolName || '').trim()
+    const initial = trimmed ? Array.from(trimmed)[0] : '校'
+    // 用 charCodeAt 不适用中文；改用字符串 hashCode
+    let hash = 0
+    for (let i = 0; i < trimmed.length; i++) {
+        hash = (hash * 31 + trimmed.charCodeAt(i)) | 0
+    }
+    const palette = [
+        'from-blue-500 to-indigo-600',
+        'from-emerald-500 to-teal-600',
+        'from-orange-500 to-rose-600',
+        'from-purple-500 to-fuchsia-600',
+        'from-amber-500 to-orange-600',
+        'from-sky-500 to-cyan-600',
+        'from-rose-500 to-pink-600',
+    ]
+    const idx = Math.abs(hash) % palette.length
+    wrap.textContent = ''
+    const badge = document.createElement('div')
+    badge.className = [
+        'w-full', 'h-full',
+        'flex', 'items-center', 'justify-center',
+        'bg-gradient-to-br', palette[idx],
+        'text-white', 'font-bold',
+        // 中文用 text-xl、英文用 text-2xl，通过 :lang 难做，统一 text-xl 视觉平衡
+        'text-xl',
+        'select-none',
+    ].join(' ')
+    badge.textContent = initial
+    badge.title = schoolName || '校徽'
+    wrap.appendChild(badge)
 }

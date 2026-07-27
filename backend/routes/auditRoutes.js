@@ -99,8 +99,8 @@ export function createAuditRoutes(userManager, prisma) {
 
             const logs = await req.db.auditLog.findMany({
                 where,
-                skip: parseInt(offset),
-                take: parseInt(limit),
+                skip: Math.max(0, parseInt(offset) || 0),
+                take: Math.min(parseInt(limit) || 100, 500),
                 include: {
                     user: {
                         select: {
@@ -119,8 +119,8 @@ export function createAuditRoutes(userManager, prisma) {
                 success: true,
                 data: logs,
                 total,
-                limit: parseInt(limit),
-                offset: parseInt(offset)
+                limit: Math.min(parseInt(limit) || 100, 500),
+                offset: Math.max(0, parseInt(offset) || 0)
             })
         } catch (error) {
             console.error('❌ Error fetching audit logs:', error)

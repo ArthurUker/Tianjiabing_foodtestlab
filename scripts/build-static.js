@@ -13,7 +13,8 @@ const dist = path.join(root, 'dist');
 const filesToCopy = [
   'index.html',
   'login.html',
-  'admin-schools.html'
+  'admin-schools.html',
+  'super-admin-login.html'
 ];
 
 const dirsToCopy = [
