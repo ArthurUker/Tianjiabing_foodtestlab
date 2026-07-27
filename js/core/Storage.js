@@ -403,7 +403,7 @@ export class StorageService {
         this._replaceTempIdInCache(tempId, savedRecord);
         this._indexServerFingerprint(savedRecord);
         this._emit('sync', { type: 'create', record: savedRecord });
-        auditService.log('create', this.tableName, null, `新增记录 #${savedRecord.id || '?'}`);
+        auditService.log('create', this.tableName, null, `新增记录 #${savedRecord.id || '?'}`).catch(() => {});
     }
 
     async _handleUpdate(req) {
@@ -432,7 +432,7 @@ export class StorageService {
             this._updateCacheStatus(recordId, 'synced');
         }
 
-        auditService.log('update', this.tableName, null, `修改记录 #${recordId}`);
+        auditService.log('update', this.tableName, null, `修改记录 #${recordId}`).catch(() => {});
     }
 
     async _handleDelete(req) {
@@ -444,7 +444,7 @@ export class StorageService {
 
         if (responseJson && responseJson.skipped) return;
         this._removeFingerprintByRecordId(recordId);
-        auditService.log('delete', this.tableName, null, `删除记录 #${recordId}`);
+        auditService.log('delete', this.tableName, null, `删除记录 #${recordId}`).catch(() => {});
     }
 
     // TD-409-Retry: 拉取服务端记录的最新 version，供版本冲突重试前更新 payload

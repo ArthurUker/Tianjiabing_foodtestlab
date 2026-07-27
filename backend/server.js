@@ -1191,7 +1191,7 @@ app.get('/api/test-records', authenticateUser, requireGuestReadOnly, async (req,
 
         res.json({
             success: true,
-            data: records,
+            data: records.map(buildRecordPayload),
             total,
             limit: safeLimit,
             offset: safeOffset

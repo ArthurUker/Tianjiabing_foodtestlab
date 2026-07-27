@@ -729,7 +729,7 @@ export class ExportService {
                     return baseQualified && isRecordQualifiedByCustomFields(type, r);
                 }).length;
                 
-                const passRate = total > 0 ? ((passCount / total) * 100).toFixed(0) + '%' : '100%';
+                const passRate = total > 0 ? ((passCount / total) * 100).toFixed(0) + '%' : '—';
                 
                 displayText = `检测 <strong>${total}</strong> 次，合格率 <strong class="${passRate === '100%' ? 'text-green-600' : 'text-orange-600'}">${passRate}</strong>`;
             }

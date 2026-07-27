@@ -4,8 +4,8 @@
  * 看板卡片与各模块小标题覆盖（section_titles）。
  */
 
-import { ensureSchoolInfo } from './cache.js'
-import { parseTopOrThemeObject } from './shared.js'
+import { ensureSchoolInfo, ensureSchoolConfig } from './cache.js'
+import { parseTopOrThemeObject, parseJSONField } from './shared.js'
 
 // RK9/DS-12: Logo URL 白名单——仅 http(s) 与位图 data URI（明确排除 SVG，可携带脚本）
 function isSafeLogoUrl(url) {
@@ -76,10 +76,35 @@ export async function applySchoolBranding(schoolCode) {
     const logoWrap = document.getElementById('systemLogo')
     if (!logoWrap) return
 
+    // 读取排版参数（theme_config.logo_style）。存在则按「背景水印层」或「裁切后徽章」渲染。
+    let logoStyle = null
+    try {
+        const cfg = await ensureSchoolConfig(schoolCode)
+        const tc = parseJSONField(cfg && cfg.theme_config) || {}
+        logoStyle = isValidLogoStyle(tc.logo_style)
+    } catch (_) { /* 配置缺失不影响降级渲染 */ }
+
+    // —— 背景水印模式：把校徽作为顶部导航底层（像背景），可定位/缩放/调透明度 ——
+    removeBrandBgLayer(logoWrap)
+    if (logoStyle && logoStyle.display === 'background' && logoStyle.croppedUrl && isSafeLogoUrl(logoStyle.croppedUrl)) {
+        if (applyBackgroundBadge(logoWrap, logoStyle)) {
+            logoWrap.style.display = 'none'   // 背景模式下隐藏左侧小徽章，避免重复
+            return
+        }
+        // 应用失败（无 nav 容器等）则回落到普通徽章逻辑
+    }
+    logoWrap.style.display = ''
+
+    // 3. 普通徽章（默认 / 排版未设置时）：优先用裁切后图，否则原图
+    const src = (logoStyle && logoStyle.croppedUrl && isSafeLogoUrl(logoStyle.croppedUrl))
+        ? logoStyle.croppedUrl
+        : info.logoUrl
+    const badgeSize = logoStyle ? logoStyle.badgeSize : 48
+
     // 重置容器为统一徽章样式（替换默认 FontAwesome 图标的扁平外观）
     logoWrap.className = [
         'flex', 'items-center', 'justify-center',
-        'w-12', 'h-12', 'shrink-0',
+        'shrink-0',
         'rounded-2xl',
         'bg-white/95', 'backdrop-blur',
         'ring-1', 'ring-white/40',
@@ -87,11 +112,14 @@ export async function applySchoolBranding(schoolCode) {
         'overflow-hidden',
         'transition-all', 'duration-200',
     ].join(' ')
+    // 尺寸按排版（默认 48×48 = w-12 h-12）
+    logoWrap.style.width = badgeSize + 'px'
+    logoWrap.style.height = badgeSize + 'px'
     logoWrap.textContent = ''
 
-    if (info.logoUrl && isSafeLogoUrl(info.logoUrl)) {
+    if (src && isSafeLogoUrl(src)) {
         const img = document.createElement('img')
-        img.src = info.logoUrl
+        img.src = src
         img.alt = info.name || '校徽'
         img.title = info.name || '校徽'
         img.loading = 'lazy'
@@ -113,6 +141,64 @@ export async function applySchoolBranding(schoolCode) {
         // 无 logoUrl：直接显示首字徽章
         renderSchoolInitialBadge(logoWrap, info.name)
     }
+}
+
+// 校验并规整 logo_style（防御性：服务端数据异常也不应破坏页面）
+function isValidLogoStyle(s) {
+    if (!s || typeof s !== 'object') return null
+    const display = s.display === 'background' ? 'background' : 'badge'
+    const crop = (s.crop && typeof s.crop === 'object')
+        ? {
+            x: clampNum(s.crop.x, 0, 100, 0), y: clampNum(s.crop.y, 0, 100, 0),
+            w: clampNum(s.crop.w, 1, 100, 100), h: clampNum(s.crop.h, 1, 100, 100),
+        }
+        : null
+    return {
+        display,
+        croppedUrl: typeof s.croppedUrl === 'string' ? s.croppedUrl : null,
+        crop,
+        posX: clampNum(s.posX, 0, 100, 50),
+        posY: clampNum(s.posY, 0, 100, 50),
+        scale: clampNum(s.scale, 0.1, 5, 1.6),
+        opacity: clampNum(s.opacity, 0, 1, 0.16),
+        aspectLock: !!s.aspectLock,
+        badgeSize: Math.round(clampNum(s.badgeSize, 24, 120, 48)),
+    }
+}
+
+function clampNum(v, min, max, d) {
+    const n = typeof v === 'number' && isFinite(v) ? v : d
+    return Math.max(min, Math.min(max, n))
+}
+
+// 移除上一次注入的背景水印层（重复应用 / 切回徽章时清理）
+function removeBrandBgLayer(logoWrap) {
+    const nav = logoWrap.closest('nav')
+    if (!nav) return
+    const old = nav.querySelector('.brand-bg-layer')
+    if (old) old.remove()
+}
+
+// 把校徽作为导航底层水印层注入。成功返回 true。
+function applyBackgroundBadge(logoWrap, style) {
+    const nav = logoWrap.closest('nav')
+    if (!nav) return false
+    nav.style.position = 'relative'
+    const layer = document.createElement('div')
+    layer.className = 'brand-bg-layer'
+    layer.style.cssText = [
+        'position:absolute', 'inset:0', 'z-index:0', 'pointer-events:none',
+        'background-repeat:no-repeat',
+        `background-image:url("${style.croppedUrl}")`,
+        `background-size:auto ${style.scale * 100}%`,
+        `background-position:${style.posX}% ${style.posY}%`,
+        `opacity:${style.opacity}`,
+    ].join(';') + ';'
+    nav.appendChild(layer)
+    // 内容容器置顶，确保标题/按钮在徽章水印之上
+    const container = nav.querySelector(':scope > div')
+    if (container) { container.style.position = 'relative'; container.style.zIndex = '1' }
+    return true
 }
 
 // DS-BRAND-01: 首字徽章 fallback。颜色按校名首字 hash 从 5 种渐变里挑一种。

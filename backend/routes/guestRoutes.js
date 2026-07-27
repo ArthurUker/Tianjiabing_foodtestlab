@@ -148,7 +148,7 @@ export function createGuestRoutes(userManager, prisma, jwtSecret) {
                     return res.status(200).json({ success: true, token, guest: serializeGuest(existing), idempotent: true })
                 }
             }
-            return res.status(400).json({ error: `❌ 注册失败: ${error.message}` })
+            return res.status(400).json({ error: `注册失败` })
         }
     })
 
@@ -180,7 +180,7 @@ export function createGuestRoutes(userManager, prisma, jwtSecret) {
             const token = makeGuestToken(guest, schoolCode, jwtSecret)
             return res.json({ success: true, token, guest: serializeGuest(guest) })
         } catch (error) {
-            return res.status(400).json({ error: `❌ 登录失败: ${error.message}` })
+            return res.status(400).json({ error: `登录失败` })
         }
     })
 
@@ -349,7 +349,7 @@ export function createGuestExportRequestRoutes(userManager, prisma, jwtSecret) {
 
             return res.status(201).json({ success: true, request: created })
         } catch (error) {
-            return res.status(400).json({ error: `❌ 提交失败: ${error.message}` })
+            return res.status(400).json({ error: `提交失败` })
         }
     })
 
@@ -363,7 +363,7 @@ export function createGuestExportRequestRoutes(userManager, prisma, jwtSecret) {
             })
             return res.json({ success: true, requests: list })
         } catch (error) {
-            return res.status(400).json({ error: `❌ 查询失败: ${error.message}` })
+            return res.status(400).json({ error: `查询失败` })
         }
     })
 
@@ -377,7 +377,7 @@ export function createGuestExportRequestRoutes(userManager, prisma, jwtSecret) {
                 valid_until: guest?.valid_until || null
             })
         } catch (error) {
-            return res.status(400).json({ error: `❌ 查询失败: ${error.message}` })
+            return res.status(400).json({ error: `查询失败` })
         }
     })
 
@@ -392,7 +392,7 @@ export function createGuestExportRequestRoutes(userManager, prisma, jwtSecret) {
             res.json({ success: true, data: requests })
         } catch (error) {
             console.error('❌ Error listing pending export requests:', error)
-            res.status(400).json({ error: `❌ 获取待审批列表失败: ${error.message}` })
+            res.status(400).json({ error: `获取待审批列表失败` })
         }
     })
 
@@ -428,7 +428,7 @@ export function createGuestExportRequestRoutes(userManager, prisma, jwtSecret) {
             res.json({ success: true, message: '✅ 已批准导出申请' })
         } catch (error) {
             console.error('❌ Error approving export request:', error)
-            res.status(400).json({ error: `❌ 审批失败: ${error.message}` })
+            res.status(400).json({ error: `审批失败` })
         }
     })
 
@@ -458,7 +458,7 @@ export function createGuestExportRequestRoutes(userManager, prisma, jwtSecret) {
             res.json({ success: true, message: '✅ 已驳回导出申请' })
         } catch (error) {
             console.error('❌ Error rejecting export request:', error)
-            res.status(400).json({ error: `❌ 驳回失败: ${error.message}` })
+            res.status(400).json({ error: `驳回失败` })
         }
     })
 

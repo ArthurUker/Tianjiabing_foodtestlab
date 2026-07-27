@@ -47,7 +47,7 @@ export function createSessionRoutes(userManager, prisma) {
             res.status(201).json({ success: true, data: session })
         } catch (error) {
             console.error('❌ Error registering session:', error)
-            res.status(400).json({ error: `❌ 注册会话失败: ${error.message}` })
+            res.status(400).json({ error: `注册会话失败` })
         }
     })
 
@@ -61,7 +61,7 @@ export function createSessionRoutes(userManager, prisma) {
             res.json({ success: true, data: sessions })
         } catch (error) {
             console.error('❌ Error listing sessions:', error)
-            res.status(400).json({ error: `❌ 获取会话列表失败: ${error.message}` })
+            res.status(400).json({ error: `获取会话列表失败` })
         }
     })
 
@@ -84,7 +84,7 @@ export function createSessionRoutes(userManager, prisma) {
             res.json({ success: true, revoked: result.count })
         } catch (error) {
             console.error('❌ Error revoking session:', error)
-            res.status(400).json({ error: `❌ 注销会话失败: ${error.message}` })
+            res.status(400).json({ error: `注销会话失败` })
         }
     })
 
@@ -108,7 +108,7 @@ export function createSessionRoutes(userManager, prisma) {
             res.json({ success: true, revoked: result.count })
         } catch (error) {
             console.error('❌ Error revoking other sessions:', error)
-            res.status(400).json({ error: `❌ 注销其它会话失败: ${error.message}` })
+            res.status(400).json({ error: `注销其它会话失败` })
         }
     })
 
@@ -132,7 +132,7 @@ export function createSessionRoutes(userManager, prisma) {
             res.json({ success: true })
         } catch (error) {
             console.error('❌ Error recording session event:', error)
-            res.status(400).json({ error: `❌ 记录会话事件失败: ${error.message}` })
+            res.status(400).json({ error: `记录会话事件失败` })
         }
     })
 

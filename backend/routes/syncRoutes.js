@@ -99,7 +99,7 @@ export function createSyncRoutes(userManager, prisma) {
                 }
             }
             console.error('[SYNC ERROR] /records:', error)
-            res.status(500).json({ success: false, error: error.message })
+            res.status(500).json({ success: false, error: '同步失败' })
         }
     })
 
@@ -170,7 +170,7 @@ export function createSyncRoutes(userManager, prisma) {
                             }
                         } catch (e) { /* 回查失败走 errors */ }
                     }
-                    errors.push({ syncId: op.syncId, store: op.store, error: error.message })
+                    errors.push({ syncId: op.syncId, store: op.store, error: '同步失败' })
                 }
             }
 
@@ -184,7 +184,7 @@ export function createSyncRoutes(userManager, prisma) {
             })
         } catch (error) {
             console.error('[SYNC ERROR] /batch:', error)
-            res.status(500).json({ success: false, error: error.message })
+            res.status(500).json({ success: false, error: '同步失败' })
         }
     })
 
@@ -211,7 +211,7 @@ export function createSyncRoutes(userManager, prisma) {
             })
         } catch (error) {
             console.error('[SYNC ERROR] /status:', error)
-            res.status(500).json({ success: false, error: error.message })
+            res.status(500).json({ success: false, error: '同步失败' })
         }
     })
 
@@ -229,7 +229,7 @@ export function createSyncRoutes(userManager, prisma) {
             })
         } catch (error) {
             console.error('[SYNC ERROR] /queue:', error)
-            res.status(500).json({ success: false, error: error.message })
+            res.status(500).json({ success: false, error: '同步失败' })
         }
     })
 

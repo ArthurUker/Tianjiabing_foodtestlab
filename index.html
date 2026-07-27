@@ -174,27 +174,7 @@
             `;
             document.head.appendChild(style);
             console.log('✅ 快速访问模式 CSS 已应用 - 所有表单已隐藏');
-            
-            // 在DOMContentLoaded时再次确保隐藏
-            document.addEventListener('DOMContentLoaded', () => {
-                console.log('📍 DOMContentLoaded - 二次确认隐藏表单');
-                ['tablewareTestForm', 'pesticideTestForm', 'oilTestForm', 'leanMeatTestForm'].forEach(formId => {
-                    const form = document.getElementById(formId);
-                    if (form) {
-                        form.style.display = 'none !important';
-                        form.style.visibility = 'hidden';
-                        form.parentElement?.querySelectorAll('form').forEach(f => {
-                            f.style.display = 'none !important';
-                        });
-                    }
-                });
-                
-                // 隐藏所有提交按钮
-                document.querySelectorAll('button[type="submit"]').forEach(btn => {
-                    btn.style.display = 'none !important';
-                });
-                console.log('✅ 表单隐藏二次确认完成');
-            });
+            // TD-Index-Bugs ①: 移除重复的 DOMContentLoaded 回调（原代码块完全重复，已合并到上方主回调）
         }
     </script>
 </head>

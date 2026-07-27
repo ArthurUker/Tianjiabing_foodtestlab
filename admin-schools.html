@@ -237,6 +237,12 @@
                                 <p class="text-xs text-gray-400">支持一键上传本地图片（自动压缩），也可直接填网络图片地址。</p>
                             </div>
                         </div>
+                        <div class="mt-2">
+                            <button type="button" id="bf_badgeEditorBtn" class="inline-flex items-center gap-1 px-3 py-1.5 bg-purple-50 text-purple-700 rounded-lg text-sm hover:bg-purple-100 border border-purple-100 transition">
+                                <i class="fas fa-crop-alt"></i> 校徽排版 / 裁切
+                            </button>
+                            <span id="bf_badgeStyleHint" class="ml-2 text-xs text-gray-400"></span>
+                        </div>
                     </div>
                     <div>
                         <label class="block text-sm text-gray-600 mb-1">状态</label>
@@ -564,6 +570,8 @@
         import { authService, getApiBaseUrl } from './js/services/AuthService.js';
         // RK32/RK34: 统一模块注册中心——单一事实来源，取代本地重复的 MODULE_INFO / 导航映射
         import { getAllModules } from './js/modules/registry.js';
+        // 校徽图形化排版编辑器（裁切 / 定位 / 缩放 / 锁定比例）
+        import { openBadgeEditor } from './js/utils/schoolCustomization/badgeEditor.js';
 
         const API_BASE = getApiBaseUrl();
 
@@ -1375,6 +1383,39 @@
             }
         }
 
+        // 校徽排版状态提示（已设置 / 未设置）
+        function updateBadgeStyleHint() {
+            const hint = document.getElementById('bf_badgeStyleHint');
+            if (!hint) return
+            if (logoStyle && logoStyle.croppedUrl) {
+                const mode = logoStyle.display === 'background' ? '背景水印' : '小徽章'
+                hint.innerHTML = `<i class="fas fa-check-circle text-green-500"></i> 已设置（${mode}）`;
+            } else {
+                hint.textContent = '未设置排版，将使用默认小徽章';
+            }
+        }
+
+        // 校徽排版编辑器入口
+        const badgeEditorBtn = document.getElementById('bf_badgeEditorBtn');
+        if (badgeEditorBtn) badgeEditorBtn.addEventListener('click', () => {
+            const url = (document.getElementById('bf_logoUrl').value || '').trim();
+            if (!url) {
+                showNotice('请先上传或填写校徽图片（建议上传本地图片以获得完整裁切能力）', 'error');
+                return;
+            }
+            openBadgeEditor({
+                logoUrl: url,
+                logoStyle: logoStyle || undefined,
+                schoolName: (document.getElementById('bf_name').value || '').trim() || '示例学校',
+                onSave: (newStyle) => {
+                    logoStyle = newStyle;
+                    markDirty();
+                    updateBadgeStyleHint();
+                    showNotice('✅ 校徽排版已更新，点「保存定制」后对该校生效', 'success');
+                },
+            });
+        });
+
         // Tab 切换
         document.querySelectorAll('.tab-btn').forEach(btn => {
             btn.addEventListener('click', () => switchTab(btn.dataset.tab));
@@ -1530,6 +1571,7 @@
         let fieldRules = {};        // { fieldName: { required, maxLength, minLength } }  傻瓜式校验规则
         let fieldOrder = {};        // { moduleCode: [fieldName, ...] }  字段显示顺序（拖拽排序）
         let customDirty = false;    // 界面定制是否有未保存修改
+        let logoStyle = null;        // 校徽排版配置（theme_config.logo_style），由编辑器写回
 
         function markDirty() {
             customDirty = true;
@@ -1592,6 +1634,12 @@
             fieldOptions = parseJSON(c.field_options) || parseJSON(c.theme_config)?.field_options || {};
             sectionTitles = parseJSON(c.theme_config)?.section_titles || {};
             fieldOrder = parseJSON(c.field_order) || parseJSON(c.theme_config)?.field_order || {};
+            // 校徽排版配置（主题定制一部分）。存在未保存修改时保留内存中的草稿，
+            // 避免从基本信息 Tab 进入「界面定制」时把刚排好的校徽覆盖掉。
+            if (!customDirty) {
+                logoStyle = parseJSON(c.theme_config)?.logo_style || null;
+            }
+            updateBadgeStyleHint();
 
                     // 回显已保存的预设主题
                     const savedTheme = parseJSON(c.theme_config)?.theme;
@@ -2054,7 +2102,7 @@
                     dark: activeTheme.dark,
                     darkSolid: activeTheme.darkSolid,
                 } : null;
-                const themeConfig = { custom_fields: customFields, field_options: fieldOptions, section_titles: sectionTitles, field_order: fieldOrder, theme: themePayload };
+                const themeConfig = { custom_fields: customFields, field_options: fieldOptions, section_titles: sectionTitles, field_order: fieldOrder, theme: themePayload, logo_style: logoStyle || undefined };
 
                 // 层级A全链路：custom_fields 同步 required（来自校验规则），供录入端直接渲染必填
                 const customFieldsPayload = {};

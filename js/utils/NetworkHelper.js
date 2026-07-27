@@ -82,15 +82,10 @@ export class NetworkHelper {
     static fetchWithTimeout(url, options = {}) {
         const timeout = options.timeout || 10000
         const { timeout: _, ...fetchOptions } = options
-        
-        return Promise.race([
-            fetch(url, fetchOptions),
-            new Promise((_, reject) =>
-                setTimeout(() => {
-                    reject(new Error(`请求超时 (${timeout}ms)`))
-                }, timeout)
-            )
-        ])
+        const controller = new AbortController()
+        fetchOptions.signal = controller.signal
+        const timer = setTimeout(() => controller.abort(), timeout)
+        return fetch(url, fetchOptions).finally(() => clearTimeout(timer))
     }
     
     /**
