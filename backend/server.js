@@ -1321,9 +1321,22 @@ app.post('/api/records/:tableName/bulk-upsert', authenticateUser, requireEditorO
                 })
 
                 if (existing) {
-                    // NB-25: bulk-upsert 采用"最后写入胜出"语义，不做单条乐观锁。
-                    // 如需严格幂等，客户端应在导入前自行去重；批量场景下逐条版本校验
-                    // 开销过大且易被部分失败打断，当前语义已在文档和测试中明确标注。
+                    // NB-25: bulk-upsert 默认"最后写入胜出"；客户端可传 expected_updated_at
+                    // 做可选乐观锁校验（冲突时跳过该条而非中断整个批次）。
+                    if (payload?.expected_updated_at) {
+                        const expected = String(payload.expected_updated_at).trim()
+                        const current = existing.updated_at instanceof Date
+                            ? existing.updated_at.toISOString()
+                            : String(existing.updated_at || '')
+                        if (expected && current && expected !== current) {
+                            failed.push({
+                                record_code: recordCode,
+                                reason: '乐观锁冲突：该记录已被其他人修改',
+                                skipped: true
+                            })
+                            continue
+                        }
+                    }
                     await req.db.testRecord.update({
                         where: { id: existing.id },
                         data: {
