@@ -190,6 +190,7 @@ export function createGuestRoutes(userManager, prisma, jwtSecret) {
             }
             const payload = {
                 guestId: 0,
+                userId: 'quick-access',
                 username: '快速访问用户',
                 role: 'guest',
                 schoolCode,

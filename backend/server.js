@@ -115,6 +115,9 @@ function normalizeRecordType(tableName) {
     return RECORD_ROUTE_TYPES.has(tableName) ? tableName : null
 }
 
+// NB-02: 统一错误响应辅助函数，生产环境不泄露内部细节
+const clientErr = (msg) => ({ error: msg })
+
 function safeParseJson(value, fallback) {
     if (!value) return fallback
     try {
@@ -471,7 +474,7 @@ app.use(cors({
     },
     credentials: true
 }))
-app.use(express.json({ limit: process.env.BODY_LIMIT || '2mb' }))
+app.use(express.json({ limit: process.env.BODY_LIMIT || '8mb' }))
 
 // DS-10: 应用层安全响应头兜底（反向代理 deploy/ 亦应设置）
 app.use((_req, res, next) => {
@@ -479,6 +482,10 @@ app.use((_req, res, next) => {
     res.setHeader('X-Frame-Options', 'DENY')
     res.setHeader('Referrer-Policy', 'no-referrer')
     res.setHeader('X-XSS-Protection', '1; mode=block')
+    // NB-34: 仅在生产域名部署下设置 HSTS（HTTP 部署下无意义）
+    if (process.env.DOMAIN) {
+        res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+    }
     if (_req.path.startsWith('/api/')) {
         res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'")
     }
@@ -580,7 +587,7 @@ app.get('/api/schools/:schoolCode/config', rateLimit(60, 60 * 1000), async (req,
             }
         })
     } catch (error) {
-        res.status(500).json({ error: '查询学校配置失败', details: error.message })
+        res.status(500).json({ error: '查询学校配置失败' })
     }
 })
 
@@ -606,7 +613,7 @@ app.get('/api/admin/schools', authenticateUser, requirePlatformSuperAdmin, async
         res.json({ success: true, data: rows })
     } catch (error) {
         console.error('❌ Error listing schools:', error)
-        res.status(500).json({ error: '获取学校列表失败', details: error.message })
+        res.status(500).json({ error: '获取学校列表失败' })
     }
 })
 
@@ -636,7 +643,7 @@ app.post('/api/admin/schools', authenticateUser, requirePlatformSuperAdmin, asyn
         })
     } catch (error) {
         console.error('❌ Error provisioning school:', error)
-        res.status(500).json({ error: '学校初始化失败', details: error.message })
+        res.status(500).json({ error: '学校初始化失败' })
     }
 })
 
@@ -676,7 +683,7 @@ app.put('/api/admin/schools/:code', authenticateUser, requirePlatformSuperAdmin,
         res.json({ success: true, data: updated[0] })
     } catch (error) {
         console.error('❌ Error updating school:', error)
-        res.status(500).json({ error: '更新学校信息失败', details: error.message })
+        res.status(500).json({ error: '更新学校信息失败' })
     }
 })
 
@@ -696,7 +703,7 @@ app.patch('/api/admin/schools/:code/status', authenticateUser, requirePlatformSu
         if (!updated.length) return res.status(404).json({ error: '学校不存在' })
         res.json({ success: true, data: updated[0] })
     } catch (error) {
-        res.status(500).json({ error: '更新学校状态失败', details: error.message })
+        res.status(500).json({ error: '更新学校状态失败' })
     }
 })
 
@@ -716,7 +723,7 @@ app.get('/api/admin/schools/:code/customization', authenticateUser, requirePlatf
         )
         res.json({ success: true, data: rows[0] || null })
     } catch (error) {
-        res.status(500).json({ error: '获取定制配置失败', details: error.message })
+        res.status(500).json({ error: '获取定制配置失败' })
     }
 })
 
@@ -738,7 +745,7 @@ app.put('/api/admin/schools/:code/customization', authenticateUser, requirePlatf
         await prisma.$queryRawUnsafe(
             `INSERT INTO public."SchoolCustomization" ("id","school_code","updated_at")
              VALUES ($1,$2,now()) ON CONFLICT ("school_code") DO NOTHING`,
-            `sc_${code}`, code
+            crypto.randomUUID(), code
         )
 
         // BS-06: 乐观锁（向后兼容——不传 expected_updated_at 时保持旧行为）
@@ -799,7 +806,7 @@ app.put('/api/admin/schools/:code/customization', authenticateUser, requirePlatf
         res.json({ success: true, message: '定制配置已更新', updated_at: after?.[0]?.updated_at ?? null })
     } catch (error) {
         console.error('❌ Error updating customization:', error)
-        res.status(500).json({ error: '更新定制配置失败', details: error.message })
+        res.status(500).json({ error: '更新定制配置失败' })
     }
 })
 
@@ -811,7 +818,7 @@ app.get('/api/admin/schools/:code/users', authenticateUser, requirePlatformSuper
         if (!schema) return res.status(400).json({ error: '无效的学校代码' })
         const tenantPrisma = createTenantClient(prisma, code)
         const users = await tenantPrisma.$queryRawUnsafe(
-            `SELECT "id","username","role","is_active","created_at","last_login"
+            `SELECT "id","username","role","status","created_at","last_login"
              FROM "${schema}"."User" ORDER BY "created_at" DESC`
         )
         res.json({ success: true, data: users })
@@ -842,16 +849,20 @@ app.post('/api/admin/schools/:code/reprovision', authenticateUser, requirePlatfo
         if (!isValidSchoolCode(code)) return res.status(400).json({ error: '非法学校代码' })
         const schema = schemaNameOf(code)
         if (!schema) return res.status(400).json({ error: '无效的学校代码' })
+        const adminPassword = req.body?.adminPassword || process.env.SEED_ADMIN_PASSWORD
+        if (!adminPassword || String(adminPassword).length < 8) {
+            return res.status(400).json({ error: '⚠️ 必须提供 adminPassword（至少 8 位）' })
+        }
         const result = await provisionSchool({
             prisma,
             code,
             name: req.body?.name,
-            adminPassword: req.body?.adminPassword || process.env.SEED_ADMIN_PASSWORD || 'changeme'
+            adminPassword
         })
         res.json({ success: true, message: `学校「${code}」已重新初始化`, result })
     } catch (error) {
         console.error('❌ Error reprovisioning school:', error)
-        res.status(500).json({ error: '重新初始化失败', details: error.message })
+        res.status(500).json({ error: '重新初始化失败' })
     }
 })
 
@@ -875,7 +886,7 @@ app.post('/api/admin/schools/:code/users/:userId/reset-password', authenticateUs
         res.json({ success: true, message: '密码已重置' })
     } catch (error) {
         console.error('❌ Error resetting password:', error)
-        res.status(500).json({ error: '重置密码失败', details: error.message })
+        res.status(500).json({ error: '重置密码失败' })
     }
 })
 
@@ -883,19 +894,22 @@ app.post('/api/admin/schools/:code/users/:userId/reset-password', authenticateUs
 app.patch('/api/admin/schools/:code/users/:userId/status', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
     try {
         const { code, userId } = req.params
-        const { isActive } = req.body
+        const { status: newStatus } = req.body
         const schema = schemaNameOf(code)
         if (!schema) return res.status(400).json({ error: '无效的学校代码' })
+        if (!['active', 'disabled'].includes(newStatus)) {
+            return res.status(400).json({ error: '状态值无效（仅允许 active/disabled）' })
+        }
         const tenantPrisma = createTenantClient(prisma, code)
         const result = await tenantPrisma.$executeRawUnsafe(
-            `UPDATE "${schema}"."User" SET "is_active" = $2 WHERE "id" = $1`,
-            userId, !!isActive
+            `UPDATE "${schema}"."User" SET "status" = $2 WHERE "id" = $1`,
+            userId, newStatus
         )
         if (!result) return res.status(404).json({ error: '用户不存在' })
-        res.json({ success: true, message: `用户已${isActive ? '启用' : '停用'}` })
+        res.json({ success: true, message: `用户已${newStatus === 'active' ? '启用' : '停用'}` })
     } catch (error) {
         console.error('❌ Error updating user status:', error)
-        res.status(500).json({ error: '更新用户状态失败', details: error.message })
+        res.status(500).json({ error: '更新用户状态失败' })
     }
 })
 
@@ -909,7 +923,7 @@ const PHONE_RE = /^[0-9+\-\s]{5,20}$/
 app.post('/api/admin/schools/:code/users', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
     try {
         const { code } = req.params
-        const { username, full_name, phone, role, password, is_active } = req.body || {}
+        const { username, full_name, phone, role, password } = req.body || {}
         const schema = schemaNameOf(code)
         if (!schema) return res.status(400).json({ error: '无效的学校代码' })
         if (!USERNAME_RE.test(username || '')) return res.status(400).json({ error: '用户名需为 3-32 位字母、数字或下划线' })
@@ -924,18 +938,18 @@ app.post('/api/admin/schools/:code/users', authenticateUser, requirePlatformSupe
         const hash = await bcryptjs.hash(String(password), 10)
         const id = crypto.randomUUID()
         await tenantPrisma.$executeRawUnsafe(
-            `INSERT INTO "${schema}"."User" ("id","username","password_hash","role","full_name","phone","is_active","created_at","updated_at")
+            `INSERT INTO "${schema}"."User" ("id","username","password_hash","role","full_name","phone","status","created_at","updated_at")
              VALUES ($1,$2,$3,$4,$5,$6,$7,NOW(),NOW())`,
-            id, username, hash, role, full_name || null, phone || null, is_active !== false
+            id, username, hash, role, full_name || null, phone || null, 'active'
         )
         res.status(201).json({
             success: true,
             message: '用户创建成功',
-            user: { id, username, role, full_name: full_name || null, phone: phone || null, is_active: is_active !== false }
+            user: { id, username, role, full_name: full_name || null, phone: phone || null, status: 'active' }
         })
     } catch (error) {
         console.error('❌ Error creating user:', error)
-        res.status(500).json({ error: '创建用户失败', details: error.message })
+        res.status(500).json({ error: '创建用户失败' })
     }
 })
 
@@ -943,12 +957,12 @@ app.post('/api/admin/schools/:code/users', authenticateUser, requirePlatformSupe
 app.put('/api/admin/schools/:code/users/:userId', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
     try {
         const { code, userId } = req.params
-        const { full_name, phone, role, is_active, password } = req.body || {}
+        const { full_name, phone, role, status, password } = req.body || {}
         const schema = schemaNameOf(code)
         if (!schema) return res.status(400).json({ error: '无效的学校代码' })
         const tenantPrisma = createTenantClient(prisma, code)
         const cur = await tenantPrisma.$queryRawUnsafe(
-            `SELECT "id","role","is_active" FROM "${schema}"."User" WHERE "id" = $1`, userId
+            `SELECT "id","role","status" FROM "${schema}"."User" WHERE "id" = $1`, userId
         )
         if (!cur.length) return res.status(404).json({ error: '用户不存在' })
         const current = cur[0]
@@ -957,12 +971,15 @@ app.put('/api/admin/schools/:code/users/:userId', authenticateUser, requirePlatf
             if (!isSchoolUserRole(role)) return res.status(400).json({ error: '用户类别无效' })
         }
         if (phone !== undefined && phone && !PHONE_RE.test(phone)) return res.status(400).json({ error: '手机号格式不正确' })
+        if (status !== undefined && !['active', 'disabled'].includes(status)) {
+            return res.status(400).json({ error: '状态值无效（仅允许 active/disabled）' })
+        }
         // 防止学校失去唯一可管理人员（仅剩一名在职主管时，禁止停用或降级）
         const becomingNonManager = (role !== undefined && role !== 'manager')
-        const willDisable = (is_active !== undefined && is_active === false)
-        if ((becomingNonManager || willDisable) && current.role === 'manager' && current.is_active) {
+        const willDisable = (status === 'disabled')
+        if ((becomingNonManager || willDisable) && current.role === 'manager' && current.status === 'active') {
             const cnt = await tenantPrisma.$queryRawUnsafe(
-                `SELECT COUNT(*)::int AS c FROM "${schema}"."User" WHERE "role"='manager' AND "is_active"=true`
+                `SELECT COUNT(*)::int AS c FROM "${schema}"."User" WHERE "role"='manager' AND "status"='active'`
             )
             if (Number(cnt[0].c) <= 1) return res.status(409).json({ error: '该校仅剩一名在职主管，无法停用或更改其类别' })
         }
@@ -972,7 +989,7 @@ app.put('/api/admin/schools/:code/users/:userId', authenticateUser, requirePlatf
         if (full_name !== undefined) { sets.push(`"full_name"=$${i++}`); params.push(full_name || null) }
         if (phone !== undefined) { sets.push(`"phone"=$${i++}`); params.push(phone || null) }
         if (role !== undefined) { sets.push(`"role"=$${i++}`); params.push(role) }
-        if (is_active !== undefined) { sets.push(`"is_active"=$${i++}`); params.push(!!is_active) }
+        if (status !== undefined) { sets.push(`"status"=$${i++}`); params.push(status) }
         if (password) {
             if (String(password).length < 8) return res.status(400).json({ error: '密码至少 8 位' })
             const hash = await bcryptjs.hash(String(password), 10)
@@ -986,7 +1003,7 @@ app.put('/api/admin/schools/:code/users/:userId', authenticateUser, requirePlatf
         res.json({ success: true, message: '用户更新成功' })
     } catch (error) {
         console.error('❌ Error updating user:', error)
-        res.status(500).json({ error: '更新用户失败', details: error.message })
+        res.status(500).json({ error: '更新用户失败' })
     }
 })
 
@@ -998,13 +1015,13 @@ app.delete('/api/admin/schools/:code/users/:userId', authenticateUser, requirePl
         if (!schema) return res.status(400).json({ error: '无效的学校代码' })
         const tenantPrisma = createTenantClient(prisma, code)
         const cur = await tenantPrisma.$queryRawUnsafe(
-            `SELECT "id","role","is_active" FROM "${schema}"."User" WHERE "id" = $1`, userId
+            `SELECT "id","role","status" FROM "${schema}"."User" WHERE "id" = $1`, userId
         )
         if (!cur.length) return res.status(404).json({ error: '用户不存在' })
         const current = cur[0]
-        if (current.role === 'manager' && current.is_active) {
+        if (current.role === 'manager' && current.status === 'active') {
             const cnt = await tenantPrisma.$queryRawUnsafe(
-                `SELECT COUNT(*)::int AS c FROM "${schema}"."User" WHERE "role"='manager' AND "is_active"=true`
+                `SELECT COUNT(*)::int AS c FROM "${schema}"."User" WHERE "role"='manager' AND "status"='active'`
             )
             if (Number(cnt[0].c) <= 1) return res.status(409).json({ error: '该校仅剩一名在职主管，无法删除' })
         }
@@ -1012,7 +1029,7 @@ app.delete('/api/admin/schools/:code/users/:userId', authenticateUser, requirePl
         res.json({ success: true, message: '用户已删除' })
     } catch (error) {
         console.error('❌ Error deleting user:', error)
-        res.status(500).json({ error: '删除用户失败', details: error.message })
+        res.status(500).json({ error: '删除用户失败' })
     }
 })
 
@@ -1098,15 +1115,11 @@ app.post('/api/test-records', authenticateUser, requireEditorOrAbove, async (req
             console.error('❌ Foreign key constraint failed:', error.message, '\nuserId:', req.userId)
             return res.status(422).json({
                 error: '关联用户不存在，请重新登录',
-                details: error.message,
                 code: 'INVALID_USER'
             })
         }
         console.error('❌ Error creating test record:', error)
-        res.status(500).json({
-            error: '创建失败',
-            details: error.message
-        })
+        res.status(500).json({ error: '创建失败' })
     }
 })
 
@@ -1132,10 +1145,13 @@ app.get('/api/test-records', authenticateUser, requireGuestReadOnly, async (req,
             }
         }
 
+        const safeLimit = Math.min(parseInt(limit) || 100, 500)
+        const safeOffset = Math.max(0, parseInt(offset) || 0)
+
         const records = await req.db.testRecord.findMany({
             where,
-            skip: parseInt(offset),
-            take: parseInt(limit),
+            skip: safeOffset,
+            take: safeLimit,
             orderBy: { created_at: 'desc' }
         })
 
@@ -1145,14 +1161,13 @@ app.get('/api/test-records', authenticateUser, requireGuestReadOnly, async (req,
             success: true,
             data: records,
             total,
-            limit: parseInt(limit),
-            offset: parseInt(offset)
+            limit: safeLimit,
+            offset: safeOffset
         })
     } catch (error) {
         console.error('❌ Error fetching test records:', error)
         res.status(500).json({
-            error: '获取失败',
-            details: error.message
+            error: '获取失败'
         })
     }
 })
@@ -1168,13 +1183,15 @@ app.get('/api/records/:tableName', authenticateUser, requireGuestReadOnly, async
         }
 
         const { limit = 100, offset = 0, status } = req.query
+        const safeLimit = Math.min(parseInt(limit) || 100, 500)
+        const safeOffset = Math.max(0, parseInt(offset) || 0)
         const where = { test_type: testType }
         if (status) where.status = status
 
         const records = await req.db.testRecord.findMany({
             where,
-            skip: parseInt(offset),
-            take: parseInt(limit),
+            skip: safeOffset,
+            take: safeLimit,
             orderBy: { created_at: 'desc' }
         })
 
@@ -1184,8 +1201,8 @@ app.get('/api/records/:tableName', authenticateUser, requireGuestReadOnly, async
             success: true,
             data: records.map(buildRecordPayload),
             total,
-            limit: parseInt(limit),
-            offset: parseInt(offset)
+            limit: safeLimit,
+            offset: safeOffset
         })
     } catch (error) {
         console.error('❌ Error fetching legacy records:', error)
@@ -1261,7 +1278,6 @@ app.post('/api/records/:tableName', authenticateUser, requireEditorOrAbove, asyn
             console.error('❌ Foreign key constraint failed:', error.message, '\nuserId:', req.userId)
             return res.status(422).json({
                 error: '关联用户不存在，请重新登录',
-                details: error.message,
                 code: 'INVALID_USER'
             })
         }
@@ -1305,6 +1321,9 @@ app.post('/api/records/:tableName/bulk-upsert', authenticateUser, requireEditorO
                 })
 
                 if (existing) {
+                    // NB-25: bulk-upsert 采用"最后写入胜出"语义，不做单条乐观锁。
+                    // 如需严格幂等，客户端应在导入前自行去重；批量场景下逐条版本校验
+                    // 开销过大且易被部分失败打断，当前语义已在文档和测试中明确标注。
                     await req.db.testRecord.update({
                         where: { id: existing.id },
                         data: {
@@ -1361,8 +1380,7 @@ app.post('/api/records/:tableName/bulk-upsert', authenticateUser, requireEditorO
     } catch (error) {
         console.error('❌ Error bulk upsert legacy records:', error)
         res.status(500).json({
-            error: '批量导入失败',
-            details: error.message
+            error: '批量导入失败'
         })
     }
 })
@@ -1421,8 +1439,7 @@ app.put('/api/records/:tableName/:id', authenticateUser, requireEditorOrAbove, a
     } catch (error) {
         console.error('❌ Error updating legacy record:', error)
         res.status(500).json({
-            error: '更新失败',
-            details: error.message
+            error: '更新失败'
         })
     }
 })
@@ -1459,8 +1476,7 @@ app.delete('/api/records/:tableName/:id', authenticateUser, requireEditorOrAbove
     } catch (error) {
         console.error('❌ Error deleting legacy record:', error)
         res.status(500).json({
-            error: '删除失败',
-            details: error.message
+            error: '删除失败'
         })
     }
 })
@@ -1488,8 +1504,7 @@ app.get('/api/records/:tableName/:id', authenticateUser, requireGuestReadOnly, a
     } catch (error) {
         console.error('❌ Error getting legacy record by id:', error)
         res.status(500).json({
-            error: '获取记录失败',
-            details: error.message
+            error: '获取记录失败'
         })
     }
 })
@@ -1530,13 +1545,15 @@ app.get('/api/test-records/:id', authenticateUser, requireGuestReadOnly, async (
     } catch (error) {
         console.error('❌ Error fetching test record:', error)
         res.status(500).json({
-            error: '获取失败',
-            details: error.message
+            error: '获取失败'
         })
     }
 })
 
 // 更新测试记录
+// NB-13: result_data 需经过 sanitizeObjectKeys 净化；status 白名单校验
+const VALID_TEST_RECORD_STATUSES = new Set(['pending', 'completed', 'failed', 'archived'])
+
 app.put('/api/test-records/:id', authenticateUser, requireEditorOrAbove, async (req, res) => {
     try {
         const { id } = req.params
@@ -1544,8 +1561,17 @@ app.put('/api/test-records/:id', authenticateUser, requireEditorOrAbove, async (
 
         const updateData = {}
         if (test_name) updateData.test_name = test_name
-        if (status) updateData.status = status
-        if (result_data) updateData.result_data = JSON.stringify(result_data)
+        if (status) {
+            if (!VALID_TEST_RECORD_STATUSES.has(status)) {
+                return res.status(400).json({
+                    error: `状态值无效（仅允许: ${[...VALID_TEST_RECORD_STATUSES].join('/')}）`
+                })
+            }
+            updateData.status = status
+        }
+        if (result_data) {
+            updateData.result_data = JSON.stringify(sanitizeObjectKeys(result_data))
+        }
 
         const record = await req.db.testRecord.update({
             where: { id },
@@ -1559,10 +1585,7 @@ app.put('/api/test-records/:id', authenticateUser, requireEditorOrAbove, async (
         })
     } catch (error) {
         console.error('❌ Error updating test record:', error)
-        res.status(500).json({
-            error: '更新失败',
-            details: error.message
-        })
+        res.status(500).json({ error: '更新失败' })
     }
 })
 
@@ -1582,8 +1605,7 @@ app.delete('/api/test-records/:id', authenticateUser, requireEditorOrAbove, asyn
     } catch (error) {
         console.error('❌ Error deleting test record:', error)
         res.status(500).json({
-            error: '删除失败',
-            details: error.message
+            error: '删除失败'
         })
     }
 })
