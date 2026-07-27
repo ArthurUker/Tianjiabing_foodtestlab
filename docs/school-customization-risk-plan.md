@@ -267,6 +267,34 @@
 
 > 🔚 **计划 100% 完成。** 34个NB bug全部修复，经两轮5窗口并行修复 + 代码级验收。
 
+---
+
+## 🏛️ 超管平台与多租户隔离审阅（2026-07-27）
+
+> 2 并行代理审阅：public schema vs per-tenant schema、JWT 角色隔离、认证链、数据泄漏面。
+
+### 总体：架构隔离设计正确，14 个发现（3 高 / 8 中 / 3 低）
+
+| 编号 | 严重度 | 问题 | 位置 |
+|---|---|---|---|
+| **ISO-01** | 🔴 高 | req.db 双重挂载（authMiddleware + server.js 各挂一次） | `authMiddleware.js:41`, `server.js:428` |
+| **ISO-02** | 🔴 高 | requirePlatformSuperAdmin 空字符串 `""` 可绕过（`\|\| null` 太宽松） | `server.js:619` |
+| **ISO-03** | 🔴 高 | 认证版 config 端点暴露完整 field_rules/custom_fields | `server.js:542` |
+| ISO-04 | 🟡 中 | 注册端点 schoolCode 未校验（完全信任 JWT） | `userRoutes.js` |
+| ISO-05 | 🟡 中 | quick-access JWT userId='quick-access' 非 UUID | `guestRoutes.js:190` |
+| ISO-06 | 🟡 中 | Router 不区分超管/普通用户跳转 | `Router.js:34` |
+| ISO-07 | 🟡 中 | auth_token + guest_token 可并存，登出不完整 | `AuthService.js`, `GuestAuthService.js` |
+| ISO-08 | 🟡 中 | 两个 config 端点返回结构不一致 | `server.js:542/581` |
+| ISO-09 | 🟡 中 | bulk-upsert 无批次幂等键 | `server.js:1289` |
+| ISO-10 | 🟡 中 | createTenantClient 空 schoolCode 静默回退 public | `tenantClient.js:119` |
+| ISO-11 | 🟡 中 | 注释提及已废弃的 SET search_path | `UserManager.js:173` |
+| ISO-12~14 | 🟢 低 | config 信息披露/非租户路由被注入/超管可遍历所有学校用户 | 各处 |
+
+### ✅ 确认安全
+
+- JWT 三层角色不可互用 ✅ | 租户数据物理隔离 ✅ | 超管端点全经 requirePlatformSuperAdmin ✅
+- schoolCode 注入防护（白名单+归一化+assertSafeSchemaName）✅ | HS256 算法固定 ✅
+
 ### 🚀 部署提醒（合并前必读）
 1. ~~H1-H6 已全部验证修复~~（见上节）。
 2. 生产部署切换为 `prisma migrate deploy` 流程（H3 已落地）。
