@@ -447,9 +447,12 @@ fi
 if npx prisma migrate deploy 2>/dev/null; then
   : # migrate deploy 成功
 else
-  warn "prisma migrate deploy 失败，尝试 db push 回退（若此为首部署或 migration 表缺失）"
-  # 仅当 migration 表不存在/状态异常时才回退 db push；禁止 --accept-data-loss
-  npx prisma db push || fail "prisma db push 也失败，请人工检查 schema 差异"
+  warn "prisma migrate deploy 失败，尝试 db push 回退"
+  if [ "$FIRST_DEPLOY" = "true" ]; then
+    npx prisma db push --accept-data-loss || fail "prisma db push 也失败"
+  else
+    fail "prisma migrate deploy 失败且非首部署，请手动修复后再运行部署"
+  fi
 fi
 ok "数据库 schema 同步完成"
 
@@ -477,7 +480,7 @@ if [ "$PROVISION_TENANTS" = "true" ]; then
   for v in "${!SCHOOL_NAME_@}"; do export "$v"; done
   export DATABASE_URL SEED_ADMIN_PASSWORD SCHOOL_CODES
   node prisma/provision-tenants.js \
-    || warn "多租户初始化失败，请手动运行: node $REPO_ROOT/backend/prisma/provision-tenants.js"
+    || fail "多租户初始化失败（创建租户 schema 和 SchoolCustomization 是关键路径，必须中止）"
 fi
 
 # ------------------------- 6.6 同步 bootstrap 账号密码（每次部署）-------------------------
@@ -590,6 +593,7 @@ $CADDY_ADDR {
 
     # RK39: 全局安全响应头（应用层 server.js 亦有兜底）
     header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
         X-Content-Type-Options "nosniff"
         X-Frame-Options "DENY"
         Referrer-Policy "no-referrer"
@@ -667,8 +671,8 @@ else
   echo "  5. 公网访问 : http://<你的公网IP>:$FRONTEND_PORT（Caddy 监听此端口；安全组需放行 $FRONTEND_PORT）"
   echo "     之后补域名：在适配文件填 DOMAIN/TLS_EMAIL，重跑本脚本即自动切 HTTPS"
 fi
-echo -e "\033[36m后端初始账号密码（首次登录后请修改）：\033[0m"
-echo "  admin / $SEED_ADMIN_PASSWORD"
-echo "  operator / $SEED_OPERATOR_PASSWORD"
-echo "  viewer / $SEED_VIEWER_PASSWORD"
+echo -e "\033[36m后端初始账号密码（见 backend/.env 中对应 SEED_* 变量，首次登录后请修改）：\033[0m"
+echo "  admin   / (见 backend/.env 中 SEED_ADMIN_PASSWORD)"
+echo "  operator/ (见 backend/.env 中 SEED_OPERATOR_PASSWORD)"
+echo "  viewer  / (见 backend/.env 中 SEED_VIEWER_PASSWORD)"
 echo ""
