@@ -7,6 +7,7 @@ import express from 'express'
 import { createAuthMiddleware } from '../middleware/authMiddleware.js'
 import { rateLimit } from '../middleware/validationMiddleware.js'
 import jwt from 'jsonwebtoken'
+import { isValidSchoolCode } from '../lib/tenantProvisioner.js'
 
 export function createUserRoutes(userManager) {
     const router = express.Router()
@@ -50,6 +51,11 @@ export function createUserRoutes(userManager) {
 
             if (!username || !password) {
                 return res.status(400).json({ error: '❌ 用户名或密码缺失' })
+            }
+
+            // NB-04: 登录前校验 schoolCode，防止非法 code 意外命中 public schema 超管账号
+            if (!isValidSchoolCode(schoolCode)) {
+                return res.status(400).json({ error: '❌ 非法学校代码' })
             }
 
             const result = await userManager.forTenant(schoolCode).loginUser(username, password)

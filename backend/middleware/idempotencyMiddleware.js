@@ -1,10 +1,19 @@
 // Idempotency middleware for Express
 // 注意：内存存储仅适用于单实例或低并发环境，生产建议使用 Redis
 
+import crypto from 'crypto'
+
 const store = new Map();
 const TTL = 24 * 60 * 60 * 1000; // 24 hours
+const MAX_ENTRIES = 10000;        // NB-11: 最大条目数限制
 const CLEANUP_INTERVAL = 5 * 60 * 1000; // 5 minutes
 let lastCleanupAt = 0;
+
+function bodyHash(body) {
+  if (!body) return '';
+  const raw = typeof body === 'string' ? body : JSON.stringify(body);
+  return crypto.createHash('sha256').update(raw).digest('hex').substring(0, 16);
+}
 
 function cleanup() {
   const now = Date.now();
@@ -25,11 +34,19 @@ export default function idempotencyMiddleware(req, res, next) {
 
   cleanup();
 
-  const cached = store.get(key);
+  // NB-11: 将请求体哈希纳入缓存键，防止同 key 不同 body 的请求命中错误缓存
+  const cacheKey = `${key}:${bodyHash(req.body)}`;
+
+  const cached = store.get(cacheKey);
   if (cached) {
     console.log(`[Idempotency] returning cached result for ${key}`);
     res.status(cached.status || 200).json(cached.result);
     return;
+  }
+
+  // NB-11: Map 大小达到上限时拒绝新缓存
+  if (store.size >= MAX_ENTRIES) {
+    return res.status(429).json({ error: 'Idempotency store is full, please retry later' });
   }
 
   const originalJson = res.json.bind(res);
@@ -38,7 +55,7 @@ export default function idempotencyMiddleware(req, res, next) {
     try {
       if (res.statusCode >= 200 && res.statusCode < 300) {
         // Cache successful responses
-        store.set(key, { result: body, timestamp: Date.now(), status: res.statusCode });
+        store.set(cacheKey, { result: body, timestamp: Date.now(), status: res.statusCode });
       }
     } catch (e) {
       // ignore cache errors

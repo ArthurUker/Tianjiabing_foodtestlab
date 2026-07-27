@@ -737,10 +737,10 @@ function loadDashboardData() {
             totalPassed += stats[t].passCount;
         });
 
-    const totalPassRate = totalCount > 0 ? Math.round((totalPassed / totalCount) * 100) : 100;
+    const totalPassRate = totalCount > 0 ? Math.round((totalPassed / totalCount) * 100) : null;
     
     document.getElementById('card_total_count').textContent = totalCount;
-    document.getElementById('card_total_pass').textContent = `${totalPassRate}%`;
+    document.getElementById('card_total_pass').textContent = totalPassRate !== null ? `${totalPassRate}%` : '—';
 
     // 更新概览列表（始终显示全局最新5条，不受日期筛选影响，仅受食堂筛选影响）
     const OVERVIEW_START = new Date(0);
@@ -1019,7 +1019,7 @@ function getStats(type, startDate, endDate, selectedCanteen = 'all') {
           count, 
           passCount,
           positiveCount, 
-          passRate: count > 0 ? Math.round((passCount / count) * 100) : 100,
+          passRate: count > 0 ? Math.round((passCount / count) * 100) : null,
           records: sortedRecords,
           riskLevels
       };
@@ -1034,7 +1034,7 @@ function getStats(type, startDate, endDate, selectedCanteen = 'all') {
       passCount = sortedRecords.filter(r => isQualified(type, r)).length;
   }
 
-  const passRate = count > 0 ? Math.round((passCount / count) * 100) : 100;
+  const passRate = count > 0 ? Math.round((passCount / count) * 100) : null;
   return { count, passCount, positiveCount, passRate, records: sortedRecords };
 }
 
@@ -1043,7 +1043,7 @@ function updateCard(type, stats) {
     const countEl = document.getElementById(`card_${type}_count`);
     const passEl = document.getElementById(`card_${type}_pass`);
     if(countEl) countEl.textContent = stats.count;
-    if(passEl) passEl.textContent = `${stats.passRate}%`;
+    if(passEl) passEl.textContent = stats.passRate !== null ? `${stats.passRate}%` : '—';
 }
 
 function updateOverviewList(type, records) {
@@ -1081,15 +1081,15 @@ function updateOverviewList(type, records) {
 function updateRiskAlerts(stats, leanMeatByType) {
     const alerts = [];
     
-    if (stats.tableware.passRate < 90 && stats.tableware.count > 0) {
+    if (stats.tableware.passRate !== null && stats.tableware.passRate < 90 && stats.tableware.count > 0) {
         alerts.push(`餐具洁净度合格率偏低(${stats.tableware.passRate}%)`);
     }
     
-    if (stats.pesticide.passRate < 100 && stats.pesticide.count > 0) {
+    if (stats.pesticide.passRate !== null && stats.pesticide.passRate < 100 && stats.pesticide.count > 0) {
         alerts.push(`存在农药残留超标蔬果`);
     }
     
-    if (stats.oil.passRate < 95 && stats.oil.count > 0) {
+    if (stats.oil.passRate !== null && stats.oil.passRate < 95 && stats.oil.count > 0) {
         alerts.push(`食用油品质不合格率较高`);
     }
     
@@ -1580,7 +1580,7 @@ function calculateCanteenTrends(startDate, endDate, selectedCanteen = 'all', met
             const recordDate = record.testDate || (record.timestamp ? record.timestamp.split('T')[0] : null);
             if (!recordDate) return;
 
-            const testDate = new Date(recordDate);
+            const testDate = new Date(recordDate + 'T00:00:00');
             if (testDate < startDate || testDate > endDate) return;
 
             const canteen = getRecordCanteen(record) || '未知食堂';

@@ -32,7 +32,7 @@ export const MODULE_REGISTRY = {
   },
   leanMeat: {
     code: 'leanMeat',
-    label: '瘦肉精检测',
+    label: '肉蛋农残检测',
     icon: 'fa-drumstick-bite',
     navTarget: 'lean-meat-test',
     formId: 'leanMeatTestForm',

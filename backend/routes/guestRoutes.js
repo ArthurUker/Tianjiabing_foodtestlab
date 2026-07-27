@@ -25,7 +25,15 @@ import jwt from 'jsonwebtoken'
 import { createTenantClient } from '../lib/tenantClient.js'
 import { isValidSchoolCode } from '../lib/tenantProvisioner.js'
 import { createAuthMiddleware } from '../middleware/authMiddleware.js'
+import { rateLimit } from '../middleware/validationMiddleware.js'
 import { writeTenantAuditLog } from '../lib/auditLog.js'
+
+// NB-12: 访客公开端点限流
+const guestRegisterLimiter = rateLimit(10, 60 * 1000)   // 每分钟10次
+const guestLoginLimiter = rateLimit(20, 60 * 1000)      // 每分钟20次
+
+// NB-06: 访客类型白名单
+const VALID_GUEST_TYPES = new Set(['viewer', 'export_applicant'])
 
 function serializeGuest(g) {
     return {
@@ -70,8 +78,8 @@ export function createGuestRoutes(userManager, prisma, jwtSecret) {
         next()
     }
 
-    // 访客自注册
-    router.post('/register', async (req, res) => {
+    // 访客自注册（NB-12: 加注册限流）
+    router.post('/register', guestRegisterLimiter, async (req, res) => {
         let db = null  // H5: 提升到 try 外，避免 catch 块 ReferenceError
         try {
             const {
@@ -89,6 +97,19 @@ export function createGuestRoutes(userManager, prisma, jwtSecret) {
             }
             if (!isValidSchoolCode(schoolCode)) {
                 return res.status(400).json({ error: '❌ 非法学校代码' })
+            }
+
+            // NB-06: 密码强度校验
+            if (String(password).length < 8) {
+                return res.status(400).json({ error: '❌ 密码至少8位' })
+            }
+            // NB-06: 用户名格式校验（3-32位字母/数字/下划线）
+            if (!/^[a-zA-Z0-9_]{3,32}$/.test(username)) {
+                return res.status(400).json({ error: '❌ 用户名格式非法（需3-32位字母、数字或下划线）' })
+            }
+            // NB-06: 访客类型白名单校验
+            if (!VALID_GUEST_TYPES.has(guest_type || 'viewer')) {
+                return res.status(400).json({ error: '❌ 非法的访客类型' })
             }
 
             db = createTenantClient(prisma, schoolCode)
@@ -131,8 +152,8 @@ export function createGuestRoutes(userManager, prisma, jwtSecret) {
         }
     })
 
-    // 访客登录
-    router.post('/login', async (req, res) => {
+    // 访客登录（NB-12: 加登录限流）
+    router.post('/login', guestLoginLimiter, async (req, res) => {
         try {
             const { username, password, schoolCode } = req.body
 
@@ -146,6 +167,8 @@ export function createGuestRoutes(userManager, prisma, jwtSecret) {
             const db = createTenantClient(prisma, schoolCode)
             const guest = await db.guest.findUnique({ where: { username } })
             if (!guest || guest.status !== 'active') {
+                // NB-12: 用户不存在时执行假 bcryptjs.compare 拉平时序，防止时序攻击推断用户存在性
+                await bcryptjs.compare(password, '$2a$10$00000000000000000000000000000000000000000000000')
                 return res.status(401).json({ error: '❌ 访客不存在或已禁用' })
             }
 

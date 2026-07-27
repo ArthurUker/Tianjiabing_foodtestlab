@@ -974,8 +974,13 @@ export class GenericTestModule {
             canteen: formData.get('canteen'),
             inspector: formData.get('inspector'),
             // 层级A：学校自定义字段（整单级，随每条点位记录一并存入 result_data）
-            ...collectCustomFieldValues(e.target, getSchoolCustomization())
         };
+        try {
+            const customFields = collectCustomFieldValues(e.target, getSchoolCustomization())
+            Object.assign(baseInfo, customFields)
+        } catch (err) {
+            console.warn('⚠️ 自定义字段收集失败，继续提交基础字段:', err.message)
+        }
 
         // 验证基础信息
         const baseValidationSchema = {

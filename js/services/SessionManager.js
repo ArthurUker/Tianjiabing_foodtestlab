@@ -240,6 +240,8 @@ export class SessionManager {
                     UINotification.warning('会话已过期，请重新登录');
                     authService.logout().then(() => {
                         window.location.href = './login.html';
+                    }).catch(() => {
+                        window.location.href = './login.html'; // NB-26: reject 时也跳转
                     });
                 }
             }

@@ -415,6 +415,8 @@ export class AuthService {
             }
             staleKeys.forEach(k => localStorage.removeItem(k));
         } catch (e) { /* 存储不可用时忽略 */ }
+        // NB-05: 清除权限缓存，防止登出后切换身份时命中旧权限
+        try { permissionService.clearCache?.() } catch (e) { /* 静默降级 */ }
     }
 
     /**

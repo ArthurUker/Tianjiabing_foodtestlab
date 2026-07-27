@@ -20,10 +20,11 @@ export function createSyncRoutes(userManager, prisma) {
     const router = express.Router()
 
     // ====== Authentication Middleware（统一从 authMiddleware.js 导入）======
-    const { authenticateUser, authorizeAdmin } = createAuthMiddleware(userManager, prisma)
+    const { authenticateUser, authorizeAdmin, requireEditorOrAbove } = createAuthMiddleware(userManager, prisma)
 
     // ====== POST /sync/records — 同步单条检测记录 ======
-    router.post('/records', authenticateUser, async (req, res) => {
+    // NB-10: 仅 editor 及以上角色可写入，防止 viewer 只读角色通过 sync 端点写数据
+    router.post('/records', authenticateUser, requireEditorOrAbove, async (req, res) => {
         try {
             const { action, store, data, syncId, timestamp } = req.body
 
@@ -103,7 +104,8 @@ export function createSyncRoutes(userManager, prisma) {
     })
 
     // ====== POST /sync/batch — 批量同步 ======
-    router.post('/batch', authenticateUser, async (req, res) => {
+    // NB-10: 仅 editor 及以上角色可写入
+    router.post('/batch', authenticateUser, requireEditorOrAbove, async (req, res) => {
         try {
             const { operations } = req.body
 

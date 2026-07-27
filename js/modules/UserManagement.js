@@ -7,6 +7,7 @@ import { authService } from '../services/AuthService.js';
 import { UINotification } from '../utils/UINotification.js';
 import { router } from '../core/Router.js';
 import { auditService } from '../services/AuditService.js';
+import { escapeHtml } from '../utils/schoolCustomization/shared.js';
 
 export class UserManagement {
     constructor() {
@@ -235,10 +236,10 @@ export class UserManagement {
                         <div class="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center mr-3">
                             <i class="fas fa-user text-blue-600 text-sm"></i>
                         </div>
-                        <span class="font-medium text-gray-800">${user.username}</span>
+                        <span class="font-medium text-gray-800">${escapeHtml(user.username)}</span>
                     </div>
                 </td>
-                <td class="px-6 py-4 text-gray-600">${user.phone || '未填写'}</td>
+                <td class="px-6 py-4 text-gray-600">${escapeHtml(user.phone) || '未填写'}</td>
                 <td class="px-6 py-4">
                     <span class="px-3 py-1 rounded-full text-sm font-medium ${this.getRoleColor(user.role)}">
                         ${router.getRoleLabel(user.role)}

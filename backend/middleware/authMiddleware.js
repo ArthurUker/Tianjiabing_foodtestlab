@@ -155,5 +155,34 @@ export function createAuthMiddleware(userManager, prisma) {
     }
   }
 
-  return { authenticateUser, authorizeAdmin, authorizeRoles, requireGuestReadOnly, resolveGuestVisibleTypes }
+  /**
+   * requireEditorOrAbove
+   * 必须在 authenticateUser 之后使用。
+   * 仅允许 role 不低于 editor（即 editor/operator/manager/admin）通过。
+   * guest/viewer 为只读角色，拒绝写操作。
+   */
+  function requireEditorOrAbove(req, res, next) {
+    const role = req.user?.role
+    if (!role || role === 'guest' || role === 'viewer') {
+      return res.status(403).json({
+        error: '❌ 访客无写入权限，请以正式账号登录后操作'
+      })
+    }
+    next()
+  }
+
+  /**
+   * clearGuestVisibleTypesCache(schoolCode)
+   * 清除该校 visible_types 内存缓存，供 server.js 在 PUT /api/admin/schools/:code/customization
+   * 成功后调用，使下一次访客请求重新从 DB 拉取最新的 visible_types。
+   */
+  function clearGuestVisibleTypesCache(schoolCode) {
+    if (schoolCode) {
+      _guestVisibleTypesCache.delete(schoolCode)
+    } else {
+      _guestVisibleTypesCache.clear()
+    }
+  }
+
+  return { authenticateUser, authorizeAdmin, authorizeRoles, requireEditorOrAbove, requireGuestReadOnly, resolveGuestVisibleTypes, clearGuestVisibleTypesCache }
 }

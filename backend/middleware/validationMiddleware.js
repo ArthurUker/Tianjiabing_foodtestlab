@@ -28,8 +28,9 @@ export function sanitizeHtml(text) {
     }
 
     let sanitized = text
-        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-        .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+        // NB-28: 简化为无嵌套量词的正则，避免灾难性回溯（ReDoS）
+        .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+        .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
         .replace(/on\w+\s*=\s*["'][^"']*["']/gi, '')
         .replace(/on\w+\s*=\s*[^\s>]*/gi, '')
 
@@ -376,7 +377,12 @@ export function rateLimit(maxRequests = 100, windowMs = 15 * 60 * 1000) {
 
         // 移除超出时间窗口的请求
         const validRequests = requests.filter(timestamp => now - timestamp < windowMs)
-        requestMap.set(key, validRequests)
+        // NB-29: 过滤后数组为空则删除该 key，防止 Map 键永存导致内存增长
+        if (validRequests.length === 0) {
+            requestMap.delete(key)
+        } else {
+            requestMap.set(key, validRequests)
+        }
 
         if (validRequests.length >= maxRequests) {
             return res.status(429).json({

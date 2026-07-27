@@ -7,6 +7,7 @@ import { ExportService } from './services/ExportService.js';
 import { initializeSampleData } from './utils/SampleDataGenerator.js';
 // ✨ 学校个性化配置：提取 schoolCode + 应用 SchoolCustomization 到静态录入表单
 import { extractSchoolCode } from './utils/schoolCode.js';
+import { escapeHtml } from './utils/schoolCustomization/shared.js';
 import { ensureSchoolConfig, getSchoolCustomization, applyCustomizationToAllForms, applySchoolCustomizationToTitles, applySchoolBranding, applyVisibleTypesToNav, onSchoolConfigChanged } from './utils/schoolCustomization.js';
 // 1. ✨ 引入新模块
 import { BackupRestoreService } from './modules/BackupRestore.js';
@@ -240,7 +241,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             applySchoolCustomizationToTitles(customization);
             console.log('✅ 学校个性化配置已应用到录入表单', schoolCode || '(无 schoolCode，跳过)');
             // 主页顶部标题/校徽按校动态显示（README 品牌中立化要求）
-            applySchoolBranding(schoolCode);
+            await applySchoolBranding(schoolCode);
             // RK3/RK36：配置就绪后再消费 visible_types，使导航/内容区反映该校可见模块；
             // 随后由 Router 重新施加权限/访客规则，保证「不可见模块」不会因配置被强行显示。
             applyVisibleTypesToNav(customization);
@@ -254,11 +255,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         try {
             const syncCode = extractSchoolCode();
             if (syncCode) {
-                onSchoolConfigChanged(syncCode, (cfg) => {
+                onSchoolConfigChanged(syncCode, async (cfg) => {
                     applyVisibleTypesToNav(cfg);
                     applyCustomizationToAllForms(cfg);
                     applySchoolCustomizationToTitles(cfg);
-                    applySchoolBranding(syncCode);
+                    await applySchoolBranding(syncCode);
                     router.updateNavigationByPermission();
                 });
             }
@@ -443,12 +444,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                             if (records.length > 0) {
                                 let html = '';
                                 records.slice(0, 20).forEach(record => {
-                                    const testDate = record.testDate || '';
-                                    const canteen = record.canteen || '';
-                                    const location = record.location || '';
-                                    const rluValue = record.rluValue || '';
-                                    const result = record.result || '';
-                                    const inspector = record.inspector || '';
+                                    const testDate = escapeHtml(record.testDate || '');
+                                    const canteen = escapeHtml(record.canteen || '');
+                                    const location = escapeHtml(record.location || '');
+                                    const rluValue = escapeHtml(record.rluValue || '');
+                                    const result = escapeHtml(record.result || '');
+                                    const inspector = escapeHtml(record.inspector || '');
                                     
                                     html += `<tr>
                                         <td class="border px-4 py-2">${testDate}</td>

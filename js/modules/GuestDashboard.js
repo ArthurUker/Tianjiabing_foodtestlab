@@ -6,6 +6,7 @@
 import guestAuthService from '../services/GuestAuthService.js';
 import { UINotification } from '../utils/UINotification.js';
 import { extractSchoolCode } from '../utils/schoolCode.js';
+import { escapeHtml } from '../utils/schoolCustomization/shared.js';
 import {
     ensureSchoolConfig,
     getSchoolCustomization,
@@ -138,7 +139,7 @@ export class GuestDashboard {
                     <div class="flex justify-between items-start">
                         <div>
                             <h2 class="text-2xl font-bold mb-2">
-                                <i class="fas fa-user-circle mr-2"></i>欢迎${isQuickAccess ? ' (快速查看)' : ''}，${guest.full_name || guest.username}
+                                <i class="fas fa-user-circle mr-2"></i>欢迎${isQuickAccess ? ' (快速查看)' : ''}，${escapeHtml(guest.full_name || guest.username)}
                             </h2>
                             <p class="text-blue-100">访客类型: ${guestTypeLabel}</p>
                             ${!isQuickAccess ? `<p class="text-blue-100 text-sm">访问有效期: 至 ${new Date(guest.valid_until).toLocaleDateString()}</p>` : ''}
@@ -281,7 +282,7 @@ export class GuestDashboard {
                 : `<p class="text-xs mt-1 ${item.passRate >= 90 ? 'text-green-600' : 'text-yellow-600'}">合格率 ${item.passRate}%</p>`;
             return `
                 <div class="border rounded-lg p-3 text-center bg-gray-50">
-                    <p class="text-xs text-gray-500 truncate" title="${item.label || code}">${item.label || code}</p>
+                    <p class="text-xs text-gray-500 truncate" title="${escapeHtml(item.label || code)}">${escapeHtml(item.label || code)}</p>
                     <p class="text-xl font-bold text-gray-800 mt-1">${item.count ?? 0}</p>
                     ${rateHtml}
                 </div>
@@ -408,8 +409,8 @@ export class GuestDashboard {
                 <div class="border rounded p-3">
                     <div class="flex justify-between items-start mb-2">
                         <div>
-                            <span class="font-medium">${req.request_type}</span>
-                            <p class="text-sm text-gray-600">${req.request_reason}</p>
+                            <span class="font-medium">${escapeHtml(req.request_type)}</span>
+                            <p class="text-sm text-gray-600">${escapeHtml(req.request_reason)}</p>
                         </div>
                         <span class="px-2 py-1 text-xs rounded ${colorClasses[status.color]}">
                             ${status.label}
@@ -420,7 +421,7 @@ export class GuestDashboard {
                     </p>
                     ${req.approval_comment ? `
                     <p class="text-xs text-gray-600 mt-1">
-                        <i class="fas fa-comment mr-1"></i>审批意见: ${req.approval_comment}
+                        <i class="fas fa-comment mr-1"></i>审批意见: ${escapeHtml(req.approval_comment)}
                     </p>
                     ` : ''}
                     ${req.permission_valid_until ? `

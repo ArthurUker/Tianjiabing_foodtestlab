@@ -383,7 +383,8 @@ export class BackupRestoreService {
             await NetworkHelper.fetchWithTimeout('/api/health', { timeout: 5000, cache: 'no-store' });
 
             const pendingCount = this.targetTables.reduce((sum, table) => {
-                const pending = JSON.parse(localStorage.getItem(`pending_${table}`) || '[]');
+                let pending = [];
+                try { pending = JSON.parse(localStorage.getItem(`pending_${table}`) || '[]'); } catch { pending = []; }
                 return sum + pending.length;
             }, 0);
 
@@ -414,8 +415,10 @@ export class BackupRestoreService {
         // 如果直接刷新，Storage.js 会认为本地数据是旧的，直接用服务器空数据覆盖
         let hasUnsyncedData = false;
         this.targetTables.forEach(table => {
-            const cache = JSON.parse(localStorage.getItem(`cache_${table}`) || '{"data":[]}');
-            const pending = JSON.parse(localStorage.getItem(`pending_${table}`) || '[]');
+            let cache = { data: [] };
+            try { cache = JSON.parse(localStorage.getItem(`cache_${table}`) || '{"data":[]}'); } catch { cache = { data: [] }; }
+            let pending = [];
+            try { pending = JSON.parse(localStorage.getItem(`pending_${table}`) || '[]'); } catch { pending = []; }
             // 如果有缓存数据，但等待上传的队列是空的，说明这些数据还没准备好上传
             if (cache.data && cache.data.length > 0 && pending.length === 0) {
                 hasUnsyncedData = true;
@@ -657,6 +660,17 @@ export class BackupRestoreService {
     // [核心修复] 统一恢复逻辑
     async processRestoreData(backupData, sourceName) {
         try {
+            // NB-21: 学校代码校验——防止跨校数据被错误恢复
+            const currentCode = extractSchoolCode();
+            const backupCode = backupData.schoolCode;
+            if (currentCode && backupCode && backupCode !== currentCode) {
+                const proceed = confirm(`警告：备份数据属于学校 [${backupCode}]，与当前学校 [${currentCode}] 不一致。继续恢复可能造成数据混淆。是否继续？`);
+                if (!proceed) {
+                    this.showStatus('已取消恢复：学校代码不匹配', 'yellow');
+                    return;
+                }
+            }
+
             // 1. 格式检测
             const isStandardFormat = backupData.tables && backupData.version;
             const isSimpleFormat = !isStandardFormat && Object.keys(backupData).length > 0;
@@ -683,7 +697,7 @@ export class BackupRestoreService {
                 }
             }
 
-            // 2. 确认提示
+            // 2. 确认提示（NB-20: 强调不可撤销）
             let confirmMessage = `检测到来自 [${sourceName}] 的数据\n`;
             if (isStandardFormat) {
                 confirmMessage += `版本: ${backupData.version}`;
@@ -692,7 +706,7 @@ export class BackupRestoreService {
                 }
                 confirmMessage += '\n';
             }
-            confirmMessage += '\n⚠️ 警告：当前本地的同名数据将被覆盖！确定要恢复吗？';
+            confirmMessage += '\n⚠️ 警告：此操作将覆盖现有数据且不可撤销，是否继续？';
             
             if (!confirm(confirmMessage)) {
                 this.showStatus('操作已取消', 'gray');
@@ -744,18 +758,55 @@ export class BackupRestoreService {
                 restoreCount++;
             };
 
-            if (isStandardFormat) {
-                Object.keys(backupData.tables).forEach(t => {
-                    if (this.targetTables.includes(t)) processTable(t, backupData.tables[t]);
-                });
-            } else {
-                Object.keys(backupData).forEach(t => {
-                    if (this.targetTables.includes(t)) {
-                        let d = backupData[t];
-                        if (typeof d === 'string') try { d = JSON.parse(d); } catch(e){}
-                        processTable(t, d);
+            // NB-20: 恢复前备份各表的旧数据到内存（用于失败时回滚）
+            const _oldBackup = {};
+            this.targetTables.forEach(table => {
+                try { _oldBackup[table] = localStorage.getItem(`cache_${table}`); } catch (e) { /* 存储不可用时忽略 */ }
+            });
+
+            // NB-20: 持久化备份旧数据到 _backup_old_* localStorage 键（供手动回滚）
+            this.targetTables.forEach(table => {
+                try {
+                    const raw = localStorage.getItem(`cache_${table}`);
+                    if (raw !== null) {
+                        localStorage.setItem(`_backup_old_${table}`, raw);
+                    } else {
+                        localStorage.removeItem(`_backup_old_${table}`);
+                    }
+                } catch (e) { /* 存储不可用时忽略 */ }
+            });
+
+            try {
+                if (isStandardFormat) {
+                    Object.keys(backupData.tables).forEach(t => {
+                        if (this.targetTables.includes(t)) processTable(t, backupData.tables[t]);
+                    });
+                } else {
+                    Object.keys(backupData).forEach(t => {
+                        if (this.targetTables.includes(t)) {
+                            let d = backupData[t];
+                            if (typeof d === 'string') try { d = JSON.parse(d); } catch(e){}
+                            processTable(t, d);
+                        }
+                    });
+                }
+            } catch (restoreErr) {
+                // NB-20: 写入过程失败，回滚到旧数据
+                console.error('❌ 恢复过程中出错，开始回滚:', restoreErr);
+                this.targetTables.forEach(table => {
+                    if (_oldBackup[table] !== undefined) {
+                        try {
+                            if (_oldBackup[table] === null) {
+                                localStorage.removeItem(`cache_${table}`);
+                            } else {
+                                localStorage.setItem(`cache_${table}`, _oldBackup[table]);
+                            }
+                        } catch (e) { /* 回滚失败时降级处理 */ }
                     }
                 });
+                this.showStatus(`❌ 恢复失败，已回滚旧数据：${restoreErr.message}`, 'red');
+                UINotification.error('恢复过程中发生错误，已自动回滚到恢复前的状态');
+                return; // 停止后续流程
             }
             
             // 4.5 RK30: 恢复学校定制配置到本地缓存（若备份包含且与当前学校一致）。

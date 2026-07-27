@@ -4,6 +4,7 @@ import { FormValidator } from '../utils/FormValidator.js';
 import { UINotification } from '../utils/UINotification.js';
 import { NetworkHelper } from '../utils/NetworkHelper.js';
 import { GuestAuthService } from '../services/GuestAuthService.js';
+import { escapeHtml } from '../utils/schoolCustomization/shared.js';
 import { calculatePathogenRisk, isPositiveResult } from '../utils/pathogenRisk.js';
 import { auditService } from '../services/AuditService.js';
 import { permissionService } from '../services/PermissionService.js';
@@ -801,7 +802,12 @@ function showEditModal(record, currentUser) {
     document.getElementById('recheckReportsList').addEventListener('click', (e) => {
         const btn = e.target.closest('.view-recheck-detail');
         if (btn) {
-            const recheckData = JSON.parse(btn.dataset.recheck);
+            let recheckData;
+            try {
+                recheckData = JSON.parse(btn.dataset.recheck);
+            } catch {
+                return;
+            }
             showTestDetailModal(recheckData);
         }
     });
@@ -1202,7 +1208,12 @@ function showDetailModal(recordId) {
     
     modal.querySelectorAll('.view-test-detail').forEach(btn => {
         btn.addEventListener('click', () => {
-            const testData = JSON.parse(btn.dataset.test);
+            let testData;
+            try {
+                testData = JSON.parse(btn.dataset.test);
+            } catch {
+                return;
+            }
             showTestDetailModal(testData);
         });
     });
@@ -1331,24 +1342,24 @@ function renderTable() {
         let statusBadge = '';
         if (item.finalStatus) {
             const statusColor = item.finalStatus === '复检通过' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-yellow-100 text-yellow-700 border-yellow-200';
-            statusBadge = `<span class="px-2 py-1 rounded-full text-xs font-medium border ${statusColor} ml-2">${item.finalStatus}</span>`;
+            statusBadge = `<span class="px-2 py-1 rounded-full text-xs font-medium border ${statusColor} ml-2">${escapeHtml(item.finalStatus)}</span>`;
         }
 
         return `
             <tr class="border-b hover:bg-gray-50">
-                <td class="px-4 py-3 text-center">${item.testDate}</td>
-                <td class="px-4 py-3 font-medium">${item.sampleId}</td>
-                <td class="px-4 py-3 text-center">${item.canteen}</td>
-                <td class="px-4 py-3 text-center">${item.sampleType}</td>
-                <td class="px-4 py-3 ${positiveClass} cursor-pointer hover:underline result-value" data-id="${item.id}" title="点击查看详情">
-                    ${displayPositiveItems}${statusBadge}
+                <td class="px-4 py-3 text-center">${escapeHtml(item.testDate)}</td>
+                <td class="px-4 py-3 font-medium">${escapeHtml(item.sampleId)}</td>
+                <td class="px-4 py-3 text-center">${escapeHtml(item.canteen)}</td>
+                <td class="px-4 py-3 text-center">${escapeHtml(item.sampleType)}</td>
+                <td class="px-4 py-3 ${positiveClass} cursor-pointer hover:underline result-value" data-id="${escapeHtml(item.id)}" title="点击查看详情">
+                    ${escapeHtml(displayPositiveItems)}${statusBadge}
                 </td>
                 <td class="px-4 py-3 text-center">
-                    <span class="px-2 py-1 rounded-full text-xs font-medium ${riskClass}" title="${displayRiskReason || ''}">
-                        ${displayRiskLevel}
+                    <span class="px-2 py-1 rounded-full text-xs font-medium ${riskClass}" title="${escapeHtml(displayRiskReason || '')}">
+                        ${escapeHtml(displayRiskLevel)}
                     </span>
                 </td>
-                <td class="px-4 py-3 text-center">${item.inspector}</td>
+                <td class="px-4 py-3 text-center">${escapeHtml(item.inspector)}</td>
                 <td class="px-4 py-3 text-center">
                     <div class="flex gap-2 justify-center">
                         <button class="px-3 py-1.5 bg-blue-50 text-blue-700 rounded hover:bg-blue-100 btn-edit" data-id="${item.id}">

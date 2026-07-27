@@ -100,11 +100,16 @@ export async function provisionSchool({
   const tenantUrl = `${baseUrl}?schema=${encodeURIComponent(schema)}`
   log(`→ 推送表结构到 ${schema} ...`)
   // ② 推送业务表到该 schema（异步非阻塞，避免阻塞事件循环，TD-SpawnSync）
-  const pushOutput = await runPrismaPush(
-    ['prisma', 'db', 'push', '--skip-generate', '--accept-data-loss'],
-    tenantUrl,
-    schema
-  )
+  // NB-05: --accept-data-loss 仅首次 provision（无数据）时相对安全；
+  // reprovision 场景去掉该 flag，避免列类型不兼容时静默丢数据。
+  const isReprovision = !created
+  const pushArgs = ['prisma', 'db', 'push', '--skip-generate']
+  if (isReprovision) {
+    log('⚠️ reprovision: 跳过 --accept-data-loss，避免静默丢数据')
+  } else {
+    pushArgs.push('--accept-data-loss')
+  }
+  const pushOutput = await runPrismaPush(pushArgs, tenantUrl, schema)
   log(`✅ ${schema} 表结构就绪 (${pushOutput.split('\n').slice(-3).join(' | ')})`)
 
   // ③ 系统记录（public，幂等）

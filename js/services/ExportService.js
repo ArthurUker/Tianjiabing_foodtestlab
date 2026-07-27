@@ -370,6 +370,10 @@ export class ExportService {
         return results;
     }
 
+    // NB-22: 大数据量保护——每种类型最多加载的记录数，防止 OOM。
+    // 未来考虑分批导出以支持超大数据集（见 collectData 注释）。
+    get MAX_ROWS_PER_TYPE() { return 2000; }
+
     // ✅ 修改：收集数据时增加肉类品种筛选
     collectData(config) {
         const data = {};
@@ -390,8 +394,16 @@ export class ExportService {
             meatTypes: config.meatTypes.length ? config.meatTypes : '(全部品种)' // ✅ 新增日志
         });
 
+        this._rowsTruncated = {}; // NB-22: 记录被截断的模块
+
         config.testTypes.forEach(type => {
-            const records = this.storage[type].getAll();
+            let records = this.storage[type].getAll();
+
+            // NB-22: 限制每个类型的最大记录数（防止大数据量导致 OOM）
+            if (records.length > this.MAX_ROWS_PER_TYPE) {
+                this._rowsTruncated[type] = records.length;
+                records = records.slice(0, this.MAX_ROWS_PER_TYPE);
+            }
 
             let matchedLogCount = 0;
 
@@ -563,6 +575,13 @@ export class ExportService {
             html += '</div>';
         });
         
+        // NB-22: 检查是否有类型因行数限制被截断
+        const truncatedTypes = Object.keys(this._rowsTruncated || {});
+        const typeNamesForTruncation = {
+            tableware: '餐具洁净度', pesticide: '果蔬农残', oil: '食用油品质',
+            leanMeat: '肉、蛋农残', pathogen: '病原体检测'
+        };
+
         html += `
             <div class="mt-6 p-4 bg-blue-50 border border-blue-200 rounded">
                 <h4 class="font-bold mb-2">📊 数据汇总</h4>
@@ -575,6 +594,17 @@ export class ExportService {
         if (config.testTypes.includes('leanMeat') && config.meatTypes.length > 0) {
             html += `
                 <p class="text-sm">肉类品种：<span class="font-bold text-orange-600">${config.meatTypes.join('、')}</span></p>
+            `;
+        }
+
+        // NB-22: 超限截断提示
+        if (truncatedTypes.length > 0) {
+            html += `
+                <div class="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
+                    <strong>⚠️ 注：</strong>
+                    ${truncatedTypes.map(t => `${typeNamesForTruncation[t] || t} 记录数超过 ${this.MAX_ROWS_PER_TYPE} 条，仅显示前 ${this.MAX_ROWS_PER_TYPE} 条`).join('；')}
+                    （如需全部数据，建议分批按日期范围导出）
+                </div>
             `;
         }
         
@@ -1017,7 +1047,7 @@ export class ExportService {
             type === 'success' ? 'bg-green-500' : 
             type === 'error' ? 'bg-red-500' : 'bg-blue-500'
         } text-white`;
-        toast.innerHTML = message;
+        toast.textContent = message;
         document.body.appendChild(toast);
         
         setTimeout(() => {
