@@ -297,7 +297,7 @@ export class Router {
         console.log('🔧 setupLogoutButton() 被调用');
         
         // 找到所有的登出按钮（可能有多个）
-        const logoutBtns = document.querySelectorAll('#btnLogout');
+        const logoutBtns = document.querySelectorAll('.js-logout');
         console.log(`  找到 ${logoutBtns.length} 个登出按钮`);
         
         logoutBtns.forEach((btn, index) => {

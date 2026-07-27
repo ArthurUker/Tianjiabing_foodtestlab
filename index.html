@@ -202,7 +202,7 @@
                     <span data-user-name>用户</span>
                     <span class="text-xs ml-2 px-2 py-1 bg-blue-700 rounded" data-user-role>角色</span>
                 </div>
-                <button id="btnLogout" class="ml-4 px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm transition">
+                <button id="btnLogout" class="js-logout ml-4 px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm transition">
                     <i class="fas fa-sign-out-alt mr-1"></i>登出
                 </button>
             </div>
@@ -260,7 +260,7 @@
             
             <!-- 用户菜单 (顶部右侧) -->
             <div class="border-t border-gray-700 mt-auto pt-4">
-                <button class="w-full text-left px-4 py-2 rounded hover:bg-gray-700 flex items-center text-sm" id="btnLogout">
+                <button class="js-logout w-full text-left px-4 py-2 rounded hover:bg-gray-700 flex items-center text-sm" id="sidebarBtnLogout">
                     <i class="fas fa-sign-out-alt mr-3 w-5"></i>退出登录
                 </button>
             </div>
@@ -652,7 +652,7 @@
         document.addEventListener('DOMContentLoaded', function() {
             console.log('🔧 为登出按钮添加事件监听...');
             
-            const logoutBtns = document.querySelectorAll('#btnLogout');
+            const logoutBtns = document.querySelectorAll('.js-logout');
             console.log(`  找到 ${logoutBtns.length} 个登出按钮`);
             
             logoutBtns.forEach((btn, index) => {
@@ -761,12 +761,7 @@
             
             console.log('🎯 [辅助脚本] 检查快速访问模式表格渲染');
             
-            // 检查是否已经准备好
-            if (window.tablewareReady) {
-                console.log('✅ Tableware已准备好');
-                return;
-            }
-            
+            // TD-Index-Bugs ⑤: window.tablewareReady 从未被设置（条件恒 falsy），移除无效分支
             // 尝试收集所有表格并检查其数据
             const tableIds = ['tablewareRecords', 'pesticideRecords', 'oilRecords', 'leanMeatRecords'];
             tableIds.forEach(tableId => {
