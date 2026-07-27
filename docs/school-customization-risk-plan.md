@@ -295,6 +295,87 @@
 - JWT 三层角色不可互用 ✅ | 租户数据物理隔离 ✅ | 超管端点全经 requirePlatformSuperAdmin ✅
 - schoolCode 注入防护（白名单+归一化+assertSafeSchemaName）✅ | HS256 算法固定 ✅
 
+---
+
+## 🔁 第三轮深度审阅（2026-07-27：换模型后 4 代理并行）
+
+> 重点：之前 NB-01~34 修复的**回归 bug** + 之前未发现的并发/业务/测试缺陷 + 文档/配置不一致。
+
+### 🚨 修复回归问题（最关键 — 修复引入的新 bug）
+
+| 编号 | 严重度 | 之前的修复 | 引入的问题 | 位置 |
+|---|---|---|---|---|
+| **REG-01** | 🔴 高 | NB-18 (访客缓存清除) | `clearGuestVisibleTypesCache` 在 authMiddleware.js 中已实现，但 server.js:75 解构时未取该函数，PUT customization 后从未调用 → 60秒内访客仍看到旧 visible_types，**NB-18 修复无效** | `server.js:75,832` |
+| **REG-02** | 🔴 高 | NB-05 (AuthService 权限缓存清除) | `permissionService` 未 import 即使用，运行时抛 ReferenceError 被 try/catch 静默吞掉 → 权限缓存实际从未清除，**NB-05 修复无效** | `AuthService.js:466` |
+| **REG-03** | 🟠 中 | NB-01 (is_active→status) | admin-schools.html 前端仍读 `u.is_active`（5 处），后端返回的是 `status` → `u.is_active = undefined` → 所有用户显示"启用"状态（含已停用的） | `admin-schools.html:2141,2147,2269,2302,2310` |
+| **REG-04** | 🟠 中 | NB-02 (错误脱敏) | server.js:867 仍泄露 `details: msg`（msg=error.message） | `server.js:867` |
+| **REG-05/06** | 🟠 中 | NB-09 (limit 上限) | auditRoutes.js 和 userRoutes.js 中 `parseInt(limit)` 无 Math.min 上限，可传 999999999 导致 DoS | `auditRoutes.js:102,122` `userRoutes.js:265` |
+| **REG-07/08/09** | 🟠 中 | NB-02 (错误脱敏) | guestRoutes/userRoutes/sessionRoutes/syncRoutes 共 30+ 处 catch 块仍返回 `error.message`，server.js 之外的脱敏未覆盖 | 4 个路由文件 |
+| **REG-10** | 🟢 低 | NB-09 (limit 500) | ExportService 请求 limit=10000，BackupRestore 请求 limit=1000，均被静默截断为 500 → 导出/恢复仅 500 条而非全部 | `ExportService.js:345` `BackupRestore.js:613` |
+| **REG-13** | 🟢 低 | NB-06 (用户名正则) | AuthService 前端用 `{3,50}`，后端用 `{3,32}`，33-50 位用户名前端通过但后端拒绝 | `AuthService.js:210` vs `server.js:945` |
+
+### 🆕 并发/时序/错误处理新发现
+
+| 编号 | 严重度 | 问题 | 位置 |
+|---|---|---|---|
+| **CONC-1** | 🔴 高 | clearGuestVisibleTypesCache 从未被调用（同 REG-01，已是回归又是新发现） | `server.js:75,832` |
+| **CONC-2** | 🔴 高 | BackupRestore.js:456 JSON.parse 无 try/catch，缓存损坏会中断整个上传队列 | `BackupRestore.js:456` |
+| **CONC-3** | 🔴 高 | BackupRestore.js:1041 同问题，恢复后同步状态不一致 | `BackupRestore.js:1041` |
+| **CONC-4** | 🟠 中 | NetworkHelper.fetchWithTimeout 的 timer 泄漏 + AbortController 未正确 abort | `NetworkHelper.js:82-93` |
+| **CONC-5** | 🟠 中 | NetworkHelper.watchNetworkStatus 的 online/offline 监听器永不清理，多次 init 累加 | `NetworkHelper.js:120-133` |
+| **CONC-6** | 🟠 中 | GuestDashboard.js:53 applySchoolBranding 未 await（fire-and-forget async） | `GuestDashboard.js:53` |
+| **CONC-7** | 🟠 中 | Storage.js 三处 auditService.log 未 await/catch，unhandled rejection | `Storage.js:406,435,447` |
+| **CONC-8** | 🟠 中 | Router.js:271 登出清缓存键 `'cache_lean'` 错误，应为 `'cache_leanMeat'` → 瘦肉精数据残留 | `Router.js:271` |
+| **CONC-9** | 🟠 中 | Dashboard.js:998-1004 getStats 直接修改传入 records（副作用），并发渲染竞态 | `Dashboard.js:998` |
+
+### 🆕 业务逻辑新发现
+
+| 编号 | 严重度 | 问题 | 位置 |
+|---|---|---|---|
+| **BIZ-1** | 🔴 高 | Pathogen 合格率：自定义字段判定不合格时，passCount 仍计为合格（统计口径不一致） | `Dashboard.js:1016` |
+| **BIZ-2** | 🔴 高 | ExportService 油类合格率判定与 Dashboard 不一致（colorLevel 警戒时结果相反） | `ExportService.js:727,732` |
+| **BIZ-3** | 🟠 中 | ExportService 无数据时合格率显示'100%'而非'—'（与 Dashboard 不一致） | `ExportService.js:732` |
+| **BIZ-6** | 🟠 中 | 幂等中间件对 PUT 返回缓存结果，可能反映过期的并发修改 | `server.js:1088` |
+| **BIZ-7** | 🔴 高 | `data_version` 字段存在但从未被业务读取（RK48 修复是"加列"而非"versioned reader"） | `schema.prisma:72` 全局 |
+
+### 🆕 测试/构建/依赖新发现
+
+| 编号 | 严重度 | 问题 | 位置 |
+|---|---|---|---|
+| **TST-1** | 🔴 高 | build-static.js 漏复制 `super-admin-login.html` → 生产部署后超管登录 404 | `build-static.js:13` |
+| **TST-2** | 🔴 高 | POST /api/test-records 未调 sanitizeObjectKeys（其他路径已调） → 原型链污染 | `server.js:1110-1119` |
+| **TST-3** | 🟠 中 | 未设 `trust proxy`，反代后 rateLimit 全共享单 bucket | `server.js` |
+| **TST-6** | 🟠 中 | SIGTERM 优雅关闭无超时，长连接致进程挂起 | `server.js:1686` |
+
+### 📋 文档/配置不一致（15 项）
+
+| 文件 | 问题 |
+|---|---|
+| `docs/api/customization-api.md:40` | 路径写 `/api/auth/login`，实际是 `/api/user/login` |
+| `docs/deployment/dev-test-deployment-guide.md:25` | 描述"Hono 后端"，实际是 Express |
+| `login.html:254` | 显示版本 1.0，package.json 是 3.1.0 |
+| `.env.example` | 缺 13 个实际使用的环境变量，含 17 个废弃变量 |
+| `.babelrc:7` | targets.node=14，应改为 18（与 engines 对齐）|
+| `jest.config.cjs:17` | collectCoverageFrom 未覆盖 fieldMasking.js / schoolCustomization/ |
+| `package.json` | `test:backend` 脚本失效（backend/ 无 .test.js 文件） |
+| `backend/package.json` vs 根 `package.json` | 重复声明依赖，版本漂移风险 |
+| `cypress.config.cjs` | baseUrl 8080 假设代理，未说明后端端口 |
+| `scripts/provision-school.sh:52` | BARE_CODE 前缀剥离与 tenantClient.js 不一致 |
+| 其他 5 项 | 见详细审阅报告 |
+
+### 📊 本轮发现统计
+
+| 类别 | 数量 |
+|---|---|
+| 修复回归（NB 修复引入的新 bug） | **11** (REG-01~13) |
+| 并发/时序新发现 | **9** (CONC-1~14) |
+| 业务逻辑新发现 | **7** (BIZ-1~7) |
+| 测试/构建新发现 | **7** (TST-1~10) |
+| 文档/配置不一致 | **15** |
+| **本轮合计** | **49** |
+
+**最严重发现**：NB-05/NB-18 修复实际**完全无效**（REG-01/REG-02），需要立即修复；TST-1 会阻断超管登录。
+
 ### 🚀 部署提醒（合并前必读）
 1. ~~H1-H6 已全部验证修复~~（见上节）。
 2. 生产部署切换为 `prisma migrate deploy` 流程（H3 已落地）。
