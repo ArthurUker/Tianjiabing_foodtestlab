@@ -40,6 +40,14 @@ cypress/_errcap_out.txt
 cypress/e2e/_errcap.cy.js
 cypress/screenshots/
 
+# Local PostgreSQL (portable binary + data dir, for local testing only)
+backend/pgsql/
+pgsql.zip
+
+# Local portable test scripts (local-only, not for repo)
+portable-start.bat
+portable-stop.bat
+
 # Prisma
 prisma/*.db
 backend/prisma/*.db
