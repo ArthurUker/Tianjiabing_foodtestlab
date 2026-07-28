@@ -491,7 +491,9 @@ app.use(express.json({ limit: process.env.BODY_LIMIT || '8mb' }))
 // DS-10: 应用层安全响应头兜底（反向代理 deploy/ 亦应设置）
 app.use((_req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff')
-    res.setHeader('X-Frame-Options', 'DENY')
+    // 同源管理后台需将前台页面嵌入预览 iframe，故对非 API 静态资源允许同源框嵌套；
+    // API 路由保持禁止框嵌套（再叠加下方 CSP frame-ancestors 'none' 双重防护）。
+    res.setHeader('X-Frame-Options', _req.path.startsWith('/api/') ? 'DENY' : 'SAMEORIGIN')
     res.setHeader('Referrer-Policy', 'no-referrer')
     res.setHeader('X-XSS-Protection', '1; mode=block')
     // NB-34: 仅在生产域名部署下设置 HSTS（HTTP 部署下无意义）

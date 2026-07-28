@@ -124,7 +124,7 @@
             hideError();
 
             const username = usernameInput.value.trim();
-            const password = passwordInput.value;
+            const password = passwordInput.value.trim();
 
             if (!username || !password) {
                 showError('用户名和密码不能为空');
