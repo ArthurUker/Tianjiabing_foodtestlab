@@ -49,6 +49,8 @@ export function setSchoolInfo(schoolCode, info) {
     if (!schoolCode) return
     try {
         localStorage.setItem(INFO_KEY_PREFIX + schoolCode, JSON.stringify(info || {}))
+        // RK15: 同步写入时间戳，使 ensureSchoolInfo 能在 TTL 过期后重新拉取（避免永久陈旧）
+        localStorage.setItem(TS_KEY_PREFIX + schoolCode, String(Date.now()))
     } catch (e) { /* 存储不可用时忽略 */ }
 }
 
@@ -128,7 +130,9 @@ export async function ensureSchoolConfig(schoolCode) {
 export async function ensureSchoolInfo(schoolCode) {
     if (!schoolCode) return null
     const cached = getSchoolInfo(schoolCode)
-    if (cached && cached.name) return cached
+    // RK15: 与 ensureSchoolConfig 一致——缓存命中且未过期（5 分钟 TTL）才直接返回；
+    // 否则重新拉取服务端最新外观（校徽/校名/主题色），保证管理控制台修改后师生端可见。
+    if (cached && cached.name && isCacheFresh(schoolCode)) return cached
     try {
         const resp = await fetch(`/api/schools/${encodeURIComponent(schoolCode)}/config`)
         if (!resp.ok) return null
@@ -165,4 +169,47 @@ export function onSchoolConfigChanged(schoolCode, cb) {
     }
     window.addEventListener('storage', handler)
     return () => window.removeEventListener('storage', handler)
+}
+
+/**
+ * CR-06 / RK-品牌：学校外观信息（校徽 Logo / 校名 / 主题色）变更订阅。
+ * 与 onSchoolConfigChanged 对称，但监听 `school_info_` 缓存键（基本信息维度）。
+ * 兼容两种触发源：
+ *   - 跨标签页：其它标签页（如管理控制台）改写 localStorage 后浏览器派发的 `storage` 事件；
+ *   - 同标签页：管理控制台保存后派发的 `school:info-changed` CustomEvent（detail.schoolCode）。
+ * 返回取消订阅函数。
+ */
+export function onSchoolInfoChanged(schoolCode, cb) {
+    if (!schoolCode || typeof cb !== 'function') return () => {}
+    const handler = (e) => {
+        if (e.key !== INFO_KEY_PREFIX + schoolCode) return
+        try {
+            cb(getSchoolInfo(schoolCode) || {})
+        } catch (err) {
+            console.error('❌ 跨标签页学校外观同步回调失败:', err)
+        }
+    }
+    const localHandler = (e) => {
+        if (e.detail && e.detail.schoolCode === schoolCode) {
+            try { cb(getSchoolInfo(schoolCode) || {}) } catch (err) { /* ignore */ }
+        }
+    }
+    window.addEventListener('storage', handler)
+    window.addEventListener('school:info-changed', localHandler)
+    return () => {
+        window.removeEventListener('storage', handler)
+        window.removeEventListener('school:info-changed', localHandler)
+    }
+}
+
+/**
+ * 同标签页通知：管理控制台保存学校基本信息后调用，触发本标签页（如预览 iframe 宿主页）
+ * 监听的 `school:info-changed` 事件，立即重应用品牌。跨标签页由 setSchoolInfo 写入
+ * localStorage 自动派发 `storage` 事件覆盖。
+ */
+export function notifySchoolInfoChanged(schoolCode) {
+    if (!schoolCode) return
+    try {
+        window.dispatchEvent(new CustomEvent('school:info-changed', { detail: { schoolCode } }))
+    } catch (e) { /* ignore */ }
 }

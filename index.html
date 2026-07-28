@@ -177,6 +177,20 @@
             // TD-Index-Bugs ①: 移除重复的 DOMContentLoaded 回调（原代码块完全重复，已合并到上方主回调）
         }
     </script>
+    <style>
+        /* 左侧菜单吸顶：固定在顶部导航栏下方，长内容时内部滚动，不随页面滑动 */
+        .sidebar-menu {
+            position: sticky;
+            top: 80px;                /* 导航栏（约 56px）+ 间距，避免重叠 */
+            align-self: flex-start;   /* 防止 flex 容器把它拉伸到整页高，保证 sticky 生效 */
+            max-height: calc(100vh - 96px);
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+        .sidebar-menu::-webkit-scrollbar { width: 6px; }
+        .sidebar-menu::-webkit-scrollbar-thumb { background: rgba(255,255,255,.2); border-radius: 3px; }
+    </style>
 </head>
 <body>
 
@@ -189,8 +203,8 @@
         </filter>
     </svg>
 
-    <!-- 顶部导航 -->
-    <nav class="glass-dark text-white">
+    <!-- 顶部导航（吸顶：滚动时固定在顶部） -->
+    <nav class="glass-dark text-white sticky top-0 z-50">
         <div class="container mx-auto px-4 py-3 flex justify-between items-center">
             <div class="flex items-center space-x-3">
                 <span id="systemLogo" class="text-2xl"><i class="fas fa-shield-alt"></i></span>
@@ -212,8 +226,8 @@
     <!-- 主容器 -->
     <div class="container mx-auto px-4 py-6 flex gap-6">
         
-        <!-- 左侧菜单 -->
-        <div class="glass-dark text-white w-64 flex-shrink-0 sidebar-menu h-screen sticky top-4">
+        <!-- 左侧菜单（吸顶：固定在导航栏下方，内容过长时内部滚动） -->
+        <div class="glass-dark text-white w-64 flex-shrink-0 sidebar-menu">
             <div class="p-4 border-b border-gray-700">
                 <h1 class="text-xl font-bold">检测系统</h1>
                 <p class="text-xs text-gray-400 mt-1">Version 4.0</p>

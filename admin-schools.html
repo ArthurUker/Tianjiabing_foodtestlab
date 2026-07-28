@@ -8,6 +8,10 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
     <script src="./js/utils/themePresets.js"></script>
     <style>
+      /* ====== 统一编辑弹层（字段规则 / 类型统计）====== */
+      .sc-popover{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 12px 32px rgba(0,0,0,.16);padding:14px;}
+    </style>
+    <style>
         /* ====== 预设主题选择卡片 ====== */
         #themePresets {
             display: grid;
@@ -189,6 +193,9 @@
                 <button class="tab-btn px-4 py-2 font-medium text-gray-500 hover:text-blue-500 border-b-2 border-transparent" data-tab="custom">
                     <i class="fas fa-palette mr-1"></i>界面定制
                 </button>
+                <button class="tab-btn px-4 py-2 font-medium text-gray-500 hover:text-blue-500 border-b-2 border-transparent" data-tab="login">
+                    <i class="fas fa-sign-in-alt mr-1"></i>登录样式
+                </button>
                 <button class="tab-btn px-4 py-2 font-medium text-gray-500 hover:text-blue-500 border-b-2 border-transparent" data-tab="users">
                     <i class="fas fa-users mr-1"></i>用户管理
                 </button>
@@ -237,12 +244,6 @@
                                 <p class="text-xs text-gray-400">支持一键上传本地图片（自动压缩），也可直接填网络图片地址。</p>
                             </div>
                         </div>
-                        <div class="mt-2">
-                            <button type="button" id="bf_badgeEditorBtn" class="inline-flex items-center gap-1 px-3 py-1.5 bg-purple-50 text-purple-700 rounded-lg text-sm hover:bg-purple-100 border border-purple-100 transition">
-                                <i class="fas fa-crop-alt"></i> 校徽排版 / 裁切
-                            </button>
-                            <span id="bf_badgeStyleHint" class="ml-2 text-xs text-gray-400"></span>
-                        </div>
                     </div>
                     <div>
                         <label class="block text-sm text-gray-600 mb-1">状态</label>
@@ -276,6 +277,22 @@
                     <div id="themePresets">
                         <!-- JS 动态生成 -->
                     </div>
+                </div>
+
+                <!-- 校徽排版（品牌相关集中到界面定制）-->
+                <div class="mb-4 p-4 border border-gray-200 rounded-lg bg-gray-50">
+                    <h3 class="font-medium text-gray-700 mb-3"><i class="fas fa-crop-alt mr-1 text-purple-600"></i>校徽排版</h3>
+                    <p class="text-xs text-gray-400 mb-3">先在上方「基本信息」上传校徽，再在此裁切排版：支持圆形 / 方形、旋转翻转，以及「背景水印」与「导航小徽章」两种用法。</p>
+                    <div class="flex items-center flex-wrap gap-2">
+                        <button type="button" id="bf_badgeEditorBtn" class="inline-flex items-center gap-1 px-3 py-1.5 bg-purple-50 text-purple-700 rounded-lg text-sm hover:bg-purple-100 border border-purple-100 transition">
+                            <i class="fas fa-crop-alt"></i> 顶部栏预览编辑模式
+                        </button>
+                        <button type="button" id="bf_badgeEditorModalBtn" class="inline-flex items-center gap-1 px-3 py-1.5 bg-gray-50 text-gray-600 rounded-lg text-sm hover:bg-gray-100 border border-gray-100 transition">
+                            <i class="fas fa-expand"></i> 弹窗版
+                        </button>
+                        <span id="bf_badgeStyleHint" class="ml-2 text-xs text-gray-400"></span>
+                    </div>
+                    <div id="bf_badgeEditorInline" class="hidden mt-3 p-4 border border-purple-100 bg-purple-50/40 rounded-xl"></div>
                 </div>
 
                 <!-- 编辑区：整宽多栏 -->
@@ -341,7 +358,7 @@
                 </div>
 
                 <!-- 字段校验规则弹层（傻瓜式：无需手填字段名） -->
-                <div id="rulePopover" style="display:none;position:fixed;z-index:1000;width:268px;background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 12px 32px rgba(0,0,0,.16);padding:14px;">
+                <div id="rulePopover" class="sc-popover" style="display:none;position:fixed;z-index:1000;width:280px;">
                     <div class="text-sm font-medium text-gray-800 mb-3">字段校验规则 · <span id="rpLabel" class="text-blue-600"></span></div>
                     <label class="flex items-center gap-2 text-sm mb-3 cursor-pointer">
                         <input type="checkbox" id="rpRequired" class="rounded"> 必填（不允许为空）
@@ -357,7 +374,7 @@
                 </div>
 
                 <!-- RK35: 自定义字段「类型与统计」弹层（仅自定义字段可见） -->
-                <div id="statPopover" style="display:none;position:fixed;z-index:1000;width:300px;background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 12px 32px rgba(0,0,0,.16);padding:14px;">
+                <div id="statPopover" class="sc-popover" style="display:none;position:fixed;z-index:1000;width:300px;">
                     <div class="text-sm font-medium text-gray-800 mb-3">字段类型与统计 · <span id="spLabel" class="text-purple-600"></span></div>
                     <div class="text-xs text-gray-500 mb-1">输入类型</div>
                     <select id="spType" class="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-3">
@@ -396,6 +413,143 @@
                         </button>
                         <button id="saveCustomBtn" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium flex items-center">
                             <i class="fas fa-save mr-2"></i>保存定制
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab: 登录样式（独立模块：各学校租户登录页背景 / 卡片 / 品牌定制）-->
+            <div id="tab-login" class="tab-content hidden">
+                <div class="flex items-start gap-3 bg-indigo-50 border border-indigo-200 text-indigo-800 text-sm rounded-xl p-3 mb-4">
+                    <i class="fas fa-info-circle mt-0.5 text-indigo-500"></i>
+                    <div class="flex-1 leading-relaxed">
+                        <b>登录页样式：</b>为该校单独设计登录界面——背景（极光/纯色/图片）、登录卡片（对齐/尺寸/圆角/阴影/毛玻璃）与品牌（校徽/标题/标语）。右侧实时预览即真实效果，改完点「保存登录样式」对该校 <code>/&lt;代码&gt;/login</code> 生效。本模块与「界面定制」相互独立，单独保存。
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <!-- 左侧：控件 -->
+                    <div class="space-y-4">
+                        <!-- 背景 -->
+                        <div class="border border-gray-200 rounded-lg p-4">
+                            <h3 class="font-medium text-gray-700 mb-3"><i class="fas fa-image mr-1 text-indigo-600"></i>登录背景</h3>
+                            <div id="lsBgType" class="grid grid-cols-3 gap-2 mb-3">
+                                <button type="button" data-bg-type="aurora" class="ls-bg-btn px-2 py-2 text-sm rounded-lg border border-gray-300 bg-white hover:bg-gray-50 transition">极光</button>
+                                <button type="button" data-bg-type="solid" class="ls-bg-btn px-2 py-2 text-sm rounded-lg border border-gray-300 bg-white hover:bg-gray-50 transition">纯色</button>
+                                <button type="button" data-bg-type="image" class="ls-bg-btn px-2 py-2 text-sm rounded-lg border border-gray-300 bg-white hover:bg-gray-50 transition">图片</button>
+                            </div>
+
+                            <div id="lsSolidRow" class="hidden mb-3">
+                                <label class="block text-sm text-gray-600 mb-1">背景色</label>
+                                <div class="flex items-center gap-2">
+                                    <input id="ls_bg_color" type="text" placeholder="#1a73e8" class="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                    <input id="ls_bg_color_picker" type="color" class="w-10 h-10 rounded cursor-pointer border border-gray-300">
+                                </div>
+                            </div>
+
+                            <div id="lsImageRow" class="hidden space-y-3">
+                                <div>
+                                    <label class="block text-sm text-gray-600 mb-1">背景图片 URL</label>
+                                    <div class="flex items-center gap-2">
+                                        <label class="cursor-pointer inline-flex items-center gap-1 px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-lg text-sm hover:bg-indigo-100 border border-indigo-100">
+                                            <i class="fas fa-upload"></i> 上传
+                                            <input type="file" id="ls_bg_file" accept="image/*" class="hidden">
+                                        </label>
+                                        <input id="ls_bg_image" type="url" placeholder="https://... 或留空" class="flex-1 min-w-[160px] px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm">
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-sm text-gray-600 mb-1">压暗蒙版（提升文字可读性）：<span id="lsOpacityVal" class="font-mono">0.25</span></label>
+                                    <input id="ls_bg_opacity" type="range" min="0" max="0.8" step="0.05" value="0.25" class="w-full">
+                                </div>
+                            </div>
+                            <p class="text-xs text-gray-400 mt-2">「极光」沿用该校在「界面定制」中设置的预设主题壁纸；「纯色/图片」将覆盖默认壁纸。</p>
+                        </div>
+
+                        <!-- 卡片 -->
+                        <div class="border border-gray-200 rounded-lg p-4">
+                            <h3 class="font-medium text-gray-700 mb-3"><i class="fas fa-square mr-1 text-indigo-600"></i>登录卡片</h3>
+                            <div class="mb-3">
+                                <label class="block text-sm text-gray-600 mb-1">水平对齐</label>
+                                <div id="lsCardAlign" class="grid grid-cols-3 gap-2">
+                                    <button type="button" data-align="left" class="ls-align-btn px-2 py-2 text-sm rounded-lg border border-gray-300 bg-white hover:bg-gray-50 transition">居左</button>
+                                    <button type="button" data-align="center" class="ls-align-btn px-2 py-2 text-sm rounded-lg border border-gray-300 bg-white hover:bg-gray-50 transition">居中</button>
+                                    <button type="button" data-align="right" class="ls-align-btn px-2 py-2 text-sm rounded-lg border border-gray-300 bg-white hover:bg-gray-50 transition">居右</button>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="block text-sm text-gray-600 mb-1">卡片宽度：<span id="lsWidthVal" class="font-mono">420</span> px</label>
+                                <input id="ls_card_width" type="range" min="300" max="640" step="10" value="420" class="w-full">
+                            </div>
+                            <div class="mb-3">
+                                <label class="block text-sm text-gray-600 mb-1">圆角：<span id="lsRadiusVal" class="font-mono">18</span> px</label>
+                                <input id="ls_card_radius" type="range" min="0" max="40" step="1" value="18" class="w-full">
+                            </div>
+                            <div class="flex items-center gap-5">
+                                <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                                    <input id="ls_card_shadow" type="checkbox" class="rounded" checked> 阴影
+                                </label>
+                                <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                                    <input id="ls_card_blur" type="checkbox" class="rounded" checked> 毛玻璃
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- 品牌 -->
+                        <div class="border border-gray-200 rounded-lg p-4">
+                            <h3 class="font-medium text-gray-700 mb-3"><i class="fas fa-tag mr-1 text-indigo-600"></i>品牌信息</h3>
+                            <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer mb-3">
+                                <input id="ls_brand_logo" type="checkbox" class="rounded" checked> 显示校徽 Logo
+                            </label>
+                            <div class="mb-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                                <label class="block text-sm text-gray-600 mb-2">登录页校徽 <span class="text-gray-400 text-xs">（留空=该校默认校徽）</span></label>
+                                <div class="flex items-center gap-3 mb-3">
+                                    <div id="ls_brand_logo_preview" class="w-14 h-14 rounded-xl bg-white border border-gray-300 flex items-center justify-center overflow-hidden shrink-0">
+                                        <i class="fas fa-shield-alt text-2xl text-gray-300"></i>
+                                    </div>
+                                    <div class="flex flex-col gap-2">
+                                        <label class="cursor-pointer inline-flex items-center gap-1 px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-lg text-sm hover:bg-indigo-100 border border-indigo-100">
+                                            <i class="fas fa-upload"></i> 上传校徽
+                                            <input type="file" id="ls_brand_logo_file" accept="image/*" class="hidden">
+                                        </label>
+                                        <button type="button" id="ls_brand_logo_reset" class="px-3 py-1.5 border border-gray-300 text-gray-600 rounded-lg text-sm hover:bg-gray-100 transition">使用学校默认校徽</button>
+                                    </div>
+                                </div>
+                                <input id="ls_brand_logo_url" type="url" placeholder="或粘贴校徽图片 URL（http(s) / 位图 data URI）" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm">
+                            </div>
+                            <div class="mb-3">
+                                <label class="block text-sm text-gray-600 mb-1">登录标题 <span class="text-gray-400 text-xs">（留空=校名）</span></label>
+                                <input id="ls_brand_title" type="text" placeholder="如 田家炳中学食品安全检验系统" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm text-gray-600 mb-1">副标题 / 标语 <span class="text-gray-400 text-xs">（留空=校简称）</span></label>
+                                <input id="ls_brand_subtitle" type="text" placeholder="如 食品安全检验管理平台" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 右侧：实时预览 -->
+                    <div class="border border-gray-200 rounded-xl p-4 bg-white">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="font-medium text-gray-700"><i class="fas fa-desktop mr-1 text-indigo-600"></i>实时预览</h3>
+                            <span class="text-xs text-gray-400 font-normal">模拟 <code>/&lt;代码&gt;/login</code></span>
+                        </div>
+                        <div id="loginStylePreview" class="relative overflow-hidden rounded-lg border border-gray-300 bg-gray-100" style="height: 520px;">
+                            <!-- JS 动态渲染登录预览 -->
+                        </div>
+                        <p class="text-xs text-gray-400 mt-2">预览中的校名 / 校徽取自该校基本信息，背景与卡片样式取自上方设置。</p>
+                    </div>
+                </div>
+
+                <!-- 底部保存栏 -->
+                <div class="sticky bottom-0 z-40 mt-4 -mx-5 -mb-5 px-5 py-3 bg-white/90 backdrop-blur border-t border-gray-200 flex items-center justify-between rounded-b-2xl">
+                    <span id="ls_dirtyHint" class="text-xs text-gray-400">修改会实时反映到预览，点「保存登录样式」后对该校生效</span>
+                    <div class="flex items-center gap-2">
+                        <button id="ls_resetBtn" class="hidden px-4 py-2 border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 transition text-sm">
+                            <i class="fas fa-undo mr-1"></i>放弃修改
+                        </button>
+                        <button id="ls_saveBtn" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition font-medium flex items-center">
+                            <i class="fas fa-save mr-2"></i>保存登录样式
                         </button>
                     </div>
                 </div>
@@ -571,7 +725,10 @@
         // RK32/RK34: 统一模块注册中心——单一事实来源，取代本地重复的 MODULE_INFO / 导航映射
         import { getAllModules } from './js/modules/registry.js';
         // 校徽图形化排版编辑器（裁切 / 定位 / 缩放 / 锁定比例）
-        import { openBadgeEditor } from './js/utils/schoolCustomization/badgeEditor.js';
+        import { openBadgeEditor, mountBadgeEditor } from './js/utils/schoolCustomization/badgeEditor.js';
+        import { setSchoolInfo, setSchoolCustomization, notifySchoolInfoChanged } from './js/utils/schoolCustomization.js';
+        // 登录页样式设计器（独立模块）
+        import { initLoginStyleDesigner } from './js/modules/loginStyleDesigner.js';
 
         const API_BASE = getApiBaseUrl();
 
@@ -607,6 +764,9 @@
             if (s == null) return '';
             return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
         }
+
+        // 登录页样式设计器（独立模块实例，与「界面定制」解耦，单独加载/保存）
+        const loginStyleDesigner = initLoginStyleDesigner({ API_BASE, authHeaders, notify: showNotice });
 
         // ====== 主题预设 ======
         // 预设主题（定义见 js/utils/themePresets.js）
@@ -1332,7 +1492,7 @@
                     <td>${s.status === 'active' ? '<span class="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs">启用</span>' : '<span class="px-2 py-0.5 bg-gray-200 text-gray-600 rounded-full text-xs">停用</span>'}</td>
                     <td>${s.logo_url ? `<img src="${escapeHtml(s.logo_url)}" alt="logo" class="w-7 h-7 object-contain rounded">` : '<i class="fas fa-school text-gray-300"></i>'}</td>
                     <td class="text-xs text-gray-500">${s.created_at ? new Date(s.created_at).toLocaleDateString() : ''}</td>
-                    <td><a class="text-blue-600 hover:underline text-xs" href="/${s.code}/login" target="_blank">/${escapeHtml(s.code)}/login</a></td>
+                    <td><a class="text-blue-600 hover:underline text-xs" href="/login.html?school=${encodeURIComponent(s.code)}" target="_blank">/login.html?school=${escapeHtml(s.code)}</a></td>
                     <td><button class="px-2 py-1 text-xs bg-blue-50 text-blue-700 rounded hover:bg-blue-100 transition btn-manage" data-code="${escapeHtml(s.code)}"><i class="fas fa-cog mr-1"></i>管理</button></td>
                 </tr>
             `).join('');
@@ -1356,7 +1516,7 @@
 
             // 填充基本信息
             document.getElementById('bf_code').value = school.code;
-            document.getElementById('bf_loginUrl').value = `/${school.code}/login`;
+            document.getElementById('bf_loginUrl').value = `/login.html?school=${encodeURIComponent(school.code)}`;
             document.getElementById('bf_name').value = school.name || '';
             document.getElementById('bf_shortName').value = school.short_name || '';
             document.getElementById('bf_themeColor').value = school.theme_color || '#1a73e8';
@@ -1395,10 +1555,62 @@
             }
         }
 
-        // 校徽排版编辑器入口
+        // 校徽排版编辑器入口：内嵌「顶部栏预览编辑模式」+ 弹窗版
         const badgeEditorBtn = document.getElementById('bf_badgeEditorBtn');
+        const badgeEditorModalBtn = document.getElementById('bf_badgeEditorModalBtn');
+        const inlineMount = document.getElementById('bf_badgeEditorInline');
+        let inlineInstance = null;   // 当前已挂载的内嵌编辑器实例
+        let inlineOpen = false;
+
+        function getLogoUrl() { return (document.getElementById('bf_logoUrl')?.value || '').trim() }
+
+        function schoolNameVal() { return (document.getElementById('bf_name').value || '').trim() || '示例学校' }
+
+        function mountInlineEditor() {
+            const url = getLogoUrl();
+            if (!url) {
+                showNotice('请先上传或填写校徽图片（建议上传本地图片以获得完整裁切能力）', 'error');
+                return false;
+            }
+            if (inlineInstance) return true;
+            inlineInstance = mountBadgeEditor(inlineMount, {
+                logoUrl: url,
+                logoStyle: logoStyle || undefined,
+                schoolName: schoolNameVal(),
+                embedded: true,
+                onSave: (newStyle) => {
+                    logoStyle = newStyle;
+                    markDirty();
+                    updateBadgeStyleHint();
+                    showNotice('✅ 校徽排版已应用，点「保存定制」后对该校生效', 'success');
+                },
+            });
+            return !!inlineInstance;
+        }
+
+        function unmountInlineEditor() {
+            if (inlineInstance && inlineInstance.destroy) inlineInstance.destroy();
+            inlineInstance = null;
+            inlineOpen = false;
+            inlineMount.classList.add('hidden');
+            badgeEditorBtn.classList.remove('bg-purple-600', 'text-white');
+            badgeEditorBtn.classList.add('bg-purple-50', 'text-purple-700');
+        }
+
+        // 切换内嵌编辑模式（展开/收起）
         if (badgeEditorBtn) badgeEditorBtn.addEventListener('click', () => {
-            const url = (document.getElementById('bf_logoUrl').value || '').trim();
+            if (inlineOpen) { unmountInlineEditor(); return; }
+            if (mountInlineEditor()) {
+                inlineOpen = true;
+                inlineMount.classList.remove('hidden');
+                badgeEditorBtn.classList.add('bg-purple-600', 'text-white');
+                badgeEditorBtn.classList.remove('bg-purple-50', 'text-purple-700');
+            }
+        });
+
+        // 弹窗版（保留原交互）
+        if (badgeEditorModalBtn) badgeEditorModalBtn.addEventListener('click', () => {
+            const url = getLogoUrl();
             if (!url) {
                 showNotice('请先上传或填写校徽图片（建议上传本地图片以获得完整裁切能力）', 'error');
                 return;
@@ -1406,13 +1618,21 @@
             openBadgeEditor({
                 logoUrl: url,
                 logoStyle: logoStyle || undefined,
-                schoolName: (document.getElementById('bf_name').value || '').trim() || '示例学校',
+                schoolName: schoolNameVal(),
                 onSave: (newStyle) => {
                     logoStyle = newStyle;
                     markDirty();
                     updateBadgeStyleHint();
                     showNotice('✅ 校徽排版已更新，点「保存定制」后对该校生效', 'success');
                 },
+            });
+        });
+
+        // 校徽地址或主题色变更时，若内嵌编辑器已展开则同步重渲染（避免源图/配色不一致）
+        ['bf_logoUrl', 'bf_themeColor'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('change', () => {
+                if (inlineOpen) { unmountInlineEditor(); mountInlineEditor(); inlineOpen = true; inlineMount.classList.remove('hidden'); badgeEditorBtn.classList.add('bg-purple-600', 'text-white'); badgeEditorBtn.classList.remove('bg-purple-50', 'text-purple-700'); }
             });
         });
 
@@ -1427,6 +1647,10 @@
             const fromTab = activeTabEl?.dataset.tab;
             if (fromTab === 'custom' && tab !== 'custom' && customDirty) {
                 if (!confirm('「界面定制」有未保存的修改，确定离开吗？离开后修改将丢失。')) return;
+            }
+            // 离开「登录样式」时若有未保存修改，提醒用户
+            if (fromTab === 'login' && tab !== 'login' && loginStyleDesigner.hasUnsaved()) {
+                if (!confirm('「登录样式」有未保存的修改，确定离开吗？离开后修改将丢失。')) return;
             }
 
             document.querySelectorAll('.tab-btn').forEach(b => {
@@ -1453,10 +1677,12 @@
                 if (hint && localStorage.getItem('veHintClosed') !== '1') hint.style.display = 'flex';
             }
             if (tab === 'users') loadUsers();
+            if (tab === 'login') loginStyleDesigner.load(currentSchoolCode);
         }
 
         document.getElementById('closeDetail').addEventListener('click', () => {
             if (customDirty && !confirm('「界面定制」有未保存的修改，确定关闭吗？修改将丢失。')) return;
+            if (loginStyleDesigner.hasUnsaved() && !confirm('「登录样式」有未保存的修改，确定关闭吗？修改将丢失。')) return;
             document.getElementById('detailPanel').classList.add('hidden');
             currentSchoolCode = null;
             // XR-04：离开配置页，管理后台还原默认主题与图标
@@ -1505,6 +1731,18 @@
                 });
                 showNotice('✅ 学校信息已保存', 'success');
                 loadSchools();
+                // 写入本地外观缓存并通知师生端（跨标签页 storage 事件 / 同标签页 CustomEvent），
+                // 使该校用户界面无需刷新即可看到新校徽/校名/主题色；预览区也同步刷新。
+                try {
+                    setSchoolInfo(currentSchoolCode, {
+                        name: document.getElementById('bf_name').value.trim(),
+                        shortName: document.getElementById('bf_shortName').value.trim(),
+                        logoUrl: document.getElementById('bf_logoUrl').value.trim(),
+                        themeColor: document.getElementById('bf_themeColor').value.trim(),
+                    });
+                    notifySchoolInfoChanged(currentSchoolCode);
+                    if (typeof renderPreview === 'function') renderPreview();
+                } catch (_) { /* 非关键路径 */ }
             } catch (e) {
                 showNotice('❌ ' + e.message, 'error');
             } finally {
@@ -1911,6 +2149,18 @@
         }
 
         // ====== 字段校验规则弹层（傻瓜式：无需手填字段名）======
+        // 统一弹层定位：锚定触发按钮下方，越界则回弹到上方；estHeight 为预估弹层高度
+        function positionPopover(pop, btn, estHeight) {
+            pop.style.display = 'block';
+            const rect = btn.getBoundingClientRect();
+            const w = pop.offsetWidth || 280;
+            let left = Math.min(rect.left, window.innerWidth - w - 8);
+            if (left < 8) left = 8;
+            let top = rect.bottom + 6;
+            if (top + estHeight > window.innerHeight - 8) top = Math.max(8, rect.top - estHeight - 6);
+            pop.style.left = left + 'px';
+            pop.style.top = top + 'px';
+        }
         let rulePopoverField = null;
         function openRulePopover(btn, fieldName, label) {
             closeRulePopover();
@@ -1920,13 +2170,7 @@
             document.getElementById('rpRequired').checked = !!r.required;
             document.getElementById('rpMax').value = r.maxLength || '';
             document.getElementById('rpMin').value = r.minLength || '';
-            const pop = document.getElementById('rulePopover');
-            const rect = btn.getBoundingClientRect();
-            let left = Math.min(rect.left, window.innerWidth - 284);
-            if (left < 8) left = 8;
-            pop.style.top = Math.min(rect.bottom + 6, window.innerHeight - 236) + 'px';
-            pop.style.left = left + 'px';
-            pop.style.display = 'block';
+            positionPopover(document.getElementById('rulePopover'), btn, 236);
         }
         function saveRuleFromPopover() {
             if (!rulePopoverField) return;
@@ -1989,13 +2233,7 @@
             document.getElementById('spStatRole').value = def.statRole === 'result' ? 'result' : '';
             document.getElementById('spQualified').value = Array.isArray(def.qualifiedValues) ? def.qualifiedValues.join(',') : '';
             syncStatPopoverVisibility();
-            const pop = document.getElementById('statPopover');
-            const rect = btn.getBoundingClientRect();
-            let left = Math.min(rect.left, window.innerWidth - 316);
-            if (left < 8) left = 8;
-            pop.style.top = Math.min(rect.bottom + 6, window.innerHeight - 360) + 'px';
-            pop.style.left = left + 'px';
-            pop.style.display = 'block';
+            positionPopover(document.getElementById('statPopover'), btn, 360);
         }
         function saveStatFromPopover() {
             if (!statPopoverField) return;
@@ -2103,6 +2341,9 @@
                     darkSolid: activeTheme.darkSolid,
                 } : null;
                 const themeConfig = { custom_fields: customFields, field_options: fieldOptions, section_titles: sectionTitles, field_order: fieldOrder, theme: themePayload, logo_style: logoStyle || undefined };
+                // RK-LS：保留「登录样式」模块已保存的 login（避免界面定制整写 theme_config 时把它清空）
+                const preservedLogin = parseJSON(currentCustomization?.theme_config)?.login;
+                if (preservedLogin) themeConfig.login = preservedLogin;
 
                 // 层级A全链路：custom_fields 同步 required（来自校验规则），供录入端直接渲染必填
                 const customFieldsPayload = {};
@@ -2115,22 +2356,23 @@
                     });
                 });
 
+                const customizationPayload = {
+                    visible_types: visibleTypes,
+                    field_labels: fieldLabels,
+                    hidden_fields: Array.from(hiddenFields),
+                    field_rules: collectedRules,
+                    theme_config: themeConfig,
+                    // 顶层新列（与 theme_config 嵌套并行写入；录入/统计端消费顶层列）
+                    custom_fields: customFieldsPayload,
+                    field_options: fieldOptions,
+                    field_order: fieldOrder,
+                    // BS-06: 乐观锁——加载时的 updated_at，被他人改过则后端返回 409
+                    expected_updated_at: currentCustomization?.updated_at || undefined
+                };
                 const resp = await fetch(`${API_BASE}/api/admin/schools/${currentSchoolCode}/customization`, {
                     method: 'PUT',
                     headers: authHeaders(),
-                    body: JSON.stringify({
-                        visible_types: visibleTypes,
-                        field_labels: fieldLabels,
-                        hidden_fields: Array.from(hiddenFields),
-                        field_rules: collectedRules,
-                        theme_config: themeConfig,
-                        // 顶层新列（与 theme_config 嵌套并行写入；录入/统计端消费顶层列）
-                        custom_fields: customFieldsPayload,
-                        field_options: fieldOptions,
-                        field_order: fieldOrder,
-                        // BS-06: 乐观锁——加载时的 updated_at，被他人改过则后端返回 409
-                        expected_updated_at: currentCustomization?.updated_at || undefined
-                    })
+                    body: JSON.stringify(customizationPayload)
                 });
                 // BS-06: 并发冲突处理
                 if (resp.status === 409) {
@@ -2142,6 +2384,10 @@
 
                 // BS-06: 刷新乐观锁基线，避免连续两次保存误报冲突
                 if (json.updated_at && currentCustomization) currentCustomization.updated_at = json.updated_at;
+
+                // 写入本地定制缓存：跨标签页 storage 事件触发该校师生端实时重应用，
+                // 无需等待 5 分钟 TTL 或手动刷新页面（预览区亦随之刷新）。
+                try { setSchoolCustomization(currentSchoolCode, customizationPayload) } catch (_) { /* 非关键路径 */ }
 
                 // 同步强调色到学校基本信息（theme_color），保证列表/兜底展示一致
                 if (themePayload?.accent) {

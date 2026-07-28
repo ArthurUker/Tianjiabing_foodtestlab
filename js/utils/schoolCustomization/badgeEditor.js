@@ -1,12 +1,17 @@
 /**
  * badgeEditor.js —— 校徽图形化排版编辑器
  *
- * 作用：管理端"校徽排版 / 裁切"按钮调用的 WYSIWYG 编辑器。
+ * 作用：管理端"校徽排版 / 裁切"编辑器。
  * 管理员上传校徽后，可在此：
  *   - 在「源图」上拖拽 / 拖角缩放一个裁切框（可锁定比例，如 1:1、3:4）
  *   - 实时预览校徽在顶部导航上的最终效果（背景水印层 或 小徽章）
  *   - 背景模式下：在预览舞台上拖动定位、滑块缩放与调不透明度
  *   - 保存后产出 logo_style（含裁切后的 data URL），供 branding.js 渲染
+ *
+ * 两种挂载形态（DS-BRAND-03）：
+ *   - openBadgeEditor(opts)       ：弹出模态框（保留旧调用方兼容）
+ *   - mountBadgeEditor(el, opts)  ：把同一套编辑器直接渲染进任意容器（如管理控制台
+ *                                    "基本信息" 里的"顶部栏预览编辑模式"，内嵌、非弹窗）
  *
  * 该模块为纯 DOM / Canvas，不依赖 schoolCustomization 其它子模块，避免循环引用。
  * 安全：源图若为 data URL（管理端上传默认压缩为 jpeg data URL）可自由绘制；
@@ -26,16 +31,123 @@ const DEFAULTS = {
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)) }
 function num(v, d) { return typeof v === 'number' && isFinite(v) ? v : d }
 
+// ---------- 子区块 HTML（模态与内嵌共用，靠容器作用域避免 ID 冲突）----------
+function stageHTML() {
+    return `
+    <div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">顶部导航预览</div>
+    <div id="beStage" style="position:relative;height:150px;border-radius:12px;overflow:hidden;background:linear-gradient(135deg,rgba(30,41,59,.95),rgba(15,23,42,.97));box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);cursor:crosshair;">
+      <div id="beBgLayer" style="position:absolute;inset:0;background-repeat:no-repeat;pointer-events:none;"></div>
+      <div style="position:relative;z-index:1;height:100%;display:flex;align-items:center;gap:12px;padding:0 18px;color:#fff;">
+        <div id="beBadgeSlot"></div>
+        <span id="beTitle" style="font-size:18px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></span>
+      </div>
+    </div>`
+}
+function cropHTML() {
+    return `
+    <div>
+      <div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">1. 选择裁切区域</div>
+      <div id="beSourceWrap" style="position:relative;display:inline-block;line-height:0;max-width:100%;border-radius:10px;overflow:hidden;background:#f3f4f6;">
+        <img id="beSourceImg" alt="源图" style="display:block;max-width:100%;max-height:340px;">
+        <div id="beCropBox" style="position:absolute;border:2px solid #2563eb;box-shadow:0 0 0 9999px rgba(0,0,0,.45);cursor:move;">
+          <div class="be-h" data-dir="nw" style="position:absolute;left:-6px;top:-6px;width:12px;height:12px;background:#2563eb;border-radius:3px;cursor:nwse-resize;"></div>
+          <div class="be-h" data-dir="ne" style="position:absolute;right:-6px;top:-6px;width:12px;height:12px;background:#2563eb;border-radius:3px;cursor:nesw-resize;"></div>
+          <div class="be-h" data-dir="sw" style="position:absolute;left:-6px;bottom:-6px;width:12px;height:12px;background:#2563eb;border-radius:3px;cursor:nesw-resize;"></div>
+          <div class="be-h" data-dir="se" style="position:absolute;right:-6px;bottom:-6px;width:12px;height:12px;background:#2563eb;border-radius:3px;cursor:nwse-resize;"></div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;margin-top:12px;flex-wrap:wrap;">
+        <label style="font-size:13px;color:#374151;display:flex;align-items:center;gap:6px;cursor:pointer;">
+          <input type="checkbox" id="beAspectLock" ${''}> 锁定比例
+        </label>
+        <label style="font-size:13px;color:#374151;display:flex;align-items:center;gap:6px;">
+          比例
+          <select id="beRatio" style="border:1px solid #d1d5db;border-radius:6px;padding:2px 4px;">
+            <option value="1">1:1 正方形</option>
+            <option value="0.75">3:4 竖版</option>
+            <option value="1.3333">4:3 横版</option>
+            <option value="free">自由</option>
+          </select>
+        </label>
+      </div>
+      <div id="beWarn" style="display:none;margin-top:10px;font-size:12px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;"></div>
+    </div>`
+}
+function controlsHTML() {
+    return `
+    <div>
+      <div style="display:flex;gap:8px;">
+        <button id="beModeBg" type="button" class="be-mode" style="flex:1;padding:8px;border-radius:8px;border:1px solid #d1d5db;background:#fff;cursor:pointer;font-size:13px;color:#374151;">背景水印</button>
+        <button id="beModeBadge" type="button" class="be-mode" style="flex:1;padding:8px;border-radius:8px;border:1px solid #d1d5db;background:#fff;cursor:pointer;font-size:13px;color:#374151;">小徽章</button>
+      </div>
+      <div id="beBgCtrls" style="margin-top:14px;">
+        <label style="display:block;font-size:12px;color:#6b7280;margin-bottom:4px;">缩放（相对导航高度）</label>
+        <input id="beScale" type="range" min="0.4" max="4" step="0.05" value="1.6" style="width:100%;">
+        <label style="display:block;font-size:12px;color:#6b7280;margin-top:10px;margin-bottom:4px;">不透明度</label>
+        <input id="beOpacity" type="range" min="0.05" max="0.6" step="0.01" value="0.16" style="width:100%;">
+        <p style="font-size:11px;color:#9ca3af;margin-top:6px;">提示：在上方预览条上按住拖动可调整校徽位置。</p>
+      </div>
+      <div id="beBadgeCtrls" style="margin-top:14px;display:none;">
+        <label style="display:block;font-size:12px;color:#6b7280;margin-bottom:4px;">徽章尺寸 (px)</label>
+        <input id="beBadgeSize" type="range" min="32" max="80" step="2" value="48" style="width:100%;">
+      </div>
+    </div>`
+}
+function actionsHTML(embedded) {
+    if (embedded) {
+        return `<div style="display:flex;align-items:center;justify-content:flex-end;gap:12px;margin-top:16px;">
+          <span id="beAppliedHint" style="font-size:12px;color:#16a34a;opacity:0;transition:opacity .2s;">✅ 已应用</span>
+          <button id="beApply" type="button" style="border:none;background:#7c3aed;color:#fff;padding:8px 22px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;">应用排版</button>
+        </div>`
+    }
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-top:1px solid #eee;background:#fafafa;">
+      <button id="beReset" type="button" style="border:1px solid #d1d5db;background:#fff;padding:8px 14px;border-radius:8px;cursor:pointer;font-size:13px;color:#374151;"><i class="fas fa-undo mr-1"></i>重置裁切</button>
+      <div style="display:flex;gap:10px;">
+        <button id="beCancel" type="button" style="border:1px solid #d1d5db;background:#fff;padding:8px 18px;border-radius:8px;cursor:pointer;font-size:14px;color:#374151;">取消</button>
+        <button id="beSave" type="button" style="border:none;background:#7c3aed;color:#fff;padding:8px 22px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;">保存排版</button>
+      </div>
+    </div>`
+}
+
+function buildEditorInner(embedded) {
+    if (embedded) {
+        // 顶部栏预览独占整宽（"顶部栏单独的预览编辑模式"），下方再分两栏：源图裁切 | 控制
+        return `
+        ${stageHTML()}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:16px;">
+          ${cropHTML()}
+          ${controlsHTML()}
+        </div>
+        ${actionsHTML(true)}`
+    }
+    // 模态：左侧裁切、右侧预览+控制（原布局）
+    return `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;padding:20px;overflow:auto;">
+      ${cropHTML()}
+      <div>
+        ${stageHTML()}
+        ${controlsHTML()}
+      </div>
+    </div>
+    ${actionsHTML(false)}`
+}
+
 /**
- * 打开校徽排版编辑器。
+ * 把校徽编辑器渲染进指定容器（内嵌模式，非弹窗）。
+ * @param {HTMLElement} container 挂载容器
  * @param {Object} opts
- * @param {string} opts.logoUrl        原图地址（data URL 或 http(s)）
- * @param {Object} [opts.logoStyle]     已有排版配置（用于回显）
+ * @param {string} opts.logoUrl        原图地址
+ * @param {Object} [opts.logoStyle]     已有排版配置（回显）
  * @param {string} [opts.schoolName]    学校名（预览标题用）
- * @param {Function} opts.onSave        保存回调，入参为新的 logoStyle 对象
+ * @param {boolean} [opts.embedded]     是否为内嵌形态（影响布局与动作按钮）
+ * @param {Function} [opts.onSave]      保存/应用回调，入参为新的 logoStyle 对象
+ * @param {Function} [opts.onCollapse]  内嵌形态下"收起"回调
+ * @returns {{destroy:Function, apply:Function, reset:Function, getState:Function}|null}
  */
-export function openBadgeEditor({ logoUrl, logoStyle, schoolName = '示例学校', onSave }) {
-    if (!logoUrl) return
+export function mountBadgeEditor(container, opts) {
+    if (!container || !opts || !opts.logoUrl) return null
+    const embedded = !!opts.embedded
+    const { logoUrl, logoStyle, schoolName = '示例学校', onSave, onCollapse } = opts
     const base = Object.assign({}, DEFAULTS, logoStyle || {})
     const state = {
         display: base.display === 'background' ? 'background' : 'badge',
@@ -53,92 +165,17 @@ export function openBadgeEditor({ logoUrl, logoStyle, schoolName = '示例学校
         tainted: false,
     }
 
-    // ---------- 构建模态框 ----------
-    const overlay = document.createElement('div')
-    overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;padding:16px;'
-    overlay.innerHTML = `
-    <div class="be-modal" style="background:#fff;border-radius:16px;width:960px;max-width:96vw;max-height:94vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.3);font-family:system-ui,-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;">
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #eee;">
-        <div>
-          <div style="font-size:16px;font-weight:700;color:#1f2937;"><i class="fas fa-crop-alt" style="color:#7c3aed;margin-right:8px;"></i>校徽排版 / 裁切</div>
-          <div style="font-size:12px;color:#9ca3af;margin-top:2px;">上传后在左侧裁切，右侧实时预览顶部导航效果，可拖动定位、缩放</div>
-        </div>
-        <button id="beClose" style="border:none;background:#f3f4f6;width:32px;height:32px;border-radius:8px;cursor:pointer;color:#6b7280;font-size:16px;">&times;</button>
-      </div>
+    container.innerHTML = buildEditorInner(embedded)
+    // 回显比例/锁定选项
+    const aspectEl = container.querySelector('#beAspectLock')
+    if (aspectEl) aspectEl.checked = state.aspectLock
+    const ratioEl = container.querySelector('#beRatio')
+    if (ratioEl) {
+        const r = state.ratio
+        ratioEl.value = Math.abs(r - 1) < 0.01 ? '1' : Math.abs(r - 0.75) < 0.01 ? '0.75' : Math.abs(r - 1.3333) < 0.01 ? '1.3333' : 'free'
+    }
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;padding:20px;overflow:auto;">
-        <!-- 左：源图 + 裁切框 -->
-        <div>
-          <div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">1. 选择裁切区域</div>
-          <div id="beSourceWrap" style="position:relative;display:inline-block;line-height:0;max-width:100%;border-radius:10px;overflow:hidden;background:#f3f4f6;">
-            <img id="beSourceImg" alt="源图" style="display:block;max-width:100%;max-height:340px;">
-            <div id="beCropBox" style="position:absolute;border:2px solid #2563eb;box-shadow:0 0 0 9999px rgba(0,0,0,.45);cursor:move;">
-              <div class="be-h" data-dir="nw" style="position:absolute;left:-6px;top:-6px;width:12px;height:12px;background:#2563eb;border-radius:3px;cursor:nwse-resize;"></div>
-              <div class="be-h" data-dir="ne" style="position:absolute;right:-6px;top:-6px;width:12px;height:12px;background:#2563eb;border-radius:3px;cursor:nesw-resize;"></div>
-              <div class="be-h" data-dir="sw" style="position:absolute;left:-6px;bottom:-6px;width:12px;height:12px;background:#2563eb;border-radius:3px;cursor:nesw-resize;"></div>
-              <div class="be-h" data-dir="se" style="position:absolute;right:-6px;bottom:-6px;width:12px;height:12px;background:#2563eb;border-radius:3px;cursor:nwse-resize;"></div>
-            </div>
-          </div>
-          <div style="display:flex;align-items:center;gap:12px;margin-top:12px;flex-wrap:wrap;">
-            <label style="font-size:13px;color:#374151;display:flex;align-items:center;gap:6px;cursor:pointer;">
-              <input type="checkbox" id="beAspectLock" ${state.aspectLock ? 'checked' : ''}> 锁定比例
-            </label>
-            <label style="font-size:13px;color:#374151;display:flex;align-items:center;gap:6px;">
-              比例
-              <select id="beRatio" style="border:1px solid #d1d5db;border-radius:6px;padding:2px 4px;">
-                <option value="1" ${Math.abs(state.ratio-1)<0.01?'selected':''}>1:1 正方形</option>
-                <option value="0.75" ${Math.abs(state.ratio-0.75)<0.01?'selected':''}>3:4 竖版</option>
-                <option value="1.3333" ${Math.abs(state.ratio-1.3333)<0.01?'selected':''}>4:3 横版</option>
-                <option value="free" ${state.aspectLock?'':'selected'}>自由</option>
-              </select>
-            </label>
-          </div>
-          <div id="beWarn" style="display:none;margin-top:10px;font-size:12px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;"></div>
-        </div>
-
-        <!-- 右：预览舞台 + 控制 -->
-        <div>
-          <div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">2. 顶部导航预览</div>
-          <div id="beStage" style="position:relative;height:150px;border-radius:12px;overflow:hidden;background:linear-gradient(135deg,rgba(30,41,59,.95),rgba(15,23,42,.97));box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);cursor:crosshair;">
-            <div id="beBgLayer" style="position:absolute;inset:0;background-repeat:no-repeat;pointer-events:none;"></div>
-            <div style="position:relative;z-index:1;height:100%;display:flex;align-items:center;gap:12px;padding:0 18px;color:#fff;">
-              <div id="beBadgeSlot"></div>
-              <span id="beTitle" style="font-size:18px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></span>
-            </div>
-          </div>
-
-          <div style="margin-top:14px;display:flex;gap:8px;">
-            <button id="beModeBg" class="be-mode" style="flex:1;padding:8px;border-radius:8px;border:1px solid #d1d5db;background:#fff;cursor:pointer;font-size:13px;color:#374151;">背景水印</button>
-            <button id="beModeBadge" class="be-mode" style="flex:1;padding:8px;border-radius:8px;border:1px solid #d1d5db;background:#fff;cursor:pointer;font-size:13px;color:#374151;">小徽章</button>
-          </div>
-
-          <div id="beBgCtrls" style="margin-top:14px;">
-            <label style="display:block;font-size:12px;color:#6b7280;margin-bottom:4px;">缩放（相对导航高度）</label>
-            <input id="beScale" type="range" min="0.4" max="4" step="0.05" value="${state.scale}" style="width:100%;">
-            <label style="display:block;font-size:12px;color:#6b7280;margin-top:10px;margin-bottom:4px;">不透明度</label>
-            <input id="beOpacity" type="range" min="0.05" max="0.6" step="0.01" value="${state.opacity}" style="width:100%;">
-            <p style="font-size:11px;color:#9ca3af;margin-top:6px;">提示：在上方预览条上按住拖动可调整校徽位置。</p>
-          </div>
-          <div id="beBadgeCtrls" style="margin-top:14px;display:none;">
-            <label style="display:block;font-size:12px;color:#6b7280;margin-bottom:4px;">徽章尺寸 (px)</label>
-            <input id="beBadgeSize" type="range" min="32" max="80" step="2" value="${state.badgeSize}" style="width:100%;">
-          </div>
-        </div>
-      </div>
-
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-top:1px solid #eee;background:#fafafa;">
-        <button id="beReset" style="border:1px solid #d1d5db;background:#fff;padding:8px 14px;border-radius:8px;cursor:pointer;font-size:13px;color:#374151;"><i class="fas fa-undo mr-1"></i>重置裁切</button>
-        <div style="display:flex;gap:10px;">
-          <button id="beCancel" style="border:1px solid #d1d5db;background:#fff;padding:8px 18px;border-radius:8px;cursor:pointer;font-size:14px;color:#374151;">取消</button>
-          <button id="beSave" style="border:none;background:#7c3aed;color:#fff;padding:8px 22px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;">保存排版</button>
-        </div>
-      </div>
-    </div>`
-
-    document.body.appendChild(overlay)
-    document.body.style.overflow = 'hidden'
-
-    const $ = (id) => overlay.querySelector('#' + id)
+    const $ = (id) => container.querySelector('#' + id)
     const srcImg = $('beSourceImg')
     const cropBox = $('beCropBox')
     const stage = $('beStage')
@@ -148,7 +185,9 @@ export function openBadgeEditor({ logoUrl, logoStyle, schoolName = '示例学校
 
     titleEl.textContent = `${schoolName}食品安全检验管理系统`
 
-    // ---------- 源图加载 ----------
+    // 预览舞台用学校真实主题色，所见更真实（DS-BRAND-03）
+    applyThemeToStage()
+
     let dispW = 0, dispH = 0, natW = 0, natH = 0
     const isData = logoUrl.startsWith('data:')
     srcImg.crossOrigin = isData ? null : 'anonymous'
@@ -161,14 +200,25 @@ export function openBadgeEditor({ logoUrl, logoStyle, schoolName = '示例学校
         applyCropBox()
         bake()
     }
-    srcImg.onerror = () => {
-        showWarn('校徽图片加载失败，请检查地址或改传本地图片。')
-    }
+    srcImg.onerror = () => showWarn('校徽图片加载失败，请检查地址或改传本地图片。')
     srcImg.src = logoUrl
 
-    function showWarn(msg) { const w = $('beWarn'); w.textContent = msg; w.style.display = 'block' }
+    function showWarn(msg) { const w = $('beWarn'); if (w) { w.textContent = msg; w.style.display = 'block' } }
 
-    // ---------- 裁切框 <-> 状态 ----------
+    function applyThemeToStage() {
+        const tc = (document.getElementById('bf_themeColor')?.value || '').trim()
+        if (tc && /^#?[0-9a-fA-F]{3,8}$/.test(tc)) {
+            const hex = tc.startsWith('#') ? tc : '#' + tc
+            stage.style.background = `linear-gradient(135deg, ${hex}, ${shade(hex, -18)})`
+        }
+    }
+    function shade(hex, amt) {
+        const n = parseInt(hex.replace('#', ''), 16)
+        let r = (n >> 16) + amt, g = ((n >> 8) & 255) + amt, b = (n & 255) + amt
+        r = clamp(r, 0, 255); g = clamp(g, 0, 255); b = clamp(b, 0, 255)
+        return `rgb(${r},${g},${b})`
+    }
+
     function applyCropBox() {
         if (!dispW || !dispH) return
         cropBox.style.left = (state.crop.x / 100 * dispW) + 'px'
@@ -183,14 +233,12 @@ export function openBadgeEditor({ logoUrl, logoStyle, schoolName = '示例学校
         state.crop.h = clamp(parseFloat(cropBox.style.height) / dispH * 100, 2, 100)
     }
 
-    // ---------- 烘焙裁切图（Canvas）----------
     function bake() {
         if (!natW || !natH) return
         const sx = state.crop.x / 100 * natW
         const sy = state.crop.y / 100 * natH
         const sw = state.crop.w / 100 * natW
         const sh = state.crop.h / 100 * natH
-        // 限制最长边，避免 data URL 过大（存入 theme_config 有体积上限）
         const maxSide = 360
         const k = Math.min(1, maxSide / Math.max(sw, sh))
         const dw = Math.max(1, Math.round(sw * k))
@@ -201,7 +249,6 @@ export function openBadgeEditor({ logoUrl, logoStyle, schoolName = '示例学校
             canvas.getContext('2d').drawImage(srcImg, sx, sy, sw, sh, 0, 0, dw, dh)
             state.croppedUrl = canvas.toDataURL('image/jpeg', 0.85)
         } catch (e) {
-            // 跨域污染：无法读取像素，降级为直接使用原图（不裁切）
             state.tainted = true
             state.croppedUrl = logoUrl
             showWarn('该图片为跨域地址且不允许读取像素，已自动跳过裁切，将直接使用原图。建议改为上传本地图片以获得裁切能力。')
@@ -209,7 +256,6 @@ export function openBadgeEditor({ logoUrl, logoStyle, schoolName = '示例学校
         renderPreview()
     }
 
-    // ---------- 预览 ----------
     function renderPreview() {
         const url = state.croppedUrl || logoUrl
         const bg = state.display === 'background'
@@ -222,7 +268,10 @@ export function openBadgeEditor({ logoUrl, logoStyle, schoolName = '示例学校
         if (bg) {
             bgLayer.style.backgroundImage = `url("${url}")`
             bgLayer.style.backgroundSize = `auto ${state.scale * 100}%`
-            bgLayer.style.backgroundPosition = `${state.posX}% ${state.posY}%`
+            // DS-BRAND-02：水印水平位置收敛到侧边，避免压住居中校名
+            let px = state.posX
+            if (px > 22 && px < 78) px = (px < 50 ? 12 : 88)
+            bgLayer.style.backgroundPosition = `${px}% ${state.posY}%`
             bgLayer.style.opacity = String(state.opacity)
         } else {
             const size = state.badgeSize
@@ -230,7 +279,7 @@ export function openBadgeEditor({ logoUrl, logoStyle, schoolName = '示例学校
         }
     }
 
-    // ---------- 交互：移动裁切框 ----------
+    // 交互：移动裁切框
     cropBox.addEventListener('pointerdown', (e) => {
         if (e.target.classList.contains('be-h')) return
         e.preventDefault()
@@ -251,7 +300,7 @@ export function openBadgeEditor({ logoUrl, logoStyle, schoolName = '示例学校
         cropBox.addEventListener('pointerup', up)
     })
 
-    // ---------- 交互：拖角缩放裁切框 ----------
+    // 交互：拖角缩放裁切框
     cropBox.querySelectorAll('.be-h').forEach((h) => {
         h.addEventListener('pointerdown', (e) => {
             e.preventDefault(); e.stopPropagation()
@@ -269,7 +318,6 @@ export function openBadgeEditor({ logoUrl, logoStyle, schoolName = '示例学校
                 if (dir.includes('s')) nh = clamp(oH + dy, dispH * 0.02, dispH - oTop)
                 if (dir.includes('n')) { nh = clamp(oH - dy, dispH * 0.02, oTop + oH); nt = oTop + (oH - nh) }
                 if (state.aspectLock && dir.length === 2) {
-                    // 角点且锁定比例：以宽度变化为准，高度按 ratio 同变
                     nh = nw / state.ratio
                     if (dir.includes('n')) nt = oTop + oH - nh
                     if (nh > dispH - nt) { nh = dispH - nt; nw = nh * state.ratio; if (dir.includes('w')) nl = oLeft + oW - nw }
@@ -284,7 +332,7 @@ export function openBadgeEditor({ logoUrl, logoStyle, schoolName = '示例学校
         })
     })
 
-    // ---------- 交互：预览舞台拖动定位（背景模式）----------
+    // 交互：预览舞台拖动定位（背景模式）
     stage.addEventListener('pointerdown', (e) => {
         if (state.display !== 'background') return
         if (e.target === badgeSlot || badgeSlot.contains(e.target)) return
@@ -301,21 +349,16 @@ export function openBadgeEditor({ logoUrl, logoStyle, schoolName = '示例学校
         stage.addEventListener('pointerup', up)
     })
 
-    // ---------- 控件 ----------
+    // 控件
     $('beAspectLock').addEventListener('change', (e) => {
         state.aspectLock = e.target.checked
-        if (state.aspectLock) {
-            // 据此框当前比例锁定
-            state.ratio = (state.crop.w / state.crop.h) || 1
-            $('beRatio').value = 'free'
-        }
+        if (state.aspectLock) state.ratio = (state.crop.w / state.crop.h) || 1
     })
     $('beRatio').addEventListener('change', (e) => {
         const v = e.target.value
         if (v === 'free') { state.aspectLock = false; $('beAspectLock').checked = false; return }
         state.aspectLock = true; $('beAspectLock').checked = true
         state.ratio = parseFloat(v)
-        // 以当前框中心为基准重新计算高度
         const cx = state.crop.x + state.crop.w / 2
         const cy = state.crop.y + state.crop.h / 2
         let nw = state.crop.w
@@ -341,22 +384,7 @@ export function openBadgeEditor({ logoUrl, logoStyle, schoolName = '示例学校
     $('beModeBg').addEventListener('click', () => setMode('background'))
     $('beModeBadge').addEventListener('click', () => setMode('badge'))
 
-    $('beReset').addEventListener('click', () => {
-        state.crop = { x: 0, y: 0, w: 100, h: 100 }
-        state.ratio = 1
-        applyCropBox(); bake()
-    })
-
-    function close() {
-        document.body.style.overflow = ''
-        overlay.remove()
-    }
-    $('beClose').addEventListener('click', close)
-    $('beCancel').addEventListener('click', close)
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
-    document.addEventListener('keydown', function esc(e) { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', esc) } })
-
-    $('beSave').addEventListener('click', () => {
+    function doSave() {
         const result = {
             display: state.display,
             croppedUrl: state.croppedUrl,
@@ -369,10 +397,82 @@ export function openBadgeEditor({ logoUrl, logoStyle, schoolName = '示例学校
             badgeSize: state.badgeSize,
         }
         try { onSave && onSave(result) } catch (e) { /* 忽略回调异常 */ }
-        close()
-    })
+        return result
+    }
 
-    // 初始化模式按钮高亮
+    let escHandler = null
+    if (embedded) {
+        const applyBtn = $('beApply')
+        if (applyBtn) applyBtn.addEventListener('click', () => {
+            doSave()
+            const hint = $('beAppliedHint')
+            if (hint) { hint.style.opacity = '1'; setTimeout(() => { hint.style.opacity = '0' }, 1500) }
+        })
+    } else {
+        $('beReset').addEventListener('click', () => {
+            state.crop = { x: 0, y: 0, w: 100, h: 100 }
+            state.ratio = 1
+            applyCropBox(); bake()
+        })
+        const close = () => { if (escHandler) document.removeEventListener('keydown', escHandler); cleanup(); opts.__onClose && opts.__onClose() }
+        $('beCloseX') && $('beCloseX').addEventListener('click', close)
+        $('beCancel').addEventListener('click', close)
+        $('beSave').addEventListener('click', () => { doSave(); close() })
+        escHandler = (e) => { if (e.key === 'Escape') close() }
+        document.addEventListener('keydown', escHandler)
+    }
+
+    function cleanup() { /* 容器 innerHTML 由调用方清空；此处预留清理钩子 */ }
+
+    // 初始化
     setMode(state.display)
     renderPreview()
+
+    return {
+        apply: doSave,
+        reset: () => { state.crop = { x: 0, y: 0, w: 100, h: 100 }; state.ratio = 1; applyCropBox(); bake() },
+        getState: () => state,
+        destroy: () => { if (escHandler) document.removeEventListener('keydown', escHandler); container.innerHTML = '' },
+    }
+}
+
+/**
+ * 弹出模态框形式的校徽编辑器（兼容旧调用方）。
+ * @param {Object} opts 同 mountBadgeEditor，额外忽略 embedded
+ */
+export function openBadgeEditor(opts) {
+    if (!opts || !opts.logoUrl) return
+    const overlay = document.createElement('div')
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;padding:16px;'
+    overlay.innerHTML = `
+    <div class="be-modal" style="background:#fff;border-radius:16px;width:960px;max-width:96vw;max-height:94vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.3);font-family:system-ui,-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #eee;">
+        <div>
+          <div style="font-size:16px;font-weight:700;color:#1f2937;"><i class="fas fa-crop-alt" style="color:#7c3aed;margin-right:8px;"></i>校徽排版 / 裁切</div>
+          <div style="font-size:12px;color:#9ca3af;margin-top:2px;">上传后在左侧裁切，右侧实时预览顶部导航效果，可拖动定位、缩放</div>
+        </div>
+        <button id="beCloseX" type="button" style="border:none;background:#f3f4f6;width:32px;height:32px;border-radius:8px;cursor:pointer;color:#6b7280;font-size:16px;">&times;</button>
+      </div>
+      <div id="beBody" style="display:flex;flex-direction:column;min-height:0;"></div>
+    </div>`
+    document.body.appendChild(overlay)
+    document.body.style.overflow = 'hidden'
+
+    const body = overlay.querySelector('#beBody')
+    const ctrl = mountBadgeEditor(body, Object.assign({}, opts, { embedded: false }))
+
+    const remove = () => {
+        document.body.style.overflow = ''
+        overlay.remove()
+    }
+    // 模态底部"取消/保存"由 mountBadgeEditor 内部接线，关闭时清理遮罩
+    const origCloseX = body.querySelector('#beCloseX')
+    if (origCloseX) origCloseX.addEventListener('click', remove)
+    const cancel = body.querySelector('#beCancel')
+    if (cancel) cancel.addEventListener('click', remove)
+    const save = body.querySelector('#beSave')
+    if (save) save.addEventListener('click', remove)
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) remove() })
+
+    return ctrl
 }

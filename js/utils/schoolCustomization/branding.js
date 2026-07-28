@@ -102,10 +102,12 @@ export async function applySchoolBranding(schoolCode) {
     const badgeSize = logoStyle ? logoStyle.badgeSize : 48
 
     // 重置容器为统一徽章样式（替换默认 FontAwesome 图标的扁平外观）
+    // DS-BRAND-CIRCLE：圆形徽章（编辑器可选手动选择）用 rounded-full
+    const isCircle = !!(logoStyle && logoStyle.shape === 'circle')
     logoWrap.className = [
         'flex', 'items-center', 'justify-center',
         'shrink-0',
-        'rounded-2xl',
+        isCircle ? 'rounded-full' : 'rounded-2xl',
         'bg-white/95', 'backdrop-blur',
         'ring-1', 'ring-white/40',
         'shadow-md', 'shadow-black/10',
@@ -180,10 +182,18 @@ function removeBrandBgLayer(logoWrap) {
 }
 
 // 把校徽作为导航底层水印层注入。成功返回 true。
+// DS-BRAND-02：水印必须位于文字「下方」（z-index 更低），且几何上不压住校名文字。
+// 注意：编辑器为所见即所得，此处严格使用编辑器设定的 posX/posY，不做自动位移
+// （早期版本会把 22%~78% 的位置弹开到 12/88，导致"摆中间却跳走"，已废弃）。
 function applyBackgroundBadge(logoWrap, style) {
     const nav = logoWrap.closest('nav')
     if (!nav) return false
-    nav.style.position = 'relative'
+    // 仅当 nav 尚未定位时才设为 relative，避免覆盖 HTML 上的 sticky 吸顶
+    if (getComputedStyle(nav).position === 'static') nav.style.position = 'relative'
+
+    const px = (typeof style.posX === 'number') ? style.posX : 50
+    const py = (typeof style.posY === 'number') ? style.posY : 50
+
     const layer = document.createElement('div')
     layer.className = 'brand-bg-layer'
     layer.style.cssText = [
@@ -191,13 +201,19 @@ function applyBackgroundBadge(logoWrap, style) {
         'background-repeat:no-repeat',
         `background-image:url("${style.croppedUrl}")`,
         `background-size:auto ${style.scale * 100}%`,
-        `background-position:${style.posX}% ${style.posY}%`,
+        `background-position:${px}% ${py}%`,
         `opacity:${style.opacity}`,
     ].join(';') + ';'
     nav.appendChild(layer)
-    // 内容容器置顶，确保标题/按钮在徽章水印之上
+
+    // 2. 内容容器（含校名/按钮）明确置顶：relative + z-index:2，确保恒在水印之上。
     const container = nav.querySelector(':scope > div')
-    if (container) { container.style.position = 'relative'; container.style.zIndex = '1' }
+    if (container) { container.style.position = 'relative'; container.style.zIndex = '2' }
+
+    // 3. 校名文字加投影，提升在水印之上的可读性（即便水印较醒目也不糊字）。
+    nav.querySelectorAll('#systemTitle').forEach((t) => {
+        t.style.textShadow = '0 1px 4px rgba(0,0,0,0.45)'
+    })
     return true
 }
 

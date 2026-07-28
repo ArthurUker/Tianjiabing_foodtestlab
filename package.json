@@ -27,6 +27,7 @@
     "build": "node scripts/build-static.js && npm run build:css",
     "build:dev": "node scripts/build-static.js",
     "build:prod": "node scripts/build-static.js",
+    "db:sync": "node backend/sync-tenant-schemas.mjs",
     "postinstall": ""
   },
   "keywords": [

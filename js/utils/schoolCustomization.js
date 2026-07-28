@@ -30,6 +30,8 @@ export {
     ensureSchoolConfig,
     ensureSchoolInfo,
     onSchoolConfigChanged,
+    onSchoolInfoChanged,
+    notifySchoolInfoChanged,
 } from './schoolCustomization/cache.js'
 
 export {
@@ -61,6 +63,8 @@ import {
     ensureSchoolConfig,
     ensureSchoolInfo,
     onSchoolConfigChanged,
+    onSchoolInfoChanged,
+    notifySchoolInfoChanged,
 } from './schoolCustomization/cache.js'
 import {
     applyCustomizationToFields,
@@ -93,5 +97,7 @@ export default {
     applyVisibleTypesToNav,
     getVisibleTypes,
     onSchoolConfigChanged,
+    onSchoolInfoChanged,
+    notifySchoolInfoChanged,
     ensureSchoolConfig,
 }

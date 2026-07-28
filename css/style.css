@@ -1,6 +1,23 @@
 /* 基础样式 */
 .nav-btn.active { background-color: #1d4ed8; color: white; } /* Tailwind blue-700 */
 .hidden { display: none; }
+/* 强约束：内容模块互斥显示——仅当不带 .hidden 时才显示，避免被其它样式覆盖导致全部堆叠 */
+.content-section { display: none; }
+.content-section:not(.hidden) { display: block; }
+
+/* 数据看板液态玻璃化：统一玻璃底后，按模块主题色强调统计数字与图标，与各模块统计卡一致 */
+#dashboard-capture-area .glass-panel .text-3xl,
+#dashboard-capture-area .glass-panel .text-2xl { font-weight: 700; }
+#dashboard-capture-area .glass-panel[data-module-card="tableware"] .text-3xl { color: #2563eb; }
+#dashboard-capture-area .glass-panel[data-module-card="pesticide"] .text-3xl { color: #16a34a; }
+#dashboard-capture-area .glass-panel[data-module-card="oil"] .text-3xl { color: #d97706; }
+#dashboard-capture-area .glass-panel[data-module-card="pathogen"] .text-3xl { color: #9333ea; }
+#dashboard-capture-area .glass-panel:not([data-module-card]) .text-3xl { color: #ea580c; } /* 总数卡 */
+#dashboard-capture-area .glass-panel .text-4xl { color: #3b82f6; } /* 默认图标色 */
+#dashboard-capture-area .glass-panel[data-module-card="pesticide"] .text-4xl { color: #22c55e; }
+#dashboard-capture-area .glass-panel[data-module-card="oil"] .text-4xl { color: #f59e0b; }
+#dashboard-capture-area .glass-panel[data-module-card="pathogen"] .text-4xl { color: #a855f7; }
+#dashboard-capture-area [data-module-card="leanMeat"] .text-2xl { color: #dc2626; }
 .pdf-capture-mode { background-color: #ffffff !important; }
 
 /* 页面加载防抖动 */
@@ -21,7 +38,7 @@ td, th { vertical-align: middle; }
     z-index: 9999;
 }
 
-/* 液态玻璃兜底：PDF 捕获时强制玻璃子元素白底，去除透明/模糊/阴影 */
+/* 液态玻璃兜底（通用，供其它模块 PDF 导出使用）：强制白底、去模糊/阴影 */
 .pdf-capture-mode .glass,
 .pdf-capture-mode .glass-dark,
 .pdf-capture-mode .glass-panel {
@@ -29,4 +46,73 @@ td, th { vertical-align: middle; }
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
     box-shadow: none !important;
+}
+.pdf-capture-mode .glass-panel {
+    background-color: #f8fafc !important;   /* 浅灰底，与白色页面区分 */
+    border: 1px solid #e2e8f0 !important;   /* 明确卡片边界 */
+    border-radius: 12px !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08) !important;
+}
+
+/* ============ 数据看板「原生打印」导出：最大化还原网页直出效果 ============ */
+/* 选用浏览器原生打印而非 html2canvas：使用与屏幕一致的真实渲染引擎、
+   矢量文字（不栅格发虚）、真实极光背景、自动精准分页，质量最高。
+   唯一无法重现的是 backdrop-filter 的磨砂模糊层（浏览器打印亦不支持），
+   故打印时玻璃卡改为半透明白透出极光，最接近直出观感。 */
+@media print {
+    /* 强制打印背景（极光渐变、玻璃卡底色、图标色彩） */
+    * {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+
+    /* 极光壁纸铺满整页作为背景（去掉动画，固定定位，每页重复） */
+    body::before {
+        position: fixed !important;
+        inset: 0 !important;
+        z-index: -2 !important;
+        animation: none !important;
+        filter: blur(22px) saturate(165%) !important;
+    }
+    html, body { background: #eef2f8 !important; }
+
+    /* 隐藏页面框架：导航、侧栏、加载层、toast 通知、导出/筛选按钮 */
+    nav,
+    .sidebar-menu,
+    .loading-overlay,
+    body > div.fixed,
+    [data-html2canvas-ignore] {
+        display: none !important;
+    }
+
+    /* 仅显示数据看板，并铺满整页宽度 */
+    .content-section { display: none !important; }
+    #dashboard.content-section { display: block !important; }
+    .container {
+        max-width: 100% !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        gap: 0 !important;
+    }
+    .flex-1.min-w-0 { width: 100% !important; }
+
+    #dashboard-capture-area {
+        background: transparent !important;   /* 透出极光，复刻玻璃折射底 */
+        box-shadow: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        width: 100% !important;
+    }
+    /* 玻璃卡：半透明白透出极光 → 玻璃观感 */
+    #dashboard-capture-area .glass-panel {
+        background-color: rgba(255, 255, 255, 0.55) !important;
+        border: 1px solid rgba(255, 255, 255, 0.7) !important;
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+        box-shadow: 0 4px 16px rgba(15, 23, 42, 0.10) !important;
+    }
+
+    @page { margin: 10mm; }
 }

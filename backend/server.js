@@ -24,6 +24,7 @@ import { createTenantMiddleware } from './middleware/tenantMiddleware.js'
 import { createSyncRoutes } from './routes/syncRoutes.js'
 import { provisionSchool, isValidSchoolCode } from './lib/tenantProvisioner.js'
 import { disconnectAllTenantClients, createTenantClient, schemaNameOf } from './lib/tenantClient.js'
+import { syncAllTenantSchemas } from './lib/tenantSync.js'
 import bcryptjs from 'bcryptjs'
 
 dotenv.config()
@@ -230,6 +231,47 @@ function validateCustomizationPayload(body) {
             }
             if (/logo/i.test(k) && typeof v === 'string' && v && !isSafeLogoUrl(v)) {
                 errors.push(`theme_config.${k} 必须为 http(s) 或 data:image/(png|jpeg|gif|webp) URL（禁止 SVG）`)
+            }
+        }
+        // 登录页样式（theme_config.login）独立校验：背景色/图片 URL 安全、卡片尺寸合理
+        const ls = normalized.theme_config.login
+        if (ls && typeof ls === 'object') {
+            if (ls.background && typeof ls.background === 'object') {
+                const bg = ls.background
+                if (bg.color && typeof bg.color === 'string' && bg.color && !HEX_COLOR_RE.test(bg.color)) {
+                    errors.push('theme_config.login.background.color 必须为 #RRGGBB 格式')
+                }
+                if (bg.imageUrl && typeof bg.imageUrl === 'string' && bg.imageUrl && !isSafeLogoUrl(bg.imageUrl)) {
+                    errors.push('theme_config.login.background.imageUrl 必须为 http(s) 或 data:image/(png|jpeg|gif|webp) URL（禁止 SVG）')
+                }
+                if (bg.opacity !== undefined && (typeof bg.opacity !== 'number' || bg.opacity < 0 || bg.opacity > 1)) {
+                    errors.push('theme_config.login.background.opacity 必须为 0~1 之间的数字')
+                }
+                if (bg.type !== undefined && !['aurora', 'solid', 'image', 'default'].includes(bg.type)) {
+                    errors.push('theme_config.login.background.type 必须为 aurora/solid/image/default 之一')
+                }
+            }
+            if (ls.card && typeof ls.card === 'object') {
+                const card = ls.card
+                if (card.width !== undefined && (typeof card.width !== 'number' || card.width < 280 || card.width > 720)) {
+                    errors.push('theme_config.login.card.width 必须为 280~720 之间的数字（px）')
+                }
+                if (card.radius !== undefined && (typeof card.radius !== 'number' || card.radius < 0 || card.radius > 48)) {
+                    errors.push('theme_config.login.card.radius 必须为 0~48 之间的数字（px）')
+                }
+                if (card.align !== undefined && !['left', 'center', 'right'].includes(card.align)) {
+                    errors.push('theme_config.login.card.align 必须为 left/center/right 之一')
+                }
+            }
+            if (ls.branding && typeof ls.branding === 'object') {
+                const bd = ls.branding
+                if (bd.title !== undefined && typeof bd.title !== 'string') errors.push('theme_config.login.branding.title 必须为字符串')
+                if (bd.subtitle !== undefined && typeof bd.subtitle !== 'string') errors.push('theme_config.login.branding.subtitle 必须为字符串')
+                if (bd.showLogo !== undefined && typeof bd.showLogo !== 'boolean') errors.push('theme_config.login.branding.showLogo 必须为布尔值')
+                if (bd.logoUrl !== undefined && typeof bd.logoUrl !== 'string') errors.push('theme_config.login.branding.logoUrl 必须为字符串')
+                if (bd.logoUrl && typeof bd.logoUrl === 'string' && !isSafeLogoUrl(bd.logoUrl)) {
+                    errors.push('theme_config.login.branding.logoUrl 必须为 http(s) 或 data:image/(png|jpeg|gif|webp) URL（禁止 SVG）')
+                }
             }
         }
     }
@@ -1675,6 +1717,26 @@ app.use((err, req, res, next) => {
 
 // ====== Start Server ======
 
+// 启动自愈：服务起来后，后台把全部租户（含控制台 UI 新建、不在 SCHOOL_CODES 的）schema
+// 与当前 schema.prisma 对齐，并回填 SchoolCustomization 的历史 NULL。
+// 这样无论「改 schema 后重部署」还是「手动 git pull 后重启」漏跑 db:sync，都能在下次重启自愈，
+// 不再依赖人工记忆「逐租户 db push」。非阻塞：服务已就绪即开始，失败仅告警不影响启动。
+// 可用 AUTO_SYNC_TENANTS=false 关闭（改由手动 npm run db:sync）。
+function selfHealTenantSchemas() {
+    if (process.env.AUTO_SYNC_TENANTS === 'false') {
+        console.log('ℹ️  AUTO_SYNC_TENANTS=false，跳过启动自愈（请记得手动 npm run db:sync）')
+        return
+    }
+    console.log('🔧 启动自愈：对齐全部租户 schema 与 schema.prisma（后台执行，不阻塞服务）...')
+    syncAllTenantSchemas(prisma, {
+        adminPassword: process.env.SEED_ADMIN_PASSWORD || '',
+        skipGenerate: true, // 运行时客户端已生成，无需再 generate
+        log: (m) => console.log(`[self-heal] ${m}`)
+    })
+        .then(() => console.log('✅ 租户 schema 自愈完成'))
+        .catch((e) => console.error('⚠️  租户 schema 自愈失败（不影响服务运行，可手动 npm run db:sync）:', e.message))
+}
+
 const server = app.listen(PORT, () => {
     console.log(`\n${'='.repeat(60)}`)
     console.log(`🚀 Food Safety Testing Lab API Server Started`)
@@ -1686,6 +1748,9 @@ const server = app.listen(PORT, () => {
     console.log(`📦 CORS Origins: ${allowCorsWildcard ? 'Allow All' : allowedOrigins.join(', ')}`)
     console.log(`📦 CORS Hostnames: ${allowedHostnames.length ? allowedHostnames.join(', ') : '(none)'}`)
     console.log(`${'='.repeat(60)}\n`)
+
+    // 服务就绪后再后台自愈，避免拖慢首请求响应
+    selfHealTenantSchemas()
 })
 
 // Graceful shutdown

@@ -8,7 +8,7 @@ import { initializeSampleData } from './utils/SampleDataGenerator.js';
 // ✨ 学校个性化配置：提取 schoolCode + 应用 SchoolCustomization 到静态录入表单
 import { extractSchoolCode } from './utils/schoolCode.js';
 import { escapeHtml } from './utils/schoolCustomization/shared.js';
-import { ensureSchoolConfig, getSchoolCustomization, applyCustomizationToAllForms, applySchoolCustomizationToTitles, applySchoolBranding, applyVisibleTypesToNav, onSchoolConfigChanged } from './utils/schoolCustomization.js';
+import { ensureSchoolConfig, getSchoolCustomization, applyCustomizationToAllForms, applySchoolCustomizationToTitles, applySchoolBranding, applyVisibleTypesToNav, onSchoolConfigChanged, onSchoolInfoChanged } from './utils/schoolCustomization.js';
 // 1. ✨ 引入新模块
 import { BackupRestoreService } from './modules/BackupRestore.js';
 // 2. ✨ 引入认证与路由
@@ -57,6 +57,8 @@ function handleNavigation(target) {
     const targetSection = document.getElementById(target);
     if (targetSection) {
         targetSection.classList.remove('hidden');
+        // 切换到对应模块后，页面回到默认顶部（避免沿用上一模块的滚动位置）
+        window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
         console.log('✅ 导航成功，显示:', target);
         
         // 特殊处理：初始化需要动态渲染的模块（P2-10：直接调用 import 的 initAuditLog，不再走 window）
@@ -259,6 +261,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                     applyVisibleTypesToNav(cfg);
                     applyCustomizationToAllForms(cfg);
                     applySchoolCustomizationToTitles(cfg);
+                    await applySchoolBranding(syncCode);
+                    router.updateNavigationByPermission();
+                });
+                // 学校基本信息（校徽/校名/主题色）变更实时同步：管理控制台保存后，
+                // 师生端打开的标签页通过 storage 事件（跨标签页）或 school:info-changed
+                // （同标签页）收到通知，立即重应用品牌，无需刷新页面。
+                onSchoolInfoChanged(syncCode, async () => {
                     await applySchoolBranding(syncCode);
                     router.updateNavigationByPermission();
                 });

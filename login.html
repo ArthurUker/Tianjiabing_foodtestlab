@@ -108,6 +108,23 @@
             25% { transform: translateX(-5px); }
             75% { transform: translateX(5px); }
         }
+
+        /* 登录页自定义背景层（学校租户登录样式）：启用时隐藏默认 aurora 壁纸，改用专属背景 */
+        body.login-bg-custom::before { display: none !important; }
+        #loginBgLayer {
+            position: fixed;
+            inset: 0;
+            z-index: -1;
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+        }
+        #loginBgLayer::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: rgba(0, 0, 0, var(--ls-overlay, 0));
+        }
     </style>
 </head>
 <body>
@@ -319,9 +336,96 @@
                         iconWrap.innerHTML = `<img src="${cfg.logoUrl}" alt="logo" class="w-14 h-14 object-contain">`;
                     }
                 }
+                // ===== 登录页样式（背景 / 卡片 / 品牌）=====
+                // theme_config 在 customization 中可能是 JSON 字符串，需兼容解析
+                let themeConfig = null
+                try {
+                    if (cfg.customization && cfg.customization.theme_config) {
+                        themeConfig = typeof cfg.customization.theme_config === 'string'
+                            ? JSON.parse(cfg.customization.theme_config)
+                            : cfg.customization.theme_config
+                    }
+                } catch (e) { /* 解析失败忽略 */ }
+                applyLoginStyle(themeConfig && themeConfig.login, cfg)
             } catch (e) {
                 // 个性化失败不应阻断登录流程
             }
+        }
+
+        // 应用学校登录页样式：背景（极光/纯色/图片/默认）、登录卡片（对齐/宽/圆角/阴影/毛玻璃）、品牌（显隐校徽/标题/副标题）
+        function applyLoginStyle(login, cfg) {
+            try {
+                // 清理上一次注入的自定义背景层
+                const prev = document.getElementById('loginBgLayer')
+                if (prev) prev.remove()
+                document.body.classList.remove('login-bg-custom')
+
+                const bg = login && login.background
+                const useCustomBg = bg && (bg.type === 'solid' || bg.type === 'image')
+                if (useCustomBg) {
+                    document.body.classList.add('login-bg-custom')
+                    const layer = document.createElement('div')
+                    layer.id = 'loginBgLayer'
+                    if (bg.type === 'solid') {
+                        layer.style.background = bg.color || '#1a73e8'
+                    } else if (bg.type === 'image') {
+                        layer.style.backgroundImage = `url("${bg.imageUrl}")`
+                        layer.style.setProperty('--ls-overlay', String(bg.opacity != null ? bg.opacity : 0.25))
+                    }
+                    document.body.appendChild(layer)
+                }
+
+                // 登录卡片：对齐 / 宽度 / 圆角 / 阴影 / 毛玻璃
+                const card = login && login.card
+                const loginCard = document.querySelector('.login-container > .glass')
+                const container = document.querySelector('.login-container')
+                if (card && loginCard) {
+                    const w = card.width || 420
+                    // 容器本身也需放宽（默认 max-w-md 会限制卡片宽度）
+                    if (container) {
+                        container.style.width = w + 'px'
+                        container.style.maxWidth = w + 'px'
+                        container.style.marginLeft = card.align === 'left' ? '24px'
+                            : card.align === 'right' ? 'auto' : 'auto'
+                        container.style.marginRight = card.align === 'right' ? '24px'
+                            : card.align === 'left' ? 'auto' : 'auto'
+                    }
+                    loginCard.style.width = '100%'
+                    loginCard.style.borderRadius = (card.radius != null ? card.radius : 16) + 'px'
+                    loginCard.style.boxShadow = card.shadow === false
+                        ? 'none'
+                        : '0 20px 60px rgba(0,0,0,0.18)'
+                    loginCard.style.backdropFilter = card.blur === false ? 'none' : ''
+                    loginCard.style.webkitBackdropFilter = card.blur === false ? 'none' : ''
+                }
+
+                // 品牌：标题 / 副标题 / 校徽显隐
+                const bd = login && login.branding
+                if (bd) {
+                    if (bd.title != null) {
+                        const t = document.getElementById('schoolTitle')
+                        if (t) t.textContent = bd.title || (cfg.name || '食品安全检验系统')
+                    }
+                    if (bd.subtitle != null) {
+                        const s = document.getElementById('schoolSubtitle')
+                        if (s) s.textContent = bd.subtitle || (cfg.shortName || cfg.name || '')
+                    }
+                    // 校徽显隐与替换：登录页可独立设置专属校徽（bd.logoUrl），否则沿用该校默认校徽（cfg.logoUrl）
+                    const iconWrap = document.querySelector('.logo-animation')
+                    if (iconWrap) {
+                        if (bd.showLogo === false) {
+                            iconWrap.innerHTML = '<i class="fas fa-shield-alt text-4xl text-blue-600"></i>'
+                        } else {
+                            const logo = (bd.logoUrl && bd.logoUrl.trim()) || cfg.logoUrl
+                            if (logo) {
+                                iconWrap.innerHTML = `<img src="${logo}" alt="logo" class="w-14 h-14 object-contain" onerror="this.outerHTML='<i class=&quot;fas fa-shield-alt text-4xl text-blue-600&quot;></i>'">`
+                            } else {
+                                iconWrap.innerHTML = '<i class="fas fa-shield-alt text-4xl text-blue-600"></i>'
+                            }
+                        }
+                    }
+                }
+            } catch (e) { /* 样式应用失败不应阻断登录 */ }
         }
 
         // 颜色工具已收敛至 window.SchoolThemes.shade（L2：消除 login.html 本地 shadeColor 副本）

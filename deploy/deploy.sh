@@ -94,7 +94,7 @@ DECLARE
 BEGIN
   FOR r IN
     SELECT table_schema FROM information_schema.tables
-    WHERE table_name = 'SchoolCustomization' AND table_schema = 'public'
+    WHERE table_name = 'SchoolCustomization'
   LOOP
     FOREACH c IN ARRAY obj_cols LOOP
       EXECUTE format('ALTER TABLE %I."SchoolCustomization" ADD COLUMN IF NOT EXISTS %I TEXT', r.table_schema, c);
@@ -483,6 +483,18 @@ if [ "$PROVISION_TENANTS" = "true" ]; then
     || fail "多租户初始化失败（创建租户 schema 和 SchoolCustomization 是关键路径，必须中止）"
 fi
 
+# ------------------------- 6.55 全量租户 schema 同步（防 P2022 漂移，关键）-------------------------
+# 背景：§6.5 的 provision-tenants.js 只遍历适配文件里的 SCHOOL_CODES（引导学校）。
+# 但生产环境后续「在学校管理控制台 UI 新建的租户」不在 SCHOOL_CODES 中，重部署时不会被
+# 重新 db push，一旦 schema.prisma 变更就会出现 P2022 列不存在的 500。
+# 本步读取 public."School" 中【全部】学校（含 UI 新建），对每个调用 provisionSchool
+# （幂等 db push），把新列推到每个租户 schema，并对 SchoolCustomization 做跨 schema NULL 回填。
+# 这是「改 schema 后重部署」与「启动自愈」之间的部署期保险。
+# SKIP_PRISMA_GENERATE=1：§6 已执行过 generate，此处无需重复生成客户端。
+log "全量租户 schema 同步（覆盖控制台 UI 新建的租户，防 P2022 漂移）"
+SKIP_PRISMA_GENERATE=1 node sync-tenant-schemas.mjs \
+  || warn "全量租户 schema 同步失败，请手动运行: npm run db:sync（服务器启动自愈也会再尝试）"
+
 # ------------------------- 6.6 同步 bootstrap 账号密码（每次部署）-------------------------
 # seed.js 仅在首次部署创建账号（ensureUser 跳过已存在用户），重部署不会更新 password_hash；
 # 若 .env 密码曾被重新随机，库内 hash 与 .env 不一致会导致登录失败。此处显式把库内
@@ -600,8 +612,14 @@ $CADDY_ADDR {
         -Server
     }
 
-    # 方案A：路径前缀多租户识别（/school-a/login → 登录页，URL 不变）
-    @schoolLogin path /school-*/login /school-*/login.html
+    # 方案A：路径前缀多租户识别（/<code>/login → 登录页，URL 不变）
+    # 早期仅匹配 /school-*/login，导致不带 school- 前缀的学校代码（如 tianjiabing、sysdynit）
+    # 点登录地址会落到 index.html（主应用）而非登录页。现改为通用匹配任意 /<code>/login，
+    # 并排除 /api/* 避免误伤接口。登录页自身仍用 extractSchoolCode 的 ?school= 兜底，双保险。
+    @schoolLogin {
+        path_regexp ^/[^/]+/login/?$
+        not path /api/*
+    }
     rewrite @schoolLogin /login.html
 
     # API 反代必须放在最前、且用 handle 互斥：Caddy 固定指令顺序中 rewrite 在

@@ -44,6 +44,8 @@ export class UIHelper {
                 const targetSection = document.getElementById(targetId);
                 if (targetSection) {
                     targetSection.classList.remove('hidden');
+                    // 切换到对应模块后，页面回到默认顶部
+                    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
                     console.log(`✅ 显示内容区域: ${targetId}`);
                 } else {
                     console.error(`❌ 无法找到内容区域: ${targetId}`);

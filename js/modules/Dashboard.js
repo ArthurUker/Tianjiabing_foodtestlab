@@ -284,56 +284,33 @@ function getWeekString(date) {
     return `${year}-W${String(weekNumber).padStart(2, '0')}`;
 }
 
-// 导出看板为PDF
+// 导出看板为PDF（浏览器原生打印：质量最高、最接近网页直出）
+// 说明：html2canvas 无法渲染 backdrop-filter（磨砂玻璃）且会把文字栅格化发虚；
+// 原生打印使用与屏幕一致的真实渲染引擎、矢量文字、真实极光背景、自动精准分页。
+// 唯一无法重现的是 backdrop-filter 的模糊层（浏览器打印亦不支持），故打印时玻璃卡改为半透明白透出极光。
 async function exportDashboardToPDF() {
-    if (typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined') {
-        UINotification.warning('⚠️ PDF库正在加载中，请稍后再试');
-        return;
-    }
-
-    const element = document.getElementById('dashboard-capture-area');
-    if (!element) {
-        UINotification.error('❌ 未找到要导出的内容');
-        return;
-    }
-
     try {
-        UINotification.info('ℹ️ 正在生成 PDF，请稍候...');
-        
-        // 液态玻璃兜底：捕获前强制白底，避免玻璃透明背景透出壁纸
-        element.classList.add('pdf-capture-mode');
+        // 确保数据已加载，避免打印时内容为空
+        if (!dashboardState.hasLoaded) {
+            UINotification.loading('⏳ 正在准备看板数据...');
+            await loadAllDashboardData();
+            UINotification.hideLoading();
+        }
+        // 等待图表绘制完成，避免打印时图表空白
+        await new Promise(resolve => setTimeout(resolve, 400));
 
-        const canvas = await html2canvas(element, {
-            scale: 2,
-            useCORS: true,
-            logging: false,
-            backgroundColor: '#ffffff'
-        });
+        // 记录审计日志（失败不影响导出）
+        try {
+            await auditService.log('export', 'dashboard', 'pdf', '导出数据看板为 PDF');
+        } catch (e) { /* 忽略审计失败 */ }
 
-        const { jsPDF } = window.jspdf;
-        const pdf = new jsPDF('p', 'mm', 'a4');
-        
-        const imgWidth = 210;
-        const imgHeight = (canvas.height * imgWidth) / canvas.width;
-        const imgData = canvas.toDataURL('image/png');
-        
-        pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
-        pdf.save(`数据看板_${getLocalDateStr(new Date())}.pdf`);
-        
-        // 记录审计日志
-        await auditService.log(
-            'export',
-            'dashboard',
-            'pdf',
-            '导出数据看板为 PDF'
-        );
-        
-        UINotification.success('✅ PDF 导出成功！');
+        // 调起打印/另存为 PDF。请在对话框选择「目标：另存为 PDF」，
+        // 并勾选「背景图形 / Background graphics」以保留极光与玻璃卡底色。
+        UINotification.info('ℹ️ 正在打开打印窗口，请选择「另存为 PDF」并勾选「背景图形」');
+        window.print();
     } catch (error) {
         console.error('PDF导出失败:', error);
-        UINotification.error('❌ PDF 导出失败: ' + error.message);
-    } finally {
-        element.classList.remove('pdf-capture-mode');
+        UINotification.error('❌ PDF 导出失败: ' + (error && error.message ? error.message : error));
     }
 }
 
@@ -343,7 +320,7 @@ function createDashboardStructure() {
     
     // 创建增强版看板HTML
     dashboardSection.innerHTML = `
-        <div id="dashboard-capture-area" class="bg-white rounded-lg shadow-md p-6 mb-6">
+        <div id="dashboard-capture-area" class="glass p-6 mb-6">
             <div class="flex flex-col md:flex-row items-center justify-between gap-4">
                 <h2 class="text-2xl font-bold text-gray-800">
                     <i class="fas fa-chart-line text-blue-600 mr-2"></i>数据看板（分类）
@@ -381,14 +358,14 @@ function createDashboardStructure() {
                     </button>
                     <!-- 🆕 导出按钮 -->
                     <button id="btnExportDashboardPDF" class="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition text-sm">
-                        <i class="fas fa-download mr-1"></i>导出看板PDF
+                        <i class="fas fa-print mr-1"></i>打印 / 另存为 PDF
                     </button>
                 </div>
             </div>
             <!-- 1. 统计卡片区域 -->
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-6 mb-6">
                 <!-- 餐具 -->
-                <div class="bg-gradient-to-br from-blue-400 to-blue-600 rounded-lg p-4 text-white shadow" data-module-card="tableware">
+                <div class="glass-panel p-4" data-module-card="tableware">
                     <div class="flex items-center justify-between">
                         <div>
                             <p class="text-sm opacity-90" data-title-key="dash_tableware">餐具洁净度检测</p>
@@ -399,7 +376,7 @@ function createDashboardStructure() {
                     </div>
                 </div>
                 <!-- 农残 -->
-                <div class="bg-gradient-to-br from-green-400 to-green-600 rounded-lg p-4 text-white shadow" data-module-card="pesticide">
+                <div class="glass-panel p-4" data-module-card="pesticide">
                     <div class="flex items-center justify-between">
                         <div>
                             <p class="text-sm opacity-90" data-title-key="dash_pesticide">果蔬农残检测</p>
@@ -410,7 +387,7 @@ function createDashboardStructure() {
                     </div>
                 </div>
                 <!-- 食用油 -->
-                <div class="bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-lg p-4 text-white shadow" data-module-card="oil">
+                <div class="glass-panel p-4" data-module-card="oil">
                     <div class="flex items-center justify-between">
                         <div>
                             <p class="text-sm opacity-90" data-title-key="dash_oil">食用油品质快检</p>
@@ -421,7 +398,7 @@ function createDashboardStructure() {
                     </div>
                 </div>
                 <!-- 病原体 -->
-                <div class="bg-gradient-to-br from-purple-400 to-purple-600 rounded-lg p-4 text-white shadow" data-module-card="pathogen">
+                <div class="glass-panel p-4" data-module-card="pathogen">
                     <div class="flex items-center justify-between">
                         <div>
                             <p class="text-sm opacity-90" data-title-key="dash_pathogen">食源性细菌/病毒</p>
@@ -437,7 +414,7 @@ function createDashboardStructure() {
                     </div>
                 </div>
                 <!-- ✅ 总数卡片 - 增加总合格率显示 -->
-                <div class="bg-gradient-to-br from-orange-400 to-orange-600 rounded-lg p-4 text-white shadow">
+                <div class="glass-panel p-4">
                     <div class="flex items-center justify-between">
                         <div>
                             <p class="text-sm opacity-90">总检测数</p>
@@ -458,7 +435,7 @@ function createDashboardStructure() {
                 <h3 class="font-semibold text-gray-800 mb-3" data-title-key="dash_leanMeat">肉、蛋农残检测</h3>
                 <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                     <!-- 猪肉 -->
-                    <div class="bg-gradient-to-br from-red-400 to-red-600 rounded-lg p-3 text-white shadow">
+                    <div class="glass-panel p-3">
                         <div class="text-center">
                             <p class="text-xs opacity-90">猪肉</p>
                             <p class="text-2xl font-bold" id="card_lean_pork_count">0</p>
@@ -466,7 +443,7 @@ function createDashboardStructure() {
                         </div>
                     </div>
                     <!-- 羊肉 -->
-                    <div class="bg-gradient-to-br from-red-400 to-red-600 rounded-lg p-3 text-white shadow">
+                    <div class="glass-panel p-3">
                         <div class="text-center">
                             <p class="text-xs opacity-90">羊肉</p>
                             <p class="text-2xl font-bold" id="card_lean_mutton_count">0</p>
@@ -474,7 +451,7 @@ function createDashboardStructure() {
                         </div>
                     </div>
                     <!-- 牛肉 -->
-                    <div class="bg-gradient-to-br from-red-400 to-red-600 rounded-lg p-3 text-white shadow">
+                    <div class="glass-panel p-3">
                         <div class="text-center">
                             <p class="text-xs opacity-90">牛肉</p>
                             <p class="text-2xl font-bold" id="card_lean_beef_count">0</p>
@@ -482,7 +459,7 @@ function createDashboardStructure() {
                         </div>
                     </div>
                     <!-- 禽肉 -->
-                    <div class="bg-gradient-to-br from-red-400 to-red-600 rounded-lg p-3 text-white shadow">
+                    <div class="glass-panel p-3">
                         <div class="text-center">
                             <p class="text-xs opacity-90">禽肉</p>
                             <p class="text-2xl font-bold" id="card_lean_poultry_count">0</p>
@@ -490,7 +467,7 @@ function createDashboardStructure() {
                         </div>
                     </div>
                     <!-- 鱼肉 -->
-                    <div class="bg-gradient-to-br from-red-400 to-red-600 rounded-lg p-3 text-white shadow">
+                    <div class="glass-panel p-3">
                         <div class="text-center">
                             <p class="text-xs opacity-90">鱼肉</p>
                             <p class="text-2xl font-bold" id="card_lean_fish_count">0</p>
@@ -498,7 +475,7 @@ function createDashboardStructure() {
                         </div>
                     </div>
                     <!-- 禽蛋 -->
-                    <div class="bg-gradient-to-br from-red-400 to-red-600 rounded-lg p-3 text-white shadow">
+                    <div class="glass-panel p-3">
                         <div class="text-center">
                             <p class="text-xs opacity-90">禽蛋</p>
                             <p class="text-2xl font-bold" id="card_lean_egg_count">0</p>
@@ -510,20 +487,20 @@ function createDashboardStructure() {
             
             <!-- 2. 概览列表区域 -->
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                <div class="bg-white border rounded-lg p-4">
+                <div class="glass-panel p-4">
                     <h3 class="font-semibold text-gray-800 mb-3" data-title-key="dash_tableware_overview">餐具洁净度概览 (最新5条)</h3>
                     <ul id="list_tableware_overview" class="text-sm text-gray-700 space-y-2"></ul>
                 </div>
-                <div class="bg-white border rounded-lg p-4">
+                <div class="glass-panel p-4">
                     <h3 class="font-semibold text-gray-800 mb-3" data-title-key="dash_pesticide_overview">果蔬农残概览 (最新5条)</h3>
                     <ul id="list_pesticide_overview" class="text-sm text-gray-700 space-y-2"></ul>
                 </div>
-                <div class="bg-white border rounded-lg p-4">
+                <div class="glass-panel p-4">
                     <h3 class="font-semibold text-gray-800 mb-3" data-title-key="dash_oil_overview">食用油品质概览 (最新5条)</h3>
                     <ul id="list_oil_overview" class="text-sm text-gray-700 space-y-2"></ul>
                 </div>
                 <!-- ✅ 病原体检测概览移到右边 -->
-                <div class="bg-white border rounded-lg p-4">
+                <div class="glass-panel p-4">
                     <h3 class="font-semibold text-gray-800 mb-3" data-title-key="dash_pathogen_overview">病原体检测概览 (最新5条)</h3>
                     <ul id="list_pathogen_overview" class="text-sm text-gray-700 space-y-2"></ul>
                 </div>
@@ -531,27 +508,27 @@ function createDashboardStructure() {
             
             <!-- 瘦肉精分类概览 -->
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-                <div class="bg-white border rounded-lg p-4">
+                <div class="glass-panel p-4">
                     <h3 class="font-semibold text-gray-800 mb-3" data-title-key="dash_lean_pork_overview">猪肉检测概览 (最新5条)</h3>
                     <ul id="list_lean_pork_overview" class="text-sm text-gray-700 space-y-2"></ul>
                 </div>
-                <div class="bg-white border rounded-lg p-4">
+                <div class="glass-panel p-4">
                     <h3 class="font-semibold text-gray-800 mb-3" data-title-key="dash_lean_mutton_overview">羊肉检测概览 (最新5条)</h3>
                     <ul id="list_lean_mutton_overview" class="text-sm text-gray-700 space-y-2"></ul>
                 </div>
-                <div class="bg-white border rounded-lg p-4">
+                <div class="glass-panel p-4">
                     <h3 class="font-semibold text-gray-800 mb-3" data-title-key="dash_lean_beef_overview">牛肉检测概览 (最新5条)</h3>
                     <ul id="list_lean_beef_overview" class="text-sm text-gray-700 space-y-2"></ul>
                 </div>
-                <div class="bg-white border rounded-lg p-4">
+                <div class="glass-panel p-4">
                     <h3 class="font-semibold text-gray-800 mb-3" data-title-key="dash_lean_poultry_overview">禽肉检测概览 (最新5条)</h3>
                     <ul id="list_lean_poultry_overview" class="text-sm text-gray-700 space-y-2"></ul>
                 </div>
-                <div class="bg-white border rounded-lg p-4">
+                <div class="glass-panel p-4">
                     <h3 class="font-semibold text-gray-800 mb-3" data-title-key="dash_lean_fish_overview">鱼肉检测概览 (最新5条)</h3>
                     <ul id="list_lean_fish_overview" class="text-sm text-gray-700 space-y-2"></ul>
                 </div>
-                <div class="bg-white border rounded-lg p-4">
+                <div class="glass-panel p-4">
                     <h3 class="font-semibold text-gray-800 mb-3" data-title-key="dash_lean_egg_overview">禽蛋检测概览 (最新5条)</h3>
                     <ul id="list_lean_egg_overview" class="text-sm text-gray-700 space-y-2"></ul>
                 </div>
@@ -567,7 +544,7 @@ function createDashboardStructure() {
             
             <!-- 3. 图表区域 -->
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div class="bg-gray-50 rounded-lg p-4 md:col-span-2">
+                <div class="glass-panel p-4 md:col-span-2">
                     <div class="flex items-center justify-between mb-3 gap-3">
                         <h3 class="font-semibold text-gray-700" id="trendChartTitle">检测趋势</h3>
                         <div class="flex items-center gap-3 flex-wrap justify-end">
@@ -583,7 +560,7 @@ function createDashboardStructure() {
                         <canvas id="trendChart"></canvas>
                     </div>
                 </div>
-                <div class="bg-gray-50 rounded-lg p-4 md:col-span-1">
+                <div class="glass-panel p-4 md:col-span-1">
                     <h3 class="font-semibold mb-3 text-gray-700">各食堂合格率对比</h3>
                     <p class="text-xs text-gray-400 mb-2" id="canteen_chart_caption"></p>
                     <div class="h-96">
