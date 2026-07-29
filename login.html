@@ -141,6 +141,8 @@
         window.__ENABLE_GUEST_ENTRY__ = false;
     </script>
     <div class="login-container w-full max-w-md">
+        <!-- 学校识别错误提示：schoolCode 缺失/非法/不存在时显式提示，不静默回退默认学校 -->
+        <div id="schoolError" class="hidden mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm"></div>
         <!-- 登录卡片 -->
         <div class="glass p-8">
             <!-- Logo 和标题 -->
@@ -283,20 +285,33 @@
         const guestAuthService = new GuestAuthService();
         const enableGuestEntry = window.__ENABLE_GUEST_ENTRY__ === true;
 
+        // 显式错误提示（schoolCode 缺失/非法/不存在），避免静默回退到默认/第一个学校
+        function showSchoolError(msg) {
+            const el = document.getElementById('schoolError');
+            if (el) { el.textContent = msg; el.classList.remove('hidden'); }
+        }
+
         // ===== 方案A：按 URL 路径前缀识别学校，登录前完成个性化 =====
         const currentSchoolCode = extractSchoolCode();
         if (currentSchoolCode) {
             applySchoolTheme(currentSchoolCode);
+        } else {
+            showSchoolError('未识别到有效的学校登录入口，请使用学校提供的专属登录链接（例如 /demo/login.html?school=xxx）。');
         }
 
         // 登录前拉取学校个性化配置（Logo / 主题色 / 名称），失败不阻断登录
         async function applySchoolTheme(schoolCode) {
             try {
                 const resp = await fetch(`/api/schools/${encodeURIComponent(schoolCode)}/config`);
-                if (!resp.ok) return;
+                if (!resp.ok) {
+                    let msg = '学校信息获取失败，请确认登录入口是否正确';
+                    try { const j = await resp.json(); if (j && j.error) msg = j.error; } catch (_) { /* 忽略解析失败 */ }
+                    showSchoolError(msg);
+                    return;
+                }
                 const json = await resp.json();
                 const cfg = json && json.data;
-                if (!cfg) return;
+                if (!cfg) { showSchoolError('学校不存在或未激活'); return; }
 
                 if (cfg.name) {
                     document.title = `${cfg.name} - 登录`;
@@ -389,6 +404,8 @@
                             : card.align === 'right' ? 'auto' : 'auto'
                         container.style.marginRight = card.align === 'right' ? '24px'
                             : card.align === 'left' ? 'auto' : 'auto'
+                        // 图形化编辑：垂直偏移（DS-LOGIN-GRAPHIC，card.top，默认 0）
+                        container.style.transform = (card.top ? `translateY(${card.top}px)` : '')
                     }
                     loginCard.style.width = '100%'
                     loginCard.style.borderRadius = (card.radius != null ? card.radius : 16) + 'px'
