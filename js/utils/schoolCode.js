@@ -36,21 +36,29 @@ export function extractSchoolCode(pathname = window.location.pathname, search = 
 
 /**
  * 生成某学校的登录页地址（生成端，与 extractSchoolCode 解析端共用同一约定）。
- * 约定：沿用当前页面所在「部署基路径」拼接 login.html，并附带 ?school=<code> 兜底参数。
- *   - 基路径推导：取 pathname 去掉末尾文件名得到目录（如 /demo/admin-schools.html → /demo/）。
- *     这样无论部署在根（/）还是子路径（/demo/），生成的 login.html 与控制台同目录，
- *     浏览器可见路径即 /<base>login.html，extractSchoolCode 按路径前缀正确识别租户。
- *   - ?school= 兜底：即便基路径推导与实际挂载不一致，查询参数也能让解析端拿到正确 code。
+ * 约定：学校代码即其部署基路径首段，登录页必须落在 /<code>/login.html。
+ *
+ * 为何用 /<code>/ 前缀而非控制台所在目录：
+ *   控制台通常部署在根（/admin-schools.html），若按控制台目录推导会得到根目录 /login.html；
+ *   但该校真正应用与登录页都在 /<code>/ 下。登录成功后的相对重定向 ./index.html
+ *   只有在 /<code>/login.html 才会解析成 /<code>/index.html；落到根目录 /index.html
+ *   则进错学校（这正是此前点击后进了根 index.html 的原因）。
+ *
+ * - extractSchoolCode 由路径前缀识别租户：/<code>/login.html -> code，与登录页实际位置一致。
+ * - ?school=<code> 兜底：无 rewrite 的静态服务器 / 根部署场景也能识别租户。
+ *
+ * 该约定要求学校应用按 /<code>/ 子路径部署（与 tenantProvisioner、server.js rewrite 一致）；
+ * 多层挂载（/apps/<code>/）不在支持范围。
+ *
  * @param {string} code 学校代码
- * @param {{pathname?:string,origin?:string}} [opts] 测试可注入 pathname/origin，默认取 window.location
+ * @param {{origin?:string}} [opts] 测试可注入 origin，默认取 window.location
  * @returns {string} 完整登录地址
  */
 export function buildSchoolLoginUrl(code, opts = {}) {
-    const pathname = opts.pathname ?? (typeof window !== 'undefined' ? window.location.pathname : '')
     const origin = opts.origin ?? (typeof window !== 'undefined' ? window.location.origin : '')
     const c = String(code || '').replace(/^school_/, '').replace(/_/g, '-')
-    const base = pathname.replace(/[^/]*$/, '') // 当前页面目录，兼容子路径部署
-    return `${origin}${base}login.html?school=${encodeURIComponent(c)}`
+    // 学校代码即部署基路径首段：/<code>/login.html
+    return `${origin}/${encodeURIComponent(c)}/login.html?school=${encodeURIComponent(c)}`
 }
 
 // 未来切换域名后的实现（仅替换本函数，业务无需改动）：

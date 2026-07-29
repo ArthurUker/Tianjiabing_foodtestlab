@@ -25,7 +25,7 @@ describe('extractSchoolCode — 解析优先级与边界', () => {
     ['/Demo/login.html', '?school=demo', 'demo'],
     // URL 编码：浏览器已 decode 的 pathname 可正常解析；原始编码串不匹配首段
     ['/dem%6F/login.html', '', null],
-    // API 前缀冲突：/api/ 被视为接口路径，首段取 "api"（schoolCode 不得用 api，后端已负向预查保护）
+    // API 前缀冲突：/api/ 被视为接口路径，首段取 api（schoolCode 不得用 api，后端已负向预查保护）
     ['/api/login.html', '', 'api'],
     // 已知限制：多层基路径误取首段
     ['/apps/demo/login.html', '', 'apps'],
@@ -38,32 +38,32 @@ describe('extractSchoolCode — 解析优先级与边界', () => {
 });
 
 describe('buildSchoolLoginUrl — 生成与解析一致', () => {
-  test('根部署：生成 /login.html?school=<code>', () => {
-    expect(buildSchoolLoginUrl('demo', { pathname: '/admin-schools.html', origin: 'http://h' }))
-      .toBe('http://h/login.html?school=demo');
+  // 学校代码即部署基路径首段：始终生成 /<code>/login.html?school=<code>
+  // 不依赖调用方所在目录（控制台在根 /admin-schools.html 时也应产出 /<code>/...）
+  test('根部署控制台也应生成 /<code>/login.html?school=<code>', () => {
+    expect(buildSchoolLoginUrl('demo', { origin: 'http://h' }))
+      .toBe('http://h/demo/login.html?school=demo');
   });
 
-  test('单层子路径：生成 /demo/login.html?school=<code>', () => {
-    expect(buildSchoolLoginUrl('demo', { pathname: '/demo/admin-schools.html', origin: 'http://h:3002' }))
+  test('子路径控制台同样生成 /<code>/login.html?school=<code>（与所在目录无关）', () => {
+    expect(buildSchoolLoginUrl('demo', { origin: 'http://h:3002' }))
       .toBe('http://h:3002/demo/login.html?school=demo');
   });
 
   test('school_ 前缀与下划线归一为连字符', () => {
-    expect(buildSchoolLoginUrl('school_demo_x', { pathname: '/admin-schools.html', origin: 'http://h' }))
-      .toBe('http://h/login.html?school=demo-x');
+    expect(buildSchoolLoginUrl('school_demo_x', { origin: 'http://h' }))
+      .toBe('http://h/demo-x/login.html?school=demo-x');
   });
 
-  test('生成的链接可被 extractSchoolCode 还原为同一 code（单层）', () => {
-    const url = buildSchoolLoginUrl('demo', { pathname: '/demo/admin-schools.html', origin: 'http://h' });
+  test('生成的链接可被 extractSchoolCode 还原为同一 code', () => {
+    const url = buildSchoolLoginUrl('demo', { origin: 'http://h' });
     const u = new URL(url);
+    // 路径前缀 /demo/ 命中 → demo（与登录页实际子路径一致，登录后相对重定向 ./index.html -> /demo/index.html）
     expect(extractSchoolCode(u.pathname, u.search)).toBe('demo');
   });
 
-  test('生成-解析在路径冲突场景下以路径为准（多层已知限制）', () => {
-    // 控制台挂在 /apps/demo/，生成 /apps/demo/login.html?school=demo
-    const url = buildSchoolLoginUrl('demo', { pathname: '/apps/demo/admin-schools.html', origin: 'http://h' });
-    const u = new URL(url);
-    // 解析端按路径首段取到 apps（已知限制：多层基路径不支持）
-    expect(extractSchoolCode(u.pathname, u.search)).toBe('apps');
+  test('生成的链接真实可打开该校仪表盘：从 /<code>/login.html 相对重定向到 /<code>/index.html', () => {
+    const url = buildSchoolLoginUrl('demo', { origin: 'http://localhost:3002' });
+    expect(url).toBe('http://localhost:3002/demo/login.html?school=demo');
   });
 });
