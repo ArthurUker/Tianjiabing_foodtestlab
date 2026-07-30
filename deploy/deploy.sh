@@ -622,9 +622,15 @@ $CADDY_ADDR {
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
         X-Content-Type-Options "nosniff"
-        X-Frame-Options "DENY"
         Referrer-Policy "no-referrer"
         -Server
+        X-Frame-Options "SAMEORIGIN"
+    }
+    # 预览 iframe（admin-schools.html 内嵌 index.html）需同源框嵌套；
+    # API 路由仍禁止框嵌套（server.js 另设 CSP frame-ancestors 'none' 双重防护）。
+    @apiPath path /api/*
+    header @apiPath {
+        X-Frame-Options "DENY"
     }
 
     # 方案A：路径前缀多租户识别（/<code>/login → 登录页，URL 不变）
