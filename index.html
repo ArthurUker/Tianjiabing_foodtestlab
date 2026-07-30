@@ -5,10 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>食品安全检验管理系统 (Pro)</title>
     <script>
-        // 预览模式：被 admin-schools.html 的 iframe 加载时，阻止登录重定向
-        if (new URLSearchParams(location.search).get('preview') === 'true') {
-            window.__PREVIEW_MODE__ = true;
-        }
+        // 🔐 早期认证拦截：在页面渲染前检查登录态，未登录立即跳转（避免闪现主界面）
+        // 同时处理预览模式（admin-schools.html iframe 加载时跳过拦截）
+        (function () {
+            var _preview = new URLSearchParams(location.search).get('preview') === 'true';
+            if (_preview) { window.__PREVIEW_MODE__ = true; return; }
+            var _token = localStorage.getItem('auth_token');
+            var _guest = localStorage.getItem('guest_token');
+            if (!_token && !_guest) { location.replace('./login.html' + (location.search || '')); }
+        })();
+    </script>
+    <script>
         // 生产环境日志降噪：默认关闭大量调试日志，必要时加 ?debug=true 打开
         (function () {
             const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1'
