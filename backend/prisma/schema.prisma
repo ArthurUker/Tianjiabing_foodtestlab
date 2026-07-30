@@ -23,9 +23,12 @@ model User {
   password_hash String
   full_name     String?
   phone         String?
-  role          String   @default("user") // admin / manager / operator / viewer / user
+  role          String   @default("operator") // admin / manager / operator / viewer
   status        String   @default("active") // active / disabled
   school_code   String?  // 所属学校代码（方案②）；dev/test 共享 schema 时为空
+  // M2（窗口2）：默认/临时密码账号首登强制改密标记。
+  // 建校初始 manager、管理员重置密码时置 true；登录侧拦截由窗口1实现。
+  must_change_password Boolean @default(false)
   created_at    DateTime @default(now())
   updated_at    DateTime @updatedAt
   last_login    DateTime?
@@ -131,7 +134,7 @@ model Guest {
   full_name            String?
   // 自注册访客无创建者用户，故允许为空（P1-08 同款 Restrict 关系仅在非空时生效）
   created_by           String?
-  guest_type           String    @default("viewer") // viewer（只读） / export_applicant（导出申请人）
+  guest_type           String    @default("readonly") // readonly（只读） / export_applicant（导出申请人）
   has_export_permission Boolean  @default(false)   // 导出权限（默认关，export_applicant 经审批后开通）
   valid_until          DateTime? // 访客有效期（自注册时按 valid_days 计算）
   status               String    @default("active") // active / disabled

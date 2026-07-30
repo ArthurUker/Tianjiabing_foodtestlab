@@ -59,16 +59,25 @@ export function applySchoolCustomizationToTitles(customization) {
  * - 整个容器是 layout-shrink-safe：长学校名截断时徽章不被压扁
  * @param {string} schoolCode
  */
-export async function applySchoolBranding(schoolCode) {
+export async function applySchoolBranding(schoolCode, force = false) {
     if (!schoolCode) return
-    const info = await ensureSchoolInfo(schoolCode)
+    const info = await ensureSchoolInfo(schoolCode, force)
     if (!info) return
 
     // 1. 系统标题
-    if (info.name) {
+    // 允许通过定制 theme_config.systemTitle 完全自定义顶部标题；
+    // 未设置（或为空）时回退到默认 "<学校名称>食品安全检验管理系统"。
+    let titleText = info.name ? `${info.name}食品安全检验管理系统` : ''
+    try {
+        const cfg = await ensureSchoolConfig(schoolCode, force)
+        const tc = parseJSONField(cfg && cfg.theme_config) || {}
+        const customTitle = tc.systemTitle
+        if (typeof customTitle === 'string' && customTitle.trim()) titleText = customTitle.trim()
+    } catch (_) { /* 定制缺失不影响降级渲染 */ }
+    if (titleText) {
         const titleEl = document.getElementById('systemTitle')
-        if (titleEl) titleEl.textContent = `${info.name}食品安全检验管理系统`
-        document.title = `${info.name} - 食品安全检验管理系统`
+        if (titleEl) titleEl.textContent = titleText
+        document.title = titleText
     }
 
     // 2. 校徽 Logo

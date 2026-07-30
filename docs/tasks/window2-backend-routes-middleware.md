@@ -36,8 +36,8 @@ if (!isValidSchoolCode(schoolCode)) {
 2. **username 格式**：增加 `if (!/^[a-zA-Z0-9_]{3,32}$/.test(username)) return res.status(400).json({ error: '用户名格式非法' })`
 3. **guest_type 白名单**：
 ```javascript
-const VALID_GUEST_TYPES = new Set(['viewer', 'export_applicant'])
-if (!VALID_GUEST_TYPES.has(guest_type || 'viewer')) {
+const VALID_GUEST_TYPES = new Set(['readonly', 'export_applicant'])
+if (!VALID_GUEST_TYPES.has(guest_type || 'readonly')) {
     return res.status(400).json({ error: '非法的访客类型' })
 }
 ```

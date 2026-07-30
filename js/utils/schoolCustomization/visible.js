@@ -42,6 +42,13 @@ export function applyVisibleTypesToNav(customization) {
         const section = document.getElementById(m.navTarget)
         const show = visible.includes(m.code)
         if (btn) btn.classList.toggle('hidden', !show)
-        if (section) section.classList.toggle('hidden', !show)
+        if (section) {
+            // 导航按钮：.hidden 表示「该校不提供此模块入口」，由 visible_types 控制。
+            // 内容区块：.hidden 表示「当前未激活」，其互斥显示权交给左侧菜单点击
+            // （见 UIHelper.setupNavigation），此处【切勿】对可见模块强制移除 .hidden，
+            // 否则所有可见模块会同时展开，页面可被整体滑动穿透（首尾模块一划到底）。
+            // 因此：不可见模块 → 强制隐藏内容区；可见模块 → 内容区显示态保持不变。
+            if (!show) section.classList.add('hidden')
+        }
     })
 }

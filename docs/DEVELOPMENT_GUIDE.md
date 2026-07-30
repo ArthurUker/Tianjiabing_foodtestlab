@@ -109,7 +109,7 @@ Tianjiabing_foodtestlab/
 
 | 模型 | 关键字段 | 说明 |
 |------|----------|------|
-| `User` | username*, password_hash, role, status, email? | 角色：admin / manager / operator / viewer / user |
+| `User` | username*, password_hash, role, status, email? | 角色：admin / manager / operator / viewer |
 | `AuditLog` | user_id, action, resource_type?, resource_id?, details?, ip_address? | 审计日志（**生产环境不得物理删除**，见 PROJECT_CONVENTIONS） |
 | `TestRecord` | record_code*(唯一), test_type, test_name, sample_info(JSON), result_data(JSON), status, created_by, version | 检测记录主表 |
 | `TestItem` | test_record_id, item_name, result? | 子项（级联删除） |

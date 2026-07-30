@@ -40,8 +40,12 @@
 
 - **平台超管（admin，无学校归属）**：管理所有学校（新增/编辑/停用、配置界面定制、管理学校用户），拥有 `schools:manage` 权限。通过学校管理控制台（`admin-schools.html`）操作。
 - **学校管理者（manager）**：学校内最高权限，用户与权限管理、审计日志、全部业务操作。学校首个账号即为 manager。
-- **检测员（operator / user）**：录入与维护检测记录。
-- **只读用户（viewer）/ 访客（快速访问）**：仅查看看板与记录，无写入权限。
+- **检测员（operator）**：录入与维护检测记录。
+- **只读用户（viewer）**：学校**内部**只读员工账号，可查看看板与全部检测记录（含致病菌）、导出 PDF，但无写入权限；走正常登录，为持久账号。与 `guest` 是两套独立体系。
+- **访客（guest，快速访问）**：面向**外部/临时**人员的只读访问，落独立 `Guest` 表，分两种——
+  - `readonly`：免凭证快速访问（JWT 2h），模块白名单受限（不含致病菌）、默认无导出权限；
+  - `export_applicant`：自助注册、可提交数据导出申请，经审批后开通 `has_export_permission`。
+  - 与 `viewer` 的差异：访客有模块隔离（去致病菌）、默认无导出、可时效过期、走轻量独立鉴权。
 
 ### 部署形态
 
@@ -163,7 +167,7 @@ erDiagram
         string password_hash
         string full_name "nullable"
         string phone "nullable"
-        string role "default user"
+        string role "default operator"
         string status "default active"
         datetime last_login "nullable"
     }
@@ -449,7 +453,7 @@ js/
 ### 7.2 JWT 结构
 
 - **普通用户令牌**（`UserManager` 签发）payload：`{ userId, username, email, role, iat, exp }`，有效期 `JWT_EXPIRE`（默认 `7d`）。
-- **访客快速访问令牌**（`/api/guest/quick-access`）payload：`{ guestId:0, username, guest_type:'viewer', has_export_permission:false, is_quick_access:true, iat, exp }`，有效期 `2h`。
+- **访客快速访问令牌**（`/api/guest/quick-access`）payload：`{ guestId:0, username, guest_type:'readonly', has_export_permission:false, is_quick_access:true, iat, exp }`，有效期 `2h`。
 
 ### 7.3 中间件链
 

@@ -39,31 +39,61 @@ export function createAuditRoutes(userManager, prisma) {
     // ====== Public Routes ======
 
     /**
-     * 记录操作日志
+     * 记录操作日志（H3 收敛后）
      * POST /api/audit-logs
-     * 
+     *
+     * 【窗口2 · H3 安全收敛】本端点仅保留给前端"主动上报"类事件（如导出/打印），
+     * 关键安全事件（登录、角色变更、禁用/删除、密码重置等）已全部改为服务端
+     * 内部强制写入（writeTenantAuditLog / UserManager.logAdminAction），
+     * 不再信任客户端上报。限制：
+     *   1. 禁止 guest / viewer 调用（403）；
+     *   2. action 仅允许预定义白名单（CLIENT_AUDIT_ACTIONS），
+     *      服务端保留动作（login/login_failed/role_change/...）不可由客户端写入；
+     *   3. details 限长 2000 字符，并统一打上 source:'client' 标记，
+     *      与服务端生成的审计记录明确区分，防止伪造混淆。
+     *
      * Body:
      * {
-     *   "action": "create|update|delete|login|logout|export",
+     *   "action": "create|update|delete|export|import|print|logout",
      *   "resource_type": "test_record|user|backup|etc",
      *   "resource_id": "record-id",
      *   "details": "操作详情描述"
      * }
      */
+    const CLIENT_AUDIT_ACTIONS = ['create', 'update', 'delete', 'export', 'import', 'print', 'logout']
+    const CLIENT_AUDIT_FORBIDDEN_ROLES = ['guest', 'viewer']
+
     router.post('/', authenticateUser, async (req, res) => {
         try {
+            // H3-2: 禁止 guest / viewer 写审计
+            if (CLIENT_AUDIT_FORBIDDEN_ROLES.includes(req.user.role)) {
+                return res.status(403).json({ error: '❌ 当前角色无权写入审计日志' })
+            }
+
             const { action, resource_type, resource_id, details } = req.body
 
             if (!action) {
                 return res.status(400).json({ error: '❌ 缺少操作类型' })
             }
 
+            // H3-2: action 白名单，杜绝伪造服务端保留事件（login/role_change/...）
+            if (!CLIENT_AUDIT_ACTIONS.includes(action)) {
+                return res.status(400).json({ error: `❌ 不支持的操作类型（仅允许: ${CLIENT_AUDIT_ACTIONS.join('/')}）` })
+            }
+
+            // H3-3: details 限长并标记来源为客户端上报
+            const rawDetails = typeof details === 'string' ? details : (details == null ? '' : JSON.stringify(details))
+            const safeDetails = {
+                source: 'client',
+                text: rawDetails.slice(0, 2000)
+            }
+
             const log = await writeTenantAuditLog(req.db, {
                 actorId: req.user.userId,
                 action,
-                resourceType: resource_type || null,
-                resourceId: resource_id || null,
-                details,
+                resourceType: typeof resource_type === 'string' ? resource_type.slice(0, 100) : null,
+                resourceId: typeof resource_id === 'string' ? resource_id.slice(0, 100) : null,
+                details: safeDetails,
                 ip: req.ip || null,
             })
 

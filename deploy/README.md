@@ -102,3 +102,22 @@ sudo bash deploy.sh /opt/deploy/deploy.foodtestlab.conf
 - 后端起不来：`journalctl -u <APP_NAME> -n 50`
 - Caddy 配置有误：`caddy validate --config /etc/caddy/Caddyfile`
 - 健康检查失败但没报错：后端可能还在启动，等一会再 `curl http://127.0.0.1:<API_PORT>/api/health`
+
+## ⚠️ 已知限制（切换多实例部署前必读）
+
+### 安全事件告警扫描器假设单实例运行
+- **位置**：`backend/lib/securityAlerts.js`（`SECURITY:*` 事件定时扫描 + webhook 推送）。
+- **限制**：扫描游标（"已处理到 SystemLog 哪条记录"）保存在**进程内存**，未落共享存储。
+- **当前无影响**：本部署方案为 systemd 单进程托管（已确定不用 PM2），单实例下行为完全正确。
+- **触发条件（何时必须处理）**：当决定引入 **PM2 cluster 模式**或**多机 / 多进程部署**时，
+  **必须先**把扫描游标改造为共享存储协调，否则每个实例都会各自扫描同一张
+  `public.SystemLog` 并各自推送，同一批安全事件被重复告警 N 次（N=实例数），
+  造成告警疲劳，反而掩盖真正需要关注的信号。
+- **推荐改造方案**：新建极简数据库租约表（如 `alert_scanner_lease`：
+  `id` / `holder_id` / `lease_expires_at`），实例扫描前用
+  `INSERT ... ON CONFLICT DO UPDATE ... WHERE lease_expires_at < NOW()`
+  原子抢占过期租约，仅租约持有者执行扫描与推送；租约 TTL 取扫描间隔的 2-3 倍并定期续约。
+- **由谁审视**：执行多实例改造的开发/运维负责人，在改动进程托管方式（systemd 单元、
+  引入 PM2、加实例数）的评审阶段主动检索本节；`securityAlerts.js` 模块顶部注释有同样声明作双保险。
+- **同源原则**：任何跨请求/跨进程判断状态的数据（token 吊销记录、登录失败计数、本扫描游标）
+  必须放数据库或 Redis 等共享存储，不能用进程内存 Map/变量（参见 TD-P2-14 / TD-P2-15）。

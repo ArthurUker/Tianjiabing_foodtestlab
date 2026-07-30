@@ -29,6 +29,7 @@ export {
     getSchoolInfo,
     ensureSchoolConfig,
     ensureSchoolInfo,
+    revalidateSchoolInfo,
     onSchoolConfigChanged,
     onSchoolInfoChanged,
     notifySchoolInfoChanged,
@@ -62,6 +63,7 @@ import {
     getSchoolInfo,
     ensureSchoolConfig,
     ensureSchoolInfo,
+    revalidateSchoolInfo,
     onSchoolConfigChanged,
     onSchoolInfoChanged,
     notifySchoolInfoChanged,
@@ -100,4 +102,5 @@ export default {
     onSchoolInfoChanged,
     notifySchoolInfoChanged,
     ensureSchoolConfig,
+    revalidateSchoolInfo,
 }

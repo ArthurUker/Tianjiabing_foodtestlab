@@ -33,13 +33,22 @@ function num(v, d) { return typeof v === 'number' && isFinite(v) ? v : d }
 
 // ---------- 子区块 HTML（模态与内嵌共用，靠容器作用域避免 ID 冲突）----------
 function stageHTML() {
+    // 预览舞台镜像真实顶部导航：左=校徽品牌+校名，右=用户/角色/登出；整条满宽，
+    // 背景水印模式下裁切框可在此全宽舞台上拖动定位，所见即师生端实际效果。
     return `
-    <div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">顶部导航预览</div>
-    <div id="beStage" style="position:relative;height:150px;border-radius:12px;overflow:hidden;background:linear-gradient(135deg,rgba(30,41,59,.95),rgba(15,23,42,.97));box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);cursor:crosshair;">
+    <div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">顶部导航预览（真实效果）</div>
+    <div id="beStage" style="position:relative;height:60px;border-radius:12px;overflow:hidden;background:linear-gradient(135deg,rgba(30,41,59,.95),rgba(15,23,42,.97));box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);cursor:crosshair;">
       <div id="beBgLayer" style="position:absolute;inset:0;background-repeat:no-repeat;pointer-events:none;"></div>
-      <div style="position:relative;z-index:1;height:100%;display:flex;align-items:center;gap:12px;padding:0 18px;color:#fff;">
-        <div id="beBadgeSlot"></div>
-        <span id="beTitle" style="font-size:18px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></span>
+      <div style="position:relative;z-index:1;height:100%;display:flex;align-items:center;justify-content:space-between;padding:0 18px;color:#fff;">
+        <div style="display:flex;align-items:center;gap:12px;min-width:0;">
+          <div id="beBadgeSlot"></div>
+          <span id="beTitle" style="font-size:16px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;font-size:13px;opacity:.92;flex-shrink:0;">
+          <span><i class="far fa-user mr-1"></i>管理员</span>
+          <span style="font-size:11px;padding:1px 8px;background:rgba(255,255,255,.18);border-radius:999px;">学校管理员</span>
+          <span style="padding:4px 10px;background:rgba(239,68,68,.85);border-radius:6px;"><i class="fas fa-sign-out-alt"></i></span>
+        </div>
       </div>
     </div>`
 }
@@ -268,12 +277,15 @@ export function mountBadgeEditor(container, opts) {
         if (bg) {
             bgLayer.style.backgroundImage = `url("${url}")`
             bgLayer.style.backgroundSize = `auto ${state.scale * 100}%`
-            // DS-BRAND-02：水印水平位置收敛到侧边，避免压住居中校名
-            let px = state.posX
-            if (px > 22 && px < 78) px = (px < 50 ? 12 : 88)
-            bgLayer.style.backgroundPosition = `${px}% ${state.posY}%`
+            // 水印位置完全由用户拖动 / scale/opacity 控制，自由定位。
+            // 注意：不再做"收敛到侧边"处理——既满足"随意拖动"需求，也与真实渲染
+            // （branding.js 严格使用编辑器设定的 posX/posY）保持一致；低不透明度 + 校名投影已保证可读性。
+            bgLayer.style.backgroundPosition = `${state.posX}% ${state.posY}%`
             bgLayer.style.opacity = String(state.opacity)
+            // 背景水印模式下校名需投影以保证在水印之上的可读性（与 branding.js 一致）
+            titleEl.style.textShadow = '0 1px 4px rgba(0,0,0,.45)'
         } else {
+            titleEl.style.textShadow = 'none'
             const size = state.badgeSize
             badgeSlot.innerHTML = `<div style="width:${size}px;height:${size}px;border-radius:12px;overflow:hidden;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.25);flex-shrink:0;"><img src="${url}" style="width:100%;height:100%;object-fit:contain;padding:2px;"></div>`
         }
@@ -338,13 +350,18 @@ export function mountBadgeEditor(container, opts) {
         if (e.target === badgeSlot || badgeSlot.contains(e.target)) return
         e.preventDefault()
         stage.setPointerCapture(e.pointerId)
+        stage.style.cursor = 'grabbing'
         const rect = stage.getBoundingClientRect()
         const move = (ev) => {
             state.posX = clamp((ev.clientX - rect.left) / rect.width * 100, 0, 100)
             state.posY = clamp((ev.clientY - rect.top) / rect.height * 100, 0, 100)
             renderPreview()
         }
-        const up = () => { stage.removeEventListener('pointermove', move); stage.removeEventListener('pointerup', up) }
+        const up = () => {
+            stage.style.cursor = 'grab'
+            stage.removeEventListener('pointermove', move)
+            stage.removeEventListener('pointerup', up)
+        }
         stage.addEventListener('pointermove', move)
         stage.addEventListener('pointerup', up)
     })

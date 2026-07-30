@@ -560,6 +560,14 @@
                         localStorage.removeItem('saved_username');
                     }
 
+                    // IF-2/M2: 临时密码账号（管理员重置/建号初始密码）首登强制改密。
+                    // 后端已对非改密接口一律 403（MUST_CHANGE_PASSWORD），此处不改密无法使用系统。
+                    if (result.user && result.user.mustChangePassword) {
+                        console.log('🔐 检测到临时密码，进入强制改密流程...');
+                        showForceChangePassword(password);
+                        return;
+                    }
+
                     console.log('✅ 登录成功，跳转到主界面...');
                     showError('✅ 登录成功，跳转到主界面...');
                     
@@ -601,6 +609,62 @@
             setTimeout(() => {
                 errorMessage.classList.add('hidden');
             }, 5000);
+        }
+
+        // IF-2/M2: 强制改密面板（临时密码首登）。改密成功前不放行进入系统；
+        // 用户关闭/刷新页面则登录态仍受后端 MUST_CHANGE_PASSWORD 拦截保护。
+        function showForceChangePassword(currentPassword) {
+            const overlay = document.createElement('div');
+            overlay.id = 'forceChangePwdOverlay';
+            overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+            overlay.innerHTML = `
+                <div style="background:#fff;border-radius:12px;max-width:400px;width:100%;padding:28px;box-shadow:0 20px 60px rgba(0,0,0,.3);">
+                    <h3 style="margin:0 0 6px;font-size:18px;font-weight:700;color:#111827;">
+                        <i class="fas fa-shield-alt" style="color:#2563eb;margin-right:8px;"></i>首次登录须修改密码
+                    </h3>
+                    <p style="margin:0 0 18px;font-size:13px;color:#6b7280;">当前为临时密码，请设置新密码后继续（至少 8 位，含字母和数字）。</p>
+                    <input id="fcpNew" type="password" autocomplete="new-password" placeholder="新密码"
+                        style="width:100%;box-sizing:border-box;border:1px solid #d1d5db;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:14px;">
+                    <input id="fcpConfirm" type="password" autocomplete="new-password" placeholder="确认新密码"
+                        style="width:100%;box-sizing:border-box;border:1px solid #d1d5db;border-radius:8px;padding:10px 12px;margin-bottom:8px;font-size:14px;">
+                    <p id="fcpError" style="display:none;margin:0 0 8px;font-size:13px;color:#dc2626;"></p>
+                    <button id="fcpSubmit" style="width:100%;background:#2563eb;color:#fff;border:none;border-radius:8px;padding:11px;font-size:14px;font-weight:600;cursor:pointer;">
+                        确认修改并进入系统
+                    </button>
+                </div>`;
+            document.body.appendChild(overlay);
+
+            const newInput = overlay.querySelector('#fcpNew');
+            const confirmInput = overlay.querySelector('#fcpConfirm');
+            const errEl = overlay.querySelector('#fcpError');
+            const submitBtn = overlay.querySelector('#fcpSubmit');
+            const fail = (msg) => { errEl.textContent = msg; errEl.style.display = 'block'; };
+
+            submitBtn.addEventListener('click', async () => {
+                errEl.style.display = 'none';
+                const np = newInput.value;
+                if (!/^(?=.*[A-Za-z])(?=.*\d).{8,}$/.test(np)) {
+                    return fail('新密码至少 8 个字符，且必须包含字母和数字');
+                }
+                if (np === currentPassword) {
+                    return fail('新密码不能与临时密码相同');
+                }
+                if (np !== confirmInput.value) {
+                    return fail('两次输入的密码不一致');
+                }
+                submitBtn.disabled = true;
+                submitBtn.textContent = '正在修改…';
+                const r = await authService.changePassword(currentPassword, np);
+                if (r.success) {
+                    submitBtn.textContent = '✅ 修改成功，正在进入系统…';
+                    setTimeout(() => window.location.replace('./index.html'), 300);
+                } else {
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = '确认修改并进入系统';
+                    fail(r.message || '密码修改失败，请重试');
+                }
+            });
+            newInput.focus();
         }
 
         // 按 Enter 提交表单

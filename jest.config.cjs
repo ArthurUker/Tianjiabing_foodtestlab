@@ -10,8 +10,16 @@ module.exports = {
   // 并发竞态集成测试需要 live PostgreSQL，单独用 tests/integration/jest.integration.config.cjs 运行，
   // 不纳入默认单测套件（避免无 PG 环境 npm test 失败）。
   testPathIgnorePatterns: ['/node_modules/', '<rootDir>/tests/integration/'],
+  // 内联 babel 配置：backend/ 是独立 package（有自己的 package.json），根 .babelrc 不会
+  // 跨包生效，导致 tests/ 引用 backend/lib/*.js（如 securityGuards.js）时 ESM 未被转译。
+  // 此处显式指定 preset（与根 .babelrc 的 env.test 等价），并禁用文件级配置查找，保证
+  // 所有被测模块（含 backend 包内）走同一转译管线。
   transform: {
-    '^.+\\.js$': 'babel-jest',
+    '^.+\\.js$': ['babel-jest', {
+      configFile: false,
+      babelrc: false,
+      presets: [['@babel/preset-env', { targets: { node: 'current' } }]],
+    }],
   },
   moduleFileExtensions: ['js', 'json'],
   collectCoverageFrom: [

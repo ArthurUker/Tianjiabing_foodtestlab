@@ -290,12 +290,12 @@ function getWeekString(date) {
 // 唯一无法重现的是 backdrop-filter 的模糊层（浏览器打印亦不支持），故打印时玻璃卡改为半透明白透出极光。
 async function exportDashboardToPDF() {
     try {
-        // 确保数据已加载，避免打印时内容为空
-        if (!dashboardState.hasLoaded) {
-            UINotification.loading('⏳ 正在准备看板数据...');
-            await loadAllDashboardData();
-            UINotification.hideLoading();
-        }
+        // 确保数据已加载，避免打印时内容为空。
+        // 修复：原代码引用了不存在的 dashboardState.hasLoaded 与 loadAllDashboardData()，
+        // 实际加载函数为 loadDashboardData()（幂等，重复调用仅重渲染，无副作用）。
+        UINotification.loading('⏳ 正在准备看板数据...');
+        await loadDashboardData();
+        UINotification.hideLoading();
         // 等待图表绘制完成，避免打印时图表空白
         await new Promise(resolve => setTimeout(resolve, 400));
 
@@ -304,8 +304,30 @@ async function exportDashboardToPDF() {
             await auditService.log('export', 'dashboard', 'pdf', '导出数据看板为 PDF');
         } catch (e) { /* 忽略审计失败 */ }
 
+        // 填充打印专用页眉（机构名 + 报告标题 + 动态导出日期）。
+        // 页眉置于 createDashboardStructure 生成的 <thead class="print-doc-head"> 内，
+        // 借助浏览器对 table-header-group 的原生能力：每页自动重复 + 自动预留顶部空间，
+        // 从根本上避免 fixed 页眉跨页遮挡内容的问题。该元素屏幕端隐藏、打印态显示。
+        // 页脚页码由 css/style.css 的 @page margin box 实现（Firefox 生效；
+        // Chrome/Edge 不支持 @page margin box，可在其打印对话框保留"页眉和页脚"以获得页码，
+        // 或用 Firefox 导出以同时获得自定义页眉与页码）。
+        const printHeaderEl = document.getElementById('dashboard-print-header');
+        if (printHeaderEl) {
+            const exp = new Date();
+            const pad = (n) => String(n).padStart(2, '0');
+            const expStr = `${exp.getFullYear()}-${pad(exp.getMonth() + 1)}-${pad(exp.getDate())} ${pad(exp.getHours())}:${pad(exp.getMinutes())}`;
+            printHeaderEl.innerHTML =
+                '<span class="dh-org">珠海市第一中学</span>' +
+                '<span class="dh-title">数据看板导出报告</span>' +
+                '<span class="dh-date">导出日期：' + expStr + '</span>';
+        }
+
         // 调起打印/另存为 PDF。请在对话框选择「目标：另存为 PDF」，
         // 并勾选「背景图形 / Background graphics」以保留极光与玻璃卡底色。
+        // 同步重绘图表到打印宽度：在 window.print() 之前主动设容器宽度并 resize()，
+        // 确保光栅化捕获的是已重绘完成的 canvas（消除异步竞态，避免折线断裂/柱缺失）。
+        fitChartsToPrintWidth();
+
         UINotification.info('ℹ️ 正在打开打印窗口，请选择「另存为 PDF」并勾选「背景图形」');
         window.print();
     } catch (error) {
@@ -320,6 +342,12 @@ function createDashboardStructure() {
     
     // 创建增强版看板HTML
     dashboardSection.innerHTML = `
+        <table class="print-doc">
+            <thead class="print-doc-head">
+                <tr><td><div id="dashboard-print-header"></div></td></tr>
+            </thead>
+            <tbody>
+                <tr><td>
         <div id="dashboard-capture-area" class="glass p-6 mb-6">
             <div class="flex flex-col md:flex-row items-center justify-between gap-4">
                 <h2 class="text-2xl font-bold text-gray-800">
@@ -363,7 +391,7 @@ function createDashboardStructure() {
                 </div>
             </div>
             <!-- 1. 统计卡片区域 -->
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-6 mb-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-6 mb-6 print-cards">
                 <!-- 餐具 -->
                 <div class="glass-panel p-4" data-module-card="tableware">
                     <div class="flex items-center justify-between">
@@ -433,7 +461,7 @@ function createDashboardStructure() {
             <!-- 瘦肉精分类统计卡片 -->
             <div class="mb-6" data-module-card="leanMeat">
                 <h3 class="font-semibold text-gray-800 mb-3" data-title-key="dash_leanMeat">肉、蛋农残检测</h3>
-                <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 print-cards">
                     <!-- 猪肉 -->
                     <div class="glass-panel p-3">
                         <div class="text-center">
@@ -486,7 +514,7 @@ function createDashboardStructure() {
             </div>
             
             <!-- 2. 概览列表区域 -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6 print-grid-2">
                 <div class="glass-panel p-4">
                     <h3 class="font-semibold text-gray-800 mb-3" data-title-key="dash_tableware_overview">餐具洁净度概览 (最新5条)</h3>
                     <ul id="list_tableware_overview" class="text-sm text-gray-700 space-y-2"></ul>
@@ -507,7 +535,7 @@ function createDashboardStructure() {
             </div>
             
             <!-- 瘦肉精分类概览 -->
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 print-cards">
                 <div class="glass-panel p-4">
                     <h3 class="font-semibold text-gray-800 mb-3" data-title-key="dash_lean_pork_overview">猪肉检测概览 (最新5条)</h3>
                     <ul id="list_lean_pork_overview" class="text-sm text-gray-700 space-y-2"></ul>
@@ -543,7 +571,7 @@ function createDashboardStructure() {
             </div>
             
             <!-- 3. 图表区域 -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 print-grid-3">
                 <div class="glass-panel p-4 md:col-span-2">
                     <div class="flex items-center justify-between mb-3 gap-3">
                         <h3 class="font-semibold text-gray-700" id="trendChartTitle">检测趋势</h3>
@@ -571,7 +599,10 @@ function createDashboardStructure() {
             
             <!-- 隐藏当前日期显示，但保留元素以兼容JS -->
             <div class="hidden" id="currentDate"></div>
-        </div>
+                </div>
+            </td></tr>
+            </tbody>
+        </table>
     `;
 }
 
@@ -1386,6 +1417,41 @@ function initCharts() {
             }
         });
     }
+
+    // 打印态图表尺寸：主重绘路径在 exportDashboardToPDF 内【同步】完成（见 fitChartsToPrintWidth），
+    // 此处仅注册 afterprint 恢复屏幕态 + matchMedia('print') 兜底（覆盖用户直接 Ctrl/Cmd+P 的场景）。
+    // 不再使用 beforeprint + setTimeout：setTimeout 是宏任务，不保证在打印引擎光栅化前执行 → 竞态致图表残缺。
+    // resize 只重绘 canvas 位图，不影响 DOM 结构/页眉重复(table-header-group)/卡片居中/末页空白。
+    if (!initCharts._printBound) {
+        window.addEventListener('afterprint', restoreChartsToScreen);
+        if (window.matchMedia) {
+            const mql = window.matchMedia('print');
+            const onMql = (e) => { if (e.matches) fitChartsToPrintWidth(); else restoreChartsToScreen(); };
+            if (mql.addEventListener) mql.addEventListener('change', onMql);
+            else if (mql.addListener) mql.addListener(onMql);
+        }
+        initCharts._printBound = true;
+    }
+}
+
+// 打印态图表尺寸同步控制：用 JS 主动把图表容器宽度设为目标打印宽度(内联 style)，
+// 再【同步】调用 chart.resize()（Chart.js 的 resize 同步重绘，含 afterDatasetsDraw 插件标签），
+// 确保 window.print() 触发光栅化时捕获的是【已重绘完成】的 canvas（彻底消除异步竞态）。
+// 若不主动设宽，resize 时容器仍是屏幕宽，打印态又被 @media print 缩放 → 仍压扁/残缺，故必须此处内联设宽。
+function fitChartsToPrintWidth() {
+    const W = 318; // A4 纵向双列网格下单卡图表目标宽度(px)，使 canvas 位图宽高比≈显示宽高比(≈1:1)
+    [trendChart, canteenChart].forEach((ch) => {
+        if (!ch || !ch.canvas) return;
+        const wrap = ch.canvas.parentNode; // .h-96 容器
+        if (wrap) { wrap.style.width = W + 'px'; ch.resize(); }
+    });
+}
+function restoreChartsToScreen() {
+    [trendChart, canteenChart].forEach((ch) => {
+        if (!ch || !ch.canvas) return;
+        const wrap = ch.canvas.parentNode;
+        if (wrap) { wrap.style.width = ''; ch.resize(); }
+    });
 }
 
 // ✅ 修改：更新图表（增加食堂筛选参数）

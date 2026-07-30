@@ -1,3 +1,5 @@
+> ⚠️ **历史归档文档**：本文记录的是项目早期 **SQLite 阶段** 的状态，仅作历史留档，不代表当前系统。当前系统已迁移至 **PostgreSQL**（`backend/prisma/schema.prisma` 为 `provider = "postgresql"`，多租户 schema-per-tenant）。文中出现的 `provider = "sqlite"`、"当前腾讯云部署不需要安装 PostgreSQL" 等描述均已过时。实际数据库与部署方式请以项目根目录 `docs/` 及 `backend/` 代码为准。
+
 # 食品安全检验管理系统 Pro 部署与运维指南
 
 **文档名称**：`DEPLOYMENT_GUIDE.md`  

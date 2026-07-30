@@ -62,23 +62,35 @@ td, th { vertical-align: middle; }
    唯一无法重现的是 backdrop-filter 的磨砂模糊层（浏览器打印亦不支持），
    故打印时玻璃卡改为半透明白透出极光，最接近直出观感。 */
 @media print {
-    /* 强制打印背景（极光渐变、玻璃卡底色、图标色彩） */
+    /* 强制打印背景（极光渐变、卡片底色、主题色统计数字、图标色彩） */
     * {
         -webkit-print-color-adjust: exact !important;
         print-color-adjust: exact !important;
     }
 
-    /* 极光壁纸铺满整页作为背景（去掉动画，固定定位，每页重复） */
+    /* 极光壁纸：改 absolute，仅覆盖内容高度，不再 fixed 铺满每页视口，
+       避免末页内容低于一页时下方空白区透出极光渐变（用户反馈的"半页渐变色块"）。
+       同时降低强度，仅作轻氛围。 */
     body::before {
-        position: fixed !important;
+        position: absolute !important;
         inset: 0 !important;
         z-index: -2 !important;
         animation: none !important;
-        filter: blur(22px) saturate(165%) !important;
+        filter: blur(30px) saturate(110%) !important;
+        opacity: 0.3 !important;
     }
-    html, body { background: #eef2f8 !important; }
+    html, body {
+        background: #eef2f7 !important;
+        /* 禁止任何容器撑满视口，避免分页引擎拉伸留白 */
+        min-height: 0 !important;
+        height: auto !important;
+    }
+    #dashboard, .content-section, .container, .flex-1.min-w-0, #dashboard-capture-area {
+        min-height: 0 !important;
+        height: auto !important;
+    }
 
-    /* 隐藏页面框架：导航、侧栏、加载层、toast 通知、导出/筛选按钮 */
+    /* 隐藏页面框架：导航、侧栏、加载层、toast、筛选/导出按钮 */
     nav,
     .sidebar-menu,
     .loading-overlay,
@@ -98,21 +110,99 @@ td, th { vertical-align: middle; }
     }
     .flex-1.min-w-0 { width: 100% !important; }
 
+    /* 打印态恢复 thead 为 table-header-group：浏览器每页自动重复页眉并预留其高度空间 */
+    .print-doc-head { display: table-header-group !important; }
+
+    /* 看板容器：干净的浅色实体底（slate-50），不再全透极光 → 整洁容器感，接近网页浅玻璃氛围 */
     #dashboard-capture-area {
-        background: transparent !important;   /* 透出极光，复刻玻璃折射底 */
-        box-shadow: none !important;
+        background: #f8fafc !important;
+        border-radius: 14px !important;
+        box-shadow: 0 2px 10px rgba(15, 23, 42, 0.08) !important;
         margin: 0 !important;
-        padding: 0 !important;
+        padding: 16px !important;
         width: 100% !important;
     }
-    /* 玻璃卡：半透明白透出极光 → 玻璃观感 */
+
+    /* 玻璃卡：实质化白底 + 清晰边框/圆角/轻阴影，提高可读性；
+       仍保留主题色统计数字（由 style.css 8-20 上色，print-color-adjust 已开启）；
+       break-inside 防止分页时卡片被腰斩 */
     #dashboard-capture-area .glass-panel {
-        background-color: rgba(255, 255, 255, 0.55) !important;
-        border: 1px solid rgba(255, 255, 255, 0.7) !important;
+        background-color: #ffffff !important;
+        border: 1px solid rgba(15, 23, 42, 0.12) !important;
+        border-radius: 12px !important;
         backdrop-filter: none !important;
         -webkit-backdrop-filter: none !important;
-        box-shadow: 0 4px 16px rgba(15, 23, 42, 0.10) !important;
+        box-shadow: 0 1px 4px rgba(15, 23, 42, 0.10) !important;
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
     }
 
-    @page { margin: 10mm; }
+    /* 图表 / 表格等易截断区块在打印时分页保持完整 */
+    #dashboard-capture-area canvas,
+    #dashboard-capture-area table {
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+        max-width: 100% !important;
+    }
+
+    /* 纵向 A4：紧凑报告感，卡片不被超宽页面拉散；列数由下方 .print-grid-* / .print-cards 强制锁定 */
+    @page {
+        size: A4;
+        margin: 10mm;
+        /* 页脚页码：Firefox 支持 @page margin box；Chrome/Edge 不支持（其打印对话框可保留原生页码，
+           或用 Firefox 导出以获得自定义页码，详见导出函数注释） */
+        @bottom-center {
+            content: "第 " counter(page) " 页 / 共 " counter(pages) " 页";
+            font-size: 9pt;
+            color: #475569;
+        }
+    }
+
+    /* 图表区：固定 2 列网格 */
+    #dashboard-capture-area .print-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+    /* 跨列卡片（如「风险概览 + 风险提示」2+1）在 3 列网格下锁定跨度 */
+    #dashboard-capture-area .print-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+    #dashboard-capture-area .print-grid-3 > [class*="col-span-2"] { grid-column: span 2 / span 2 !important; }
+    #dashboard-capture-area .print-grid-3 > [class*="col-span-1"] { grid-column: span 1 / span 1 !important; }
+
+    /* 打印态图表容器明确锁定高度，确保 Chart.js resize() 有确定目标尺寸，避免被压扁 */
+    #dashboard-capture-area .h-96 { height: 384px !important; }
+
+    /* 纯等宽卡片行（统计卡 / 瘦肉精 / 第三排）：改用 flex 自动换行并居中，
+       避免 3 列布局下卡片数非 3 倍数时末位出现空网格（视觉空洞） */
+    #dashboard-capture-area .print-cards {
+        display: flex !important;
+        flex-wrap: wrap !important;
+        justify-content: center !important;
+        gap: 12px !important;
+    }
+    #dashboard-capture-area .print-cards > .glass-panel {
+        flex: 1 1 30% !important;
+        min-width: 180px !important;
+        max-width: calc(33.333% - 8px) !important;
+    }
+
+    /* 打印专用页眉（位于 <thead class="print-doc-head"> 内）：
+       机构名 + 报告标题 + 动态导出日期。借助 table-header-group 每页重复并预留空间，
+       故此处改为正常流布局（不再用 position: fixed，否则 thead 塌缩为 0 高导致再次重叠）。 */
+    #dashboard-print-header {
+        display: flex !important;
+        align-items: center;
+        justify-content: space-between !important;
+        padding: 3px 2mm !important;
+        border-bottom: 1px solid #cbd5e1 !important;
+        background: #f8fafc !important;
+        font-size: 9pt !important;
+        color: #334155 !important;
+    }
+    #dashboard-print-header .dh-org { font-weight: 700; }
+    #dashboard-print-header .dh-title { font-weight: 600; }
+}
+
+/* 打印文档表格：用 table-header-group 实现每页重复页眉 + 自动预留顶部空间（根治 fixed 跨页遮挡） */
+.print-doc { width: 100%; border-collapse: collapse; }
+.print-doc > tbody > tr > td { padding: 0; vertical-align: top; }
+/* 屏幕端隐藏页眉行（打印态在 @media print 中恢复为 table-header-group 以重复显示） */
+@media screen {
+    .print-doc-head { display: none; }
 }

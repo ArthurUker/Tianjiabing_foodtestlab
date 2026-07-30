@@ -6,22 +6,30 @@
  * 无需新增数据库迁移。结构：
  *   theme_config.login = {
  *     background: { type: 'aurora'|'solid'|'image', color, imageUrl, opacity },
- *     card:       { align: 'left'|'center'|'right', width, radius, shadow, blur },
- *     branding:   { showLogo: bool, title, subtitle }
+ *     card:       { align: 'left'|'center'|'right', width, radius, shadow, blur, top },
+ *     branding:   { showLogo: bool, title, subtitle, logoUrl }
  *   }
+ *
+ * 编辑方式（DS-LOGIN-GRAPHIC）：
+ *   - 表单式（默认）：左侧控件（背景/卡片/品牌）精确设置，右侧实时预览。
+ *   - 图形化（新增）：开启「图形化编辑」后，可直接在预览上拖拽卡片调整位置（水平→对齐、
+ *     垂直→上下偏移）、拖动右缘手柄调整宽度、点击标题/标语就地编辑文字，所见即所得。
+ *     两种方式共享同一份 config，可混用，均点「保存登录样式」对该校生效。
  *
  * 依赖：window.SchoolThemes（themePresets.js，已在 admin-schools.html 引入）。
  * 由 admin-schools.html 的 inline module 通过 initLoginStyleDesigner({ API_BASE, authHeaders, notify }) 初始化，
- * 返回 { load(code), hasUnsaved() } 供宿主页调度。
+ * 返回 { load(code), hasUnsaved(), setGraphical(on) } 供宿主页调度。
  */
 
 function defaultLoginStyle() {
   return {
     background: { type: 'aurora' },
-    card: { align: 'center', width: 420, radius: 18, shadow: true, blur: true },
+    card: { align: 'center', width: 420, radius: 18, shadow: true, blur: true, top: 0 },
     branding: { showLogo: true, title: '', subtitle: '', logoUrl: '' },
   }
 }
+
+function clamp(v, min, max) { return Math.max(min, Math.min(max, v)) }
 
 function escapeHtml(s) {
   if (s == null) return ''
@@ -63,6 +71,7 @@ export function initLoginStyleDesigner({ API_BASE, authHeaders, notify }) {
   let code = null
   let config = defaultLoginStyle()
   let dirty = false
+  let graphical = false   // DS-LOGIN-GRAPHIC：图形化编辑模式开关
   // 预览所需的学校外观（来自公开端点）：name / shortName / logoUrl / themeColor / theme
   let schoolInfo = { name: '', shortName: '', logoUrl: '', themeColor: '#1a73e8', theme: null }
   let currentCustUpdatedAt = null
@@ -135,7 +144,8 @@ export function initLoginStyleDesigner({ API_BASE, authHeaders, notify }) {
     return window.SchoolThemes.resolveTheme({ themeColor: schoolInfo.themeColor, customization: tc })
   }
 
-  function render() {
+  // 仅构建预览 DOM（不含左侧控件同步），便于拖拽时只重建一次后持续直接操作
+  function buildPreview() {
     const preview = $('loginStylePreview')
     if (!preview) return
 
@@ -163,6 +173,7 @@ export function initLoginStyleDesigner({ API_BASE, authHeaders, notify }) {
     const shadow = card.shadow === false ? 'none' : '0 20px 60px rgba(0,0,0,0.18)'
     const blur = card.blur === false ? 'none' : 'blur(12px)'
     const cardBg = card.blur === false ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.82)'
+    const top = card.top || 0
 
     // 品牌
     const bd = config.branding || {}
@@ -181,11 +192,11 @@ export function initLoginStyleDesigner({ API_BASE, authHeaders, notify }) {
       <div style="position:absolute;inset:0;${bgStyle}"></div>
       <div style="position:absolute;inset:0;background:rgba(0,0,0,${overlay});"></div>
       <div class="ls-stage" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:${align === 'left' ? 'flex-start' : align === 'right' ? 'flex-end' : 'center'};padding:24px;">
-        <div class="ls-card" style="width:${width}px;max-width:calc(100% - 48px);background:${cardBg};border-radius:${radius}px;box-shadow:${shadow};backdrop-filter:${blur};-webkit-backdrop-filter:${blur};padding:32px;">
+        <div class="ls-card" style="width:${width}px;max-width:calc(100% - 48px);background:${cardBg};border-radius:${radius}px;box-shadow:${shadow};backdrop-filter:${blur};-webkit-backdrop-filter:${blur};padding:32px;transform:translateY(${top}px);">
           <div class="text-center mb-6">
             <div class="mb-3" style="height:56px;display:flex;align-items:center;justify-content:center;">${logoHtml}</div>
-            <h1 style="font-size:20px;font-weight:700;color:#1f2937;margin-bottom:4px;">${escapeHtml(title)}</h1>
-            <p style="font-size:13px;color:#6b7280;">${escapeHtml(subtitle)}</p>
+            <h1 data-ls-edit="title" style="font-size:20px;font-weight:700;color:#1f2937;margin-bottom:4px;outline:none;">${escapeHtml(title)}</h1>
+            <p data-ls-edit="subtitle" style="font-size:13px;color:#6b7280;outline:none;">${escapeHtml(subtitle)}</p>
           </div>
           <div style="margin-bottom:12px;">
             <label style="display:block;font-size:13px;color:#374151;margin-bottom:6px;"><i class="fas fa-user mr-1" style="color:${accent}"></i>用户名</label>
@@ -200,7 +211,15 @@ export function initLoginStyleDesigner({ API_BASE, authHeaders, notify }) {
         </div>
       </div>`
 
-    // 同步控件视觉状态
+    // 图形化模式下给卡片挂上直接操作手柄（DS-LOGIN-GRAPHIC）
+    if (graphical) enableGraphical()
+  }
+
+  // 同步左侧控件视觉状态（不影响预览 DOM，供拖拽过程中实时回写滑块/高亮）
+  function syncControls() {
+    const bg = config.background || {}
+    const card = config.card || {}
+    const bd = config.branding || {}
     highlightBgType()
     highlightAlign()
     const solidRow = $('lsSolidRow')
@@ -212,17 +231,148 @@ export function initLoginStyleDesigner({ API_BASE, authHeaders, notify }) {
     if ($('ls_bg_image')) $('ls_bg_image').value = bg.imageUrl || ''
     if ($('ls_bg_opacity')) $('ls_bg_opacity').value = bg.opacity != null ? bg.opacity : 0.25
     if ($('lsOpacityVal')) $('lsOpacityVal').textContent = (bg.opacity != null ? bg.opacity : 0.25).toFixed(2)
-    if ($('ls_card_width')) $('ls_card_width').value = width
-    if ($('lsWidthVal')) $('lsWidthVal').textContent = width
-    if ($('ls_card_radius')) $('ls_card_radius').value = radius
-    if ($('lsRadiusVal')) $('lsRadiusVal').textContent = radius
+    if ($('ls_card_width')) $('ls_card_width').value = card.width || 420
+    if ($('lsWidthVal')) $('lsWidthVal').textContent = card.width || 420
+    if ($('ls_card_radius')) $('ls_card_radius').value = card.radius != null ? card.radius : 18
+    if ($('lsRadiusVal')) $('lsRadiusVal').textContent = card.radius != null ? card.radius : 18
     if ($('ls_card_shadow')) $('ls_card_shadow').checked = card.shadow !== false
     if ($('ls_card_blur')) $('ls_card_blur').checked = card.blur !== false
     if ($('ls_brand_logo')) $('ls_brand_logo').checked = bd.showLogo !== false
     if ($('ls_brand_logo_url')) $('ls_brand_logo_url').value = bd.logoUrl || ''
-    updateLogoPreview(loginLogo || schoolInfo.logoUrl)
+    updateLogoPreview((bd.logoUrl && bd.logoUrl.trim()) || schoolInfo.logoUrl)
     if ($('ls_brand_title')) $('ls_brand_title').value = bd.title || ''
     if ($('ls_brand_subtitle')) $('ls_brand_subtitle').value = bd.subtitle || ''
+  }
+
+  function render() {
+    const preview = $('loginStylePreview')
+    if (!preview) return
+    buildPreview()
+    syncControls()
+  }
+
+  // ---------- 图形化编辑（DS-LOGIN-GRAPHIC）----------
+  function setGraphical(on) {
+    graphical = !!on
+    const preview = $('loginStylePreview')
+    if (preview) preview.classList.toggle('ls-graphical', graphical)
+    render()
+  }
+
+  function enableGraphical() {
+    const preview = $('loginStylePreview')
+    const cardEl = preview && preview.querySelector('.ls-card')
+    if (!cardEl) return
+
+    // 拖拽卡片：水平决定对齐（左/中/右），垂直决定上下偏移 top
+    cardEl.addEventListener('pointerdown', onCardPointerDown)
+
+    // 右侧缩放手柄（调整卡片宽度）
+    let handle = cardEl.querySelector('.ls-resize-handle')
+    if (!handle) {
+      handle = document.createElement('div')
+      handle.className = 'ls-resize-handle'
+      handle.title = '拖动调整卡片宽度'
+      cardEl.appendChild(handle)
+    }
+    handle.addEventListener('pointerdown', onHandlePointerDown)
+
+    // 标题 / 标语：点击就地编辑文字
+    const titleEl = cardEl.querySelector('[data-ls-edit="title"]')
+    const subEl = cardEl.querySelector('[data-ls-edit="subtitle"]')
+    if (titleEl) titleEl.addEventListener('click', (e) => { e.stopPropagation(); beginInlineEdit(titleEl, 'title') })
+    if (subEl) subEl.addEventListener('click', (e) => { e.stopPropagation(); beginInlineEdit(subEl, 'subtitle') })
+  }
+
+  function onCardPointerDown(e) {
+    // 缩放手柄 / 可编辑文字 / 登录按钮：不触发卡片拖拽
+    if (e.target.closest('.ls-resize-handle')) return
+    if (e.target.closest('[data-ls-edit]')) return
+    if (e.target.tagName === 'BUTTON') return
+    e.preventDefault()
+    const cardEl = e.currentTarget
+    const stage = cardEl.parentElement
+    const stageRect = stage.getBoundingClientRect()
+    const startX = e.clientX
+    const startY = e.clientY
+    const startTop = config.card.top || 0
+    cardEl.setPointerCapture(e.pointerId)
+
+    // 拖拽中：卡片跟随指针（translate），水平/垂直实时生效，松手后再吸附对齐
+    const move = (ev) => {
+      const dx = ev.clientX - startX
+      const dy = ev.clientY - startY
+      cardEl.style.transform = `translate(${dx}px, ${dy}px)`
+    }
+    const up = (ev) => {
+      cardEl.removeEventListener('pointermove', move)
+      cardEl.removeEventListener('pointerup', up)
+      // 落点判定：依据松手时卡片中心在舞台中的占比吸附对齐
+      const r = cardEl.getBoundingClientRect()
+      const cx = r.left + r.width / 2 - stageRect.left
+      const pct = cx / stageRect.width
+      let align = 'center'
+      if (pct < 0.38) align = 'left'
+      else if (pct > 0.62) align = 'right'
+      const dy = ev.clientY - startY
+      config.card.align = align
+      config.card.top = clamp(startTop + dy, -220, 220)
+      render()        // 以新对齐/偏移重渲染（图形化模式保持，手柄与监听自动重建）
+      markDirty()
+    }
+    cardEl.addEventListener('pointermove', move)
+    cardEl.addEventListener('pointerup', up)
+  }
+
+  function onHandlePointerDown(e) {
+    e.preventDefault(); e.stopPropagation()
+    const cardEl = e.currentTarget.parentElement
+    const startX = e.clientX
+    const startW = config.card.width || 420
+    cardEl.setPointerCapture(e.pointerId)
+
+    const move = (ev) => {
+      const w = clamp(Math.round(startW + (ev.clientX - startX)), 300, 640)
+      config.card.width = w
+      cardEl.style.width = w + 'px'
+      syncControls()
+      markDirty()
+    }
+    const up = () => {
+      cardEl.removeEventListener('pointermove', move)
+      cardEl.removeEventListener('pointerup', up)
+    }
+    cardEl.addEventListener('pointermove', move)
+    cardEl.addEventListener('pointerup', up)
+  }
+
+  function beginInlineEdit(el, key) {
+    el.setAttribute('contenteditable', 'true')
+    el.classList.add('ls-editing')
+    el.focus()
+    const range = document.createRange()
+    range.selectNodeContents(el)
+    const sel = window.getSelection()
+    sel.removeAllRanges()
+    sel.addRange(range)
+
+    const finish = () => {
+      el.removeAttribute('contenteditable')
+      el.classList.remove('ls-editing')
+      const txt = el.textContent.trim()
+      if (key === 'title') config.branding.title = txt
+      else config.branding.subtitle = txt
+      syncControls()
+      markDirty()
+      el.removeEventListener('blur', finish)
+      el.removeEventListener('keydown', onKey)
+    }
+    const onKey = (ev) => {
+      if (ev.key === 'Enter') { ev.preventDefault(); el.blur() }
+      else if (ev.key === 'Escape') { ev.preventDefault(); el.blur() }
+    }
+    el.addEventListener('blur', finish)
+    el.addEventListener('keydown', onKey)
   }
 
   // ---------- 加载 ----------
@@ -461,6 +611,13 @@ export function initLoginStyleDesigner({ API_BASE, authHeaders, notify }) {
       config.branding.subtitle = e.target.value
       render(); markDirty()
     })
+    // 图形化编辑开关（DS-LOGIN-GRAPHIC）
+    const gToggle = $('ls_graphicalToggle')
+    if (gToggle) gToggle.addEventListener('change', (e) => {
+      setGraphical(e.target.checked)
+      const hint = $('ls_graphicalHint')
+      if (hint) hint.style.display = e.target.checked ? 'flex' : 'none'
+    })
     const saveBtn = $('ls_saveBtn')
     if (saveBtn) saveBtn.addEventListener('click', save)
     const resetBtn = $('ls_resetBtn')
@@ -473,5 +630,6 @@ export function initLoginStyleDesigner({ API_BASE, authHeaders, notify }) {
   return {
     load,
     hasUnsaved: () => dirty,
+    setGraphical,
   }
 }

@@ -492,8 +492,23 @@ fi
 # 这是「改 schema 后重部署」与「启动自愈」之间的部署期保险。
 # SKIP_PRISMA_GENERATE=1：§6 已执行过 generate，此处无需重复生成客户端。
 log "全量租户 schema 同步（覆盖控制台 UI 新建的租户，防 P2022 漂移）"
-SKIP_PRISMA_GENERATE=1 node sync-tenant-schemas.mjs \
-  || warn "全量租户 schema 同步失败，请手动运行: npm run db:sync（服务器启动自愈也会再尝试）"
+# 第六轮（滚动部署时序安全）：同步失败必须【中止部署】而非仅告警。
+# 原因：若此步失败而继续走到 §8 restart，新代码（authenticateUser select
+# must_change_password 等新列）将对着未迁移的租户 schema 运行 → 相关租户
+# 所有认证请求 P2022 → fail-closed 503，且只能寄望「非阻塞的启动自愈」竞速恢复。
+# 中止部署时旧版本进程未被重启，继续正常服役，无任何用户可见影响。
+# 窗口C（部署容量基准）：记录同步的开始/结束时间、总耗时与租户数量，为部署窗口
+# 容量规划提供持续监控数据。纯日志增强：tee 仅旁路复制输出（set -o pipefail 保证
+# node 的非零退出码原样穿透管道触发 fail），不改变原有执行逻辑与失败中止语义。
+TENANT_SYNC_LOG_FILE="$(mktemp)"
+TENANT_SYNC_START_TS=$(date +%s)
+echo "⏱ 租户 schema 同步开始: $(date '+%Y-%m-%d %H:%M:%S')"
+SKIP_PRISMA_GENERATE=1 node sync-tenant-schemas.mjs 2>&1 | tee "$TENANT_SYNC_LOG_FILE" \
+  || fail "全量租户 schema 同步失败——已中止部署（旧版本继续运行）。修复后重试，或手动排查: npm run db:sync"
+TENANT_SYNC_END_TS=$(date +%s)
+TENANT_SYNC_COUNT=$(grep -oE '同步 [0-9]+ 个租户' "$TENANT_SYNC_LOG_FILE" | grep -oE '[0-9]+' | head -1)
+rm -f "$TENANT_SYNC_LOG_FILE"
+echo "⏱ 租户 schema 同步结束: $(date '+%Y-%m-%d %H:%M:%S') | 租户数量: ${TENANT_SYNC_COUNT:-未知} | 总耗时: $((TENANT_SYNC_END_TS - TENANT_SYNC_START_TS)) 秒"
 
 # ------------------------- 6.6 同步 bootstrap 账号密码（每次部署）-------------------------
 # seed.js 仅在首次部署创建账号（ensureUser 跳过已存在用户），重部署不会更新 password_hash；

@@ -1,3 +1,5 @@
+> ⚠️ **历史归档文档**：本文记录的是项目早期 **SQLite 阶段** 的状态，仅作历史留档，不代表当前系统。当前系统已迁移至 **PostgreSQL**（`backend/prisma/schema.prisma` 为 `provider = "postgresql"`，多租户 schema-per-tenant）。文中出现的 `provider = "sqlite"`、"当前生产数据库文件" 等描述均已过时。实际技术栈与数据库请以项目根目录 `docs/` 及 `backend/` 代码为准。
+
 # 珠海一中食品安全检验系统
 
 ## 1. 项目简介

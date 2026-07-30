@@ -85,7 +85,6 @@ export class UserManagement {
                         <option value="manager">主管</option>
                         <option value="operator">操作人员</option>
                         <option value="viewer">查看者</option>
-                        <option value="guest">访客</option>
                     </select>
                     <button id="btnSearch" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
                         <i class="fas fa-search mr-2"></i>搜索
@@ -290,9 +289,8 @@ export class UserManagement {
             'admin': 'bg-red-100 text-red-800',
             'manager': 'bg-purple-100 text-purple-800',
             'operator': 'bg-blue-100 text-blue-800',
-            'viewer': 'bg-gray-100 text-gray-800',
-            'guest': 'bg-yellow-100 text-yellow-800'
-        };
+                'viewer': 'bg-gray-100 text-gray-800'
+            };
         return colorMap[role] || 'bg-gray-100 text-gray-800';
     }
 

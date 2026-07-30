@@ -15,7 +15,7 @@ import UserManager from './modules/UserManager.js'
 import { createUserRoutes } from './routes/userRoutes.js'
 import { createAuditRoutes } from './routes/auditRoutes.js'
 import { createSessionRoutes } from './routes/sessionRoutes.js'
-import { writeTenantAuditLog } from './lib/auditLog.js'
+import { writeTenantAuditLog, writeAdminOpsLog } from './lib/auditLog.js'
 import { createGuestRoutes, createGuestExportRequestRoutes } from './routes/guestRoutes.js'
 import { createValidationMiddleware, rateLimit, sanitizeText } from './middleware/validationMiddleware.js'
 import idempotencyMiddleware from './middleware/idempotencyMiddleware.js'
@@ -25,6 +25,9 @@ import { createSyncRoutes } from './routes/syncRoutes.js'
 import { provisionSchool, isValidSchoolCode } from './lib/tenantProvisioner.js'
 import { disconnectAllTenantClients, createTenantClient, schemaNameOf } from './lib/tenantClient.js'
 import { syncAllTenantSchemas } from './lib/tenantSync.js'
+import { startSecurityEventAlerting } from './lib/securityAlerts.js'
+// 窗口3（资源访问控制与外围加固）：归属校验 / guest 脱敏 / Logo 魔数校验 / CORS 通配符检测
+import { canModifyRecord, maskGuestSensitiveFields, isSafeLogoUrl, corsConfigHasWildcard } from './lib/securityGuards.js'
 import bcryptjs from 'bcryptjs'
 
 dotenv.config()
@@ -35,7 +38,14 @@ const __dirname = path.dirname(__filename)
 const app = express()
 const PORT = process.env.PORT || 3002
 const serveStatic = process.env.SERVE_STATIC === 'true'
-const allowCorsWildcard = process.env.CORS_ORIGIN === '*'
+
+// 首轮 M5: 本服务 CORS 恒开 credentials:true，「Allow-Origin: *」+「Allow-Credentials: true」
+// 是无效且危险的组合。不能依赖浏览器拒绝该组合 —— 服务端启动期强制校验，
+// 与 JWT_SECRET 缺失时的强制中止模式保持一致。CORS_ORIGIN 必须是显式域名白名单。
+if (corsConfigHasWildcard(process.env.CORS_ORIGIN)) {
+    console.error('[FATAL] CORS_ORIGIN must not contain wildcard "*" (credentials:true is always enabled). Configure an explicit origin whitelist, e.g. CORS_ORIGIN=https://your.domain. Server startup aborted.')
+    process.exit(1)
+}
 // DS-FIX: 多租户路径重写白名单 — 排除静态资源目录，避免 /css/xxx、/js/xxx 被误判为 /<schoolCode>/<resource>
 // 学校代码经 schemaNameOf() 归一为 school_<code> 或 school-<code>，以及用户自定义的纯字母数字短横线。
 // 这里列出项目内已知的静态目录名（含 vite 构建产物、测试配置等），防止与 schoolCode 冲突。
@@ -160,16 +170,10 @@ const MAX_JSON_FIELD_BYTES = 200 * 1024 // 单字段序列化后上限 200KB
 
 // DS-09 核查结论（Logo SSRF）：后端从不抓取/下载 logoUrl —— 全仓无 fetch(logoUrl)/https.get(logoUrl)
 // 等出站请求；logo_url 仅作为字符串校验后存库，由前端 <img src> 渲染。SSRF 风险 N/A。
-// 本函数只做格式白名单校验：http(s) 限长 2048 / data:image 位图 base64 限 1MB，禁止 SVG（DS-12）。
-function isSafeLogoUrl(url) {
-    if (typeof url !== 'string') return false
-    if (/^https?:\/\//i.test(url)) return url.length <= 2048
-    // DS-12: 明确拒绝 data:image/svg+xml（SVG 可携带脚本）
-    if (/^data:image\/(png|jpeg|jpg|gif|webp);base64,/i.test(url)) {
-        return url.length <= 1024 * 1024 // base64 上限约 1MB
-    }
-    return false
-}
+// DS3-M4/DS3-M5: isSafeLogoUrl 已迁移至 lib/securityGuards.js（便于单测），并在原有
+// MIME 前缀校验基础上追加 base64 魔数比对（PNG/JPEG/GIF/WebP），SVG 仍显式禁止（DS-12）；
+// http(s) 外链支持可选 LOGO_ALLOWED_HOSTS 域名白名单（未配置时保持放行，已知限制：
+// 外链 <img> 可被用作访客 IP 探测/追踪探针，见 securityGuards.js 内注释）。
 
 function jsonDepthOf(value, depth = 0) {
     if (depth > 8) return depth
@@ -226,6 +230,29 @@ function validateCustomizationPayload(body) {
     // theme_config 内颜色值校验
     if (normalized.theme_config && typeof normalized.theme_config === 'object') {
         for (const [k, v] of Object.entries(normalized.theme_config)) {
+            // 自定义系统标题（DS-TITLE）：独立强校验，不再依赖"未知 key 透传"
+            if (k === 'systemTitle') {
+                if (typeof v !== 'string') {
+                    errors.push('theme_config.systemTitle 必须为字符串')
+                    continue
+                }
+                const t = v.trim()
+                if (t === '') {
+                    // 空值（含纯空格）视为"未设置"，回落默认标题，不存储脏值
+                    delete normalized.theme_config.systemTitle
+                    continue
+                }
+                if (Array.from(t).length > 50) {
+                    errors.push('theme_config.systemTitle 长度不能超过 50 个字符')
+                    continue
+                }
+                if (/[\u0000-\u001f\u007f\u2028\u2029]/.test(t)) {
+                    errors.push('theme_config.systemTitle 不能包含控制字符或换行')
+                    continue
+                }
+                normalized.theme_config.systemTitle = t  // 规整为 trim 后的字符串
+                continue
+            }
             if (/color/i.test(k) && typeof v === 'string' && v && !HEX_COLOR_RE.test(v)) {
                 errors.push(`theme_config.${k} 必须为 #RRGGBB 格式`)
             }
@@ -504,8 +531,8 @@ app.use(cors({
         // Allow requests with no origin (curl, Postman, server-side)
         if (!origin) return callback(null, true)
 
-        // Allow wildcard via env
-        if (allowCorsWildcard) return callback(null, true)
+        // 首轮 M5: 不再支持通配符放行（含 '*' 的 CORS_ORIGIN 已在启动期被拒绝），
+        // 仅允许显式白名单精确匹配；未匹配来源走下方 Error 分支，不返回任何 Allow-* 头。
 
         // Exact origin match (scheme + host + port)
         if (allowedOrigins.includes(origin)) return callback(null, true)
@@ -656,6 +683,7 @@ app.get('/api/schools/:schoolCode/config', rateLimit(60, 60 * 1000), async (req,
                 shortName: school.short_name,
                 themeColor: school.theme_color,
                 logoUrl: school.logo_url,
+                updatedAt: school.updated_at || null,
                 customization
             }
         })
@@ -724,7 +752,7 @@ app.post('/api/admin/schools', authenticateUser, requirePlatformSuperAdmin, asyn
 app.put('/api/admin/schools/:code', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
     try {
         const { code } = req.params
-        const { name, shortName, themeColor, logoUrl } = req.body || {}
+        const { name, shortName, themeColor, logoUrl, logoStyle, systemTitle } = req.body || {}
         // RK8/DS-12: 主题色/Logo 服务器端校验
         if (themeColor != null && !HEX_COLOR_RE.test(themeColor)) {
             return res.status(400).json({ error: '主题色必须为 #RRGGBB 格式' })
@@ -753,6 +781,45 @@ app.put('/api/admin/schools/:code', authenticateUser, requirePlatformSuperAdmin,
              RETURNING "code","name","short_name","theme_color","logo_url","status"`,
             code, name ?? null, shortName ?? null, themeColor ?? null, logoUrl ?? null
         )
+        // 校徽排版（logoStyle）与顶部状态栏标题（systemTitle）随基本信息一并保存：
+        // 合并写入 SchoolCustomization.theme_config（logo_style / systemTitle），不影响其它定制。
+        if (logoStyle !== undefined || systemTitle !== undefined) {
+            if (logoStyle !== undefined && logoStyle !== null) {
+                if (typeof logoStyle !== 'object' || Array.isArray(logoStyle)) {
+                    return res.status(400).json({ error: 'logoStyle 必须为对象或 null' })
+                }
+                if (logoStyle.croppedUrl && !isSafeLogoUrl(logoStyle.croppedUrl)) {
+                    return res.status(400).json({ error: 'logoStyle.croppedUrl 必须为 http(s) 或 data:image/(png|jpeg|gif|webp) URL（禁止 SVG）' })
+                }
+            }
+            // 系统标题（顶部状态栏显示内容）基础校验：字符串、≤50 字符、禁止控制字符/换行
+            if (systemTitle !== undefined && systemTitle !== null && typeof systemTitle !== 'string') {
+                return res.status(400).json({ error: 'systemTitle 必须为字符串' })
+            }
+            await prisma.$queryRawUnsafe(
+                `INSERT INTO public."SchoolCustomization" ("id","school_code","updated_at")
+                 VALUES ($1,$2,now()) ON CONFLICT ("school_code") DO NOTHING`,
+                crypto.randomUUID(), code
+            )
+            const tcRows = await prisma.$queryRawUnsafe(
+                `SELECT "theme_config" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`, code
+            )
+            let tc = {}
+            try { tc = JSON.parse(tcRows?.[0]?.theme_config || '{}') } catch (_) {}
+            if (logoStyle !== undefined) {
+                if (logoStyle === null) delete tc.logo_style
+                else tc.logo_style = logoStyle
+            }
+            if (systemTitle !== undefined) {
+                const t = (typeof systemTitle === 'string') ? systemTitle.trim() : ''
+                if (t === '') delete tc.systemTitle
+                else if (t.length <= 50 && !/[\u0000-\u001f\u007f\u2028\u2029]/.test(t)) tc.systemTitle = t
+            }
+            await prisma.$queryRawUnsafe(
+                `UPDATE public."SchoolCustomization" SET "theme_config" = $1, "updated_at" = now() WHERE "school_code" = $2`,
+                JSON.stringify(tc), code
+            )
+        }
         res.json({ success: true, data: updated[0] })
     } catch (error) {
         console.error('❌ Error updating school:', error)
@@ -854,20 +921,25 @@ app.put('/api/admin/schools/:code/customization', authenticateUser, requirePlatf
             ...params
         )
 
-        // BS-11: 审计（失败不阻断主流程）
+        // BS-11: 审计（失败不阻断主流程）。
+        // 第七轮收尾（事项一）：原为绕过门面的 SystemLog 裸写——context 用非 canonical 键
+        // （actor 而非 actor_id），且 message 无 '[admin-audit]' 前缀，导致该记录无法被
+        // 统一审计 UNION 查询（见 lib/auditLog.js 文件头）检索到。现改走统一门面
+        // writeAdminOpsLog（平台超管对学校资源的管理操作，与删除租户用户同一入口）。
         try {
-            await prisma.systemLog.create({
-                data: {
-                    level: 'info',
-                    message: `update_customization school=${code} fields=[${Object.keys(normalized).join(',')}]`,
-                    context: JSON.stringify({
-                        action: 'update_customization',
-                        actor: req.user?.userId ?? null,
-                        actorName: req.user?.username ?? null,
-                        schoolCode: code,
-                        changedFields: Object.keys(normalized)
-                    })
-                }
+            await writeAdminOpsLog(prisma, {
+                action: 'update_customization',
+                level: 'info',
+                actor: {
+                    userId: req.user?.userId ?? null,
+                    username: req.user?.username ?? null,
+                    role: req.user?.role ?? null,
+                    schoolCode: req.user?.schoolCode ?? null,
+                    ip: req.ip ?? null
+                },
+                targetId: code,            // 受影响对象为学校定制配置（以学校 code 标识）
+                targetSchoolCode: code,
+                details: { changedFields: Object.keys(normalized) }
             })
         } catch (auditErr) {
             console.error('⚠️ customization audit log failed:', auditErr.message)
@@ -990,7 +1062,7 @@ app.patch('/api/admin/schools/:code/users/:userId/status', authenticateUser, req
 })
 
 // 学校用户可设置的角色（不含平台超管 admin）
-const SCHOOL_USER_ROLES = ['manager', 'operator', 'viewer', 'user']
+const SCHOOL_USER_ROLES = ['manager', 'operator', 'viewer']
 const isSchoolUserRole = (r) => SCHOOL_USER_ROLES.includes(r)
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,32}$/
 const PHONE_RE = /^[0-9+\-\s]{5,20}$/
@@ -1091,7 +1163,7 @@ app.delete('/api/admin/schools/:code/users/:userId', authenticateUser, requirePl
         if (!schema) return res.status(400).json({ error: '无效的学校代码' })
         const tenantPrisma = createTenantClient(prisma, code)
         const cur = await tenantPrisma.$queryRawUnsafe(
-            `SELECT "id","role","status" FROM "${schema}"."User" WHERE "id" = $1`, userId
+            `SELECT "id","username","role","status" FROM "${schema}"."User" WHERE "id" = $1`, userId
         )
         if (!cur.length) return res.status(404).json({ error: '用户不存在' })
         const current = cur[0]
@@ -1102,6 +1174,30 @@ app.delete('/api/admin/schools/:code/users/:userId', authenticateUser, requirePl
             if (Number(cnt[0].c) <= 1) return res.status(409).json({ error: '该校仅剩一名在职主管，无法删除' })
         }
         await tenantPrisma.$executeRawUnsafe(`DELETE FROM "${schema}"."User" WHERE "id" = $1`, userId)
+        // REG-4: 平台超管删除租户用户必须留痕。操作者无租户归属（school_code 为空），
+        // 不能写租户 AuditLog（user_id 外键），统一经 writeAdminOpsLog 落 public.SystemLog。
+        // 审计写入失败不回滚删除（与 logAdminAction 口径一致），但留服务端错误日志。
+        try {
+            await writeAdminOpsLog(prisma, {
+                action: 'admin_delete_school_user',
+                actor: {
+                    userId: req.user?.userId ?? null,
+                    username: req.user?.username ?? null,
+                    role: req.user?.role ?? null,
+                    schoolCode: req.user?.schoolCode ?? null,
+                    ip: req.ip ?? null
+                },
+                targetId: userId,
+                targetSchoolCode: code,
+                details: {
+                    targetUsername: current.username ?? null,
+                    targetRole: current.role ?? null,
+                    targetStatus: current.status ?? null
+                }
+            })
+        } catch (auditError) {
+            console.error(`❌ 审计写入失败 (admin_delete_school_user target=${userId}): ${auditError.message}`)
+        }
         res.json({ success: true, message: '用户已删除' })
     } catch (error) {
         console.error('❌ Error deleting user:', error)
@@ -1233,9 +1329,11 @@ app.get('/api/test-records', authenticateUser, requireGuestReadOnly, async (req,
 
         const total = await req.db.testRecord.count({ where })
 
+        // DS3-M6: guest 可见全校汇总数据（统计看板需要），但 PII 字段做部分掩码
+        const payloads = records.map(buildRecordPayload)
         res.json({
             success: true,
-            data: records.map(buildRecordPayload),
+            data: req.user?.role === 'guest' ? payloads.map(p => maskGuestSensitiveFields(p)) : payloads,
             total,
             limit: safeLimit,
             offset: safeOffset
@@ -1273,9 +1371,11 @@ app.get('/api/records/:tableName', authenticateUser, requireGuestReadOnly, async
 
         const total = await req.db.testRecord.count({ where })
 
+        // DS3-M6: guest 读取记录列表时对 PII 字段脱敏（检测结果类字段保持可见）
+        const payloads = records.map(buildRecordPayload)
         res.json({
             success: true,
-            data: records.map(buildRecordPayload),
+            data: req.user?.role === 'guest' ? payloads.map(p => maskGuestSensitiveFields(p)) : payloads,
             total,
             limit: safeLimit,
             offset: safeOffset
@@ -1397,6 +1497,16 @@ app.post('/api/records/:tableName/bulk-upsert', authenticateUser, requireEditorO
                 })
 
                 if (existing) {
+                    // DS3-C1（方案甲）: 批量导入命中已有记录时同样执行归属校验，
+                    // operator 不得借 bulk-upsert 覆盖他人创建的记录（跳过该条，不中断批次）
+                    if (!canModifyRecord({ role: req.user?.role, userId: req.userId }, existing)) {
+                        failed.push({
+                            record_code: recordCode,
+                            reason: '无权覆盖他人创建的记录（仅创建者本人或主管可修改）',
+                            skipped: true
+                        })
+                        continue
+                    }
                     // NB-25: bulk-upsert 默认"最后写入胜出"；客户端可传 expected_updated_at
                     // 做可选乐观锁校验（冲突时跳过该条而非中断整个批次）。
                     if (payload?.expected_updated_at) {
@@ -1489,6 +1599,12 @@ app.put('/api/records/:tableName/:id', authenticateUser, requireEditorOrAbove, a
             return res.status(404).json({ error: '记录不存在' })
         }
 
+        // DS3-C1（方案甲）: operator 仅能修改自己创建的记录（created_by 匹配）；
+        // manager/admin 保留全校监督权限；存量 created_by 为空的记录仅主管可改。
+        if (!canModifyRecord({ role: req.user?.role, userId: req.userId }, existing)) {
+            return res.status(403).json({ error: '❌ 仅记录创建者本人或主管（manager）可修改该记录' })
+        }
+
         // P2-07: 更新前进行字段 Schema 验证
         const updateValidation = validateRecordPayload(testType, req.body || {})
         if (!updateValidation.valid) {
@@ -1548,6 +1664,11 @@ app.delete('/api/records/:tableName/:id', authenticateUser, requireEditorOrAbove
             return res.status(404).json({ error: '记录不存在' })
         }
 
+        // DS3-C1（方案甲）: operator 仅能删除自己创建的记录；manager/admin 保留监督权限
+        if (!canModifyRecord({ role: req.user?.role, userId: req.userId }, existing)) {
+            return res.status(403).json({ error: '❌ 仅记录创建者本人或主管（manager）可删除该记录' })
+        }
+
         await req.db.testRecord.delete({
             where: { id: req.params.id }
         })
@@ -1586,9 +1707,11 @@ app.get('/api/records/:tableName/:id', authenticateUser, requireGuestReadOnly, a
             return res.status(404).json({ error: '记录不存在' })
         }
 
+        // DS3-M6: guest 读取详情时对 PII 字段脱敏
+        const payload = buildRecordPayload(existing)
         res.json({
             success: true,
-            data: buildRecordPayload(existing)
+            data: req.user?.role === 'guest' ? maskGuestSensitiveFields(payload) : payload
         })
     } catch (error) {
         console.error('❌ Error getting legacy record by id:', error)
@@ -1627,6 +1750,19 @@ app.get('/api/test-records/:id', authenticateUser, requireGuestReadOnly, async (
             return res.status(403).json({ error: '❌ 访客无权访问该检测模块' })
         }
 
+        // DS3-M6: guest 读取详情时脱敏 —— sample_info/result_data 内嵌 PII、
+        // created_user（username/full_name）、created_by 均做部分掩码，保持响应结构不变
+        if (req.user?.role === 'guest') {
+            const masked = maskGuestSensitiveFields({
+                ...record,
+                sample_info: sanitizeObjectKeys(safeParseJson(record.sample_info, {})),
+                result_data: sanitizeObjectKeys(safeParseJson(record.result_data, {}))
+            })
+            masked.sample_info = JSON.stringify(masked.sample_info)
+            masked.result_data = JSON.stringify(masked.result_data)
+            return res.json({ success: true, data: masked })
+        }
+
         res.json({
             success: true,
             data: record
@@ -1647,6 +1783,15 @@ app.put('/api/test-records/:id', authenticateUser, requireEditorOrAbove, async (
     try {
         const { id } = req.params
         const { test_name, status, result_data } = req.body
+
+        // DS3-C1（方案甲）: 与 /api/records/:tableName/:id 同口径的归属校验
+        const existing = await req.db.testRecord.findUnique({ where: { id } })
+        if (!existing) {
+            return res.status(404).json({ error: '记录不存在' })
+        }
+        if (!canModifyRecord({ role: req.user?.role, userId: req.userId }, existing)) {
+            return res.status(403).json({ error: '❌ 仅记录创建者本人或主管（manager）可修改该记录' })
+        }
 
         const updateData = {}
         if (test_name) updateData.test_name = test_name
@@ -1683,9 +1828,24 @@ app.delete('/api/test-records/:id', authenticateUser, requireEditorOrAbove, asyn
     try {
         const { id } = req.params
 
+        // DS3-C1（方案甲）: 归属校验（先查记录，顺带把原 P2025→500 修正为 404）
+        const existing = await req.db.testRecord.findUnique({ where: { id } })
+        if (!existing) {
+            return res.status(404).json({ error: '记录不存在' })
+        }
+        if (!canModifyRecord({ role: req.user?.role, userId: req.userId }, existing)) {
+            return res.status(403).json({ error: '❌ 仅记录创建者本人或主管（manager）可删除该记录' })
+        }
+
         await req.db.testRecord.delete({
             where: { id }
         })
+
+        // DS3-C1 交付要求: 删除操作必须产生审计记录（与 /api/records DELETE 同一调用约定）
+        await writeRecordAuditLog(req.db, req.userId, 'delete', 'test_record', id, {
+            test_type: existing.test_type,
+            record_code: existing.record_code
+        }, req.ip)
 
         res.json({
             success: true,
@@ -1745,12 +1905,18 @@ const server = app.listen(PORT, () => {
     console.log(`📍 API Endpoints: http://localhost:${PORT}/api`)
     console.log(`🔐 JWT Secret configured: ${JWT_SECRET ? '✅' : '❌ MISSING'}`)
     console.log(`🗄️  Database: PostgreSQL (Prisma, Schema-per-tenant)`)
-    console.log(`📦 CORS Origins: ${allowCorsWildcard ? 'Allow All' : allowedOrigins.join(', ')}`)
+    console.log(`📦 CORS Origins: ${allowedOrigins.join(', ')}`)
     console.log(`📦 CORS Hostnames: ${allowedHostnames.length ? allowedHostnames.join(', ') : '(none)'}`)
     console.log(`${'='.repeat(60)}\n`)
 
     // 服务就绪后再后台自愈，避免拖慢首请求响应
     selfHealTenantSchemas()
+
+    // 第六轮·检查项2：SECURITY:* 安全事件告警扫描（REVOCATION_WRITE_FAILED /
+    // REFRESH_TOKEN_REPLAY / REFRESH_CONCURRENT_ROTATION / TENANT_SCHEMA_MISMATCH），
+    // 消除"事件落库但无人读取"的静默风险。默认每 5min 扫一次 SystemLog，
+    // 有新增即 console.error 汇总 + 可选企业微信 webhook（SECURITY_ALERT_WEBHOOK_URL）。
+    startSecurityEventAlerting(prisma)
 })
 
 // Graceful shutdown

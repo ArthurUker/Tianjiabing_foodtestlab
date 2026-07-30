@@ -39,10 +39,10 @@ export class GuestAuthService {
      * @param {string} email - 访客邮箱
      * @param {string} password - 访客密码
      * @param {string} full_name - 访客真实姓名
-     * @param {string} guest_type - 访客类型: 'viewer' 或 'export_applicant'
+     * @param {string} guest_type - 访客类型: 'readonly' 或 'export_applicant'
      * @returns {Promise<{success: boolean, token?: string, guest?: object, error?: string}>}
      */
-    async register(username, email, password, full_name, guest_type = 'viewer', schoolCode = null) {
+    async register(username, email, password, full_name, guest_type = 'readonly', schoolCode = null) {
         try {
             const resolvedSchool = schoolCode || extractSchoolCode()
             const response = await fetch(`${this.apiBaseUrl}/api/guest/register`, {

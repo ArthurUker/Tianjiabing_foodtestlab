@@ -30,10 +30,17 @@ async function main() {
     console.log('[SKIP] SCHOOL_CODES 为空，跳过多租户初始化（dev/test 仅用 public 共享 schema）。')
     return
   }
-  if (!adminPassword) {
-    console.warn('[WARN] 未提供 SEED_ADMIN_PASSWORD，租户 manager 将使用弱默认密码 "changeme"，请尽快修改。')
+  // M1（窗口2）：弱默认密码回退已移除。缺少初始密码时直接失败退出，
+  // 不再 console.warn 后继续建校（除非显式声明开发例外 ALLOW_INSECURE_TENANT_PASSWORD=true）。
+  if (!adminPassword && process.env.ALLOW_INSECURE_TENANT_PASSWORD !== 'true') {
+    console.error(
+      '[FATAL] 未提供 SEED_ADMIN_PASSWORD（或 SEED_OPERATOR_PASSWORD），拒绝初始化租户。\n' +
+      '        请在 .env 中设置强密码后重试；本地开发可显式设置 ALLOW_INSECURE_TENANT_PASSWORD=true。'
+    )
+    process.exit(1)
   }
 
+  let failed = 0
   for (const code of codes) {
     console.log(`\n=== 初始化租户: ${code} ===`)
     try {
@@ -45,8 +52,13 @@ async function main() {
         log: (m) => console.log(`  ${m}`)
       })
     } catch (e) {
+      failed += 1
       console.error(`  ❌ 租户 ${code} 初始化失败: ${e.message}`)
     }
+  }
+  if (failed > 0) {
+    console.error(`\n❌ ${failed} 个租户初始化失败，请检查上方日志。`)
+    process.exit(1)
   }
 }
 

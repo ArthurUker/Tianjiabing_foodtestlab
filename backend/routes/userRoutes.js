@@ -4,9 +4,8 @@
  */
 
 import express from 'express'
-import { createAuthMiddleware } from '../middleware/authMiddleware.js'
+import { createAuthMiddleware, revokeToken, revokeAllUserTokens, isTokenRevoked, getRevocationInfo } from '../middleware/authMiddleware.js'
 import { rateLimit } from '../middleware/validationMiddleware.js'
-import jwt from 'jsonwebtoken'
 import { isValidSchoolCode } from '../lib/tenantProvisioner.js'
 
 export function createUserRoutes(userManager) {
@@ -20,6 +19,21 @@ export function createUserRoutes(userManager) {
         Number(process.env.LOGIN_RATE_LIMIT_MAX || 10),
         Number(process.env.LOGIN_RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000)
     )
+
+    // DS3-M1: 平台超管登录同样必须限流，且比普通登录更严格（默认每 IP 每 15 分钟 5 次）
+    const superAdminLoginRateLimit = rateLimit(
+        Number(process.env.SUPER_ADMIN_LOGIN_RATE_LIMIT_MAX || 5),
+        Number(process.env.LOGIN_RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000)
+    )
+
+    // 登录失败错误的统一出口：账号锁定（DS3-M2）返回 423 + 明确但不泄露细节的提示，
+    // 其余一律 401 通用文案（不区分用户不存在/密码错误/已禁用，防枚举与状态探测）
+    function respondLoginError(res, error) {
+        if (error && error.code === 'ACCOUNT_LOCKED') {
+            return res.status(423).json({ error: '❌ 登录失败次数过多，该账号已被临时锁定，请稍后再试' })
+        }
+        return res.status(401).json({ error: `登录失败 失败` })
+    }
 
     // 验证令牌为未认证接口，单独限流避免被枚举攻击
     const verifyTokenRateLimit = rateLimit(30, 60 * 1000)
@@ -61,14 +75,15 @@ export function createUserRoutes(userManager) {
             const result = await userManager.forTenant(schoolCode).loginUser(username, password)
             res.json(result)
         } catch (error) {
-            res.status(401).json({ error: `登录失败 失败` })
+            respondLoginError(res, error)
         }
     })
 
     // 平台超管专用登录（与普通用户登录完全分离，无需 schoolCode）
     // 平台超管账号（role=admin 且 school_code 为空）落在 public schema，
     // 普通租户用户无法以此入口登录，天然隔离。
-    router.post('/super-admin/login', async (req, res) => {
+    // DS3-M1: 补挂专项限流（此前该入口完全无限流，可被无限暴力破解）
+    router.post('/super-admin/login', superAdminLoginRateLimit, async (req, res) => {
         try {
             const { username, password } = req.body
 
@@ -87,7 +102,7 @@ export function createUserRoutes(userManager) {
 
             res.json(result)
         } catch (error) {
-            res.status(401).json({ error: `登录失败 失败` })
+            respondLoginError(res, error)
         }
     })
 
@@ -127,65 +142,106 @@ export function createUserRoutes(userManager) {
         res.json({ success: true, message: '已登出' })
     })
 
-    // 刷新访问令牌（TD-RefreshToken: 优先使用 X-Refresh-Token header，兼容 access token fallback）
+    // 刷新访问令牌（DS3-H1 重构，破坏性变更）：
+    //   - 仅接受 X-Refresh-Token 中的合法 refresh token，已移除 access-token fallback
+    //     （旧行为允许任意有效 access token 无限自我续期，事实上永不过期）；
+    //   - 一次性轮转：旧 refresh token 用后立即写入吊销表，签发新的 access+refresh 对；
+    //   - 重放检测：同一 refresh token 二次使用 → 判定疑似泄露，吊销该用户全部会话（H2）；
+    //   - DS3-H2: 以 DB 权威 school_code 交叉校验 token 中的 schoolCode，防租户绑定漂移。
     router.post('/refresh-token', async (req, res) => {
         try {
-            const jwtSecret = process.env.JWT_SECRET
-            if (!jwtSecret) {
-                return res.status(500).json({ error: '❌ 服务器未配置 JWT_SECRET' })
+            const refreshTokenHeader = req.headers['x-refresh-token']
+            if (!refreshTokenHeader) {
+                return res.status(401).json({ error: '❌ 缺少 Refresh Token，请重新登录' })
             }
 
-            let userId, schoolCode
+            // 1. 验签（独立密钥 + HS256 白名单 + type:'refresh' + jti/userId 强制）
+            let decoded
+            try {
+                decoded = userManager.verifyRefreshToken(refreshTokenHeader)
+            } catch (e) {
+                return res.status(401).json({ error: '❌ Refresh token 无效或已过期' })
+            }
 
-            // 优先使用 X-Refresh-Token header
-            const refreshToken = req.headers['x-refresh-token']
-            if (refreshToken) {
+            const userId = decoded.userId
+            const schoolCode = decoded.schoolCode || null // 平台超管为 null（public schema），合法
+            const rootPrisma = userManager.rootPrisma
+
+            // 2. 一次性轮转 + 重放检测（原子操作）：
+            //    将旧 refresh jti 写入吊销表；若 INSERT 冲突（该 jti 已存在）说明此
+            //    refresh token 已被使用过 → 判定为重放/疑似泄露，吊销该用户全部会话。
+            const freshlyRotated = await revokeToken(rootPrisma, {
+                jti: decoded.jti,
+                userId,
+                schoolCode,
+                tokenType: 'refresh',
+                reason: 'rotated',
+                expiresAt: new Date((decoded.exp || Math.floor(Date.now() / 1000)) * 1000)
+            })
+            if (!freshlyRotated) {
+                // 第六轮（多标签页并发刷新防误吊销）：区分两种「同一 refresh token 被二次使用」——
+                //   a) 并发轮转竞争（benign）：两个标签页/请求几乎同时用同一 token 刷新，
+                //      输家在赢家写入吊销记录后的极短时间内到达。特征：已有记录
+                //      reason='rotated' 且 revoked_at 距今 ≤ REFRESH_REPLAY_GRACE_MS（默认 30s）。
+                //      处置：仅拒绝本次请求（401 + code REFRESH_CONCURRENT），不吊销全部会话，
+                //      前端收到该 code 后改为采用其他标签页已写入共享存储的新 token。
+                //   b) 宽限期外的再次使用（真重放/疑似泄露）：维持原有核弹语义——吊销全部会话。
+                // 安全代价（明确接受并记录）：若攻击者先窃取并轮转了 token，受害者恰在 30s 宽限
+                // 内使用旧 token，将不会触发全量吊销（盗用检测延迟）。事件仍以
+                // SECURITY:REFRESH_CONCURRENT_ROTATION 落库，供告警通道审计。
+                const graceMs = Number(process.env.REFRESH_REPLAY_GRACE_MS || 30_000)
+                let benignConcurrent = false
                 try {
-                    // DS-02: refresh token 使用独立密钥（无 JWT_REFRESH_SECRET 时派生，保证与 access 密钥不同）
-                    // DS-01: 显式限定算法白名单，防 'none'/RS256 混淆绕过
-                    const refreshSecret = process.env.JWT_REFRESH_SECRET || `${jwtSecret}:refresh`
-                    const decoded = jwt.verify(refreshToken, refreshSecret, { algorithms: ['HS256'] })
-                    // DS-02: 令牌类型隔离——access token 不得当 refresh token 用
-                    if (decoded.type !== 'refresh') {
-                        return res.status(401).json({ error: '❌ Refresh token 类型无效' })
-                    }
-                    userId = decoded.userId
-                    schoolCode = decoded.schoolCode
-                } catch (e) {
-                    return res.status(401).json({ error: '❌ Refresh token 无效或已过期' })
+                    const prior = await getRevocationInfo(rootPrisma, decoded.jti)
+                    benignConcurrent = !!prior &&
+                        prior.reason === 'rotated' &&
+                        (Date.now() - new Date(prior.revoked_at).getTime()) <= graceMs
+                } catch { /* 查询失败按真重放处理（fail-closed，维持核弹语义） */ }
+
+                if (benignConcurrent) {
+                    await userManager.logSecurityEvent('REFRESH_CONCURRENT_ROTATION', {
+                        userId, schoolCode, jti: decoded.jti, ip: req.ip
+                    })
+                    return res.status(401).json({
+                        error: '❌ 刷新令牌已在其他窗口轮转，请使用最新会话',
+                        code: 'REFRESH_CONCURRENT'
+                    })
                 }
-            } else {
-                // Fallback: 使用 access token（向后兼容）
-                const authHeader = req.headers.authorization
-                if (!authHeader || !authHeader.startsWith('Bearer ')) {
-                    return res.status(401).json({ error: '❌ 缺少授权令牌' })
-                }
-                try {
-                    // DS-01: 显式限定算法白名单
-                    const decoded = jwt.verify(authHeader.substring(7), jwtSecret, { algorithms: ['HS256'] })
-                    // DS-02: refresh token 不得当 access token 用（类型隔离双向生效）
-                    if (decoded.type === 'refresh') {
-                        return res.status(401).json({ error: '❌ 令牌类型无效' })
-                    }
-                    userId = decoded.userId
-                    schoolCode = decoded.schoolCode
-                } catch (e) {
-                    return res.status(401).json({ error: '❌ 访问令牌无效或已过期' })
-                }
+
+                await revokeAllUserTokens(rootPrisma, { userId, schoolCode, reason: 'refresh_replay' })
+                // 预留审计接口（窗口 2）：安全事件统一以 SECURITY:* 前缀落 SystemLog
+                await userManager.logSecurityEvent('REFRESH_TOKEN_REPLAY', {
+                    userId, schoolCode, jti: decoded.jti, ip: req.ip
+                })
+                return res.status(401).json({ error: '❌ 会话安全异常，已强制下线，请重新登录' })
             }
 
-            if (!userId || !schoolCode) {
-                return res.status(401).json({ error: '❌ 令牌载荷缺失' })
+            // 3. 该用户是否已被全量吊销（user_all 记录晚于本 token 签发时间）
+            if (await isTokenRevoked(rootPrisma, { jti: null, userId, iat: decoded.iat })) {
+                return res.status(401).json({ error: '❌ 会话已被吊销，请重新登录' })
             }
 
-            const profileResult = await userManager.forTenant(schoolCode).getUserProfile(userId)
+            // 4. DS3-H2: userId ↔ schema 绑定校验——以 DB 中查得的权威 school_code 为准
+            const profileResult = await userManager.forTenant(schoolCode).getUserProfile(userId).catch(() => null)
             const dbUser = profileResult?.data
 
             if (!dbUser || dbUser.status !== 'active') {
                 return res.status(401).json({ error: '❌ 用户状态无效，无法刷新令牌' })
             }
+            if ((dbUser.school_code ?? null) !== schoolCode) {
+                const err = new Error('refresh token 租户绑定不一致')
+                err.code = 'TENANT_SCHEMA_MISMATCH'
+                await userManager.logSecurityEvent('TENANT_SCHEMA_MISMATCH', {
+                    userId,
+                    tokenSchoolCode: schoolCode,
+                    dbSchoolCode: dbUser.school_code ?? null,
+                    ip: req.ip
+                })
+                return res.status(401).json({ error: '❌ 令牌租户信息异常，请重新登录' })
+            }
 
-            const { token, expiresIn } = userManager.buildAccessToken({
+            // 5. 签发新的 access + refresh 双令牌（轮转完成）
+            const pair = userManager.buildTokenPair({
                 id: dbUser.id,
                 username: dbUser.username,
                 email: dbUser.email,
@@ -195,10 +251,13 @@ export function createUserRoutes(userManager) {
 
             res.json({
                 success: true,
-                token,
-                expiresIn
+                token: pair.token,
+                expiresIn: pair.expiresIn,
+                refreshToken: pair.refreshToken,
+                refreshExpiresIn: pair.refreshExpiresIn
             })
         } catch (error) {
+            console.error('❌ 令牌刷新异常:', error.message)
             res.status(401).json({ error: `令牌刷新失败 失败` })
         }
     })
@@ -258,6 +317,16 @@ export function createUserRoutes(userManager) {
 
     // ====== Admin Routes ======
 
+    // 窗口2（H4/P0）：高危管理操作需把操作者身份与来源 IP 传给 UserManager，
+    // 用于服务端强制审计与提权拦截（不依赖前端上报）。
+    const actorOf = (req) => ({
+        userId: req.user?.userId || null,
+        username: req.user?.username || null,
+        role: req.user?.role || null,
+        schoolCode: req.user?.schoolCode || null,
+        ip: req.ip || null
+    })
+
     // 获取所有用户列表
     router.get('/list', authenticateUser, authorizeRoles('admin', 'manager'), async (req, res) => {
         try {
@@ -272,20 +341,20 @@ export function createUserRoutes(userManager) {
     // 禁用用户
     router.post('/:userId/disable', authenticateUser, authorizeRoles('admin', 'manager'), async (req, res) => {
         try {
-            const result = await userManager.forTenant(req.user.schoolCode).disableUser(req.params.userId)
+            const result = await userManager.forTenant(req.user.schoolCode).disableUser(req.params.userId, actorOf(req))
             res.json(result)
         } catch (error) {
-            res.status(400).json({ error: `禁用用户失败 失败` })
+            res.status(error.status || 400).json({ error: error.status ? error.message : `禁用用户失败 失败` })
         }
     })
 
     // 启用用户
     router.post('/:userId/enable', authenticateUser, authorizeRoles('admin', 'manager'), async (req, res) => {
         try {
-            const result = await userManager.forTenant(req.user.schoolCode).enableUser(req.params.userId)
+            const result = await userManager.forTenant(req.user.schoolCode).enableUser(req.params.userId, actorOf(req))
             res.json(result)
         } catch (error) {
-            res.status(400).json({ error: `启用用户失败 失败` })
+            res.status(error.status || 400).json({ error: error.status ? error.message : `启用用户失败 失败` })
         }
     })
 
@@ -298,10 +367,10 @@ export function createUserRoutes(userManager) {
                 return res.status(400).json({ error: '❌ 缺少角色信息' })
             }
 
-            const result = await userManager.forTenant(req.user.schoolCode).changeUserRole(req.params.userId, newRole)
+            const result = await userManager.forTenant(req.user.schoolCode).changeUserRole(req.params.userId, newRole, actorOf(req))
             res.json(result)
         } catch (error) {
-            res.status(400).json({ error: `修改角色失败 失败` })
+            res.status(error.status || 400).json({ error: error.status ? error.message : `修改角色失败 失败` })
         }
     })
 
@@ -314,10 +383,10 @@ export function createUserRoutes(userManager) {
                 return res.status(400).json({ error: '❌ 新密码至少8个字符，且必须包含字母和数字' })
             }
 
-            const result = await userManager.forTenant(req.user.schoolCode).resetPassword(req.params.userId, newPassword)
+            const result = await userManager.forTenant(req.user.schoolCode).resetPassword(req.params.userId, newPassword, actorOf(req))
             res.json(result)
         } catch (error) {
-            res.status(400).json({ error: `重置密码失败 失败` })
+            res.status(error.status || 400).json({ error: error.status ? error.message : `重置密码失败 失败` })
         }
     })
 
@@ -330,10 +399,10 @@ export function createUserRoutes(userManager) {
                 return res.status(400).json({ error: '❌ 新密码至少8个字符，且必须包含字母和数字' })
             }
 
-            const result = await userManager.forTenant(req.user.schoolCode).resetPassword(req.params.userId, newPassword)
+            const result = await userManager.forTenant(req.user.schoolCode).resetPassword(req.params.userId, newPassword, actorOf(req))
             res.json(result)
         } catch (error) {
-            res.status(400).json({ error: `重置密码失败 失败` })
+            res.status(error.status || 400).json({ error: error.status ? error.message : `重置密码失败 失败` })
         }
     })
 
@@ -350,10 +419,10 @@ export function createUserRoutes(userManager) {
                 status: payload.status ?? (payload.is_active === true ? 'active' : payload.is_active === false ? 'disabled' : undefined)
             }
 
-            const result = await userManager.forTenant(req.user.schoolCode).adminUpdateUser(req.params.userId, normalizedUpdates)
+            const result = await userManager.forTenant(req.user.schoolCode).adminUpdateUser(req.params.userId, normalizedUpdates, actorOf(req))
             res.json(result)
         } catch (error) {
-            res.status(400).json({ error: `更新用户失败 失败` })
+            res.status(error.status || 400).json({ error: error.status ? error.message : `更新用户失败 失败` })
         }
     })
 
@@ -374,10 +443,10 @@ export function createUserRoutes(userManager) {
                 }
             }
 
-            const result = await userManager.forTenant(req.user.schoolCode).deleteUser(req.params.userId)
+            const result = await userManager.forTenant(req.user.schoolCode).deleteUser(req.params.userId, actorOf(req))
             res.json(result)
         } catch (error) {
-            res.status(400).json({ error: `删除用户失败 失败` })
+            res.status(error.status || 400).json({ error: error.status ? error.message : `删除用户失败 失败` })
         }
     })
 

@@ -22,6 +22,11 @@ export class AuthService {
         this.userKey = 'current_user';
         this.tokenExpiryKey = 'token_expiry';
         this.refreshTokenKey = 'refresh_token';
+        // —— 第六轮（多标签页并发刷新防误吊销）新增共享协调键（均落 localStorage，同源共享）——
+        this.tokenUpdatedAtKey = 'auth_token_updated_at';     // 共享 access token 最近一次写入时间
+        this.refreshRotatedAtKey = 'auth_refresh_rotated_at'; // 任一标签页最近一次成功轮转 refresh 的时间（信标）
+        this.refreshLockKey = 'auth_refresh_lock';            // 跨标签页刷新锁（Web Locks 不可用时的回退）
+        this.refreshSavedAtKey = 'refresh_token_saved_at';    // 本标签页 refresh token 的保存时间（sessionStorage，随复制标签页一起被复制）
 
         // DS-17: 内存态 token 作为第一优先读取源（XSS 需精确命中该实例才能读到）。
         // sessionStorage 为第二优先（页面关闭即清）；localStorage 仅作兼容层保留——
@@ -30,8 +35,85 @@ export class AuthService {
         this._memToken = null;
         this._memRefreshToken = null;
 
+        // REG-2: 刷新单飞（single-flight）——并发 401/定时器同时触发刷新时只发一次
+        // /refresh-token 请求。后端 refresh token 为一次性轮转 + 重放检测（二次使用
+        // 同一 refresh token 会吊销该用户全部会话），并发刷新会被误判为重放，必须串行化。
+        // ⚠️ 单飞只覆盖【同一标签页】：每个标签页是独立 JS 运行时，_refreshPromise
+        // 不跨标签共享。跨标签页串行化由 _refreshWithCrossTabLock（Web Locks / localStorage 锁）
+        // + 共享 token 采用（_adoptSharedToken）+ 轮转信标（refreshRotatedAtKey）三层实现。
+        this._refreshPromise = null;
+
+        // 第六轮：跨标签页协调所需的实例态
+        this._tabId = `tab_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+        this._memTokenUpdatedAt = 0;      // 本实例内存 token 对应的共享写入时间戳
+        this._refreshTokenSavedAt = this._loadRefreshSavedAt(); // 本标签页 refresh token 的保存时间
+
+        this._installCrossTabTokenSync();
+
         // 初始化时检查是否已登录
         this.init();
+    }
+
+    /**
+     * 第六轮：监听同源其他标签页写入的新 access token（storage 事件仅在"其他"
+     * 标签页触发，本标签页自身写入不触发），即时更新内存副本。
+     * 兜底：即使事件丢失（后台节流等），getToken()/_adoptSharedToken() 的
+     * 时间戳比对也会在下次读取时完成同步。
+     */
+    _installCrossTabTokenSync() {
+        if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
+        window.addEventListener('storage', (e) => {
+            if (e.key === this.tokenKey && e.newValue && isPlausibleJwt(e.newValue)) {
+                this._memToken = e.newValue;
+                this._memTokenUpdatedAt = Number(localStorage.getItem(this.tokenUpdatedAtKey)) || Date.now();
+                try { sessionStorage.setItem(this.tokenKey, e.newValue); } catch (err) { /* 存储不可用时忽略 */ }
+            }
+        });
+    }
+
+    _loadRefreshSavedAt() {
+        try {
+            const v = Number(sessionStorage.getItem(this.refreshSavedAtKey));
+            return Number.isFinite(v) && v > 0 ? v : 0;
+        } catch (e) { return 0; }
+    }
+
+    /**
+     * 第六轮：采用其他标签页轮转后写入共享存储（localStorage）的新 access token。
+     * 仅当共享副本的写入时间戳【严格新于】本实例内存副本时才采信
+     * （保持 DS-17 的"不盲信 localStorage"口径：旧值/被回滚的值不覆盖内存态）。
+     * @returns {string|null} 采用成功返回新 token，否则 null
+     */
+    _adoptSharedToken() {
+        try {
+            const shared = localStorage.getItem(this.tokenKey);
+            if (!isPlausibleJwt(shared)) return null;
+            // 与本地持有的是同一份 → 没有"别人刷出的新 token"可采用。
+            // ⚠️ 不能返回该 token：401 触发的刷新走到这里时，服务端已拒绝这份 token，
+            // 若把它当"已被其他标签页刷新"返回成功，会短路掉真正必需的网络刷新。
+            if (shared === this._memToken) return null;
+            const updatedAt = Number(localStorage.getItem(this.tokenUpdatedAtKey)) || 0;
+            if (updatedAt <= this._memTokenUpdatedAt) return null;
+            this._memToken = shared;
+            this._memTokenUpdatedAt = updatedAt;
+            try { sessionStorage.setItem(this.tokenKey, shared); } catch (e) { /* 存储不可用时忽略 */ }
+            return shared;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    /**
+     * 第六轮：丢弃本标签页持有的 refresh token（已被其他标签页轮转，再用必触发重放判定）。
+     * 只清本标签页私有副本（内存 + sessionStorage），不动共享的 access token。
+     */
+    _discardRefreshToken() {
+        this._memRefreshToken = null;
+        this._refreshTokenSavedAt = 0;
+        try {
+            sessionStorage.removeItem(this.refreshTokenKey);
+            sessionStorage.removeItem(this.refreshSavedAtKey);
+        } catch (e) { /* 存储不可用时忽略 */ }
     }
 
     /**
@@ -44,8 +126,16 @@ export class AuthService {
         if (token && user) {
             // 检查 Token 是否过期
             if (this.isTokenExpired()) {
-                console.warn('⚠️ Token 已过期，清除本地存储');
-                this.clearAuth();
+                // REG-2: access TTL 缩短为 30m 后，「临期」是常态而非异常。
+                // 有 refresh token 时先尝试静默续期，不再直接清除登录态（否则连
+                // refresh token 一起被 clearAuth 清掉，用户被迫重新登录）。
+                if (this.getRefreshToken()) {
+                    console.log('🔄 Token 临期，尝试静默续期...');
+                    this.refreshToken().catch(() => { /* 失败由调用方/Router 统一处理 */ });
+                } else {
+                    console.warn('⚠️ Token 已过期且无刷新令牌，清除本地存储');
+                    this.clearAuth();
+                }
             } else {
                 // DS-16: 日志不输出完整用户名（PII 脱敏）
                 console.log('✅ 用户已登录:', maskSensitive(user.username, 'name'));
@@ -239,21 +329,144 @@ export class AuthService {
 
     /**
      * Token 刷新 (自动续期)
+     * REG-2: 单飞包装——并发调用共享同一请求，防止一次性轮转的 refresh token
+     * 被并发二次使用而触发后端重放检测（全会话吊销）。
      * @returns {Promise<{success: boolean, token?: string}>}
      */
     async refreshToken() {
-        try {
-            const refreshToken = this.getRefreshToken();
-            const accessToken = this.getToken();
+        if (this._refreshPromise) return this._refreshPromise;
+        this._refreshPromise = this._refreshWithCrossTabLock().finally(() => {
+            this._refreshPromise = null;
+        });
+        return this._refreshPromise;
+    }
 
-            if (!refreshToken && !accessToken) {
-                throw new Error('没有可用的令牌，请重新登录');
+    /**
+     * 第六轮：跨标签页刷新协调（三层防线）。
+     *
+     * 层 1 —— 跨标签互斥锁：优先 Web Locks API（navigator.locks.request：浏览器
+     *   锁管理器级原子互斥，同源全标签页串行，无竞争窗口）；不支持时回退
+     *   localStorage 自旋锁（写入 tabId+时间戳 → 等待一拍 → 复读校验；
+     *   check-then-set 非原子，存在毫秒级竞争窗口——见层 3 兜底）。
+     * 层 2 —— 锁内双重检查（double-checked）：拿到锁后先看其他标签页是否已把
+     *   新 token 写进共享存储（_adoptSharedToken + isTokenExpired 复查 +
+     *   轮转信标比对）。是 → 直接采用，不发网络请求，本标签页手中已被轮转的
+     *   旧 refresh token 同时丢弃（再用必触发后端重放判定）。
+     * 层 3 —— 后端宽限协同：即使层 1/2 全部失守（localStorage 锁的毫秒级竞争
+     *   窗口被命中），后端对「30s 宽限期内的并发轮转竞争」不再核爆全会话，仅
+     *   拒绝输家（401 + code REFRESH_CONCURRENT）；本方法收到该 code 后采用
+     *   共享新 token 返回成功。→ 灾难性结果（全端登出）被完全消除。
+     */
+    async _refreshWithCrossTabLock() {
+        const hasWebLocks = typeof navigator !== 'undefined'
+            && navigator.locks
+            && typeof navigator.locks.request === 'function';
+
+        if (hasWebLocks) {
+            // Web Locks：原子互斥，锁随标签页崩溃自动释放，无需 TTL
+            return navigator.locks.request('foodtestlab_token_refresh', () => this._refreshLocked());
+        }
+        // 回退：localStorage 自旋锁（jsdom/旧浏览器）
+        const acquired = await this._acquireStorageLock();
+        try {
+            return await this._refreshLocked();
+        } finally {
+            if (acquired) this._releaseStorageLock();
+        }
+    }
+
+    /**
+     * localStorage 回退锁：写入 { id, ts } → 等待 20ms → 复读确认仍是自己。
+     * 已有未超时的他人锁 → 轮询等待其释放（最长 ~6s，覆盖一次慢刷新），
+     * 等待期间若共享存储已出现新 token 则直接放弃拿锁（走锁内双重检查采用）。
+     * 锁 TTL 10s：持锁标签页崩溃/被杀后其余标签页可抢占，不会永久死锁。
+     * 注意：该锁的 check-then-set 非原子，理论上存在毫秒级双持有窗口——
+     * 这是「大幅降低概率」而非「100% 消除」；100% 消除由 Web Locks（支持的浏览器）
+     * 与后端 REFRESH_CONCURRENT 宽限（所有环境）共同保证。
+     */
+    async _acquireStorageLock() {
+        const LOCK_TTL = 10_000;
+        const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+        const deadline = Date.now() + 6_000;
+        try {
+            for (;;) {
+                let cur = null;
+                try { cur = JSON.parse(localStorage.getItem(this.refreshLockKey) || 'null'); } catch (e) { cur = null; }
+                const now = Date.now();
+                if (!cur || !cur.ts || (now - cur.ts) > LOCK_TTL) {
+                    localStorage.setItem(this.refreshLockKey, JSON.stringify({ id: this._tabId, ts: now }));
+                    await sleep(20); // 等一拍再复读，缩小 check-then-set 竞争窗口
+                    let after = null;
+                    try { after = JSON.parse(localStorage.getItem(this.refreshLockKey) || 'null'); } catch (e) { after = null; }
+                    if (after && after.id === this._tabId) return true;
+                    // 被并发覆盖 → 对方持锁，继续等待
+                }
+                if (Date.now() > deadline) return false; // 超时放弃等锁：让层 2/层 3 兜底
+                if (this._adoptSharedToken() && !this.isTokenExpired()) return false; // 别人已刷好，无需拿锁
+                await sleep(100);
+            }
+        } catch (e) {
+            return false; // 存储不可用：退化为无锁（层 3 后端宽限兜底）
+        }
+    }
+
+    _releaseStorageLock() {
+        try {
+            const cur = JSON.parse(localStorage.getItem(this.refreshLockKey) || 'null');
+            if (cur && cur.id === this._tabId) localStorage.removeItem(this.refreshLockKey);
+        } catch (e) { /* 忽略 */ }
+    }
+
+    /**
+     * 持锁状态下的刷新主体：先双重检查（他人已刷好则采用），再决定是否真正发起网络刷新。
+     */
+    async _refreshLocked() {
+        // —— 锁内双重检查 ——
+        const adopted = this._adoptSharedToken();
+        if (adopted && !this.isTokenExpired()) {
+            // 其他标签页已完成轮转：若本标签页 refresh token 早于最近一次轮转信标，
+            // 它已在服务端被标记 rotated，再使用必触发重放判定 → 主动丢弃。
+            const rotatedAt = Number(localStorage.getItem(this.refreshRotatedAtKey)) || 0;
+            if (this._refreshTokenSavedAt && rotatedAt > this._refreshTokenSavedAt) {
+                this._discardRefreshToken();
+            }
+            console.log('✅ Token 已由其他标签页刷新，直接采用共享副本');
+            return { success: true, token: adopted, adopted: true };
+        }
+        return this._doRefreshToken();
+    }
+
+    async _doRefreshToken() {
+        try {
+            // 第六轮：若本标签页 refresh token 已确认被其他标签页轮转（信标晚于保存时间），
+            // 发出去必被判定二次使用——直接丢弃并尝试采用共享 token，不发注定失败的请求。
+            const rotatedAt = Number(localStorage.getItem(this.refreshRotatedAtKey)) || 0;
+            if (this._refreshTokenSavedAt && rotatedAt > this._refreshTokenSavedAt) {
+                this._discardRefreshToken();
+                const shared = this._adoptSharedToken();
+                if (shared && !this.isTokenExpired()) {
+                    return { success: true, token: shared, adopted: true };
+                }
             }
 
-            // TD-RefreshToken: 优先使用 refresh token；缺省时回退到访问令牌（兼容旧后端）
-            const headers = { 'Content-Type': 'application/json' };
-            if (refreshToken) headers['X-Refresh-Token'] = refreshToken;
-            if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+            const refreshToken = this.getRefreshToken();
+
+            // DS3-H1: 后端已移除 access-token fallback（旧 fallback 允许 access token
+            // 无限自续期）；无 refresh token 时刷新必然 401。
+            // 第六轮：失败前最后尝试采用共享 token（新开标签页无 sessionStorage refresh token，
+            // 但其他标签页可能持续续期——不能因本标签页无 refresh 能力就宣告会话失效）。
+            if (!refreshToken) {
+                const shared = this._adoptSharedToken();
+                if (shared && !this.isTokenExpired()) {
+                    return { success: true, token: shared, adopted: true };
+                }
+                throw new Error('没有可用的刷新令牌，请重新登录');
+            }
+
+            const headers = {
+                'Content-Type': 'application/json',
+                'X-Refresh-Token': refreshToken
+            };
 
             const response = await fetch(`${this.apiBaseUrl}/api/user/refresh-token`, {
                 method: 'POST',
@@ -261,6 +474,24 @@ export class AuthService {
             });
 
             const data = await response.json().catch(() => ({}));
+
+            // 第六轮（层 3）：并发轮转竞争输家——本标签页的 refresh token 刚被其他
+            // 标签页/请求用掉（后端 30s 宽限内不核爆）。丢弃已废 token，采用共享新 token。
+            if (response.status === 401 && data && data.code === 'REFRESH_CONCURRENT') {
+                console.warn('⚠️ 刷新竞争：token 已在其他窗口轮转，采用共享副本');
+                this._discardRefreshToken();
+                const shared = this._adoptSharedToken();
+                if (shared && !this.isTokenExpired()) {
+                    return { success: true, token: shared, adopted: true };
+                }
+                // 共享副本尚未写入（赢家还没落库到 localStorage）：短暂等待一次再取
+                await new Promise(r => setTimeout(r, 300));
+                const retryShared = this._adoptSharedToken();
+                if (retryShared && !this.isTokenExpired()) {
+                    return { success: true, token: retryShared, adopted: true };
+                }
+                throw new Error('Token 已在其他窗口刷新，请稍后重试');
+            }
 
             // 凭证失效（401/403）：必须重新登录，清理本地态
             if (response.status === 401 || response.status === 403) {
@@ -279,6 +510,9 @@ export class AuthService {
             }
             if (data.refreshToken) {
                 this.saveRefreshToken(data.refreshToken);
+                // 第六轮：写轮转信标——通知（并留证给）其他标签页：旧 refresh token 已作废。
+                // 持有更早 refresh token 的标签页据此主动丢弃，不再发出注定触发重放判定的请求。
+                try { localStorage.setItem(this.refreshRotatedAtKey, String(Date.now())); } catch (e) { /* 忽略 */ }
             }
 
             console.log('✅ Token 已刷新');
@@ -389,6 +623,10 @@ export class AuthService {
         try { sessionStorage.setItem(this.tokenKey, token); } catch (e) { /* 存储不可用时忽略 */ }
         localStorage.setItem(this.tokenKey, token);
 
+        // 第六轮：记录共享写入时间戳，供其他标签页 _adoptSharedToken() 判定新旧
+        this._memTokenUpdatedAt = Date.now();
+        try { localStorage.setItem(this.tokenUpdatedAtKey, String(this._memTokenUpdatedAt)); } catch (e) { /* 忽略 */ }
+
         // 计算过期时间 (当前时间 + 过期时间)
         const expiryTime = Date.now() + (safeExpiresIn * 1000);
         localStorage.setItem(this.tokenExpiryKey, expiryTime.toString());
@@ -410,7 +648,14 @@ export class AuthService {
      */
     saveRefreshToken(refreshToken) {
         this._memRefreshToken = refreshToken;
-        try { sessionStorage.setItem(this.refreshTokenKey, refreshToken); } catch (e) { /* 存储不可用时忽略 */ }
+        // 第六轮：记录保存时间（sessionStorage，随「复制标签页」一起被复制），
+        // 与共享轮转信标（refreshRotatedAtKey）比对即可识别"我手里的 refresh token
+        // 已被其他标签页轮转作废"，避免发出触发重放判定的请求。
+        this._refreshTokenSavedAt = Date.now();
+        try {
+            sessionStorage.setItem(this.refreshTokenKey, refreshToken);
+            sessionStorage.setItem(this.refreshSavedAtKey, String(this._refreshTokenSavedAt));
+        } catch (e) { /* 存储不可用时忽略 */ }
         // 清理历史遗留的 localStorage 副本（旧版本写入的）
         localStorage.removeItem(this.refreshTokenKey);
     }
@@ -448,6 +693,15 @@ export class AuthService {
         localStorage.removeItem(this.userKey);
         localStorage.removeItem(this.tokenExpiryKey);
         localStorage.removeItem(this.refreshTokenKey);
+        // 第六轮：清除跨标签协调键（信标/时间戳/锁），防止残值影响下次会话
+        this._memTokenUpdatedAt = 0;
+        this._refreshTokenSavedAt = 0;
+        try {
+            sessionStorage.removeItem(this.refreshSavedAtKey);
+            localStorage.removeItem(this.tokenUpdatedAtKey);
+            localStorage.removeItem(this.refreshRotatedAtKey);
+            localStorage.removeItem(this.refreshLockKey);
+        } catch (e) { /* 忽略 */ }
         // 同时清除访客态，避免登出后 guest_token 残留导致越权（TD-Logout-Token）
         localStorage.removeItem('guest_token');
         localStorage.removeItem('current_guest');
@@ -678,5 +932,58 @@ export function getApiBaseUrl() {
     return '';
 }
 
+// ============================================================================
+// REG-2: 全局 401 自动刷新重试拦截器
+//
+// 背景：access TTL 缩短为 30m 后，Router 的 60s 定时器（临期 5min 主动续期）覆盖
+// 常规场景，但存在盲区：页面休眠唤醒、标签页后台被节流、请求恰在过期瞬间发出等。
+// 本拦截器兜底：同源 /api/ 请求收到 401 时，用 refresh token 静默换新并重放一次。
+//
+// 安全护栏（防死循环/请求风暴）：
+//   1) 每个请求最多重试一次（重放请求不再进入刷新分支——刷新失败即透传 401）；
+//   2) 认证类端点（login/refresh-token/verify-token/logout/guest）不拦截；
+//   3) 仅当原请求携带 Authorization 头、body 可安全重放（无 body 或字符串）时重试；
+//   4) 刷新走单飞 refreshToken()，并发 401 只触发一次 /refresh-token；
+//   5) 无 refresh token 或刷新失败：透传原 401，由 Router/调用方走统一登出。
+// ============================================================================
+const AUTH_ENDPOINT_RE = /\/api\/(user\/(login|super-admin\/login|refresh-token|verify-token|logout)|guest\/)/;
+
+export function installAuthRefreshFetchInterceptor(service) {
+    if (typeof window === 'undefined' || typeof window.fetch !== 'function' || window.__authRefreshFetchInstalled) return;
+    window.__authRefreshFetchInstalled = true;
+
+    const rawFetch = window.fetch.bind(window);
+    window.fetch = async function (input, init) {
+        const response = await rawFetch(input, init);
+        try {
+            if (response.status !== 401) return response;
+
+            const url = typeof input === 'string' ? input : (input && input.url) || '';
+            const path = url.replace(/^https?:\/\/[^/]+/, '');
+            const isApi = path.startsWith('/api/');
+            if (!isApi || AUTH_ENDPOINT_RE.test(path)) return response;
+
+            // 仅重放"带 Authorization 且 body 可安全重放"的请求（Request 对象/流式 body 不处理）
+            const headers = new Headers((init && init.headers) || {});
+            const bodyRetryable = !init || init.body === undefined || typeof init.body === 'string';
+            if (!headers.has('Authorization') || !bodyRetryable || typeof input !== 'string') return response;
+
+            if (!service.getRefreshToken()) return response;
+
+            const refreshed = await service.refreshToken();
+            if (!refreshed.success || !refreshed.token) return response;
+
+            headers.set('Authorization', `Bearer ${refreshed.token}`);
+            console.log('🔄 401 → Token 已静默刷新，重放原请求:', path);
+            return rawFetch(input, { ...(init || {}), headers });
+        } catch (e) {
+            return response;
+        }
+    };
+}
+
 // 导出单例
 export const authService = new AuthService(getApiBaseUrl());
+
+// 安装全局 401 刷新重试拦截器（幂等；jsdom/SSR 环境自动跳过）
+installAuthRefreshFetchInterceptor(authService);

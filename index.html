@@ -635,11 +635,8 @@
           .then(json => {
             const cfg = json && json.data;
             if (!cfg) return;
-            if (cfg.name) {
-              document.title = cfg.name;
-              const navTitle = document.querySelector('nav.glass-dark h1');
-              if (navTitle) navTitle.textContent = cfg.name;
-            }
+            // 顶部标题（含自定义 systemTitle）+ 校徽水印统一由 main.js → applySchoolBranding 渲染，
+            // 此处不再写 navTitle / document.title，避免与 applySchoolBranding 竞态覆盖（单一数据源，DRY）。
             // 预设主题：通过 CSS 变量整体换肤（壁纸 + 玻璃着色 + 强调色），保留玻璃质感
             const theme = window.SchoolThemes && window.SchoolThemes.resolveTheme(cfg);
             if (theme) window.SchoolThemes.applyTheme(document, theme);

@@ -8,7 +8,7 @@ import { initializeSampleData } from './utils/SampleDataGenerator.js';
 // ✨ 学校个性化配置：提取 schoolCode + 应用 SchoolCustomization 到静态录入表单
 import { extractSchoolCode } from './utils/schoolCode.js';
 import { escapeHtml } from './utils/schoolCustomization/shared.js';
-import { ensureSchoolConfig, getSchoolCustomization, applyCustomizationToAllForms, applySchoolCustomizationToTitles, applySchoolBranding, applyVisibleTypesToNav, onSchoolConfigChanged, onSchoolInfoChanged } from './utils/schoolCustomization.js';
+import { ensureSchoolConfig, getSchoolCustomization, applyCustomizationToAllForms, applySchoolCustomizationToTitles, applySchoolBranding, applyVisibleTypesToNav, onSchoolConfigChanged, onSchoolInfoChanged, revalidateSchoolInfo } from './utils/schoolCustomization.js';
 // 1. ✨ 引入新模块
 import { BackupRestoreService } from './modules/BackupRestore.js';
 // 2. ✨ 引入认证与路由
@@ -261,15 +261,29 @@ document.addEventListener('DOMContentLoaded', async () => {
                     applyVisibleTypesToNav(cfg);
                     applyCustomizationToAllForms(cfg);
                     applySchoolCustomizationToTitles(cfg);
-                    await applySchoolBranding(syncCode);
+                    // 强制从服务端取最新（绕过 5 分钟缓存），保证定制（含系统标题/校徽排版）即时可见
+                    await applySchoolBranding(syncCode, true);
                     router.updateNavigationByPermission();
                 });
-                // 学校基本信息（校徽/校名/主题色）变更实时同步：管理控制台保存后，
+                // 学校基本信息（校徽/校名/主题色/系统标题）变更实时同步：管理控制台保存后，
                 // 师生端打开的标签页通过 storage 事件（跨标签页）或 school:info-changed
-                // （同标签页）收到通知，立即重应用品牌，无需刷新页面。
+                // （同标签页）收到通知，立即强制重拉服务端并重应用品牌，无需刷新页面。
                 onSchoolInfoChanged(syncCode, async () => {
-                    await applySchoolBranding(syncCode);
+                    await applySchoolBranding(syncCode, true);
                     router.updateNavigationByPermission();
+                });
+                // RK-品牌：标签页重新可见时（如从管理控制台切回），用服务端 updated_at
+                // 做版本校验，若管理控制台在后台保存过则刷新缓存并重应用，弥补 storage
+                // 事件仅在编辑时标签页已打开才触发的局限，彻底消除"保存后看不到修改"。
+                document.addEventListener('visibilitychange', async () => {
+                    if (document.visibilityState !== 'visible') return;
+                    try {
+                        const changed = await revalidateSchoolInfo(syncCode);
+                        if (changed) {
+                            await applySchoolBranding(syncCode, true);
+                            router.updateNavigationByPermission();
+                        }
+                    } catch (_) { /* 非关键路径 */ }
                 });
             }
         } catch (e) {

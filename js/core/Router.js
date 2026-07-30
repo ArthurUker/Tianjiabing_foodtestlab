@@ -339,7 +339,7 @@ export class Router {
 
         // 确定显示的是用户还是访客信息
         const displayName = user?.username || guest?.username || '用户';
-        const displayRole = user?.role ? this.getRoleLabel(user.role) : (guest ? '访客 (' + (guest.guest_type === 'viewer' ? '只读' : '申请导出') + ')' : '');
+        const displayRole = user?.role ? this.getRoleLabel(user.role) : (guest ? '访客 (' + (guest.guest_type === 'readonly' ? '只读' : '申请导出') + ')' : '');
 
         // 更新导航栏中的用户名
         const userNameElements = document.querySelectorAll('[data-user-name]');
@@ -380,13 +380,17 @@ export class Router {
      * 验证 Token 并自动刷新
      */
     async validateAndRefreshToken() {
-        if (!authService.isAuthenticated()) {
+        // REG-2: 不能先用 isAuthenticated() 做门卫——其内部已含「未过期」判定，
+        // token 一临期该分支即直接登出，下方的刷新分支成为永不可达的死代码
+        // （access TTL 缩短为 30m 后表现为每 ~25 分钟必掉登录）。
+        // 正确顺序：有 token → 临期先用 refresh token 静默续期 → 刷新失败才登出。
+        if (!authService.getToken()) {
             console.warn('⚠️ Token 无效或过期');
             this.handleLogout();
             return false;
         }
 
-        // 如果 Token 快要过期，自动刷新
+        // 如果 Token 快要过期（5 分钟缓冲），自动刷新
         if (authService.isTokenExpired()) {
             console.log('🔄 Token 即将过期，自动刷新...');
             const result = await authService.refreshToken();

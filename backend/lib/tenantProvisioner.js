@@ -80,13 +80,32 @@ export async function provisionSchool({
   // DS-05：任何把 schema 名拼进 SQL/DDL 前强制白名单校验（不匹配立即 throw）
   assertSafeSchemaName(schema)
   const displayName = name || `学校(${code})`
-  const pw = adminPassword || 'changeme'
+
+  // M1/M2（窗口2）：废除弱默认密码 'changeme' 回退。
+  // - adminPassword 缺失时不再静默降级；仅当 manager 账号确实需要创建时才要求密码
+  //   （见步骤④），保证 tenantSync 对已有租户的幂等同步（不建号、不需要密码）不受影响。
+  // - 显式开发/测试例外：ALLOW_INSECURE_TENANT_PASSWORD=true 时允许回退，
+  //   但会打印高危警告，且创建的账号 must_change_password=true。
+  const allowInsecureDevPassword = process.env.ALLOW_INSECURE_TENANT_PASSWORD === 'true'
+  if (!adminPassword && allowInsecureDevPassword) {
+    log(`🚨 [高危] ALLOW_INSECURE_TENANT_PASSWORD=true，租户 ${code} 将使用开发用弱密码，严禁在生产环境使用！`)
+  }
+  const pw = adminPassword || (allowInsecureDevPassword ? 'changeme' : null)
 
   // ① 创建 schema（幂等）
   const exists = await prisma.$queryRawUnsafe(
     `SELECT 1 FROM pg_namespace WHERE nspname = $1`,
     schema
   )
+  // M1: 全新建校（schema 尚不存在）且无可用密码 → 在做任何变更前直接中止，
+  //     不再回退弱默认密码。已存在租户的幂等同步（tenantSync/db:sync）不需要
+  //     密码（manager 已存在，步骤④跳过），不受影响。
+  if (!exists.length && !pw) {
+    throw new Error(
+      `拒绝建校 ${code}：缺少租户初始管理密码（SEED_ADMIN_PASSWORD / adminPassword）。` +
+      `弱默认密码回退已移除；如确为本地开发环境，可显式设置 ALLOW_INSECURE_TENANT_PASSWORD=true`
+    )
+  }
   let created = false
   if (!exists.length) {
     await prisma.$executeRawUnsafe(`CREATE SCHEMA IF NOT EXISTS "${schema}"`)
@@ -142,8 +161,9 @@ export async function provisionSchool({
   // ④ 租户内首个 manager（幂等：已存在则跳过）
   //    admin 角色仅保留给平台超管（public schema，schoolCode=null），
   //    学校内最高权限为 manager，避免跨校越权。
+  //    M2: 初始密码属于"临时密码"，账号一律置 must_change_password=true，
+  //        首登强制改密的登录侧拦截由窗口1在 login/token 链路实现。
   let managerCreated = false
-  const hash = await bcryptjs.hash(pw, 10)
   await prisma.$transaction(async (tx) => {
     await tx.$executeRawUnsafe(`SET LOCAL search_path TO "${schema}", public`)
     const found = await tx.$queryRawUnsafe(
@@ -153,16 +173,24 @@ export async function provisionSchool({
       log(`ℹ️ 租户 ${code} 已存在 manager，跳过创建`)
       return
     }
+    // M1: 需要建号但无可用密码 → 中止（覆盖"schema 已存在但 manager 缺失"的边缘情况）
+    if (!pw) {
+      throw new Error(
+        `拒绝为租户 ${code} 创建 manager：缺少初始密码（SEED_ADMIN_PASSWORD / adminPassword），` +
+        `弱默认密码回退已移除`
+      )
+    }
+    const hash = await bcryptjs.hash(pw, 10)
     await tx.$executeRawUnsafe(
       `INSERT INTO "User"
-         ("id","username","password_hash","full_name","role","status","school_code","created_at","updated_at")
-       VALUES ($1,'manager',$2,'School Manager','manager','active',$3,now(),now())`,
+         ("id","username","password_hash","full_name","role","status","school_code","must_change_password","created_at","updated_at")
+       VALUES ($1,'manager',$2,'School Manager','manager','active',$3,true,now(),now())`,
       `u_${code}_manager`,
       hash,
       code
     )
     managerCreated = true
-    log(`✅ 已为租户 ${code} 创建 manager 账号`)
+    log(`✅ 已为租户 ${code} 创建 manager 账号（must_change_password=true，首登需改密）`)
   })
 
   return { code, schema, created, managerCreated }

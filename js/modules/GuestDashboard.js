@@ -117,7 +117,7 @@ export class GuestDashboard {
 
         const guest = this.currentGuest;
         const isQuickAccess = guestAuthService.isQuickAccessMode();
-        const guestTypeLabel = guest.guest_type === 'viewer' ? '只读访客' : '导出申请访客';
+        const guestTypeLabel = guest.guest_type === 'readonly' ? '只读访客' : '导出申请访客';
         const permissionStatus = guest.has_export_permission 
             ? '<span class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded">✓ 已获得导出权限</span>'
             : '<span class="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded">⏳ 待审批</span>';

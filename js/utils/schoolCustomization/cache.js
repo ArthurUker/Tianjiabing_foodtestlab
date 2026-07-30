@@ -83,12 +83,16 @@ async function fetchSchoolConfig(schoolCode) {
     const data = (json && json.data) || {}
     const customization = data.customization || {}
     setSchoolCustomization(schoolCode, customization)
-    if (data.name || data.logoUrl || data.themeColor) {
+    if (data.name || data.logoUrl || data.themeColor || data.updatedAt) {
         setSchoolInfo(schoolCode, {
             name: data.name || '',
             shortName: data.shortName || '',
             logoUrl: data.logoUrl || '',
             themeColor: data.themeColor || '',
+            updatedAt: data.updatedAt || null,
+            // SchoolCustomization.updated_at：systemTitle/校徽排版等落在定制表，
+            // 仅比较 School.updated_at 会漏掉"只改系统标题"的版本变化，故一并记录。
+            customizationUpdatedAt: (data.customization && data.customization.updated_at) || null,
         })
     }
     return customization
@@ -100,11 +104,12 @@ async function fetchSchoolConfig(schoolCode) {
  * @param {string} schoolCode
  * @returns {Promise<Object>} customization（可能为 {}）
  */
-export async function ensureSchoolConfig(schoolCode) {
+export async function ensureSchoolConfig(schoolCode, force = false) {
     if (!schoolCode) return {}
     const cached = getSchoolCustomization(schoolCode)
     // RK15: 缓存命中且未过期（5 分钟 TTL）才直接返回；过期则重新拉取（拉取失败时降级用旧缓存）
-    if (cached && Object.keys(cached).length && isCacheFresh(schoolCode)) return cached
+    // force=true（管理控制台保存后等变更事件触发）绕过缓存，直接从服务端取最新，保证师生端立即可见。
+    if (!force && cached && Object.keys(cached).length && isCacheFresh(schoolCode)) return cached
     // CR-02: in-flight 去重
     if (inflightConfigFetches.has(schoolCode)) {
         try { return (await inflightConfigFetches.get(schoolCode)) ?? cached ?? {} } catch { return cached || {} }
@@ -127,15 +132,16 @@ export async function ensureSchoolConfig(schoolCode) {
  * @param {string} schoolCode
  * @returns {Promise<Object|null>} { name, shortName, logoUrl, themeColor } 或 null
  */
-export async function ensureSchoolInfo(schoolCode) {
+export async function ensureSchoolInfo(schoolCode, force = false) {
     if (!schoolCode) return null
     const cached = getSchoolInfo(schoolCode)
     // RK15: 与 ensureSchoolConfig 一致——缓存命中且未过期（5 分钟 TTL）才直接返回；
     // 否则重新拉取服务端最新外观（校徽/校名/主题色），保证管理控制台修改后师生端可见。
-    if (cached && cached.name && isCacheFresh(schoolCode)) return cached
+    // force=true 绕过缓存，用于管理控制台保存后派发的变更事件，确保师生端标签页立即可见最新值。
+    if (!force && cached && cached.name && isCacheFresh(schoolCode)) return cached
     try {
         const resp = await fetch(`/api/schools/${encodeURIComponent(schoolCode)}/config`)
-        if (!resp.ok) return null
+        if (!resp.ok) return (force ? (cached || null) : null)
         const json = await resp.json()
         const data = (json && json.data) || {}
         const info = {
@@ -143,11 +149,52 @@ export async function ensureSchoolInfo(schoolCode) {
             shortName: data.shortName || '',
             logoUrl: data.logoUrl || '',
             themeColor: data.themeColor || '',
+            updatedAt: data.updatedAt || null,
+            customizationUpdatedAt: (data.customization && data.customization.updated_at) || null,
         }
         setSchoolInfo(schoolCode, info)
         return info
     } catch (e) {
-        return null
+        return (force ? (cached || null) : null)
+    }
+}
+
+/**
+ * 版本校验：用服务端 School.updated_at 与本地缓存时间戳比较，若服务端更新则刷新缓存。
+ * 用于页面重新可见（visibilitychange）/ 冷重开仍在 TTL 内等场景，弥补 storage 事件
+ * 仅在「编辑时标签页已打开」才触发的局限，保证师生端始终展示管理控制台保存后的最新外观。
+ * @returns {Promise<boolean>} 是否发生了更新（调用方可据此决定是否重应用品牌）
+ */
+export async function revalidateSchoolInfo(schoolCode) {
+    if (!schoolCode) return false
+    try {
+        const resp = await fetch(`/api/schools/${encodeURIComponent(schoolCode)}/config`)
+        if (!resp.ok) return false
+        const json = await resp.json()
+        const data = (json && json.data) || {}
+        const cached = getSchoolInfo(schoolCode)
+        // 取 School 与 SchoolCustomization 两者 updated_at 的较大值：任一处（校名/校徽 或 系统标题/校徽排版）
+        // 被管理控制台保存后，版本号都会前进，确保师生端标签页重新可见时一定重拉最新外观。
+        const serverSchoolTs = data.updatedAt ? new Date(data.updatedAt).getTime() : 0
+        const serverCustTs = (data.customization && data.customization.updated_at) ? new Date(data.customization.updated_at).getTime() : 0
+        const serverTs = Math.max(serverSchoolTs, serverCustTs)
+        const cachedSchoolTs = (cached && cached.updatedAt) ? new Date(cached.updatedAt).getTime() : 0
+        const cachedCustTs = (cached && cached.customizationUpdatedAt) ? new Date(cached.customizationUpdatedAt).getTime() : 0
+        const cachedTs = Math.max(cachedSchoolTs, cachedCustTs)
+        if (serverTs && serverTs > cachedTs) {
+            setSchoolInfo(schoolCode, {
+                name: data.name || '',
+                shortName: data.shortName || '',
+                logoUrl: data.logoUrl || '',
+                themeColor: data.themeColor || '',
+                updatedAt: data.updatedAt || null,
+                customizationUpdatedAt: (data.customization && data.customization.updated_at) || null,
+            })
+            return true
+        }
+        return false
+    } catch (e) {
+        return false
     }
 }
 

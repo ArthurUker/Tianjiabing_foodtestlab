@@ -6,22 +6,218 @@
  * 用法：
  *   import { createAuthMiddleware } from '../middleware/authMiddleware.js'
  *   const { authenticateUser, authorizeAdmin, authorizeRoles } = createAuthMiddleware(userManager)
+ *
+ * 【安全修复 H1/H2/DS3-H1】本文件另导出「令牌吊销存储」能力（public.revoked_tokens）：
+ *   - ensureRevocationInfra / isTokenRevoked / revokeToken / revokeAllUserTokens / cleanupExpiredRevocations
+ *   窗口 2（角色变更/禁用/删除用户的写入调用点）应 import 这些函数写入吊销记录，
+ *   本文件的 authenticateUser 负责校验（jti 精确吊销 + user_all 全量吊销）。
  */
+
+import { randomUUID } from 'crypto'
+import { createTenantClient } from '../lib/tenantClient.js'
+
+// ============================================================================
+// 令牌吊销存储（H2）—— public.revoked_tokens
+//
+// 【部署一致性（强制）】吊销记录必须落在所有服务实例共享的存储（数据库/Redis），
+// 严禁进程内内存结构（如普通 Map）：多实例负载均衡下，进程内存方案会导致吊销
+// 仅在部分实例生效。当前实现以 PostgreSQL public schema 为共享存储。
+//
+// 【状态缓存说明（H1-2/H1-3）】原要求引入 ≤30s TTL 的状态缓存以减轻主库压力，
+// 且缓存本身也必须是共享存储。当前技术栈无 Redis，"DB 里缓存 DB 数据"无意义，
+// 故默认【每请求直查 DB】（user 主键查询 + revoked_tokens 主键查询，各 1 次索引命中，
+// 状态变更生效延迟窗口 = 0）。预留 setAuthStateCache() 注入点：接入 Redis 后注入
+// 适配器 { get(key), set(key, value, ttlMs) } 即可启用 30s TTL 缓存，届时接受并明确
+// 「状态变更/吊销生效延迟 ≤ 缓存 TTL（30s）」。禁止注入进程内 Map 实现。
+// ============================================================================
+
+const REVOKED_TOKENS_DDL = [
+  `CREATE TABLE IF NOT EXISTS public.revoked_tokens (
+     jti         TEXT PRIMARY KEY,
+     user_id     TEXT NOT NULL,
+     school_code TEXT,
+     token_type  TEXT NOT NULL DEFAULT 'access',
+     reason      TEXT,
+     revoked_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+     expires_at  TIMESTAMPTZ NOT NULL
+   )`,
+  `CREATE INDEX IF NOT EXISTS revoked_tokens_expires_at_idx ON public.revoked_tokens (expires_at)`,
+  `CREATE INDEX IF NOT EXISTS revoked_tokens_user_idx ON public.revoked_tokens (user_id, token_type, revoked_at)`,
+]
+
+let _ensureInfraPromise = null
+
+/**
+ * 幂等创建吊销表与索引（memoized，一个进程只真正执行一次）。
+ */
+export function ensureRevocationInfra(prisma) {
+  if (!_ensureInfraPromise) {
+    _ensureInfraPromise = (async () => {
+      for (const sql of REVOKED_TOKENS_DDL) {
+        await prisma.$executeRawUnsafe(sql)
+      }
+    })().catch((e) => {
+      // 失败后允许下次重试（例如 DB 暂不可用时启动）
+      _ensureInfraPromise = null
+      throw e
+    })
+  }
+  return _ensureInfraPromise
+}
+
+/**
+ * 校验令牌是否已被吊销：
+ *   1) jti 精确命中吊销表（单令牌吊销 / refresh 轮转标记）；
+ *   2) user_all 全量吊销：该用户存在吊销时间 >= 令牌签发时间(iat) 的 user_all 记录
+ *      （用于 refresh 重放触发的全会话吊销、以及窗口 2 的禁用/删除/改角色场景）。
+ * @returns {Promise<boolean>} true = 已吊销
+ */
+export async function isTokenRevoked(prisma, { jti, userId, iat }) {
+  const query = () => prisma.$queryRawUnsafe(
+    `SELECT 1 AS hit FROM public.revoked_tokens
+      WHERE jti = $1
+         OR (token_type = 'user_all' AND user_id = $2 AND revoked_at >= to_timestamp($3))
+      LIMIT 1`,
+    jti || '', userId || '', Math.floor(Number(iat) || 0)
+  )
+  try {
+    await ensureRevocationInfra(prisma)
+    const rows = await query()
+    return rows.length > 0
+  } catch (e) {
+    // 吊销表查询异常时不阻断全站请求（用户状态回查仍然 fail-closed），但必须高声告警。
+    console.error('❌ [revocation] 吊销校验失败（临时降级为未吊销，请立即排查）:', e.message)
+    return false
+  }
+}
+
+/**
+ * 写入单令牌吊销记录（幂等）。
+ * @returns {Promise<boolean>} true = 本次新写入；false = 该 jti 已存在（refresh 重放检测依赖此语义）
+ */
+export async function revokeToken(prisma, { jti, userId, schoolCode = null, tokenType = 'access', reason = null, expiresAt }) {
+  if (!jti || !userId || !expiresAt) throw new Error('revokeToken: 缺少 jti/userId/expiresAt')
+  await ensureRevocationInfra(prisma)
+  const count = await prisma.$executeRawUnsafe(
+    `INSERT INTO public.revoked_tokens (jti, user_id, school_code, token_type, reason, expires_at)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (jti) DO NOTHING`,
+    jti, userId, schoolCode, tokenType, reason, expiresAt
+  )
+  return count > 0
+}
+
+/**
+ * 查询某 jti 的吊销记录详情（第六轮·多标签页并发刷新防误吊销）。
+ * refresh 端点在 INSERT 冲突（jti 已存在）时调用本函数，读取已有记录的
+ * revoked_at/reason，用于区分「刚刚发生的并发轮转竞争（benign）」与
+ * 「真正的重放攻击（旧 token 在宽限期外被再次使用）」。
+ * @returns {Promise<{revoked_at: Date, reason: string|null, token_type: string}|null>}
+ */
+export async function getRevocationInfo(prisma, jti) {
+  if (!jti) return null
+  await ensureRevocationInfra(prisma)
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT revoked_at, reason, token_type FROM public.revoked_tokens WHERE jti = $1 LIMIT 1`,
+    jti
+  )
+  return rows.length ? rows[0] : null
+}
+
+/**
+ * 吊销某用户的全部会话（access + refresh）：写入一条 user_all 记录，
+ * 所有「签发时间早于该记录 revoked_at」的令牌全部失效。
+ * ttlSeconds 默认 8 天（覆盖 7 天 refresh TTL + 时钟偏差），到期由清理任务删除。
+ */
+export async function revokeAllUserTokens(prisma, { userId, schoolCode = null, reason = null, ttlSeconds = 8 * 86400 }) {
+  if (!userId) throw new Error('revokeAllUserTokens: 缺少 userId')
+  await ensureRevocationInfra(prisma)
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO public.revoked_tokens (jti, user_id, school_code, token_type, reason, expires_at)
+     VALUES ($1, $2, $3, 'user_all', $4, $5)`,
+    `user_all:${userId}:${randomUUID()}`, userId, schoolCode, reason, new Date(Date.now() + ttlSeconds * 1000)
+  )
+  return true
+}
+
+/**
+ * 清理已过期吊销记录（expires_at < now() 的记录对应令牌本身已过期，无需保留），
+ * 防止吊销表无限增长（H2-3）。
+ */
+export async function cleanupExpiredRevocations(prisma) {
+  await ensureRevocationInfra(prisma)
+  return prisma.$executeRawUnsafe(`DELETE FROM public.revoked_tokens WHERE expires_at < now()`)
+}
+
+let _cleanupTimer = null
+
+/**
+ * 启动吊销表定时清理任务（每进程仅一个定时器；unref 不阻塞进程退出）。
+ * 多实例同时运行也安全（DELETE 幂等）。
+ */
+export function startRevocationCleanup(prisma, intervalMs = Number(process.env.REVOKED_TOKENS_CLEANUP_INTERVAL_MS || 15 * 60 * 1000)) {
+  if (_cleanupTimer) return
+  _cleanupTimer = setInterval(() => {
+    cleanupExpiredRevocations(prisma).catch(e =>
+      console.warn('⚠️ [revocation] 过期吊销记录清理失败:', e.message))
+  }, intervalMs)
+  if (typeof _cleanupTimer.unref === 'function') _cleanupTimer.unref()
+}
+
+// —— 共享认证状态缓存注入点（见文件头说明；仅允许注入 Redis 等共享存储适配器）——
+let _authStateCache = null
+const AUTH_STATE_CACHE_TTL_MS = Number(process.env.AUTH_STATE_CACHE_TTL_MS || 30_000) // 建议 30s
+
+export function setAuthStateCache(adapter) {
+  _authStateCache = adapter && typeof adapter.get === 'function' && typeof adapter.set === 'function'
+    ? adapter
+    : null
+}
+
+// IF-2/M2: must_change_password=true（临时密码账号）时允许访问的接口白名单。
+// 除此之外的一切受保护接口一律 403（code: MUST_CHANGE_PASSWORD），
+// 服务端强制、不依赖前端自觉；改密成功（changePassword 清 flag）后自动恢复。
+const MUST_CHANGE_PASSWORD_ALLOWED_PATHS = [
+  '/api/user/change-password',
+  '/api/user/logout',
+  '/api/user/me',
+  '/api/user/verify-token',
+]
+
+function isMustChangePasswordAllowed(req) {
+  const path = String(req.originalUrl || req.url || '').split('?')[0]
+  return MUST_CHANGE_PASSWORD_ALLOWED_PATHS.some(p => path === p || path.startsWith(`${p}/`))
+}
 
 /**
  * 工厂函数：接收 userManager 实例，返回一组认证/授权中间件
  * @param {UserManager} userManager
  */
-import { createTenantClient } from '../lib/tenantClient.js'
-
 export function createAuthMiddleware(userManager, prisma) {
+
+  // 基础（public schema）客户端：优先用显式注入的 prisma；
+  // 未注入时（如 userRoutes 只传 userManager）回落到 userManager 持有的根客户端。
+  const rootPrisma = prisma || userManager?.rootPrisma || userManager?.prisma || null
+
+  // 初始化吊销基础设施 + 定时清理（测试环境跳过，避免占用句柄/连接）
+  if (rootPrisma && process.env.NODE_ENV !== 'test') {
+    ensureRevocationInfra(rootPrisma)
+      .then(() => startRevocationCleanup(rootPrisma))
+      .catch(e => console.error('❌ [revocation] 吊销表初始化失败:', e.message))
+  }
 
   /**
    * authenticateUser
    * 验证请求头中的 Bearer Token，将解码后的用户信息挂载到 req.user
-   * req.user 结构：{ userId, username, email, role }
+   * req.user 结构：{ userId, username, email, role, schoolCode, jti, iat, exp }
+   *
+   * 【H1】JWT 签名校验通过后，回查数据库当前用户状态（status !== 'active' → 401）。
+   *      禁用/删除用户后，旧 access token 立即失效（生效延迟窗口：直查 DB 时为 0；
+   *      注入共享缓存后 ≤ AUTH_STATE_CACHE_TTL_MS，默认 30s，属明确接受的权衡）。
+   * 【H2】校验 token 的 jti 是否在吊销表中（含 user_all 全量吊销），命中 → 401。
+   * 【破坏性变更】不含 jti 的旧版员工 access token 一律 401（存量会话强制重新登录）。
    */
-  function authenticateUser(req, res, next) {
+  async function authenticateUser(req, res, next) {
     const authHeader = req.headers.authorization
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({ error: '❌ 缺少授权令牌' })
@@ -34,11 +230,90 @@ export function createAuthMiddleware(userManager, prisma) {
       return res.status(401).json({ error: '❌ 令牌无效或已过期' })
     }
 
-    req.user = verification.user
+    const u = verification.user
+
+    try {
+      if (u.role === 'guest') {
+        // —— 访客令牌 ——
+        // quick-access 令牌无 DB 实体（userId='quick-access'，2h 短时效），跳过状态回查；
+        // 普通访客回查 Guest 表状态与有效期，并校验 user_all 全量吊销。
+        if (!u.is_quick_access) {
+          const db = createTenantClient(rootPrisma, u.schoolCode)
+          const [guest, revoked] = await Promise.all([
+            db.guest.findUnique({
+              where: { id: u.userId },
+              select: { status: true, valid_until: true }
+            }),
+            isTokenRevoked(rootPrisma, { jti: u.jti, userId: u.userId, iat: u.iat })
+          ])
+          if (revoked) {
+            return res.status(401).json({ error: '❌ 会话已失效，请重新登录' })
+          }
+          if (!guest || guest.status !== 'active' ||
+              (guest.valid_until && guest.valid_until < new Date())) {
+            return res.status(401).json({ error: '❌ 访客账号已失效，请重新登录' })
+          }
+        }
+      } else {
+        // —— 员工/管理员令牌 ——
+        // H2: 新签发的 access token 必带 jti；无 jti 的旧令牌无法参与吊销校验，直接拒绝
+        if (!u.jti) {
+          return res.status(401).json({ error: '❌ 登录已过期，请重新登录' })
+        }
+
+        // 共享缓存命中（仅缓存"校验通过"的结果，TTL 内跳过 DB 回查）
+        const cacheKey = `auth:${u.userId}:${u.jti}`
+        let cachedOk = false
+        if (_authStateCache) {
+          try { cachedOk = (await _authStateCache.get(cacheKey)) === 'ok' } catch { /* 缓存故障降级直查 DB */ }
+        }
+
+        if (!cachedOk) {
+          const db = createTenantClient(rootPrisma, u.schoolCode)
+          const [dbUser, revoked] = await Promise.all([
+            db.user.findUnique({
+              where: { id: u.userId },
+              select: { status: true, school_code: true, must_change_password: true }
+            }),
+            isTokenRevoked(rootPrisma, { jti: u.jti, userId: u.userId, iat: u.iat })
+          ])
+
+          if (revoked) {
+            return res.status(401).json({ error: '❌ 会话已被吊销，请重新登录' })
+          }
+          // H1: 用户不存在（已删除）或已禁用 → 立即失效
+          if (!dbUser || dbUser.status !== 'active') {
+            return res.status(401).json({ error: '❌ 账号状态已变更，请重新登录' })
+          }
+          // 令牌租户绑定与 DB 权威值交叉校验（与 DS3-H2 口径一致）
+          if ((dbUser.school_code ?? null) !== (u.schoolCode ?? null)) {
+            return res.status(401).json({ error: '❌ 令牌租户信息异常，请重新登录' })
+          }
+          // IF-2/M2: 临时密码账号（must_change_password=true）仅可访问改密白名单接口
+          if (dbUser.must_change_password && !isMustChangePasswordAllowed(req)) {
+            return res.status(403).json({
+              error: '❌ 首次登录须先修改初始密码，方可使用系统',
+              code: 'MUST_CHANGE_PASSWORD'
+            })
+          }
+
+          // 注意：must_change_password=true 时不写 'ok' 缓存，保证改密后即时恢复（无 TTL 延迟）
+          if (_authStateCache && !dbUser.must_change_password) {
+            try { await _authStateCache.set(cacheKey, 'ok', AUTH_STATE_CACHE_TTL_MS) } catch { /* 忽略缓存写失败 */ }
+          }
+        }
+      }
+    } catch (error) {
+      // DB 回查异常一律 fail-closed（拒绝而非放行），避免故障窗口内被禁用账号继续访问
+      console.error('❌ authenticateUser 状态回查失败:', error)
+      return res.status(503).json({ error: '认证服务暂不可用，请稍后重试' })
+    }
+
+    req.user = u
     // 挂载请求级租户客户端，使独立 Router 内路由也能通过 req.db 访问数据库，
     // 无需各路由自行重复注入（修复 auditRoutes/syncRoutes 中 req.db 为 undefined 的问题）
-    if (prisma) {
-      req.db = createTenantClient(prisma, req.user?.schoolCode)
+    if (rootPrisma) {
+      req.db = createTenantClient(rootPrisma, u?.schoolCode)
     }
     next()
   }
@@ -96,9 +371,9 @@ export function createAuthMiddleware(userManager, prisma) {
     }
 
     let visible = null
-    if (prisma) {
+    if (rootPrisma) {
       try {
-        const rows = await prisma.$queryRawUnsafe(
+        const rows = await rootPrisma.$queryRawUnsafe(
           `SELECT "visible_types" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`,
           schoolCode || ''
         )

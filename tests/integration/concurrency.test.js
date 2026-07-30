@@ -71,9 +71,11 @@ describe('resolveSchemaName —— 统一 school_ 前缀', () => {
     expect(resolveSchemaName('school_tianjiabing')).toBe('school_tianjiabing')
   })
 
-  test('非法字符被净化，仅保留字母数字下划线连字符', () => {
-    expect(resolveSchemaName('foo a!@#')).toBe('school_fooa')
-    expect(resolveSchemaName('a.b/c')).toBe('school_abc')
+  test('含非法字符的代码被整体拒绝，回落默认 schema（REG-1: DS-06 白名单拒绝语义，取代旧「净化保留」）', () => {
+    // 现行 schemaNameOf 对不满足 /^[a-z0-9-]{1,40}$/ 的输入返回 null → 回落 public，
+    // 比旧的"剥离非法字符后保留"更安全（避免 'foo a!@#' 与 'fooa' 静默撞同一 schema）。
+    expect(resolveSchemaName('foo a!@#')).toBe('public')
+    expect(resolveSchemaName('a.b/c')).toBe('public')
   })
 
   test('空 / 未定义回落到默认 schema（public）', () => {

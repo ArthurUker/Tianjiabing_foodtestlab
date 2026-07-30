@@ -33,7 +33,7 @@ const guestRegisterLimiter = rateLimit(10, 60 * 1000)   // 每分钟10次
 const guestLoginLimiter = rateLimit(20, 60 * 1000)      // 每分钟20次
 
 // NB-06: 访客类型白名单
-const VALID_GUEST_TYPES = new Set(['viewer', 'export_applicant'])
+const VALID_GUEST_TYPES = new Set(['readonly', 'export_applicant'])
 
 function serializeGuest(g) {
     return {
@@ -87,7 +87,7 @@ export function createGuestRoutes(userManager, prisma, jwtSecret) {
                 email,
                 password,
                 full_name,
-                guest_type = 'viewer',
+                guest_type = 'readonly',
                 valid_days = 30,
                 schoolCode
             } = req.body
@@ -108,7 +108,7 @@ export function createGuestRoutes(userManager, prisma, jwtSecret) {
                 return res.status(400).json({ error: '❌ 用户名格式非法（需3-32位字母、数字或下划线）' })
             }
             // NB-06: 访客类型白名单校验
-            if (!VALID_GUEST_TYPES.has(guest_type || 'viewer')) {
+            if (!VALID_GUEST_TYPES.has(guest_type || 'readonly')) {
                 return res.status(400).json({ error: '❌ 非法的访客类型' })
             }
 
@@ -217,7 +217,7 @@ export function createGuestRoutes(userManager, prisma, jwtSecret) {
                 username: '快速访问用户',
                 role: 'guest',
                 schoolCode,
-                guest_type: 'viewer',
+                guest_type: 'readonly',
                 has_export_permission: false,
                 is_quick_access: true,
                 iat: Math.floor(Date.now() / 1000)
@@ -229,7 +229,7 @@ export function createGuestRoutes(userManager, prisma, jwtSecret) {
                 guest: {
                     id: 0,
                     username: '快速访问用户',
-                    guest_type: 'viewer',
+                    guest_type: 'readonly',
                     has_export_permission: false,
                     is_quick_access: true,
                     status: 'active'

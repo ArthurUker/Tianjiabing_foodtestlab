@@ -1,3 +1,5 @@
+> ⚠️ **历史归档文档**：本条 FIX 记录的是项目早期 **SQLite 阶段** 的修复，仅作历史留档。当前系统已迁移至 **PostgreSQL**（`backend/prisma/schema.prisma` 为 `provider = "postgresql"`）。文中"Prisma Client + SQLite"、"provider = \"sqlite\"" 等描述均已过时，不代表当前系统。
+
 # FIX-DOCS-01：backend/README.md 仍引用 Supabase，与当前架构完全不符
 
 | 字段 | 内容 |
