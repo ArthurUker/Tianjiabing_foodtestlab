@@ -58,3 +58,6 @@ backend/prisma/prisma/*.db
 
 # IDE local data
 .codebuddy/
+.ssh/
+# npm cache (local build cache, not for repo)
+.npm/
