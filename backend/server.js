@@ -54,6 +54,9 @@ const RESERVED_STATIC_DIRS = new Set([
     'dist', 'public', 'uploads', 'locales', 'icons', 'favicon.ico',
     'node_modules', 'cypress', 'tests', 'docs', 'scripts', 'deploy',
     'backend', 'coverage', 'logs', '.well-known',
+    // 服务器真实环境验证发现：裸路径 /health 被误判为学校代码改写成 / 导致 404，
+    // 保留 health/api 防止健康检查端点与 API 前缀被多租户路径改写中间件劫持
+    'health', 'api',
 ])
 const JWT_SECRET = process.env.JWT_SECRET
 if (!JWT_SECRET) {
