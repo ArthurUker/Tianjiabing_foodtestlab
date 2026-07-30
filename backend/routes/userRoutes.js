@@ -292,7 +292,56 @@ export function createUserRoutes(userManager) {
     })
 
     // 修改密码
-    router.post('/change-password', authenticateUser, async (req, res) => {
+    // ===== 平台超管账号管理（仅平台超级管理员可操作）=====
+function requirePlatformSuperAdmin(req, res, next) {
+    const role = req.user?.role
+    const schoolCode = req.user?.schoolCode || null
+    if (role !== 'admin' || schoolCode) {
+        return res.status(403).json({ error: '❌ 仅平台超级管理员可执行该操作' })
+    }
+    next()
+}
+
+// 列出平台超管
+router.get('/super-admin', requirePlatformSuperAdmin, async (req, res) => {
+    try {
+        const admins = await userManager.forTenant(null).listPlatformSuperAdmins()
+        res.json({ admins })
+    } catch (error) {
+        console.error('❌ 获取超管列表失败:', error)
+        res.status(500).json({ error: '获取超管列表失败: ' + error.message })
+    }
+})
+
+// 新增平台超管
+router.post('/super-admin', requirePlatformSuperAdmin, async (req, res) => {
+    try {
+        const { username, fullName, email, password } = req.body || {}
+        if (!username || !fullName || !password) {
+            return res.status(400).json({ error: '用户名、姓名和密码均为必填' })
+        }
+        const result = await userManager.forTenant(null).createPlatformSuperAdmin({ username, fullName, email, password })
+        res.status(201).json(result)
+    } catch (error) {
+        console.error('❌ 创建超管失败:', error)
+        res.status(400).json({ error: '创建超管失败: ' + error.message })
+    }
+})
+
+// 删除平台超管
+router.delete('/super-admin/:id', requirePlatformSuperAdmin, async (req, res) => {
+    try {
+        const id = Number(req.params.id)
+        if (!Number.isInteger(id)) return res.status(400).json({ error: '无效的账号 ID' })
+        await userManager.forTenant(null).deletePlatformSuperAdmin(id, req.user.userId)
+        res.json({ success: true, message: '已删除' })
+    } catch (error) {
+        console.error('❌ 删除超管失败:', error)
+        res.status(400).json({ error: '删除超管失败: ' + error.message })
+    }
+})
+
+router.post('/change-password', authenticateUser, async (req, res) => {
         try {
             const { oldPassword, newPassword } = req.body
 

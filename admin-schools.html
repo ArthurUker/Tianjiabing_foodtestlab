@@ -136,6 +136,9 @@
             <a href="./index.html" class="text-sm text-blue-200 hover:text-white transition">
                 <i class="fas fa-arrow-left mr-1"></i>返回主界面
             </a>
+            <button id="btnAccountMgmt" type="button" class="ml-3 text-sm px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg transition">
+                <i class="fas fa-user-shield mr-1"></i>账号管理
+            </button>
         </div>
     </nav>
 
@@ -750,6 +753,60 @@
         </div>
     </div>
 
+    <!-- 平台超管账号管理 -->
+    <div id="saAccountModal" class="fixed inset-0 z-[60] hidden bg-black/50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                <h3 class="text-lg font-semibold text-gray-800"><i class="fas fa-user-shield mr-2 text-blue-600"></i>平台超管账号管理</h3>
+                <button id="saAccountClose" type="button" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+            </div>
+            <div class="p-6 space-y-8">
+                <section>
+                    <h4 class="font-medium text-gray-700 mb-3"><i class="fas fa-key mr-1 text-blue-600"></i>修改我的密码</h4>
+                    <form id="saChangePwdForm" class="space-y-3">
+                        <input id="sa_oldPassword" type="password" required placeholder="当前密码" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                        <input id="sa_newPassword" type="password" required placeholder="新密码（至少8位，含字母和数字）" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                        <input id="sa_confirmPassword" type="password" required placeholder="确认新密码" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                        <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm">保存新密码</button>
+                    </form>
+                </section>
+                <hr class="border-gray-100">
+                <section>
+                    <div class="flex items-center justify-between mb-3">
+                        <h4 class="font-medium text-gray-700"><i class="fas fa-list mr-1 text-blue-600"></i>超管账号列表</h4>
+                        <button id="saShowAddBtn" type="button" class="text-sm px-3 py-1.5 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 transition">+ 新增超管</button>
+                    </div>
+                    <div id="saAddAdminFormWrap" class="hidden mb-4 p-4 border border-gray-200 rounded-lg bg-gray-50">
+                        <form id="saAddAdminForm" class="space-y-3">
+                            <input id="sa_username" type="text" required placeholder="登录用户名" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                            <input id="sa_fullName" type="text" required placeholder="姓名/称呼" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                            <input id="sa_email" type="email" placeholder="邮箱（可选）" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                            <input id="sa_password" type="password" required placeholder="初始密码（至少8位，含字母和数字）" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                            <div class="flex gap-2">
+                                <button type="submit" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition text-sm">创建</button>
+                                <button type="button" id="saCancelAddBtn" class="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition text-sm">取消</button>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="overflow-x-auto border border-gray-100 rounded-lg">
+                        <table class="w-full text-left">
+                            <thead class="bg-gray-50 text-xs text-gray-500 uppercase">
+                                <tr>
+                                    <th class="px-4 py-2">用户名</th>
+                                    <th class="px-4 py-2">姓名</th>
+                                    <th class="px-4 py-2">状态</th>
+                                    <th class="px-4 py-2">创建时间</th>
+                                    <th class="px-4 py-2 text-right">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="saAdminList"></tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+
     <script type="module">
         import { authService, getApiBaseUrl } from './js/services/AuthService.js';
         // 学校访问地址在下方 schoolLoginUrl() 中按 /<code>/index.html 生成（与登录页 extractSchoolCode 路径前缀识别一致）；
@@ -761,6 +818,7 @@
         import { setSchoolInfo, setSchoolCustomization, notifySchoolInfoChanged } from './js/utils/schoolCustomization.js';
         // 登录页样式设计器（独立模块）
         import { initLoginStyleDesigner } from './js/modules/loginStyleDesigner.js';
+        import { initSuperAdminAccount } from './js/modules/SuperAdminAccount.js';
 
         const API_BASE = getApiBaseUrl();
 
@@ -799,6 +857,7 @@
 
         // 登录页样式设计器（独立模块实例，与「界面定制」解耦，单独加载/保存）
         const loginStyleDesigner = initLoginStyleDesigner({ API_BASE, authHeaders, notify: showNotice });
+        const superAdminAccount = initSuperAdminAccount({ notify: showNotice });
 
         // ====== 主题预设 ======
         // 预设主题（定义见 js/utils/themePresets.js）

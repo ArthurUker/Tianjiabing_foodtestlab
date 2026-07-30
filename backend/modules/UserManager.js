@@ -445,6 +445,83 @@ export class UserManager {
         }
     }
 
+    // ====== 平台超管管理（public.User，role='admin' 且 school_code 为空）======
+    async listPlatformSuperAdmins() {
+        try {
+            const admins = await this.prisma.user.findMany({
+                where: { role: 'admin', school_code: null },
+                orderBy: { created_at: 'asc' },
+                select: {
+                    id: true,
+                    username: true,
+                    full_name: true,
+                    email: true,
+                    role: true,
+                    status: true,
+                    must_change_password: true,
+                    created_at: true
+                }
+            })
+            return admins
+        } catch (error) {
+            console.error('❌ 获取超管列表失败:', error)
+            throw error
+        }
+    }
+
+    async createPlatformSuperAdmin({ username, fullName, email = null, password }) {
+        try {
+            username = (username || '').trim()
+            fullName = (fullName || '').trim()
+            if (!username) throw new Error('用户名不能为空')
+            if (!fullName) throw new Error('姓名不能为空')
+            if (!this.isStrongPassword(password)) {
+                throw new Error('密码至少8个字符，且必须包含字母和数字')
+            }
+            const existing = await this.prisma.user.findUnique({ where: { username } })
+            if (existing) throw new Error('用户名已存在')
+            const passwordHash = await bcryptjs.hash(password, 10)
+            const newUser = await this.prisma.user.create({
+                data: {
+                    username,
+                    email: email ? String(email).trim() : null,
+                    phone: null,
+                    password_hash: passwordHash,
+                    full_name: fullName,
+                    role: 'admin',
+                    status: 'active',
+                    school_code: null
+                }
+            })
+            return {
+                success: true,
+                user: { id: newUser.id, username: newUser.username, full_name: newUser.full_name, role: newUser.role },
+                message: '超管账号已创建'
+            }
+        } catch (error) {
+            console.error('❌ 创建超管失败:', error)
+            throw error
+        }
+    }
+
+    async deletePlatformSuperAdmin(id, currentUserId) {
+        try {
+            const target = await this.prisma.user.findUnique({ where: { id } })
+            if (!target) throw new Error('账号不存在')
+            if (target.role !== 'admin' || target.school_code) {
+                throw new Error('只能删除平台超管账号')
+            }
+            if (id === currentUserId) throw new Error('不能删除当前登录的账号')
+            const count = await this.prisma.user.count({ where: { role: 'admin', school_code: null } })
+            if (count <= 1) throw new Error('至少需保留一个平台超管账号')
+            await this.prisma.user.delete({ where: { id } })
+            return { success: true }
+        } catch (error) {
+            console.error('❌ 删除超管失败:', error)
+            throw error
+        }
+    }
+
     async resetPassword(userId, newPassword, actor = null) {
         try {
             // 验证新密码
