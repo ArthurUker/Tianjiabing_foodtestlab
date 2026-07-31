@@ -834,16 +834,51 @@
 
         const API_BASE = getApiBaseUrl();
 
-        // 权限守卫：未登录或非平台超管，一律回到平台超管专用登录页（与普通用户登录分离）
-        if (!authService.isAuthenticated()) {
-            window.location.replace('./super-admin-login.html');
+        // 🔐 权限守卫（安全加固 2026-07-31）：
+        // 原逻辑仅依赖 localStorage 的 isAuthenticated() + 本地 user 对象判断平台超管，
+        // 攻击者可在 localStorage 伪造 user={role:'admin',schoolCode:null} 骗过第 2 道，造成越权进入。
+        // 现改为：① 若经 /<code>/ 子路径误访问本平台页，重定向回根路径；
+        //         ② 调用 /api/user/verify-token 服务端校验 token 有效性；
+        //         ③ 平台超管身份以「服务端返回的 user.role==='admin' && !user.schoolCode」为准，
+        //            不再信任本地 user 对象。校验完成前隐藏页面防闪现。
+
+        // ① 错位 URL 纠正：平台超管页不应通过 /<code>/ 访问，重定向到根路径
+        if (/^\/[a-z0-9-]+\/admin-schools\.html/.test(location.pathname)) {
+            window.location.replace('/admin-schools.html' + location.search);
+            throw new Error('blocked');
         }
 
-        const currentUser = authService.getUser();
-        if (!currentUser || currentUser.role !== 'admin' || currentUser.schoolCode) {
+        // 校验完成前隐藏页面，防止未授权内容闪现
+        if (document.documentElement) document.documentElement.style.display = 'none';
+
+        const _rawToken = authService.getToken();
+        if (!_rawToken) {
+            window.location.replace('./super-admin-login.html');
+            throw new Error('blocked');
+        }
+
+        // ②+③ 服务端校验 token 有效性 + 平台超管身份（以服务端返回为准）
+        let _verified = null;
+        try {
+            const _r = await fetch('/api/user/verify-token', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + _rawToken, 'Content-Type': 'application/json' }
+            });
+            const _j = await _r.json();
+            if (_r.ok && _j.valid) _verified = _j.user;
+        } catch (e) {
+            console.error('[auth] verify-token 请求失败，保守拒绝进入：', e);
+        }
+
+        if (!_verified || _verified.role !== 'admin' || _verified.schoolCode) {
+            // 非平台超管（或无有效令牌）：拒绝进入，回平台超管登录页
             document.body.innerHTML = '<div class="min-h-screen flex items-center justify-center"><div class="text-center"><i class="fas fa-lock text-5xl text-gray-400 mb-4"></i><h2 class="text-xl font-bold text-gray-600">权限不足</h2><p class="text-gray-400 mt-2">仅平台超级管理员可访问此页面</p><a href="./super-admin-login.html" class="inline-block mt-4 text-blue-600 hover:underline">前往平台超管登录</a></div></div>';
             throw new Error('非平台超管，阻断执行');
         }
+
+        // ✅ 校验通过：用服务端返回的用户对象（不再用本地可能被篡改的 user）
+        document.documentElement.style.display = '';
+        const currentUser = _verified;
 
         // ====== 工具函数 ======
         const notice = document.getElementById('notice');
