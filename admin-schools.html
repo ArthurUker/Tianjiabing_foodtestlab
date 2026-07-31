@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>学校管理控制台 - 平台超管</title>
-    <link rel="stylesheet" href="./css/tailwind.css">
+    <link rel="stylesheet" href="/css/tailwind.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
     <style>
       /* 登录样式 · 图形化编辑模式（DS-LOGIN-GRAPHIC） */
@@ -16,7 +16,7 @@
       #loginStylePreview.ls-graphical .ls-resize-handle { position: absolute; top: 0; right: -6px; width: 12px; height: 100%; cursor: ew-resize; border-radius: 6px; }
       #loginStylePreview.ls-graphical .ls-resize-handle::after { content: ""; position: absolute; top: 50%; right: 4px; transform: translateY(-50%); width: 4px; height: 40px; border-radius: 4px; background: rgba(99,102,241,.85); }
     </style>
-    <script src="./js/utils/themePresets.js"></script>
+    <script src="/js/utils/themePresets.js"></script>
     <style>
       /* ====== 统一编辑弹层（字段规则 / 类型统计）====== */
       .sc-popover{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 12px 32px rgba(0,0,0,.16);padding:14px;}
@@ -136,7 +136,7 @@
             <a href="./index.html" class="text-sm text-blue-200 hover:text-white transition">
                 <i class="fas fa-arrow-left mr-1"></i>返回主界面
             </a>
-            <button id="btnAccountMgmt" type="button" class="ml-3 text-sm px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg transition">
+            <button id="btnAccountMgmt" type="button" class="ml-3 text-sm px-3 py-1.5 bg-yellow-400 text-gray-900 font-semibold hover:bg-yellow-300 rounded-lg transition shadow">
                 <i class="fas fa-user-shield mr-1"></i>账号管理
             </button>
         </div>
@@ -788,6 +788,18 @@
                             </div>
                         </form>
                     </div>
+                    <div id="saResetPwdWrap" class="hidden mb-4 p-4 border border-orange-200 rounded-lg bg-orange-50">
+                        <h5 class="font-medium text-orange-700 mb-2 text-sm"><i class="fas fa-key mr-1"></i>重置密码：<span id="saResetPwdUsername"></span></h5>
+                        <form id="saResetPwdForm" class="space-y-3">
+                            <input type="hidden" id="saResetPwdId">
+                            <input id="saResetPwdNew" type="password" required placeholder="新密码（至少8位，含字母和数字）" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                            <input id="saResetPwdConfirm" type="password" required placeholder="确认新密码" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                            <div class="flex gap-2">
+                                <button type="submit" class="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition text-sm">确认重置</button>
+                                <button type="button" id="saCancelResetPwd" class="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition text-sm">取消</button>
+                            </div>
+                        </form>
+                    </div>
                     <div class="overflow-x-auto border border-gray-100 rounded-lg">
                         <table class="w-full text-left">
                             <thead class="bg-gray-50 text-xs text-gray-500 uppercase">
@@ -808,17 +820,17 @@
     </div>
 
     <script type="module">
-        import { authService, getApiBaseUrl } from './js/services/AuthService.js';
-        // 学校访问地址在下方 schoolLoginUrl() 中按 /<code>/index.html 生成（与登录页 extractSchoolCode 路径前缀识别一致）；
-        // 登录流程专用的 buildSchoolLoginUrl（指向 login.html）保留在 schoolCode.js，此处不再引用。
+        import { authService, getApiBaseUrl } from '/js/services/AuthService.js';
+        // 登录地址展示与生成：见下方 schoolLoginUrl()，统一输出 /<code>/login.html?school=<code>。
+        // 约定与 js/utils/schoolCode.js 的 buildSchoolLoginUrl 完全一致（生成端 / 解析端同源），避免再现「地址指向 index.html」的旧坑。
         // RK32/RK34: 统一模块注册中心——单一事实来源，取代本地重复的 MODULE_INFO / 导航映射
-        import { getAllModules } from './js/modules/registry.js';
+        import { getAllModules } from '/js/modules/registry.js';
         // 校徽图形化排版编辑器（裁切 / 定位 / 缩放 / 锁定比例）
-        import { openBadgeEditor, mountBadgeEditor } from './js/utils/schoolCustomization/badgeEditor.js';
-        import { setSchoolInfo, setSchoolCustomization, notifySchoolInfoChanged } from './js/utils/schoolCustomization.js';
+        import { openBadgeEditor, mountBadgeEditor } from '/js/utils/schoolCustomization/badgeEditor.js';
+        import { setSchoolInfo, setSchoolCustomization, notifySchoolInfoChanged } from '/js/utils/schoolCustomization.js';
         // 登录页样式设计器（独立模块）
-        import { initLoginStyleDesigner } from './js/modules/loginStyleDesigner.js';
-        import { initSuperAdminAccount } from './js/modules/SuperAdminAccount.js';
+        import { initLoginStyleDesigner } from '/js/modules/loginStyleDesigner.js';
+        import { initSuperAdminAccount } from '/js/modules/SuperAdminAccount.js';
 
         const API_BASE = getApiBaseUrl();
 
@@ -993,7 +1005,7 @@
                 const s = doc.createElement('script');
                 s.type = 'module';
                 s.textContent = `
-                    import * as api from './js/utils/schoolCustomization.js';
+                    import * as api from '/js/utils/schoolCustomization.js';
                     window.__SCHOOL_CUSTOMIZATION_API__ = api;
                     window.dispatchEvent(new Event('preview-api-ready'));
                 `;
@@ -1553,12 +1565,15 @@
         // ====== 学校列表 ======
         let allSchools = [];
 
-        // 控制台展示的「访问地址」：学校代码即部署基路径首段，直接指向该校主应用入口 /<code>/index.html。
-        // 路径前缀已足够 extractSchoolCode 识别租户，故不追加 ?school= 参数（那是登录流程在无 rewrite 时的兜底）。
-        // 注意：本函数只用于列表/详情/创建成功提示的展示；登录流程仍用 schoolCode.js 的 buildSchoolLoginUrl（指向 login.html）。
+        // 「登录地址」：学校代码即部署基路径首段，指向该校登录页 /<code>/login.html?school=<code>。
+        // 与 js/utils/schoolCode.js 中 buildSchoolLoginUrl 约定一致，extractSchoolCode() 解析端规则相同：
+        //   1) 路径前缀 /<code>/ 已足够识别租户；2) ?school=<code> 在无 rewrite 的静态部署下作兜底。
+        // 注意：登录成功后 login.html 通过相对路径 ./index.html 重定向，会落到 /<code>/index.html，
+        //       因此这里必须指向 login.html，**不能**写成 index.html（否则直接进主应用界面，
+        //       早期认证拦截在浏览器有遗留 token 时会放行，用户体验为「没看到登录页直接进了工作台」）。
         function schoolLoginUrl(code) {
             const c = String(code || '').replace(/^school_/, '').replace(/_/g, '-');
-            return `${location.origin}/${encodeURIComponent(c)}/index.html`;
+            return `${location.origin}/${encodeURIComponent(c)}/login.html?school=${encodeURIComponent(c)}`;
         }
 
         async function loadSchools() {

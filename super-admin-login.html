@@ -4,9 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>平台超级管理员登录</title>
-    <link rel="stylesheet" href="./css/tailwind.css">
+    <link rel="stylesheet" href="/css/tailwind.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
-    <script src="./js/utils/themePresets.js"></script>
+    <script src="/js/utils/themePresets.js"></script>
     <style>
         body { background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%); }
         .login-card { animation: slideIn 0.5s ease-out; }
@@ -86,7 +86,7 @@
     </div>
 
     <script type="module">
-        import { authService } from './js/services/AuthService.js';
+        import { authService } from '/js/services/AuthService.js';
 
         const form = document.getElementById('saLoginForm');
         const usernameInput = document.getElementById('username');

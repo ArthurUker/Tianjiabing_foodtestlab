@@ -13,6 +13,11 @@ function formatDate(s) {
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
+function isStrongPassword(password) {
+    if (!password) return false
+    return /^(?=.*[A-Za-z])(?=.*\d).{8,}$/.test(password)
+}
+
 export function initSuperAdminAccount({ notify }) {
     const apiBase = getApiBaseUrl()
     const token = () => authService.getToken()
@@ -26,9 +31,26 @@ export function initSuperAdminAccount({ notify }) {
     const addWrap = document.getElementById('saAddAdminFormWrap')
     const showAddBtn = document.getElementById('saShowAddBtn')
     const cancelAddBtn = document.getElementById('saCancelAddBtn')
+    const resetPwdWrap = document.getElementById('saResetPwdWrap')
+    const resetPwdForm = document.getElementById('saResetPwdForm')
+    const resetPwdIdEl = document.getElementById('saResetPwdId')
+    const resetPwdUsernameEl = document.getElementById('saResetPwdUsername')
+    const cancelResetPwdBtn = document.getElementById('saCancelResetPwd')
 
     function headers() {
         return { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` }
+    }
+
+    function closeAddForm() {
+        addWrap?.classList.add('hidden')
+        addForm?.reset()
+    }
+
+    function closeResetPwdForm() {
+        resetPwdWrap?.classList.add('hidden')
+        resetPwdForm?.reset()
+        if (resetPwdIdEl) resetPwdIdEl.value = ''
+        if (resetPwdUsernameEl) resetPwdUsernameEl.textContent = ''
     }
 
     async function loadSuperAdmins() {
@@ -49,6 +71,7 @@ export function initSuperAdminAccount({ notify }) {
                     <td class="px-4 py-3 text-sm">${a.must_change_password ? '<span class="text-orange-500 text-xs">需改密</span>' : '<span class="text-green-600 text-xs">正常</span>'}</td>
                     <td class="px-4 py-3 text-sm text-gray-500">${formatDate(a.created_at)}</td>
                     <td class="px-4 py-3 text-sm text-right">
+                        <button type="button" class="sa-reset-btn text-orange-500 hover:text-orange-700 text-xs mr-2" data-id="${a.id}" data-username="${escapeHtml(a.username)}">重置密码</button>
                         <button type="button" class="sa-del-btn text-red-500 hover:text-red-700 text-xs" data-id="${a.id}" data-username="${escapeHtml(a.username)}">删除</button>
                     </td>
                 </tr>`).join('')
@@ -63,8 +86,12 @@ export function initSuperAdminAccount({ notify }) {
     })
     closeBtn?.addEventListener('click', () => modal?.classList.add('hidden'))
     modal?.addEventListener('click', (e) => { if (e.target === modal) modal.classList.add('hidden') })
-    showAddBtn?.addEventListener('click', () => addWrap?.classList.remove('hidden'))
-    cancelAddBtn?.addEventListener('click', () => addWrap?.classList.add('hidden'))
+    showAddBtn?.addEventListener('click', () => {
+        closeResetPwdForm()
+        addWrap?.classList.remove('hidden')
+    })
+    cancelAddBtn?.addEventListener('click', closeAddForm)
+    cancelResetPwdBtn?.addEventListener('click', closeResetPwdForm)
 
     changeForm?.addEventListener('submit', async (e) => {
         e.preventDefault()
@@ -72,6 +99,7 @@ export function initSuperAdminAccount({ notify }) {
         const newP = changeForm.sa_newPassword.value
         const confirm = changeForm.sa_confirmPassword.value
         if (!oldP || !newP) { notify?.('请填写当前密码与新密码', 'error'); return }
+        if (!isStrongPassword(newP)) { notify?.('新密码至少8个字符，且必须包含字母和数字', 'error'); return }
         if (newP !== confirm) { notify?.('两次输入的新密码不一致', 'error'); return }
         try {
             const res = await fetch(`${apiBase}/api/user/change-password`, {
@@ -92,6 +120,7 @@ export function initSuperAdminAccount({ notify }) {
         const email = addForm.sa_email.value.trim()
         const password = addForm.sa_password.value
         if (!username || !fullName || !password) { notify?.('请填写用户名、姓名和密码', 'error'); return }
+        if (!isStrongPassword(password)) { notify?.('密码至少8个字符，且必须包含字母和数字', 'error'); return }
         try {
             const res = await fetch(`${apiBase}/api/user/super-admin`, {
                 method: 'POST', headers: headers(),
@@ -106,14 +135,49 @@ export function initSuperAdminAccount({ notify }) {
         } catch (err) { notify?.(err.message || '创建失败', 'error') }
     })
 
+    resetPwdForm?.addEventListener('submit', async (e) => {
+        e.preventDefault()
+        const id = resetPwdIdEl?.value
+        const username = resetPwdUsernameEl?.textContent || ''
+        const newP = resetPwdForm.saResetPwdNew.value
+        const confirm = resetPwdForm.saResetPwdConfirm.value
+        if (!id) { notify?.('未选择要重置的账号', 'error'); return }
+        if (!isStrongPassword(newP)) { notify?.('新密码至少8个字符，且必须包含字母和数字', 'error'); return }
+        if (newP !== confirm) { notify?.('两次输入的新密码不一致', 'error'); return }
+        try {
+            const res = await fetch(`${apiBase}/api/user/super-admin/${encodeURIComponent(id)}/reset-password`, {
+                method: 'POST', headers: headers(),
+                body: JSON.stringify({ newPassword: newP })
+            })
+            const data = await res.json()
+            if (!res.ok) { notify?.(data.error || '重置失败', 'error'); return }
+            notify?.(`账号「${username}」密码已重置`, 'success')
+            closeResetPwdForm()
+            loadSuperAdmins()
+        } catch (err) { notify?.(err.message || '重置失败', 'error') }
+    })
+
     listEl?.addEventListener('click', async (e) => {
+        const resetBtn = e.target.closest('.sa-reset-btn')
+        if (resetBtn) {
+            const id = resetBtn.dataset.id
+            const uname = resetBtn.dataset.username
+            if (!id || !resetPwdWrap || !resetPwdIdEl || !resetPwdUsernameEl) return
+            closeAddForm()
+            resetPwdIdEl.value = id
+            resetPwdUsernameEl.textContent = uname
+            resetPwdWrap.classList.remove('hidden')
+            resetPwdWrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+            return
+        }
+
         const btn = e.target.closest('.sa-del-btn')
         if (!btn) return
         const id = btn.dataset.id
         const uname = btn.dataset.username
         if (!confirm(`确定删除平台超管账号「${uname}」吗？此操作不可恢复。`)) return
         try {
-            const res = await fetch(`${apiBase}/api/user/super-admin/${id}`, {
+            const res = await fetch(`${apiBase}/api/user/super-admin/${encodeURIComponent(id)}`, {
                 method: 'DELETE', headers: headers()
             })
             const data = await res.json()

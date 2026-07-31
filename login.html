@@ -43,9 +43,9 @@
     </script>
     
     <!-- Tailwind CSS (本地预编译) -->
-    <link rel="stylesheet" href="./css/tailwind.css">
+    <link rel="stylesheet" href="/css/tailwind.css">
     <!-- 预设主题（学校换肤） -->
-    <script src="./js/utils/themePresets.js"></script>
+    <script src="/js/utils/themePresets.js"></script>
     <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
     
@@ -278,9 +278,9 @@
     </div>
 
     <script type="module">
-        import { authService } from './js/services/AuthService.js';
-        import { GuestAuthService } from './js/services/GuestAuthService.js';
-        import { extractSchoolCode } from './js/utils/schoolCode.js';
+        import { authService } from '/js/services/AuthService.js';
+        import { GuestAuthService } from '/js/services/GuestAuthService.js';
+        import { extractSchoolCode } from '/js/utils/schoolCode.js';
 
         const guestAuthService = new GuestAuthService();
         const enableGuestEntry = window.__ENABLE_GUEST_ENTRY__ === true;

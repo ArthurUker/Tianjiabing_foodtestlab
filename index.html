@@ -10,9 +10,62 @@
         (function () {
             var _preview = new URLSearchParams(location.search).get('preview') === 'true';
             if (_preview) { window.__PREVIEW_MODE__ = true; return; }
+
+            // 校验完成前隐藏页面，防止未授权内容闪现
+            if (document.documentElement) document.documentElement.style.display = 'none';
+
+            // 提取学校代码：路径前缀 /<code>/... 优先，?school= 兜底
+            function _extractCode() {
+                var m = location.pathname.match(/^\/([a-z0-9-]+)\//);
+                if (m) return m[1];
+                return new URLSearchParams(location.search).get('school') || '';
+            }
+
+            var _code = _extractCode();
             var _token = localStorage.getItem('auth_token');
             var _guest = localStorage.getItem('guest_token');
-            if (!_token && !_guest) { location.replace('./login.html' + (location.search || '')); }
+
+            function _goLogin(reason) {
+                console.warn('[auth] 拒绝进入学校控制台：', reason);
+                var q = _code ? ('?school=' + encodeURIComponent(_code)) : '';
+                location.replace('./login.html' + q);
+            }
+
+            // 无任何 token：直接跳登录页
+            if (!_token && !_guest) {
+                _goLogin('无令牌');
+                return;
+            }
+
+            // 服务端核验 token 有效性 + 租户绑定（核心安全修复）
+            var raw = _token || _guest;
+            fetch('/api/user/verify-token', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + raw, 'Content-Type': 'application/json' }
+            }).then(function (r) {
+                return r.json().then(function (j) { return { ok: r.ok, body: j }; });
+            }).then(function (res) {
+                if (!res.ok || !res.body || !res.body.valid) {
+                    _goLogin('令牌无效或已过期');
+                    return;
+                }
+                var claimed = res.body.user && res.body.user.schoolCode; // 平台超管为 null
+                if (!claimed || claimed !== _code) {
+                    if (!claimed) {
+                        // 平台超管误入学校租户页 → 回平台控制台
+                        location.replace('./admin-schools.html');
+                    } else {
+                        _goLogin('令牌属于其他学校(' + claimed + ')，当前访问=' + _code);
+                    }
+                    return;
+                }
+                // ✅ 校验通过：恢复页面渲染，后续由 main.js 接管
+                if (document.documentElement) document.documentElement.style.display = '';
+            }).catch(function (e) {
+                // 异常时保守拒绝，避免未授权进入
+                console.error('[auth] verify-token 请求失败，保守拒绝进入：', e);
+                _goLogin('核验请求异常');
+            });
         })();
     </script>
     <script>
@@ -74,8 +127,8 @@
     </script>
     <!-- 样式库 -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
-    <link rel="stylesheet" href="./css/tailwind.css">
-    <link rel="stylesheet" href="./css/style.css">
+    <link rel="stylesheet" href="/css/tailwind.css">
+    <link rel="stylesheet" href="/css/style.css">
     
     <!-- 🎯 确保页面可见的关键样式 -->
     <style>
@@ -632,9 +685,9 @@
     </div>
 
     <!-- 方案A：按 URL 路径前缀识别学校，主应用加载时应用个性化（失败不阻断） -->
-    <script src="./js/utils/themePresets.js"></script>
+    <script src="/js/utils/themePresets.js"></script>
     <script type="module">
-      import { extractSchoolCode } from './js/utils/schoolCode.js';
+      import { extractSchoolCode } from '/js/utils/schoolCode.js';
       const code = extractSchoolCode();
       if (code) {
         fetch(`/api/schools/${encodeURIComponent(code)}/config`)
@@ -662,7 +715,7 @@
     </script>
 
     <!-- 模块入口 -->
-    <script type="module" src="./js/main.js?t=1776768000000"></script>
+    <script type="module" src="/js/main.js?t=1776768000000"></script>
 
     <!-- 🎯 快速访问模式处理脚本 - 在DOM准备好后运行 -->
     <script>

@@ -303,7 +303,7 @@ function requirePlatformSuperAdmin(req, res, next) {
 }
 
 // 列出平台超管
-router.get('/super-admin', requirePlatformSuperAdmin, async (req, res) => {
+router.get('/super-admin', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
     try {
         const admins = await userManager.forTenant(null).listPlatformSuperAdmins()
         res.json({ admins })
@@ -314,7 +314,7 @@ router.get('/super-admin', requirePlatformSuperAdmin, async (req, res) => {
 })
 
 // 新增平台超管
-router.post('/super-admin', requirePlatformSuperAdmin, async (req, res) => {
+router.post('/super-admin', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
     try {
         const { username, fullName, email, password } = req.body || {}
         if (!username || !fullName || !password) {
@@ -329,15 +329,38 @@ router.post('/super-admin', requirePlatformSuperAdmin, async (req, res) => {
 })
 
 // 删除平台超管
-router.delete('/super-admin/:id', requirePlatformSuperAdmin, async (req, res) => {
+router.delete('/super-admin/:id', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
     try {
-        const id = Number(req.params.id)
-        if (!Number.isInteger(id)) return res.status(400).json({ error: '无效的账号 ID' })
+        const id = req.params.id
+        if (!id) return res.status(400).json({ error: '无效的账号 ID' })
         await userManager.forTenant(null).deletePlatformSuperAdmin(id, req.user.userId)
         res.json({ success: true, message: '已删除' })
     } catch (error) {
         console.error('❌ 删除超管失败:', error)
-        res.status(400).json({ error: '删除超管失败: ' + error.message })
+        res.status(error.status || 400).json({ error: '删除超管失败: ' + error.message })
+    }
+})
+
+// 重置平台超管密码（管理员强制重置，无需旧密码；被重置账号所有会话立即吊销）
+router.post('/super-admin/:id/reset-password', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
+    try {
+        const { id } = req.params
+        const { newPassword } = req.body || {}
+        if (!userManager.isStrongPassword(newPassword)) {
+            return res.status(400).json({ error: '❌ 新密码至少8个字符，且必须包含字母和数字' })
+        }
+        const actor = {
+            userId: req.user?.userId || null,
+            username: req.user?.username || null,
+            role: req.user?.role || null,
+            schoolCode: req.user?.schoolCode || null,
+            ip: req.ip || null
+        }
+        const result = await userManager.forTenant(null).resetPassword(id, newPassword, actor)
+        res.json(result)
+    } catch (error) {
+        console.error('❌ 重置超管密码失败:', error)
+        res.status(error.status || 400).json({ error: '重置超管密码失败: ' + error.message })
     }
 })
 
