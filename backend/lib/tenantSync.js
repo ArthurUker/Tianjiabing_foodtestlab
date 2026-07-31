@@ -25,6 +25,12 @@ const BACKEND_DIR = path.resolve(__dirname, '..')
 const OBJ_COLS = ['field_labels', 'field_rules', 'field_options', 'field_order', 'custom_fields', 'theme_config']
 const ARR_COLS = ['hidden_fields', 'test_types']
 const DEFAULT_VISIBLE_TYPES = JSON.stringify(['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'])
+// 默认全部菜单项可见（与 admin-schools.html UI 的"全勾选"状态一致，
+// 避免新学校被误判为"全隐藏"导致侧边栏空白）
+const DEFAULT_VISIBLE_MENU_ITEMS = JSON.stringify([
+  'dashboard', 'tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen',
+  'adminSchools', 'exportData', 'backupRestore', 'userManagement', 'auditLog', 'logout',
+])
 
 function runPrismaGenerate() {
   return new Promise((resolve, reject) => {
@@ -83,6 +89,14 @@ export async function backfillSchoolCustomization(prisma, log = console.log) {
     await prisma.$executeRawUnsafe(
       `UPDATE "${table_schema}"."SchoolCustomization" SET "visible_types" = $1 WHERE "visible_types" IS NULL`,
       DEFAULT_VISIBLE_TYPES
+    )
+    // 菜单栏定制（菜单项可见性）：默认全选（与可见检测类型一致的"友好默认"策略）
+    await prisma.$executeRawUnsafe(
+      `ALTER TABLE "${table_schema}"."SchoolCustomization" ADD COLUMN IF NOT EXISTS "visible_menu_items" TEXT`
+    )
+    await prisma.$executeRawUnsafe(
+      `UPDATE "${table_schema}"."SchoolCustomization" SET "visible_menu_items" = $1 WHERE "visible_menu_items" IS NULL`,
+      DEFAULT_VISIBLE_MENU_ITEMS
     )
     log(`✅ SchoolCustomization 回填完成: ${table_schema}`)
   }

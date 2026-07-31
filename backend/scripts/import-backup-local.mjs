@@ -25,7 +25,7 @@ const TEST_NAME = {
   tableware: '餐具洁净度检测',
   pesticide: '农药残留检测',
   oil: '食用油检测',
-  leanMeat: '瘦肉精检测',
+  leanMeat: '肉蛋农残检测',
   pathogen: '病原体检测',
 }
 

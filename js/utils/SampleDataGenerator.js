@@ -47,7 +47,7 @@ export function initializeSampleData() {
     else console.log('✅ 缓存已存在，跳过初始化食用油品质数据');
     
     if (!existingKeys.has('cache_leanMeat')) initMeat();
-    else console.log('✅ 缓存已存在，跳过初始化瘦肉精数据');
+    else console.log('✅ 缓存已存在，跳过初始化肉蛋农残数据');
     
     if (!existingKeys.has('cache_pathogen')) initPathogen();
     else console.log('✅ 缓存已存在，跳过初始化病原体数据');

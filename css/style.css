@@ -168,7 +168,7 @@ td, th { vertical-align: middle; }
     /* 打印态图表容器明确锁定高度，确保 Chart.js resize() 有确定目标尺寸，避免被压扁 */
     #dashboard-capture-area .h-96 { height: 384px !important; }
 
-    /* 纯等宽卡片行（统计卡 / 瘦肉精 / 第三排）：改用 flex 自动换行并居中，
+    /* 纯等宽卡片行（统计卡 / 肉蛋农残 / 第三排）：改用 flex 自动换行并居中，
        避免 3 列布局下卡片数非 3 倍数时末位出现空网格（视觉空洞） */
     #dashboard-capture-area .print-cards {
         display: flex !important;

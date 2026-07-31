@@ -4,7 +4,7 @@
  * 并应用到主应用导航按钮与内容区块。
  */
 
-import { getAllModules, getDefaultVisibleTypes, isValidModuleCode } from '../../modules/registry.js'
+import { getAllModules, getDefaultVisibleTypes, isValidModuleCode, MENU_ITEMS, getDefaultVisibleMenuItems, isValidMenuItemCode } from '../../modules/registry.js'
 import { parseJSONField } from './shared.js'
 
 /**
@@ -51,4 +51,55 @@ export function applyVisibleTypesToNav(customization) {
             if (!show) section.classList.add('hidden')
         }
     })
+}
+
+
+/**
+ * 菜单项可见性（visible_menu_items）：解析该校实际可见菜单项列表。
+ * 优先读 customization.visible_menu_items（数组）；缺省或非法时回退到注册中心默认可见集。
+ * 仅返回注册中心中存在的合法 code，过滤掉脏数据。
+ */
+export function getVisibleMenuItems(customization) {
+    if (!customization) return getDefaultVisibleMenuItems()
+
+    const parsed = parseJSONField(customization.visible_menu_items)
+    if (Array.isArray(parsed) && parsed.length > 0) {
+        const filtered = parsed.filter((c) => isValidMenuItemCode(c))
+        if (filtered.length > 0) return filtered
+    }
+    return getDefaultVisibleMenuItems()
+}
+
+/**
+ * 把 visible_menu_items 应用到主应用导航——隐藏/显示对应菜单按钮。
+ * 设计要点：
+ *   1. canHide=false 项（如退出登录）强制始终显示，绕过定制数据兜底保护。
+ *   2. 分组标题联动：所有 category='admin' 项都被隐藏时，'管理' 分组标题也隐藏（避免空白）。
+ *   3. 不修改内容区块（content section）的显隐——可见模块互斥切换由左侧菜单点击逻辑负责。
+ */
+export function applyVisibleMenuItemsToNav(customization) {
+    const visible = new Set(getVisibleMenuItems(customization))
+    // 退出登录强制始终显示（防 customization 脏数据导致按钮丢失）
+    visible.add('logout')
+
+    MENU_ITEMS.forEach((m) => {
+        const el = document.querySelector(m.domSelector)
+        if (!el) return
+        const show = visible.has(m.code)
+        if (m.canHide) {
+            el.classList.toggle('hidden', !show)
+        } else {
+            // 不可隐藏项（如退出登录）：强制移除 .hidden
+            el.classList.remove('hidden')
+        }
+    })
+
+    // '管理' 分组标题联动：所有 admin 类项都被隐藏时也隐藏，避免空标签栏
+    const adminHeader = document.querySelector('[data-section-title="admin"]')
+    if (adminHeader) {
+        const anyAdminVisible = MENU_ITEMS
+            .filter((m) => m.category === 'admin')
+            .some((m) => visible.has(m.code))
+        adminHeader.classList.toggle('hidden', !anyAdminVisible)
+    }
 }

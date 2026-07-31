@@ -458,7 +458,7 @@ function createDashboardStructure() {
                 </div>
             </div>
             
-            <!-- 瘦肉精分类统计卡片 -->
+            <!-- 肉蛋农残分类统计卡片 -->
             <div class="mb-6" data-module-card="leanMeat">
                 <h3 class="font-semibold text-gray-800 mb-3" data-title-key="dash_leanMeat">肉、蛋农残检测</h3>
                 <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 print-cards">
@@ -534,7 +534,7 @@ function createDashboardStructure() {
                 </div>
             </div>
             
-            <!-- 瘦肉精分类概览 -->
+            <!-- 肉蛋农残分类概览 -->
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 print-cards">
                 <div class="glass-panel p-4">
                     <h3 class="font-semibold text-gray-800 mb-3" data-title-key="dash_lean_pork_overview">猪肉检测概览 (最新5条)</h3>
@@ -725,13 +725,13 @@ function loadDashboardData() {
     if(pathogenCountEl) pathogenCountEl.textContent = stats.pathogen.count;
     if(pathogenPositiveEl) pathogenPositiveEl.textContent = stats.pathogen.positiveCount;
 
-    // 获取瘦肉精分类统计
+    // 获取肉蛋农残分类统计
     const leanMeatByType = getLeanMeatStatsByType(startDate, endDate, selectedCanteen);
     
-    // 更新瘦肉精分类卡片
+    // 更新肉蛋农残分类卡片
     updateLeanMeatCards(leanMeatByType);
     
-    // 更新瘦肉精分类概览列表（使用全局数据，不受日期筛选影响）
+    // 更新肉蛋农残分类概览列表（使用全局数据，不受日期筛选影响）
     const leanMeatByTypeAllTime = getLeanMeatStatsByType(new Date(0), new Date(2099, 11, 31), selectedCanteen);
     updateLeanMeatOverviewLists(leanMeatByTypeAllTime);
 
@@ -765,7 +765,7 @@ function loadDashboardData() {
     updateCharts(startDate, endDate, selectedCanteen);
 }
 
-// ✅ 修改：获取瘦肉精分类统计（增加食堂筛选）
+// ✅ 修改：获取肉蛋农残分类统计（增加食堂筛选）
 function getLeanMeatStatsByType(startDate, endDate, selectedCanteen = 'all') {
     const records = services.leanMeat.getAll();
     const filtered = records.filter(r => {
@@ -818,7 +818,7 @@ function getLeanMeatStatsByType(startDate, endDate, selectedCanteen = 'all') {
     return meatTypes;
 }
 
-// 修改：更新瘦肉精分类卡片，数据为0时显示"无"
+// 修改：更新肉蛋农残分类卡片，数据为0时显示"无"
 function updateLeanMeatCards(leanMeatByType) {
     const typeMapping = {
         '猪肉': 'pork',
@@ -847,7 +847,7 @@ function updateLeanMeatCards(leanMeatByType) {
     });
 }
 
-// 新增：更新瘦肉精分类概览列表
+// 新增：更新肉蛋农残分类概览列表
 function updateLeanMeatOverviewLists(leanMeatByType) {
     const typeMapping = {
         '猪肉': 'pork',
@@ -1104,7 +1104,7 @@ function updateRiskAlerts(stats, leanMeatByType) {
     Object.keys(leanMeatByType).forEach(meatType => {
         const typeStats = leanMeatByType[meatType];
         if (typeStats.passRate !== null && typeStats.passRate < 100 && typeStats.count > 0) {
-            alerts.push(`警告：${meatType}检出瘦肉精阳性样本`);
+            alerts.push(`警告：${meatType}检出肉蛋农残阳性样本`);
         }
     });
     

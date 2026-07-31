@@ -168,6 +168,8 @@ function sanitizeObjectKeys(value, depth = 0) {
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/
 const CUSTOM_FIELD_NAME_RE = /^[a-zA-Z][a-zA-Z0-9_]{0,63}$/
 const TYPE_CODE_RE = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/
+// 菜单项 code：camelCase（与 js/modules/registry.js 的 MENU_ITEMS 注册表对齐）
+const MENU_CODE_RE = /^[a-z][a-zA-Z0-9]{0,63}$/
 const CUSTOM_FIELD_TYPES = new Set(['text', 'number', 'date', 'select', 'textarea', 'checkbox'])
 const MAX_JSON_FIELD_BYTES = 200 * 1024 // 单字段序列化后上限 200KB
 
@@ -219,7 +221,8 @@ function validateCustomizationPayload(body) {
         field_options: 'object',
         field_order: 'object',
         custom_fields: 'object',
-        test_types: 'array'
+        test_types: 'array',
+        visible_menu_items: 'array'
     }
     const normalized = {}
     for (const [key, expect] of Object.entries(spec)) {
@@ -310,6 +313,12 @@ function validateCustomizationPayload(body) {
     if (Array.isArray(normalized.visible_types)) {
         for (const t of normalized.visible_types) {
             if (typeof t !== 'string' || !TYPE_CODE_RE.test(t)) errors.push(`visible_types 含非法类型码: ${JSON.stringify(t)}`)
+        }
+    }
+    // visible_menu_items 元素合法性（camelCase code，与 registry.js MENU_ITEMS 对齐）
+    if (Array.isArray(normalized.visible_menu_items)) {
+        for (const c of normalized.visible_menu_items) {
+            if (typeof c !== 'string' || !MENU_CODE_RE.test(c)) errors.push(`visible_menu_items 含非法菜单码: ${JSON.stringify(c)}`)
         }
     }
     if (Array.isArray(normalized.test_types)) {
@@ -629,7 +638,7 @@ app.get('/api/school/config', authenticateUser, async (req, res) => {
             code
         )
         const customRows = await prisma.$queryRawUnsafe(
-            `SELECT "visible_types","field_labels","hidden_fields","theme_config","field_rules","field_options","field_order","custom_fields","test_types","updated_at" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`,
+            `SELECT "visible_types","visible_menu_items","field_labels","hidden_fields","theme_config","field_rules","field_options","field_order","custom_fields","test_types","updated_at" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`,
             code
         )
         const school = schoolRows?.[0] || null
@@ -670,7 +679,7 @@ app.get('/api/schools/:schoolCode/config', rateLimit(60, 60 * 1000), async (req,
             code
         )
         const customRows = await prisma.$queryRawUnsafe(
-            `SELECT "visible_types","field_labels","hidden_fields","theme_config","field_rules","field_options","field_order","custom_fields","test_types","updated_at" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`,
+            `SELECT "visible_types","visible_menu_items","field_labels","hidden_fields","theme_config","field_rules","field_options","field_order","custom_fields","test_types","updated_at" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`,
             code
         )
         const school = schoolRows?.[0] || null
@@ -852,7 +861,7 @@ app.patch('/api/admin/schools/:code/status', authenticateUser, requirePlatformSu
 
 // 定制配置的全部 JSON 列（与 schema.prisma SchoolCustomization 对齐）
 const CUSTOMIZATION_COLUMNS = [
-    'visible_types', 'field_labels', 'hidden_fields', 'theme_config', 'field_rules',
+    'visible_types', 'visible_menu_items', 'field_labels', 'hidden_fields', 'theme_config', 'field_rules',
     'field_options', 'field_order', 'custom_fields', 'test_types'
 ]
 

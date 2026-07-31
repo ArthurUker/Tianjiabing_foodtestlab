@@ -247,7 +247,11 @@ model SchoolCustomization {
   // D-04：学校删除时定制配置级联删除，避免孤儿记录
   school        School   @relation("SchoolCustomization", fields: [school_code], references: [code], onDelete: Cascade)
   // 可见检测类型（JSON 数组，如 ["tableware","pathogen"]）
-  visible_types String?  // JSON array
+  visible_types      String?  // JSON array
+  // 侧边栏菜单项可见性（JSON 数组，如 ["dashboard","tableware",...,"logout"]）
+  // 用于菜单栏定制：管理员可单独控制每个侧边菜单项的显隐
+  // （退出登录项 canHide=false 强制始终显示，应用层兜底过滤）
+  visible_menu_items String?  // JSON array
   // 字段标签覆盖（JSON，如 {"testDate":"检测日期"}）
   field_labels  String?  // JSON object
   // 隐藏字段（JSON 数组）

@@ -8,7 +8,7 @@ import { initializeSampleData } from './utils/SampleDataGenerator.js';
 // ✨ 学校个性化配置：提取 schoolCode + 应用 SchoolCustomization 到静态录入表单
 import { extractSchoolCode } from './utils/schoolCode.js';
 import { escapeHtml } from './utils/schoolCustomization/shared.js';
-import { ensureSchoolConfig, getSchoolCustomization, applyCustomizationToAllForms, applySchoolCustomizationToTitles, applySchoolBranding, applyVisibleTypesToNav, onSchoolConfigChanged, onSchoolInfoChanged, revalidateSchoolInfo } from './utils/schoolCustomization.js';
+import { ensureSchoolConfig, getSchoolCustomization, applyCustomizationToAllForms, applySchoolCustomizationToTitles, applySchoolBranding, applyVisibleTypesToNav, applyVisibleMenuItemsToNav, onSchoolConfigChanged, onSchoolInfoChanged, revalidateSchoolInfo } from './utils/schoolCustomization.js';
 // 1. ✨ 引入新模块
 import { BackupRestoreService } from './modules/BackupRestore.js';
 // 2. ✨ 引入认证与路由
@@ -247,6 +247,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             // RK3/RK36：配置就绪后再消费 visible_types，使导航/内容区反映该校可见模块；
             // 随后由 Router 重新施加权限/访客规则，保证「不可见模块」不会因配置被强行显示。
             applyVisibleTypesToNav(customization);
+            applyVisibleMenuItemsToNav(customization);
             router.updateNavigationByPermission();
         } catch (e) {
             console.error('❌ 学校个性化配置应用失败:', e);
@@ -259,6 +260,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (syncCode) {
                 onSchoolConfigChanged(syncCode, async (cfg) => {
                     applyVisibleTypesToNav(cfg);
+                    applyVisibleMenuItemsToNav(cfg);
                     applyCustomizationToAllForms(cfg);
                     applySchoolCustomizationToTitles(cfg);
                     // 强制从服务端取最新（绕过 5 分钟缓存），保证定制（含系统标题/校徽排版）即时可见

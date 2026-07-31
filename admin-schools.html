@@ -321,16 +321,12 @@
 
                 <!-- 编辑区：整宽多栏 -->
                 <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                    <!-- 可见检测类型 -->
+                    <!-- 侧边菜单可见项（菜单栏定制） -->
                     <div class="border border-gray-200 rounded-lg p-4">
-                        <h3 class="font-medium text-gray-700 mb-3"><i class="fas fa-check-square mr-1 text-blue-600"></i>可见检测类型</h3>
-                        <p class="text-xs text-gray-400 mb-3">勾选的模块在该校主界面显示</p>
-                        <div id="visibleTypes" class="flex flex-col gap-3">
-                            <label class="flex items-center gap-2"><input type="checkbox" value="tableware" class="vis-type"> 餐具洁净度</label>
-                            <label class="flex items-center gap-2"><input type="checkbox" value="pesticide" class="vis-type"> 果蔬农残</label>
-                            <label class="flex items-center gap-2"><input type="checkbox" value="oil" class="vis-type"> 食用油品质</label>
-                            <label class="flex items-center gap-2"><input type="checkbox" value="leanMeat" class="vis-type"> 瘦肉精检测</label>
-                            <label class="flex items-center gap-2"><input type="checkbox" value="pathogen" class="vis-type"> 致病菌检测</label>
+                        <h3 class="font-medium text-gray-700 mb-3"><i class="fas fa-bars mr-1 text-blue-600"></i>侧边菜单可见项</h3>
+                        <p class="text-xs text-gray-400 mb-3">勾选的菜单项在该校主界面显示；退出登录始终显示</p>
+                        <div id="visibleMenuItems" class="space-y-3">
+                            <!-- JS 动态生成（按 MENU_ITEMS 注册表按 category 分组） -->
                         </div>
                     </div>
 
@@ -824,7 +820,7 @@
         // 登录地址展示与生成：见下方 schoolLoginUrl()，统一输出 /<code>/login.html?school=<code>。
         // 约定与 js/utils/schoolCode.js 的 buildSchoolLoginUrl 完全一致（生成端 / 解析端同源），避免再现「地址指向 index.html」的旧坑。
         // RK32/RK34: 统一模块注册中心——单一事实来源，取代本地重复的 MODULE_INFO / 导航映射
-        import { getAllModules } from '/js/modules/registry.js';
+        import { getAllModules, MODULE_REGISTRY, MENU_ITEMS } from '/js/modules/registry.js';
         // 校徽图形化排版编辑器（裁切 / 定位 / 缩放 / 锁定比例）
         import { openBadgeEditor, mountBadgeEditor } from '/js/utils/schoolCustomization/badgeEditor.js';
         import { setSchoolInfo, setSchoolCustomization, notifySchoolInfoChanged } from '/js/utils/schoolCustomization.js';
@@ -1085,7 +1081,7 @@
         // 直接喂给师生端 apply 函数（师生端 parseJSONField 对象/JSON 字符串两种形态均兼容）
         function buildDraftCustomization() {
             return {
-                visible_types: Array.from(document.querySelectorAll('.vis-type:checked')).map(cb => cb.value),
+                visible_types: Array.from(document.querySelectorAll('.vis-menu-item:checked')).map(cb => cb.value).filter(c => MODULE_REGISTRY[c]),
                 field_labels: fieldLabels,
                 hidden_fields: Array.from(hiddenFields),
                 field_rules: fieldRules,
@@ -1379,7 +1375,7 @@
                 const info = MODULE_INFO[moduleCode] || { name: moduleCode };
                 document.getElementById('veTitle').textContent = `编辑模块：${info.name}`;
                 document.getElementById('veIcon').className = `fas ${info.icon} mr-2 text-blue-600`;
-                const visibleTypes = new Set(Array.from(document.querySelectorAll('.vis-type:checked')).map(cb => cb.value));
+                const visibleTypes = new Set(Array.from(document.querySelectorAll('.vis-menu-item:checked')).map(cb => cb.value).filter(c => MODULE_REGISTRY[c]));
                 fieldsContainer.innerHTML = `
                     <div class="space-y-2">
                         <label class="flex items-center gap-2">
@@ -1557,7 +1553,7 @@
                 highlightThemePreset();
             } else if (type === 'navitem') {
                 const moduleCode = document.getElementById('veModule').value;
-                const cb = document.querySelector(`.vis-type[value="${moduleCode}"]`);
+                const cb = document.querySelector(`.vis-menu-item[value="${moduleCode}"]`);
                 if (cb) cb.checked = document.getElementById('ve_visible').checked;
                 renderFieldModuleTabs();
             } else if (type === 'th') {
@@ -2003,6 +1999,13 @@
             fieldRules = {};
             fieldOrder = {};
 
+            // 首次进入时渲染菜单项 checkbox DOM（dataset 标记防重复，避免重建 DOM 丢失用户勾选）
+            const menuContainer = document.getElementById('visibleMenuItems');
+            if (menuContainer && !menuContainer.dataset.rendered) {
+                renderVisibleMenuItems();
+                menuContainer.dataset.rendered = '1';
+            }
+
             try {
                 const resp = await fetch(`${API_BASE}/api/admin/schools/${currentSchoolCode}/customization`, { headers: authHeaders() });
                 if (resp.ok) {
@@ -2010,8 +2013,13 @@
                     const c = json.data || {};
                     currentCustomization = c;
 
-                    const visTypes = parseJSON(c.visible_types) || ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'];
-                    document.querySelectorAll('.vis-type').forEach(cb => { cb.checked = visTypes.includes(cb.value); });
+                    // 优先读 visible_menu_items（新字段）；旧数据只有 visible_types 时兜底
+                    const savedMenuItems = parseJSON(c.visible_menu_items);
+                    const visTypes = parseJSON(c.visible_types) || [];
+                    const menuItemsToCheck = savedMenuItems !== null
+                        ? savedMenuItems
+                        : [...visTypes, 'dashboard', 'adminSchools', 'exportData', 'backupRestore', 'userManagement', 'auditLog', 'logout'];
+                    document.querySelectorAll('.vis-menu-item').forEach(cb => { cb.checked = menuItemsToCheck.includes(cb.value); });
 
             fieldLabels = parseJSON(c.field_labels) || {};
             hiddenFields = new Set(parseJSON(c.hidden_fields) || []);
@@ -2050,12 +2058,12 @@
                     const rules = parseJSON(c.field_rules) || {};
                     fieldRules = rules;
                 } else {
-                    document.querySelectorAll('.vis-type').forEach(cb => { cb.checked = true; });
+                    document.querySelectorAll('.vis-menu-item').forEach(cb => { cb.checked = true; });
                     fieldRules = {};
                 }
             } catch (e) {
                 console.warn('⚠️ 加载定制配置失败，使用默认值:', e.message);
-                document.querySelectorAll('.vis-type').forEach(cb => { cb.checked = true; });
+                document.querySelectorAll('.vis-menu-item').forEach(cb => { cb.checked = true; });
                 fieldRules = {};
             }
             renderFieldModuleTabs();
@@ -2074,7 +2082,7 @@
         // 渲染模块子 Tab
         function renderFieldModuleTabs() {
             const container = document.getElementById('fieldModuleTabs');
-            const visibleModules = Array.from(document.querySelectorAll('.vis-type:checked')).map(cb => cb.value);
+            const visibleModules = Array.from(document.querySelectorAll('.vis-menu-item:checked')).map(cb => cb.value);
             // 致病菌检测无字段管理（字段由导入报告自动识别），不生成对应 Tab
             const modules = (visibleModules.length ? visibleModules : Object.keys(MODULE_FIELDS)).filter(m => m !== 'pathogen');
             if (!modules.length) modules.push('tableware');
@@ -2290,9 +2298,40 @@
             renderPreview();
         });
 
+        // 按 MENU_ITEMS 注册表渲染菜单可见项 checkbox（按 category 分组）。退出登录项 canHide=false 强制 checked+disabled
+        function renderVisibleMenuItems() {
+            const container = document.getElementById('visibleMenuItems');
+            if (!container) return;
+            const groups = [
+                { key: 'data',   label: '数据看板', icon: 'fa-chart-line' },
+                { key: 'test',   label: '检测模块', icon: 'fa-flask' },
+                { key: 'admin',  label: '管理功能', icon: 'fa-shield-halved' },
+                { key: 'action', label: '其它',    icon: 'fa-ellipsis' },
+            ];
+            container.innerHTML = groups.map(g => {
+                const items = MENU_ITEMS.filter(m => m.category === g.key);
+                if (!items.length) return '';
+                return `
+                    <div>
+                        <div class="text-xs font-medium text-gray-500 mb-1.5"><i class="fas ${g.icon} mr-1"></i>${g.label}</div>
+                        <div class="flex flex-col gap-1 pl-1">
+                            ${items.map(m => `
+                                <label class="flex items-center gap-2 text-sm">
+                                    <input type="checkbox" value="${m.code}" class="vis-menu-item" data-category="${m.category}" ${m.canHide ? '' : 'checked disabled'}>
+                                    <i class="fas ${m.icon} w-4 text-gray-500"></i>
+                                    <span>${m.label}</span>
+                                    ${m.canHide ? '' : '<span class="text-xs text-gray-400 ml-auto">强制显示</span>'}
+                                </label>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
         // 绑定预览联动
         function bindPreviewEvents() {
-            document.querySelectorAll('.vis-type').forEach(cb => {
+            document.querySelectorAll('.vis-menu-item').forEach(cb => {
                 cb.onchange = () => { renderFieldModuleTabs(); markDirty(); renderPreview(); };
             });
             ['bf_name', 'bf_logoUrl', 'bf_systemTitle'].forEach(id => {
@@ -2454,9 +2493,12 @@
             btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>保存中...';
 
             try {
-                // 收集可见检测类型
-                const visibleTypes = Array.from(document.querySelectorAll('.vis-type:checked')).map(cb => cb.value);
-                if (!visibleTypes.length && !confirm('当前没有勾选任何检测模块，该校主界面将不显示任何检测功能。确定要这样保存吗？')) {
+                // 收集可见菜单项（菜单栏定制）。退出登录强制包含（disabled 不会被 :checked 选中）
+                const visibleMenuItems = Array.from(document.querySelectorAll('.vis-menu-item:checked')).map(cb => cb.value);
+                if (!visibleMenuItems.includes('logout')) visibleMenuItems.push('logout');
+                // 校验：至少保留一个检测模块
+                const visibleTypesFromMenu = visibleMenuItems.filter(c => MODULE_REGISTRY[c]);
+                if (!visibleTypesFromMenu.length && !confirm('当前没有勾选任何检测模块，该校主界面将不显示任何检测功能。确定要这样保存吗？')) {
                     throw Object.assign(new Error('已取消保存'), { silent: true });
                 }
 
@@ -2524,7 +2566,8 @@
                 });
 
                 const customizationPayload = {
-                    visible_types: visibleTypes,
+                    visible_types: visibleTypesFromMenu,
+                    visible_menu_items: visibleMenuItems,
                     field_labels: fieldLabels,
                     hidden_fields: Array.from(hiddenFields),
                     field_rules: collectedRules,

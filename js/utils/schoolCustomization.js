@@ -77,7 +77,7 @@ import {
     collectCustomFieldValues,
     isRecordQualifiedByCustomFields,
 } from './schoolCustomization/fields.js'
-import { getVisibleTypes, applyVisibleTypesToNav } from './schoolCustomization/visible.js'
+import { getVisibleTypes, applyVisibleTypesToNav, getVisibleMenuItems, applyVisibleMenuItemsToNav } from './schoolCustomization/visible.js'
 import { applySchoolBranding, applySchoolCustomizationToTitles } from './schoolCustomization/branding.js'
 
 export default {
@@ -97,7 +97,9 @@ export default {
     applyCustomizationToAllForms,
     applySchoolCustomizationToTitles,
     applyVisibleTypesToNav,
+    applyVisibleMenuItemsToNav,
     getVisibleTypes,
+    getVisibleMenuItems,
     onSchoolConfigChanged,
     onSchoolInfoChanged,
     notifySchoolInfoChanged,
