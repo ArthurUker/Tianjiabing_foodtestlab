@@ -182,8 +182,9 @@ export class Router {
         
         if (!user && !isGuest) return;
 
-        // 管理员菜单项
-        if (!user || user.role !== 'admin') {
+        // 管理员菜单项：admin（平台超管）+ manager（学校主管）可见
+        // platform admin 的唯一区别是还持有 `schools:manage`，由 data-super-admin-only 单独控制
+        if (!user || (user.role !== 'admin' && user.role !== 'manager')) {
             // 隐藏管理员才能访问的菜单项
             this.toggleElementByPermission('[data-admin-only]', false);
         } else {

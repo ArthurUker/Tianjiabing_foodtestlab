@@ -32,8 +32,8 @@ export class PermissionService {
                 // 注意：schools:manage 为平台超管独有，在 getCurrentUserPermissions() 中动态注入
             ],
             'manager': [
-                // 主管权限
-                'records:read', 'records:create', 'records:update',
+                // 主管权限（含数据删除 — 操作写入审计日志，可追溯）
+                'records:read', 'records:create', 'records:update', 'records:delete',
                 'export:pdf', 'export:excel',
                 'backup:view',
                 'users:read',

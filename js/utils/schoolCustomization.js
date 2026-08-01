@@ -48,6 +48,8 @@ export {
 export {
     getVisibleTypes,
     applyVisibleTypesToNav,
+    getVisibleMenuItems,
+    applyVisibleMenuItemsToNav,
 } from './schoolCustomization/visible.js'
 
 export {

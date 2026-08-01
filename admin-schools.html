@@ -320,7 +320,7 @@
                 </div>
 
                 <!-- 编辑区：整宽多栏 -->
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     <!-- 侧边菜单可见项（菜单栏定制） -->
                     <div class="border border-gray-200 rounded-lg p-4">
                         <h3 class="font-medium text-gray-700 mb-3"><i class="fas fa-bars mr-1 text-blue-600"></i>侧边菜单可见项</h3>
@@ -346,18 +346,19 @@
                         </div>
                     </div>
 
-                    <!-- 统一编辑指南：三种入口一处看全 -->
-                    <div class="border border-gray-200 rounded-lg p-4 bg-gray-50/60">
-                        <h3 class="font-medium text-gray-700 mb-3"><i class="fas fa-hand-pointer mr-1 text-blue-600"></i>怎么改？一张表看全</h3>
-                        <ul class="text-xs text-gray-500 leading-relaxed space-y-2">
-                            <li><b class="text-gray-600">改文字</b>：直接点下方预览里的标题、菜单、列名、表单标签，就地输入（推荐）。</li>
-                            <li><b class="text-gray-600">改字段</b>：在左侧「字段管理」里勾选显示/隐藏、拖 <i class="fas fa-grip-vertical"></i> 排序、点 <span class="inline-block px-1 bg-gray-100 rounded">⚙</span> 设必填/字数。</li>
-                            <li><b class="text-gray-600">加字段</b>：字段管理底部填「显示名称」点 <span class="inline-block px-1 bg-blue-50 text-blue-600 rounded">+ 新增</span>，英文名可留空。</li>
-                            <li><b class="text-gray-600">改下拉选项</b>：开启可视化编辑后点预览表单里的下拉框。</li>
-                            <li><b class="text-gray-600">换配色</b>：点上方「预设主题」一键切换。</li>
-                        </ul>
-                        <p class="text-xs text-amber-600 mt-3"><i class="fas fa-info-circle mr-1"></i>所有修改都要点右下角「保存定制」才会生效。</p>
-                    </div>
+                </div>
+
+                <!-- 统一编辑指南：放在底部独立一行（横向排布） -->
+                <div class="mt-4 border border-gray-200 rounded-lg p-4 bg-gray-50/60">
+                    <h3 class="font-medium text-gray-700 mb-3"><i class="fas fa-hand-pointer mr-1 text-blue-600"></i>怎么改？一张表看全</h3>
+                    <ul class="text-xs text-gray-500 leading-relaxed grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-x-6 gap-y-2">
+                        <li><b class="text-gray-600">改文字</b>：点下方预览里的标题/菜单/列名/表单标签，就地输入（推荐）。</li>
+                        <li><b class="text-gray-600">改字段</b>：在「字段管理」里勾选显隐、拖排序、点 ⚙ 设类型/必填/字数。</li>
+                        <li><b class="text-gray-600">加字段</b>：字段管理底部填「显示名称」点 + 新增，英文名可留空。</li>
+                        <li><b class="text-gray-600">改下拉选项</b>：点字段右侧齿轮 → 输入类型选「下拉」→ 填选项。</li>
+                        <li><b class="text-gray-600">换配色</b>：点上方「预设主题」一键切换。</li>
+                    </ul>
+                    <p class="text-xs text-amber-600 mt-3"><i class="fas fa-info-circle mr-1"></i>所有修改都要点右下角「保存定制」才会生效。</p>
                 </div>
 
                 <!-- 实时预览：单独一排，占满整宽（含左侧导航菜单） -->
@@ -909,8 +910,10 @@
         let selectedThemeId = null;
 
         // 模块信息映射（代码 → 中文名 + 图标），统一由注册中心派生，避免与前端重复维护
+        // 派生源：MENU_ITEMS（覆盖全部 12 个菜单项，含 5 检测模块 + 5 管理功能 + 数据看板 + 退出登录）。
+        // 检测模块在 MENU_ITEMS 与 MODULE_REGISTRY 中 label/icon 一致，后者被前者覆盖（同值，幂等）。
         const MODULE_INFO = Object.fromEntries(
-            getAllModules().map((m) => [m.code, { name: m.label, icon: m.icon }])
+            MENU_ITEMS.map((m) => [m.code, { name: m.label, icon: m.icon }])
         );
 
         // 初始化主题预设选择器
@@ -1088,6 +1091,7 @@
                 custom_fields: customFields,
                 field_options: fieldOptions,
                 field_order: fieldOrder,
+                field_types: fieldTypes,
                 theme_config: { section_titles: sectionTitles, systemTitle: (document.getElementById('bf_systemTitle')?.value || '').trim() },
             };
         }
@@ -1607,6 +1611,39 @@
             return `${location.origin}/${encodeURIComponent(c)}/login.html?school=${encodeURIComponent(c)}`;
         }
 
+        // 当 Clipboard API 与 execCommand 均失败时弹出的降级对话框（用户手动复制 / 点击打开）
+        function showManualCopyDialog(url) {
+            const dlg = document.getElementById('manualCopyDialog');
+            const inp = document.getElementById('manualCopyInput');
+            const openBtn = document.getElementById('manualCopyOpen');
+            const copyBtn = document.getElementById('manualCopyDo');
+            const closeBtn = document.getElementById('manualCopyClose');
+            if (!dlg || !inp) return;
+            inp.value = url;
+            dlg.classList.remove('hidden');
+            dlg.classList.add('flex');
+            setTimeout(() => { inp.focus(); inp.select(); }, 50);
+            const onClose = () => {
+                dlg.classList.add('hidden');
+                dlg.classList.remove('flex');
+                openBtn.onclick = null; copyBtn.onclick = null; closeBtn.onclick = null;
+            };
+            openBtn.onclick = () => { window.open(url, '_blank', 'noopener'); onClose(); };
+            copyBtn.onclick = async () => {
+                const ok = await (async () => {
+                    try {
+                        if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(url); return true; }
+                    } catch {}
+                    try {
+                        inp.select(); return document.execCommand('copy');
+                    } catch { return false; }
+                })();
+                if (ok) { copyBtn.innerHTML = '<i class="fas fa-check mr-1"></i>已复制'; setTimeout(() => { copyBtn.innerHTML = '<i class="fas fa-copy mr-1"></i>复制'; }, 1500); }
+                else { showNotice('复制仍失败，请手动 Ctrl+C 选择文本', 'error'); }
+            };
+            closeBtn.onclick = onClose;
+        }
+
         async function loadSchools() {
             const tbody = document.getElementById('schoolTbody');
             tbody.innerHTML = '<tr><td colspan="8" class="text-center py-4 text-gray-400">加载中...</td></tr>';
@@ -1639,11 +1676,53 @@
                     <td>${s.status === 'active' ? '<span class="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs">启用</span>' : '<span class="px-2 py-0.5 bg-gray-200 text-gray-600 rounded-full text-xs">停用</span>'}</td>
                     <td>${s.logo_url ? `<img src="${escapeHtml(s.logo_url)}" alt="logo" class="w-7 h-7 object-contain rounded">` : '<i class="fas fa-school text-gray-300"></i>'}</td>
                     <td class="text-xs text-gray-500">${s.created_at ? new Date(s.created_at).toLocaleDateString() : ''}</td>
-                    <td><a class="text-blue-600 hover:underline text-xs break-all" href="${schoolLoginUrl(s.code)}" target="_blank">${escapeHtml(schoolLoginUrl(s.code))}</a></td>
+                    <td><div class="flex items-center gap-1"><a href="${escapeHtml(schoolLoginUrl(s.code))}" target="_blank" rel="noopener" class="text-xs text-blue-600 hover:text-blue-800 hover:underline break-all max-w-[200px] truncate" title="${escapeHtml(schoolLoginUrl(s.code))}（点击新窗口打开）">${escapeHtml(schoolLoginUrl(s.code))}</a><button class="btn-copy-login flex-shrink-0 px-1.5 py-0.5 text-xs bg-gray-100 hover:bg-blue-100 text-gray-500 hover:text-blue-700 rounded transition" data-url="${escapeHtml(schoolLoginUrl(s.code))}" title="复制登录地址（请用无痕窗口打开）"><i class="fas fa-copy"></i></button></div></td>
                     <td><button class="px-2 py-1 text-xs bg-blue-50 text-blue-700 rounded hover:bg-blue-100 transition btn-manage" data-code="${escapeHtml(s.code)}"><i class="fas fa-cog mr-1"></i>管理</button></td>
                 </tr>
             `).join('');
 
+            // 学校列表"复制登录地址"按钮：兼容三段降级（Clipboard API → execCommand → 模态弹窗）
+            async function copyTextFallback(text) {
+                // 方案1：现代 Clipboard API（要求 secure context / 用户授权）
+                if (navigator.clipboard && window.isSecureContext) {
+                    try { await navigator.clipboard.writeText(text); return 'clipboard-api'; }
+                    catch (e) { /* fall through */ }
+                }
+                // 方案2：execCommand('copy')，兼容旧浏览器/非安全上下文
+                try {
+                    const ta = document.createElement('textarea');
+                    ta.value = text;
+                    ta.style.position = 'fixed';
+                    ta.style.top = '-9999px';
+                    ta.style.opacity = '0';
+                    document.body.appendChild(ta);
+                    ta.focus();
+                    ta.select();
+                    const ok = document.execCommand('copy');
+                    document.body.removeChild(ta);
+                    if (ok) return 'exec-command';
+                } catch (e) { /* fall through */ }
+                // 方案3：模态弹窗让用户手动复制
+                return null;
+            }
+
+            tbody.querySelectorAll('.btn-copy-login').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const url = btn.dataset.url;
+                    const ok = await copyTextFallback(url);
+                    if (ok) {
+                        btn.innerHTML = '<i class="fas fa-check text-green-600"></i>';
+                        setTimeout(() => { btn.innerHTML = '<i class="fas fa-copy"></i>'; }, 1500);
+                        const msg = ok === 'exec-command'
+                            ? '✅ 登录地址已复制（兼容模式）！请用 <b>无痕窗口</b>（Ctrl+Shift+N）打开'
+                            : '✅ 登录地址已复制！请用 <b>无痕窗口</b>（Ctrl+Shift+N）打开';
+                        showNotice(msg, 'info');
+                    } else {
+                        // 降级到模态弹窗（也方便直接点链接打开）
+                        showManualCopyDialog(url);
+                    }
+                });
+            });
             tbody.querySelectorAll('.btn-manage').forEach(btn => {
                 btn.addEventListener('click', () => openDetail(btn.dataset.code));
             });
@@ -1726,6 +1805,7 @@
                 logoUrl: url,
                 logoStyle: logoStyle || undefined,
                 schoolName: schoolNameVal(),
+                customTitle: (document.getElementById('bf_systemTitle')?.value || '').trim(),
                 embedded: true,
                 onSave: (newStyle) => {
                     logoStyle = newStyle;
@@ -1768,6 +1848,7 @@
                 logoUrl: url,
                 logoStyle: logoStyle || undefined,
                 schoolName: schoolNameVal(),
+                customTitle: (document.getElementById('bf_systemTitle')?.value || '').trim(),
                 onSave: (newStyle) => {
                     logoStyle = newStyle;
                     logoStyleDirty = true;
@@ -1909,37 +1990,37 @@
         // ====== 模块字段定义 ======
         const MODULE_FIELDS = {
             tableware: [
-                { name: 'testDate', label: '日期', builtin: true },
-                { name: 'canteen', label: '食堂', builtin: true },
-                { name: 'location', label: '检测点位', builtin: true },
-                { name: 'rluValue', label: 'RLU值', builtin: true },
-                { name: 'result', label: '结果', builtin: true },
-                { name: 'inspector', label: '检测员', builtin: true },
+                { name: 'testDate', label: '日期', builtin: true, type: 'date' },
+                { name: 'canteen', label: '食堂', builtin: true, type: 'select' },
+                { name: 'location', label: '检测点位', builtin: true, type: 'select' },
+                { name: 'rluValue', label: 'RLU值', builtin: true, type: 'number' },
+                { name: 'result', label: '结果', builtin: true, type: 'select' },
+                { name: 'inspector', label: '检测员', builtin: true, type: 'select' },
             ],
             pesticide: [
-                { name: 'testDate', label: '日期', builtin: true },
-                { name: 'canteen', label: '食堂', builtin: true },
-                { name: 'vegetableType', label: '蔬菜品种', builtin: true },
-                { name: 'batchNo', label: '检测项目', builtin: true },
-                { name: 'result', label: '结果', builtin: true },
-                { name: 'inspector', label: '检测员', builtin: true },
+                { name: 'testDate', label: '日期', builtin: true, type: 'date' },
+                { name: 'canteen', label: '食堂', builtin: true, type: 'select' },
+                { name: 'vegetableType', label: '蔬菜品种', builtin: true, type: 'text' },
+                { name: 'batchNo', label: '检测项目', builtin: true, type: 'text' },
+                { name: 'result', label: '结果', builtin: true, type: 'select' },
+                { name: 'inspector', label: '检测员', builtin: true, type: 'select' },
             ],
             oil: [
-                { name: 'testDate', label: '日期', builtin: true },
-                { name: 'canteen', label: '食堂', builtin: true },
-                { name: 'oilTemp', label: '油温', builtin: true },
-                { name: 'tpmValue', label: '油品颜色', builtin: true },
-                { name: 'acidValue', label: '酸价值', builtin: true },
-                { name: 'qualityLevel', label: '品质等级', builtin: true },
-                { name: 'inspector', label: '检测员', builtin: true },
+                { name: 'testDate', label: '日期', builtin: true, type: 'date' },
+                { name: 'canteen', label: '食堂', builtin: true, type: 'select' },
+                { name: 'oilTemp', label: '油温', builtin: true, type: 'number' },
+                { name: 'tpmValue', label: '油品颜色', builtin: true, type: 'select' },
+                { name: 'acidValue', label: '酸价值', builtin: true, type: 'number' },
+                { name: 'qualityLevel', label: '品质等级', builtin: true, type: 'text' },
+                { name: 'inspector', label: '检测员', builtin: true, type: 'select' },
             ],
             leanMeat: [
-                { name: 'testDate', label: '日期', builtin: true },
-                { name: 'canteen', label: '食堂', builtin: true },
-                { name: 'meatType', label: '肉类品种', builtin: true },
-                { name: 'batchNo', label: '检测项目', builtin: true },
-                { name: 'result', label: '结果', builtin: true },
-                { name: 'inspector', label: '检测员', builtin: true },
+                { name: 'testDate', label: '日期', builtin: true, type: 'date' },
+                { name: 'canteen', label: '食堂', builtin: true, type: 'select' },
+                { name: 'meatType', label: '肉类品种', builtin: true, type: 'select' },
+                { name: 'batchNo', label: '检测项目', builtin: true, type: 'text' },
+                { name: 'result', label: '结果', builtin: true, type: 'select' },
+                { name: 'inspector', label: '检测员', builtin: true, type: 'select' },
             ],
         };
 
@@ -1948,6 +2029,7 @@
         let hiddenFields = new Set(); // [ fieldName, ... ]
         let customFields = {};      // { moduleCode: [ { name, label }, ... ] }
         let fieldOptions = {};      // { fieldName: [option1, option2, ...] }
+        let fieldTypes = {};        // { fieldName: 'text'|'number'|'date'|'select'|'textarea'|'checkbox' }  字段类型覆盖
         let sectionTitles = {};     // { titleKey: "自定义标题" }  看板卡片 / 模块小标题
         let fieldRules = {};        // { fieldName: { required, maxLength, minLength } }  傻瓜式校验规则
         let fieldOrder = {};        // { moduleCode: [fieldName, ...] }  字段显示顺序（拖拽排序）
@@ -1995,6 +2077,7 @@
             hiddenFields = new Set();
             customFields = {};
             fieldOptions = {};
+            fieldTypes = {};
             sectionTitles = {};
             fieldRules = {};
             fieldOrder = {};
@@ -2025,6 +2108,7 @@
             hiddenFields = new Set(parseJSON(c.hidden_fields) || []);
             // 顶层新列优先，回退 theme_config 嵌套（兼容旧数据）
             customFields = parseJSON(c.custom_fields) || parseJSON(c.theme_config)?.custom_fields || {};
+            fieldTypes = parseJSON(c.field_types) || parseJSON(c.theme_config)?.field_types || {};
             fieldOptions = parseJSON(c.field_options) || parseJSON(c.theme_config)?.field_options || {};
             sectionTitles = parseJSON(c.theme_config)?.section_titles || {};
             const sysTitleVal = parseJSON(c.theme_config)?.systemTitle || '';
@@ -2140,10 +2224,16 @@
                         </label>
                         <span class="text-xs text-gray-400 font-mono w-28 truncate" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</span>
                         <input type="text" value="${escapeHtml(label)}" class="fl-label flex-1 px-2 py-1 border border-gray-200 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-400" data-field="${escapeHtml(f.name)}" data-original="${escapeHtml(f.label)}">
+                        ${(() => {
+                            const t = fieldTypes[f.name] || f.type || 'text';
+                            const tl = { text:'文本',number:'数字',date:'日期',select:'下拉',textarea:'多行',checkbox:'勾选' }[t] || t;
+                            const tc = { text:'gray-500',number:'blue-600',date:'green-600',select:'purple-600',textarea:'orange-600',checkbox:'amber-600' }[t] || 'gray-500';
+                            return '<span class="inline-flex items-center shrink-0 whitespace-nowrap text-xs px-2 py-0.5 bg-'+tc.replace('-600','-100').replace('-500','-100')+' text-'+tc+' rounded mr-1" title="字段类型：'+tl+'">'+tl+'</span>';
+                        })()}
                         ${isCustom ? '<span class="text-xs px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded">自定义</span>' : ''}
                         ${isCustom && (f.statRole === 'result') ? '<span class="text-xs px-1.5 py-0.5 bg-green-100 text-green-700 rounded" title="参与合格率统计">统计</span>' : ''}
                         ${reqBadge}
-                        ${isCustom ? `<button type="button" class="sp-gear px-2 py-1 text-xs text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded transition" data-field="${escapeHtml(f.name)}" data-label="${escapeHtml(label)}" title="设置字段类型与统计规则"><i class="fas fa-chart-pie"></i></button>` : ''}
+                        <button type="button" class="sp-gear px-2 py-1 text-xs text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded transition" data-field="${escapeHtml(f.name)}" data-label="${escapeHtml(label)}" title="设置字段类型与统计规则"><i class="fas fa-chart-pie"></i></button>
                         <button type="button" class="rp-gear px-2 py-1 text-xs text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition" data-field="${escapeHtml(f.name)}" data-label="${escapeHtml(label)}" title="设置校验规则（必填 / 字数）"><i class="fas fa-cog"></i></button>
                         <button type="button" class="fl-delete px-2 py-1 text-xs text-red-500 hover:bg-red-50 rounded transition" data-field="${escapeHtml(f.name)}" data-builtin="${f.builtin}" title="${f.builtin ? '隐藏该字段' : '删除该字段'}">
                             <i class="fas ${f.builtin ? 'fa-eye-slash' : 'fa-trash'}"></i>
@@ -2351,15 +2441,36 @@
         }
 
         // ====== 字段校验规则弹层（傻瓜式：无需手填字段名）======
-        // 统一弹层定位：锚定触发按钮下方，越界则回弹到上方；estHeight 为预估弹层高度
+        // 统一弹层定位：贴近触发按钮右侧；按钮不可见/过偏则回退到视口居中
         function positionPopover(pop, btn, estHeight) {
+            // 把 popover 临时挂到 body 下，逃出 .glass 容器的 backdrop-filter 定位上下文
+            // （CSS 规定：transform/filter/backdrop-filter/perspective/will-change 都会劫持 position:fixed）
+            if (pop.parentElement !== document.body) document.body.appendChild(pop);
             pop.style.display = 'block';
+            // 先让浏览器计算一次尺寸（避免同步布局读到 0）
+            void pop.offsetHeight;
+            const w = pop.offsetWidth || 300;
+            const h = pop.offsetHeight || estHeight || 240;
             const rect = btn.getBoundingClientRect();
-            const w = pop.offsetWidth || 280;
-            let left = Math.min(rect.left, window.innerWidth - w - 8);
-            if (left < 8) left = 8;
-            let top = rect.bottom + 6;
-            if (top + estHeight > window.innerHeight - 8) top = Math.max(8, rect.top - estHeight - 6);
+            const vw = window.innerWidth;
+            const vh = window.innerHeight;
+            // 判定按钮是否在可视区（任一维度为 0 视为不可见）
+            const btnVisible = rect.width > 0 && rect.height > 0
+                && rect.right > 0 && rect.bottom > 0
+                && rect.left < vw && rect.top < vh;
+            let left, top;
+            if (!btnVisible) {
+                // 不可见 → 居中
+                left = Math.max(8, (vw - w) / 2);
+                top = Math.max(8, (vh - h) / 2);
+            } else {
+                // 默认贴按钮右侧；右侧越界则改贴左侧；上/下溢出则回弹
+                left = rect.right + 8;
+                if (left + w > vw - 8) left = Math.max(8, rect.left - w - 8);
+                if (left < 8) left = 8;
+                top = rect.top;
+                if (top + h > vh - 8) top = Math.max(8, vh - h - 8);
+            }
             pop.style.left = left + 'px';
             pop.style.top = top + 'px';
         }
@@ -2424,13 +2535,24 @@
             document.getElementById('spQualifiedWrap').style.display =
                 document.getElementById('spStatRole').value === 'result' ? 'block' : 'none';
         }
+        function findAnyFieldDef(fieldName) {
+            const custom = findCustomFieldDef(fieldName);
+            if (custom) return { isCustom: true, def: custom };
+            for (const [mod, fields] of Object.entries(MODULE_FIELDS)) {
+                const b = (fields || []).find(f => f.name === fieldName);
+                if (b) return { isCustom: false, def: b, module: mod };
+            }
+            return null;
+        }
         function openStatPopover(btn, fieldName, label) {
             closeStatPopover();
-            const def = findCustomFieldDef(fieldName);
-            if (!def) return;
+            const any = findAnyFieldDef(fieldName);
+            if (!any) return;
             statPopoverField = fieldName;
+            const def = any.def;
             document.getElementById('spLabel').textContent = label || fieldName;
-            document.getElementById('spType').value = def.type || 'text';
+            const resolvedType = any.isCustom ? (def.type || 'text') : (fieldTypes[fieldName] || def.type || 'text');
+            document.getElementById('spType').value = resolvedType;
             document.getElementById('spOptions').value = Array.isArray(def.options) ? def.options.join(',') : '';
             document.getElementById('spStatRole').value = def.statRole === 'result' ? 'result' : '';
             document.getElementById('spQualified').value = Array.isArray(def.qualifiedValues) ? def.qualifiedValues.join(',') : '';
@@ -2439,28 +2561,46 @@
         }
         function saveStatFromPopover() {
             if (!statPopoverField) return;
-            const def = findCustomFieldDef(statPopoverField);
-            if (!def) return;
+            const any = findAnyFieldDef(statPopoverField);
+            if (!any) return;
             const type = document.getElementById('spType').value;
             const statRole = document.getElementById('spStatRole').value;
             const optionsRaw = document.getElementById('spOptions').value.trim();
             const qualifiedRaw = document.getElementById('spQualified').value.trim();
-            def.type = type;
-            if (type === 'select') {
-                def.options = optionsRaw ? optionsRaw.split(/[，,]/).map(s => s.trim()).filter(Boolean) : [];
-                if (!def.options.length) showNotice('下拉类型建议填写至少一个选项', 'error');
-            } else {
-                delete def.options;
-            }
-            if (statRole === 'result') {
-                def.statRole = 'result';
-                def.qualifiedValues = qualifiedRaw ? qualifiedRaw.split(/[，,]/).map(s => s.trim()).filter(Boolean) : [];
-                if (!def.qualifiedValues.length) {
-                    showNotice('参与统计需填写合格值，否则该字段不会计入合格率', 'error');
+            if (any.isCustom) {
+                const def = any.def;
+                def.type = type;
+                if (type === 'select') {
+                    def.options = optionsRaw ? optionsRaw.split(/[，,]/).map(s => s.trim()).filter(Boolean) : [];
+                    if (!def.options.length) showNotice('下拉类型建议填写至少一个选项', 'error');
+                } else {
+                    delete def.options;
+                }
+                if (statRole === 'result') {
+                    def.statRole = 'result';
+                    def.qualifiedValues = qualifiedRaw ? qualifiedRaw.split(/[，,]/).map(s => s.trim()).filter(Boolean) : [];
+                    if (!def.qualifiedValues.length) {
+                        showNotice('参与统计需填写合格值，否则该字段不会计入合格率', 'error');
+                    }
+                } else {
+                    delete def.statRole;
+                    delete def.qualifiedValues;
+                }
+                if (type === 'select' && Array.isArray(def.options) && def.options.length) {
+                    fieldOptions[statPopoverField] = def.options;
                 }
             } else {
-                delete def.statRole;
-                delete def.qualifiedValues;
+                // builtin field：仅将类型差异写入 fieldTypes；选项写入 fieldOptions
+                if (type && type !== (any.def.type || 'text')) {
+                    fieldTypes[statPopoverField] = type;
+                } else {
+                    delete fieldTypes[statPopoverField];
+                }
+                if (type === 'select' && optionsRaw) {
+                    fieldOptions[statPopoverField] = optionsRaw.split(/[，,]/).map(s => s.trim()).filter(Boolean);
+                } else if (type !== 'select') {
+                    delete fieldOptions[statPopoverField];
+                }
             }
             markDirty();
             renderFieldList();
@@ -2576,6 +2716,7 @@
                     custom_fields: customFieldsPayload,
                     field_options: fieldOptions,
                     field_order: fieldOrder,
+                    field_types: fieldTypes,
                     // BS-06: 乐观锁——加载时的 updated_at，被他人改过则后端返回 409
                     expected_updated_at: currentCustomization?.updated_at || undefined
                 };
@@ -2917,5 +3058,20 @@
         document.getElementById('searchInput').addEventListener('input', renderSchools);
         loadSchools();
     </script>
+    <!-- 手动复制/打开 降级对话框（剪贴板 API 不可用时） -->
+    <div id="manualCopyDialog" class="hidden fixed inset-0 bg-black/40 z-50 items-center justify-center p-4">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-lg p-5">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-base font-medium text-gray-800"><i class="fas fa-link mr-1 text-blue-600"></i>登录地址</h3>
+                <button id="manualCopyClose" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+            </div>
+            <p class="text-xs text-gray-500 mb-2">浏览器不允许自动写入剪贴板。请手动 <kbd class="px-1 py-0.5 bg-gray-100 rounded border border-gray-300">Ctrl/⌘ + C</kbd> 复制，或直接点下方按钮在新窗口打开。</p>
+            <input id="manualCopyInput" type="text" readonly class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs text-gray-700 font-mono select-all" />
+            <div class="mt-3 flex justify-end gap-2">
+                <button id="manualCopyDo" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition"><i class="fas fa-copy mr-1"></i>复制</button>
+                <button id="manualCopyOpen" class="px-3 py-1.5 text-sm bg-green-600 text-white rounded hover:bg-green-700 transition"><i class="fas fa-external-link-alt mr-1"></i>新窗口打开</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>

@@ -222,7 +222,8 @@ function validateCustomizationPayload(body) {
         field_order: 'object',
         custom_fields: 'object',
         test_types: 'array',
-        visible_menu_items: 'array'
+        visible_menu_items: 'array',
+        field_types: 'object'
     }
     const normalized = {}
     for (const [key, expect] of Object.entries(spec)) {
@@ -638,7 +639,7 @@ app.get('/api/school/config', authenticateUser, async (req, res) => {
             code
         )
         const customRows = await prisma.$queryRawUnsafe(
-            `SELECT "visible_types","visible_menu_items","field_labels","hidden_fields","theme_config","field_rules","field_options","field_order","custom_fields","test_types","updated_at" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`,
+            `SELECT "visible_types","visible_menu_items","field_labels","hidden_fields","theme_config","field_rules","field_options","field_order","custom_fields","test_types","field_types","updated_at" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`,
             code
         )
         const school = schoolRows?.[0] || null
@@ -679,7 +680,7 @@ app.get('/api/schools/:schoolCode/config', rateLimit(60, 60 * 1000), async (req,
             code
         )
         const customRows = await prisma.$queryRawUnsafe(
-            `SELECT "visible_types","visible_menu_items","field_labels","hidden_fields","theme_config","field_rules","field_options","field_order","custom_fields","test_types","updated_at" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`,
+            `SELECT "visible_types","visible_menu_items","field_labels","hidden_fields","theme_config","field_rules","field_options","field_order","custom_fields","test_types","field_types","updated_at" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`,
             code
         )
         const school = schoolRows?.[0] || null
@@ -862,7 +863,7 @@ app.patch('/api/admin/schools/:code/status', authenticateUser, requirePlatformSu
 // 定制配置的全部 JSON 列（与 schema.prisma SchoolCustomization 对齐）
 const CUSTOMIZATION_COLUMNS = [
     'visible_types', 'visible_menu_items', 'field_labels', 'hidden_fields', 'theme_config', 'field_rules',
-    'field_options', 'field_order', 'custom_fields', 'test_types'
+    'field_options', 'field_order', 'custom_fields', 'test_types', 'field_types'
 ]
 
 // 获取学校定制配置

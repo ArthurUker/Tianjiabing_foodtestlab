@@ -61,14 +61,9 @@ export class AuthService {
      * 时间戳比对也会在下次读取时完成同步。
      */
     _installCrossTabTokenSync() {
-        if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
-        window.addEventListener('storage', (e) => {
-            if (e.key === this.tokenKey && e.newValue && isPlausibleJwt(e.newValue)) {
-                this._memToken = e.newValue;
-                this._memTokenUpdatedAt = Number(localStorage.getItem(this.tokenUpdatedAtKey)) || Date.now();
-                try { sessionStorage.setItem(this.tokenKey, e.newValue); } catch (err) { /* 存储不可用时忽略 */ }
-            }
-        });
+        // 不再自动从其他标签页采纳 token（避免跨标签页认证污染）。
+        // sessionStorage 已确保每个标签页拥有独立认证态。
+        // localStorage 保留仅用于兼容旧模块，不作为跨标签同步依据。
     }
 
     _loadRefreshSavedAt() {
@@ -530,35 +525,28 @@ export class AuthService {
      * @returns {string|null}
      */
     getToken() {
-        const fromLocal = localStorage.getItem(this.tokenKey);
-
-        // 兼容层副本不存在（未登录，或其它标签页已登出并清除）→ 同步失效内存/session 副本，
-        // 保证 Router.js / SessionManager.js 的跨标签登出逻辑（storage 事件 + getToken() 判空）依旧生效
-        if (!fromLocal) {
-            this._memToken = null;
-            try { sessionStorage.removeItem(this.tokenKey); } catch (e) { /* 存储不可用时忽略 */ }
-            return null;
-        }
-
-        // 优先返回内存/sessionStorage 中的可信副本（localStorage 被篡改时不采信其值）
+        // 优先返回内存态（本实例已缓存的 token）
         if (isPlausibleJwt(this._memToken)) return this._memToken;
 
+        // 主存储：sessionStorage（标签页独立，不受其他标签页登录/登出影响）
         const fromSession = sessionStorage.getItem(this.tokenKey);
         if (isPlausibleJwt(fromSession)) {
             this._memToken = fromSession;
             return fromSession;
         }
 
+        // 兼容路径：旧标签页/旧代码可能只在 localStorage 写了 token（如 login.html 跳转后首次加载）
+        const fromLocal = localStorage.getItem(this.tokenKey);
         if (isPlausibleJwt(fromLocal)) {
-            // 兼容路径：login.html 登录后跳转、或其它标签页写入 → 回填内存/sessionStorage
+            // 回填到 sessionStorage，后续本标签页以此为准
             this._memToken = fromLocal;
             try { sessionStorage.setItem(this.tokenKey, fromLocal); } catch (e) { /* 存储不可用时忽略 */ }
             return fromLocal;
         }
 
-        // 存在但形态非法（被篡改/脏数据）：清除，避免带着坏令牌请求后端
-        console.warn('⚠️ 检测到非法格式的 auth_token，已清除');
-        localStorage.removeItem(this.tokenKey);
+        // 三层均无有效 token：清除残留
+        this._memToken = null;
+        try { sessionStorage.removeItem(this.tokenKey); } catch (e) { /* 存储不可用时忽略 */ }
         return null;
     }
 
@@ -567,12 +555,15 @@ export class AuthService {
      * @returns {object|null}
      */
     getUser() {
-        const userStr = localStorage.getItem(this.userKey);
+        // 主存储：sessionStorage（标签页独立），localStorage 为降级兼容
+        let userStr = sessionStorage.getItem(this.userKey);
+        if (!userStr) userStr = localStorage.getItem(this.userKey);
         if (!userStr) return null;
         try {
             return JSON.parse(userStr);
         } catch (e) {
             console.error('❌ current_user 解析失败，清除损坏数据:', e.message);
+            sessionStorage.removeItem(this.userKey);
             localStorage.removeItem(this.userKey);
             return null;
         }
@@ -592,7 +583,9 @@ export class AuthService {
      * @returns {boolean}
      */
     isTokenExpired() {
-        const expiry = localStorage.getItem(this.tokenExpiryKey);
+        // 主存储：sessionStorage（标签页独立），localStorage 降级
+        let expiry = sessionStorage.getItem(this.tokenExpiryKey);
+        if (!expiry) expiry = localStorage.getItem(this.tokenExpiryKey);
         if (!expiry) return true;
 
         const expiryTime = parseInt(expiry, 10);
@@ -627,9 +620,11 @@ export class AuthService {
         this._memTokenUpdatedAt = Date.now();
         try { localStorage.setItem(this.tokenUpdatedAtKey, String(this._memTokenUpdatedAt)); } catch (e) { /* 忽略 */ }
 
-        // 计算过期时间 (当前时间 + 过期时间)
+        // 计算过期时间 (当前时间 + 过期时间)，双写避免跨标签污染
         const expiryTime = Date.now() + (safeExpiresIn * 1000);
-        localStorage.setItem(this.tokenExpiryKey, expiryTime.toString());
+        const expiryStr = expiryTime.toString();
+        try { sessionStorage.setItem(this.tokenExpiryKey, expiryStr); } catch (e) { /* 忽略 */ }
+        localStorage.setItem(this.tokenExpiryKey, expiryStr);
     }
 
     /**
@@ -637,6 +632,8 @@ export class AuthService {
      * @param {object} user - 用户对象
      */
     saveUser(user) {
+        // 双写：sessionStorage 为主（标签页独立），localStorage 为兼容层
+        try { sessionStorage.setItem(this.userKey, JSON.stringify(user)); } catch (e) { /* 存储不可用时忽略 */ }
         localStorage.setItem(this.userKey, JSON.stringify(user));
     }
 
@@ -688,6 +685,8 @@ export class AuthService {
         this._memToken = null;
         this._memRefreshToken = null;
         sessionStorage.removeItem(this.tokenKey);
+        sessionStorage.removeItem(this.userKey);
+        sessionStorage.removeItem(this.tokenExpiryKey);
         sessionStorage.removeItem(this.refreshTokenKey);
         localStorage.removeItem(this.tokenKey);
         localStorage.removeItem(this.userKey);

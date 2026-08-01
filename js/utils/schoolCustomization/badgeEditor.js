@@ -147,7 +147,8 @@ function buildEditorInner(embedded) {
  * @param {Object} opts
  * @param {string} opts.logoUrl        原图地址
  * @param {Object} [opts.logoStyle]     已有排版配置（回显）
- * @param {string} [opts.schoolName]    学校名（预览标题用）
+ * @param {string} [opts.schoolName]    学校名（预览标题用，留空时与 customTitle 互为 fallback）
+ * @param {string} [opts.customTitle]   自定义顶部状态栏标题（与 admin-schools.html 的 bf_systemTitle 对齐；非空时优先用）
  * @param {boolean} [opts.embedded]     是否为内嵌形态（影响布局与动作按钮）
  * @param {Function} [opts.onSave]      保存/应用回调，入参为新的 logoStyle 对象
  * @param {Function} [opts.onCollapse]  内嵌形态下"收起"回调
@@ -156,7 +157,7 @@ function buildEditorInner(embedded) {
 export function mountBadgeEditor(container, opts) {
     if (!container || !opts || !opts.logoUrl) return null
     const embedded = !!opts.embedded
-    const { logoUrl, logoStyle, schoolName = '示例学校', onSave, onCollapse } = opts
+    const { logoUrl, logoStyle, schoolName = '示例学校', customTitle = '', onSave, onCollapse } = opts
     const base = Object.assign({}, DEFAULTS, logoStyle || {})
     const state = {
         display: base.display === 'background' ? 'background' : 'badge',
@@ -192,7 +193,7 @@ export function mountBadgeEditor(container, opts) {
     const badgeSlot = $('beBadgeSlot')
     const titleEl = $('beTitle')
 
-    titleEl.textContent = `${schoolName}食品安全检验管理系统`
+    titleEl.textContent = customTitle || `${schoolName}食品安全检验管理系统`
 
     // 预览舞台用学校真实主题色，所见更真实（DS-BRAND-03）
     applyThemeToStage()

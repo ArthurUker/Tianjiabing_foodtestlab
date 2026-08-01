@@ -297,7 +297,7 @@ export class GenericTestModule {
 
     handleEditRecord(recordId, currentUser) {
         const records = this.storage.getAll();
-        const record = records.find(r => r.id === parseInt(recordId));
+        const record = records.find(r => String(r.id) === String(recordId));
 
         if (!record) {
             UINotification.error('❌ 未找到该记录，可能已被删除');
@@ -503,7 +503,7 @@ export class GenericTestModule {
 
     showDetailModal(recordId) {
         const records = this.storage.getAll();
-        const record = records.find(r => r.id === parseInt(recordId));
+        const record = records.find(r => String(r.id) === String(recordId));
 
         if (!record) {
             alert('未找到该记录');

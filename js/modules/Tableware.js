@@ -127,7 +127,7 @@ export function initTableware() {
 
 function handleEditRecord(recordId, currentUser) {
     const records = storage.getAll();
-    const record = records.find(r => r.id === parseInt(recordId));
+    const record = records.find(r => String(r.id) === String(recordId));
     
     if (!record) {
         UINotification.error('❌ 未找到该记录，可能已被删除');
@@ -639,7 +639,7 @@ async function handleDeleteRecord(recordId) {
     if (!confirmed) return;
 
     try {
-        const record = storage.getAll().find(r => r.id === parseInt(recordId));
+        const record = storage.getAll().find(r => String(r.id) === String(recordId));
         const success = storage.delete(recordId);
         if (success) {
             // 记录审计日志
@@ -1207,7 +1207,7 @@ function getPointTemplate(removable = false) {
 // P2-10 阶段B：改为模块内函数（由本模块事件委托调用），不再挂 window
 function showTablewareDetail(recordId) {
     const records = storage.getAll();
-    const record = records.find(r => r.id === parseInt(recordId));
+    const record = records.find(r => String(r.id) === String(recordId));
     if (!record) return;
     
     const modal = document.createElement('div');

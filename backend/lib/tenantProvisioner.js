@@ -135,7 +135,7 @@ export async function provisionSchool({
   await prisma.$executeRawUnsafe(
     `INSERT INTO public."School" ("id","code","name","status","created_at","updated_at")
      VALUES ($1,$2,$3,'active',now(),now())
-     ON CONFLICT ("code") DO UPDATE SET "name" = EXCLUDED."name", "updated_at" = now()`,
+     ON CONFLICT ("code") DO UPDATE SET "updated_at" = now()`,
     `sch_${code}`,
     code,
     displayName

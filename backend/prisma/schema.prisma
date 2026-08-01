@@ -262,6 +262,7 @@ model SchoolCustomization {
   field_rules   String?  // JSON object
   // 下拉选项覆盖（JSON object，{ 字段名: [选项...] }）——顶层形态，兼容 theme_config 嵌套形态
   field_options String?  // JSON object
+  field_types  String?  // JSON object { fieldName: 'text'|'number'|'date'|'select'|'textarea'|'checkbox' }
   // 字段顺序覆盖（JSON object，{ 模块code: [字段名...] }）
   field_order   String?  // JSON object
   // 层级A：模块内新增自定义字段（JSON object，{ 模块code: [{name,label,type,options,statRole,...}] }）

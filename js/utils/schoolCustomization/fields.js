@@ -135,6 +135,7 @@ export function applySchoolCustomizationToForm(formEl, customization) {
     const rules = parseJSONField(customization.field_rules) || {}
     // 🆕 下拉选项覆盖（图形化编辑保存的选项列表）
     const fieldOptions = parseFieldOptions(customization)
+    const fieldTypes = parseTopOrThemeObject(customization, 'field_types') || {}
 
     const fields = formEl.querySelectorAll('input, select, textarea')
     fields.forEach((field) => {
@@ -195,6 +196,79 @@ export function applySchoolCustomizationToForm(formEl, customization) {
                 field.appendChild(legacy)
                 field.value = current
             }
+        }
+    })
+
+    // 4.5) 字段类型转换（field_types）：将内置字段按校定制类型重建 DOM 元素
+    //      仅当 fieldTypes[name] 与当前元素实际类型不同时才执行重建
+    Object.entries(fieldTypes).forEach(([name, targetType]) => {
+        if (!targetType || targetType === 'text') return // text 为默认，跳过
+        const el = formEl.querySelector(`[name="${name}"]`)
+        if (!el) return
+        const currentTag = el.tagName.toLowerCase()
+        const currentType = el.type || 'text'
+        // 判断是否需要转换
+        const needsRecreate = (
+            (targetType === 'select' && currentTag !== 'select') ||
+            (targetType === 'textarea' && currentTag !== 'textarea') ||
+            (targetType === 'checkbox' && currentType !== 'checkbox') ||
+            ((targetType === 'number' || targetType === 'date') && currentType !== targetType && currentTag !== 'select')
+        )
+        if (!needsRecreate) return
+
+        const cell = findFieldCell(el)
+        const value = el.value
+        const classes = el.className
+        const required = el.hasAttribute('required')
+        const placeholder = el.getAttribute('placeholder') || ''
+        const nameAttr = el.getAttribute('name')
+
+        let replacement
+        if (targetType === 'select') {
+            replacement = document.createElement('select')
+            replacement.className = classes
+            replacement.name = nameAttr
+            if (required) replacement.setAttribute('required', '')
+            const opts = (fieldOptions && fieldOptions[name]) || []
+            // preserve current value if not in options
+            if (value && !opts.includes(value)) {
+                opts.unshift(value)
+            }
+            opts.forEach(o => {
+                const opt = document.createElement('option')
+                opt.value = String(o)
+                opt.textContent = String(o)
+                replacement.appendChild(opt)
+            })
+            if (value) replacement.value = value
+        } else if (targetType === 'textarea') {
+            replacement = document.createElement('textarea')
+            replacement.className = classes
+            replacement.name = nameAttr
+            replacement.rows = 2
+            if (required) replacement.setAttribute('required', '')
+            if (placeholder) replacement.setAttribute('placeholder', placeholder)
+            replacement.textContent = value
+        } else if (targetType === 'checkbox') {
+            replacement = document.createElement('input')
+            replacement.type = 'checkbox'
+            replacement.className = 'h-4 w-4 mt-2'
+            replacement.name = nameAttr
+            if (value === 'true' || value === 'on') replacement.checked = true
+        } else {
+            // number / date
+            replacement = document.createElement('input')
+            replacement.type = targetType
+            replacement.className = classes
+            replacement.name = nameAttr
+            if (required) replacement.setAttribute('required', '')
+            if (placeholder) replacement.setAttribute('placeholder', placeholder)
+            replacement.value = value
+        }
+        replacement.setAttribute('data-custom-field-type', targetType)
+        if (el.id) replacement.id = el.id
+        if (cell) {
+            el.replaceWith(replacement)
         }
     })
 

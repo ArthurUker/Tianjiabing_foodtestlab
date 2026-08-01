@@ -447,9 +447,14 @@
 
         // 颜色工具已收敛至 window.SchoolThemes.shade（L2：消除 login.html 本地 shadeColor 副本）
 
-        // 若用户已登录（含页面意外重载场景），直接跳转主界面
+        // 若用户已登录（含页面意外重载场景），直接跳转主界面。
+        // 例外：平台超管访问 /<code>/login.html 时放行（超管无学校归属，但应能自由进入各校登录页预览/测试）
         if (authService.isAuthenticated()) {
-            window.location.replace('./index.html');
+            const _alreadyUser = authService.getUser();
+            const _urlHasSchool = !!location.pathname.match(/^\/[a-z0-9-]+\/login/);
+            if (!(_alreadyUser && _alreadyUser.role === 'admin' && !_alreadyUser.schoolCode && _urlHasSchool)) {
+                window.location.replace('./index.html');
+            }
         }
 
         // 每次打开登录页时清除访客 session（访客为临时身份，不自动重登录）
