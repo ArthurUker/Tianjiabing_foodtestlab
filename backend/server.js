@@ -1559,7 +1559,8 @@ app.post('/api/records/:tableName/bulk-upsert', authenticateUser, requireEditorO
                 if (error.code !== 'P2002') {
                     failed.push({
                         record_code: recordCode,
-                        message: error.message
+                        reason: '写入失败',
+                        code: error.code || undefined
                     })
                 }
             }
@@ -1635,13 +1636,23 @@ app.put('/api/records/:tableName/:id', authenticateUser, requireEditorOrAbove, a
             })
         }
 
-        const record = await req.db.testRecord.update({
-            where: { id: req.params.id },
-            data: {
-                ...writeData,
-                version: (existing.version || 0) + 1
+        // TD-OptimisticLock-Atomic: where 带上 version 做原子条件更新，
+        // 防止两个并发 PUT 都通过上方应用层 version 比较后各自 +1 造成一次更新静默丢失。
+        let record
+        try {
+            record = await req.db.testRecord.update({
+                where: { id: req.params.id, version: existing.version },
+                data: {
+                    ...writeData,
+                    version: (existing.version || 0) + 1
+                }
+            })
+        } catch (e) {
+            if (e?.code === 'P2025') {
+                return res.status(409).json({ error: '版本冲突，请获取最新数据后重试', serverVersion: 'stale' })
             }
-        })
+            throw e
+        }
 
         // P2-02: 记录更新操作写入审计日志
         await writeRecordAuditLog(req.db, req.userId, 'update', 'test_record', record.id, {

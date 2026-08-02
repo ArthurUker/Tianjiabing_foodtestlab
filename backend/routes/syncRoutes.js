@@ -15,6 +15,7 @@
 
 import express from 'express'
 import { createAuthMiddleware } from '../middleware/authMiddleware.js'
+import { canModifyRecord } from '../lib/securityGuards.js'
 
 export function createSyncRoutes(userManager, prisma) {
     const router = express.Router()
@@ -25,9 +26,8 @@ export function createSyncRoutes(userManager, prisma) {
     // ====== POST /sync/records — 同步单条检测记录 ======
     // NB-10: 仅 editor 及以上角色可写入，防止 viewer 只读角色通过 sync 端点写数据
     router.post('/records', authenticateUser, requireEditorOrAbove, async (req, res) => {
+        const { action, store, data, syncId, timestamp } = req.body
         try {
-            const { action, store, data, syncId, timestamp } = req.body
-
             if (!action || !data || !store) {
                 return res.status(400).json({ success: false, error: '缺少必要参数：action / store / data' })
             }
@@ -59,6 +59,13 @@ export function createSyncRoutes(userManager, prisma) {
                     if (!data.id) {
                         return res.status(400).json({ success: false, error: 'update 操作需要提供 data.id' })
                     }
+                    const existingUpdate = await req.db.testRecord.findUnique({ where: { id: data.id } })
+                    if (!existingUpdate) {
+                        return res.status(404).json({ success: false, error: '记录不存在' })
+                    }
+                    if (!canModifyRecord({ role: req.user?.role, userId: req.userId }, existingUpdate)) {
+                        return res.status(403).json({ success: false, error: '无权限修改该记录' })
+                    }
                     result = await req.db.testRecord.update({
                         where: { id: data.id },
                         data: {
@@ -73,6 +80,13 @@ export function createSyncRoutes(userManager, prisma) {
                 case 'delete': {
                     if (!data.id) {
                         return res.status(400).json({ success: false, error: 'delete 操作需要提供 data.id' })
+                    }
+                    const existingDelete = await req.db.testRecord.findUnique({ where: { id: data.id } })
+                    if (!existingDelete) {
+                        return res.status(404).json({ success: false, error: '记录不存在' })
+                    }
+                    if (!canModifyRecord({ role: req.user?.role, userId: req.userId }, existingDelete)) {
+                        return res.status(403).json({ success: false, error: '无权限删除该记录' })
                     }
                     result = await req.db.testRecord.delete({
                         where: { id: data.id }
@@ -117,11 +131,9 @@ export function createSyncRoutes(userManager, prisma) {
             const errors = []
 
             for (const op of operations) {
+                // 解构提到 try 外，使 catch 块能访问 action/data（修复 P2002 幂等回查时的 ReferenceError）
+                const { action, store, data, syncId } = op
                 try {
-                    // 复用单条同步逻辑：构造一个伪 req/res 对象
-                    // 直接调用 Prisma，避免内部 HTTP 调用
-                    const { action, store, data, syncId } = op
-
                     if (!action || !data || !store) {
                         throw new Error('缺少必要参数：action / store / data')
                     }
@@ -141,7 +153,12 @@ export function createSyncRoutes(userManager, prisma) {
                                 }
                             })
                             break
-                        case 'update':
+                        case 'update': {
+                            const existing = await req.db.testRecord.findUnique({ where: { id: data.id } })
+                            if (!existing) throw new Error('记录不存在')
+                            if (!canModifyRecord({ role: req.user?.role, userId: req.userId }, existing)) {
+                                throw new Error('无权限修改该记录')
+                            }
                             result = await req.db.testRecord.update({
                                 where: { id: data.id },
                                 data: {
@@ -152,9 +169,16 @@ export function createSyncRoutes(userManager, prisma) {
                                 }
                             })
                             break
-                        case 'delete':
+                        }
+                        case 'delete': {
+                            const existing = await req.db.testRecord.findUnique({ where: { id: data.id } })
+                            if (!existing) throw new Error('记录不存在')
+                            if (!canModifyRecord({ role: req.user?.role, userId: req.userId }, existing)) {
+                                throw new Error('无权限删除该记录')
+                            }
                             result = await req.db.testRecord.delete({ where: { id: data.id } })
                             break
+                        }
                         default:
                             throw new Error(`未知操作类型：${action}`)
                     }
@@ -170,7 +194,7 @@ export function createSyncRoutes(userManager, prisma) {
                             }
                         } catch (e) { /* 回查失败走 errors */ }
                     }
-                    errors.push({ syncId: op.syncId, store: op.store, error: '同步失败' })
+                    errors.push({ syncId: op.syncId, store: op.store, error: error.message || '同步失败' })
                 }
             }
 

@@ -11,7 +11,7 @@ function normalizePositiveList(positiveList) {
 
     return positiveList.map(item => {
         const ctRaw = item?.ctRaw ?? item?.ct ?? '-';
-        const ct = parseFloat(item?.ct);
+        const ct = parseFloat(item?.ct ?? item?.ctRaw);
         return {
             pathogen: item?.pathogen || '未知靶标',
             ct: Number.isFinite(ct) ? ct : 999,
@@ -26,8 +26,8 @@ function extractPositiveListFromAllTestItems(allTestItems) {
     return allTestItems
         .filter(item => item && item.result && isPositiveResult(item.result) && !item.isInternalControl)
         .map(item => {
-            const ctRaw = item.ct ?? '-';
-            const ct = parseFloat(item.ct);
+            const ctRaw = item.ctRaw ?? item.ct ?? '-';
+            const ct = parseFloat(item.ct ?? item.ctRaw);
             return {
                 pathogen: item.pathogen || '未知靶标',
                 ct: Number.isFinite(ct) ? ct : 999,

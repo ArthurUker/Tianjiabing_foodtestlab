@@ -144,7 +144,8 @@ export function createGuestRoutes(userManager, prisma, jwtSecret) {
             if (error.code === 'P2002' && db) {
                 const existing = await db.guest.findUnique({ where: { username: req.body?.username } })
                 if (existing) {
-                    const token = makeGuestToken(existing, schoolCode, jwtSecret)
+                    // schoolCode 在 try 块内 const 解构，catch 块不可见，改从 req.body 读取避免 ReferenceError
+                    const token = makeGuestToken(existing, req.body?.schoolCode, jwtSecret)
                     return res.status(200).json({ success: true, token, guest: serializeGuest(existing), idempotent: true })
                 }
             }

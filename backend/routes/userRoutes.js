@@ -32,7 +32,7 @@ export function createUserRoutes(userManager) {
         if (error && error.code === 'ACCOUNT_LOCKED') {
             return res.status(423).json({ error: '❌ 登录失败次数过多，该账号已被临时锁定，请稍后再试' })
         }
-        return res.status(401).json({ error: `登录失败 失败` })
+        return res.status(401).json({ error: `登录失败` })
     }
 
     // 验证令牌为未认证接口，单独限流避免被枚举攻击
@@ -53,7 +53,7 @@ export function createUserRoutes(userManager) {
             res.status(201).json(result)
         } catch (error) {
             // 唯一约束冲突（P2002）返回 409，其余沿用 400
-            res.status(error.status || 400).json({ error: `注册失败 失败` })
+            res.status(error.status || 400).json({ error: `注册失败` })
         }
     })
 
@@ -258,7 +258,7 @@ export function createUserRoutes(userManager) {
             })
         } catch (error) {
             console.error('❌ 令牌刷新异常:', error.message)
-            res.status(401).json({ error: `令牌刷新失败 失败` })
+            res.status(401).json({ error: `令牌刷新失败` })
         }
     })
 
@@ -273,7 +273,7 @@ export function createUserRoutes(userManager) {
             }
             res.json(result)
         } catch (error) {
-            res.status(400).json({ error: `获取用户信息失败 失败` })
+            res.status(400).json({ error: `获取用户信息失败` })
         }
     })
 
@@ -287,7 +287,7 @@ export function createUserRoutes(userManager) {
             })
             res.json(result)
         } catch (error) {
-            res.status(400).json({ error: `更新失败 失败` })
+            res.status(400).json({ error: `更新失败` })
         }
     })
 
@@ -383,7 +383,7 @@ router.post('/change-password', authenticateUser, async (req, res) => {
             )
             res.json(result)
         } catch (error) {
-            res.status(400).json({ error: `修改密码失败 失败` })
+            res.status(400).json({ error: `修改密码失败` })
         }
     })
 
@@ -406,7 +406,7 @@ router.post('/change-password', authenticateUser, async (req, res) => {
             const result = await userManager.forTenant(req.user.schoolCode).getUserList(Math.min(parseInt(limit) || 100, 500), Math.max(0, parseInt(offset) || 0))
             res.json(result)
         } catch (error) {
-            res.status(400).json({ error: `获取用户列表失败 失败` })
+            res.status(400).json({ error: `获取用户列表失败` })
         }
     })
 
@@ -416,7 +416,7 @@ router.post('/change-password', authenticateUser, async (req, res) => {
             const result = await userManager.forTenant(req.user.schoolCode).disableUser(req.params.userId, actorOf(req))
             res.json(result)
         } catch (error) {
-            res.status(error.status || 400).json({ error: error.status ? error.message : `禁用用户失败 失败` })
+            res.status(error.status || 400).json({ error: error.status ? error.message : `禁用用户失败` })
         }
     })
 
@@ -426,7 +426,7 @@ router.post('/change-password', authenticateUser, async (req, res) => {
             const result = await userManager.forTenant(req.user.schoolCode).enableUser(req.params.userId, actorOf(req))
             res.json(result)
         } catch (error) {
-            res.status(error.status || 400).json({ error: error.status ? error.message : `启用用户失败 失败` })
+            res.status(error.status || 400).json({ error: error.status ? error.message : `启用用户失败` })
         }
     })
 
@@ -442,7 +442,7 @@ router.post('/change-password', authenticateUser, async (req, res) => {
             const result = await userManager.forTenant(req.user.schoolCode).changeUserRole(req.params.userId, newRole, actorOf(req))
             res.json(result)
         } catch (error) {
-            res.status(error.status || 400).json({ error: error.status ? error.message : `修改角色失败 失败` })
+            res.status(error.status || 400).json({ error: error.status ? error.message : `修改角色失败` })
         }
     })
 
@@ -458,7 +458,7 @@ router.post('/change-password', authenticateUser, async (req, res) => {
             const result = await userManager.forTenant(req.user.schoolCode).resetPassword(req.params.userId, newPassword, actorOf(req))
             res.json(result)
         } catch (error) {
-            res.status(error.status || 400).json({ error: error.status ? error.message : `重置密码失败 失败` })
+            res.status(error.status || 400).json({ error: error.status ? error.message : `重置密码失败` })
         }
     })
 
@@ -474,7 +474,7 @@ router.post('/change-password', authenticateUser, async (req, res) => {
             const result = await userManager.forTenant(req.user.schoolCode).resetPassword(req.params.userId, newPassword, actorOf(req))
             res.json(result)
         } catch (error) {
-            res.status(error.status || 400).json({ error: error.status ? error.message : `重置密码失败 失败` })
+            res.status(error.status || 400).json({ error: error.status ? error.message : `重置密码失败` })
         }
     })
 
@@ -494,7 +494,7 @@ router.post('/change-password', authenticateUser, async (req, res) => {
             const result = await userManager.forTenant(req.user.schoolCode).adminUpdateUser(req.params.userId, normalizedUpdates, actorOf(req))
             res.json(result)
         } catch (error) {
-            res.status(error.status || 400).json({ error: error.status ? error.message : `更新用户失败 失败` })
+            res.status(error.status || 400).json({ error: error.status ? error.message : `更新用户失败` })
         }
     })
 
@@ -506,11 +506,13 @@ router.post('/change-password', authenticateUser, async (req, res) => {
                 return res.status(400).json({ error: '❌ 不能删除自己的账号' })
             }
 
-            // P1-17: 防止删除最后一个 admin 导致系统锁死
+            // P1-17: 防止删除最后一个 manager 导致该校无可用管理员
+            // （租户内不存在 admin 角色——admin 仅在 public 平台层；
+            //  原检查 role==='admin' 为死代码，改为 manager 与 deleteUser 内部 assertNotLastActiveManager 一致）
             const targetUser = await userManager.forTenant(req.user.schoolCode).prisma.user.findUnique({ where: { id: req.params.userId } })
-            if (targetUser && targetUser.role === 'admin') {
-                const adminCount = await userManager.forTenant(req.user.schoolCode).prisma.user.count({ where: { role: 'admin', status: 'active' } })
-                if (adminCount <= 1) {
+            if (targetUser && targetUser.role === 'manager' && targetUser.status === 'active') {
+                const managerCount = await userManager.forTenant(req.user.schoolCode).prisma.user.count({ where: { role: 'manager', status: 'active' } })
+                if (managerCount <= 1) {
                     return res.status(400).json({ error: '❌ 无法删除最后一个管理员账号，系统将无法管理' })
                 }
             }
@@ -518,7 +520,7 @@ router.post('/change-password', authenticateUser, async (req, res) => {
             const result = await userManager.forTenant(req.user.schoolCode).deleteUser(req.params.userId, actorOf(req))
             res.json(result)
         } catch (error) {
-            res.status(error.status || 400).json({ error: error.status ? error.message : `删除用户失败 失败` })
+            res.status(error.status || 400).json({ error: error.status ? error.message : `删除用户失败` })
         }
     })
 

@@ -223,7 +223,13 @@ export function mountBadgeEditor(container, opts) {
         }
     }
     function shade(hex, amt) {
-        const n = parseInt(hex.replace('#', ''), 16)
+        // 规范化：3 位简写(#RGB)展开为 6 位；4 位(#RGBA)/8 位(#RRGGBBAA)取 RGB 部分到 6 位
+        let h = String(hex).replace('#', '')
+        if (h.length === 3) h = [...h].map(c => c + c).join('')
+        else if (h.length === 4) h = [...h.slice(0, 3)].map(c => c + c).join('')
+        else if (h.length === 8) h = h.slice(0, 6)
+        const n = parseInt(h, 16)
+        if (isNaN(n) || h.length !== 6) return hex
         let r = (n >> 16) + amt, g = ((n >> 8) & 255) + amt, b = (n & 255) + amt
         r = clamp(r, 0, 255); g = clamp(g, 0, 255); b = clamp(b, 0, 255)
         return `rgb(${r},${g},${b})`
@@ -288,7 +294,14 @@ export function mountBadgeEditor(container, opts) {
         } else {
             titleEl.style.textShadow = 'none'
             const size = state.badgeSize
-            badgeSlot.innerHTML = `<div style="width:${size}px;height:${size}px;border-radius:12px;overflow:hidden;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.25);flex-shrink:0;"><img src="${url}" style="width:100%;height:100%;object-fit:contain;padding:2px;"></div>`
+            // 用 DOM 构建而非 innerHTML 拼接，避免 url 含引号/事件属性导致 XSS
+            const wrap = document.createElement('div')
+            wrap.style.cssText = `width:${size}px;height:${size}px;border-radius:12px;overflow:hidden;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.25);flex-shrink:0;`
+            const img = document.createElement('img')
+            img.src = url
+            img.style.cssText = 'width:100%;height:100%;object-fit:contain;padding:2px;'
+            wrap.appendChild(img)
+            badgeSlot.replaceChildren(wrap)
         }
     }
 

@@ -294,7 +294,7 @@ export class AuthService {
             }
 
             // TD-Username-Rule-Inconsistent: 与后端 UserManager / validationMiddleware 对齐，提前给出反馈
-            if (!/^[a-zA-Z0-9_]{3,32}$/.test(username)) {
+            if (!/^[a-zA-Z0-9_]{3,50}$/.test(username)) {
                 throw new Error('用户名需为 3-50 位字母、数字或下划线');
             }
 

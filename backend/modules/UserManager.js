@@ -433,6 +433,11 @@ export class UserManager {
                 })
             })
 
+            // IF-1: 用户自行改密后吊销全部旧会话（与 resetPassword 一致），
+            // 防止密码泄露后被盗用的旧 token 在 access TTL（默认 30m）窗口内继续有效。
+            // 注意：本操作也会使当前会话失效，用户需重新登录（安全优先于体验）。
+            await this.revokeUserSessions(userId, 'password_change', { userId })
+
             console.log(`✅ 用户 ${userId} 密码已更新`)
 
             return {

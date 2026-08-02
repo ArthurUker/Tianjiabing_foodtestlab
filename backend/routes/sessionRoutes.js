@@ -65,30 +65,8 @@ export function createSessionRoutes(userManager, prisma) {
         }
     })
 
-    // 注销指定会话（本人或管理员可操作）
-    router.delete('/:id', authenticateUser, async (req, res) => {
-        try {
-            const where =
-                req.user.role === 'admin'
-                    ? { id: req.params.id }
-                    : { id: req.params.id, user_id: req.user.userId }
-
-            const result = await req.db.session.updateMany({
-                where,
-                data: { status: 'revoked' },
-            })
-
-            if (result.count === 0) {
-                return res.status(404).json({ error: '❌ 会话不存在或无权限' })
-            }
-            res.json({ success: true, revoked: result.count })
-        } catch (error) {
-            console.error('❌ Error revoking session:', error)
-            res.status(400).json({ error: `注销会话失败` })
-        }
-    })
-
     // 注销除 currentSessionId 外的所有会话（「登出其它设备」）
+    // 注意：静态路径 /others 必须注册在动态参数 /:id 之前，否则会被 /:id 捕获而失效
     router.delete('/others', authenticateUser, async (req, res) => {
         try {
             const { currentSessionId } = req.body
@@ -108,7 +86,30 @@ export function createSessionRoutes(userManager, prisma) {
             res.json({ success: true, revoked: result.count })
         } catch (error) {
             console.error('❌ Error revoking other sessions:', error)
-            res.status(400).json({ error: `注销其它会话失败` })
+            res.status(400).json({ error: '注销其它会话失败' })
+        }
+    })
+
+    // 注销指定会话（本人或管理员可操作）
+    router.delete('/:id', authenticateUser, async (req, res) => {
+        try {
+            const where =
+                req.user.role === 'admin'
+                    ? { id: req.params.id }
+                    : { id: req.params.id, user_id: req.user.userId }
+
+            const result = await req.db.session.updateMany({
+                where,
+                data: { status: 'revoked' },
+            })
+
+            if (result.count === 0) {
+                return res.status(404).json({ error: '❌ 会话不存在或无权限' })
+            }
+            res.json({ success: true, revoked: result.count })
+        } catch (error) {
+            console.error('❌ Error revoking session:', error)
+            res.status(400).json({ error: '注销会话失败' })
         }
     })
 

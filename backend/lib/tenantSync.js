@@ -91,9 +91,9 @@ export async function backfillSchoolCustomization(prisma, log = console.log) {
       DEFAULT_VISIBLE_TYPES
     )
     // 菜单栏定制（菜单项可见性）：默认全选（与可见检测类型一致的"友好默认"策略）
+    // 注意：field_types 已由上方 OBJ_COLS 循环统一 ADD COLUMN，此处无需重复
     await prisma.$executeRawUnsafe(
-      `ALTER TABLE "${table_schema}"."SchoolCustomization" ADD COLUMN IF NOT EXISTS "visible_menu_items" TEXT`,
-      `ALTER TABLE "${table_schema}"."SchoolCustomization" ADD COLUMN IF NOT EXISTS "field_types" TEXT`
+      `ALTER TABLE "${table_schema}"."SchoolCustomization" ADD COLUMN IF NOT EXISTS "visible_menu_items" TEXT`
     )
     await prisma.$executeRawUnsafe(
       `UPDATE "${table_schema}"."SchoolCustomization" SET "visible_menu_items" = $1 WHERE "visible_menu_items" IS NULL`,
