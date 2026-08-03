@@ -111,10 +111,8 @@ export function initPathogen() {
 function loadMammothJS() {
     if (window.mammoth) return;
     const script = document.createElement('script');
-    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.21/mammoth.browser.min.js';
-    // P2-16: 添加 SRI 完整性校验，防止 CDN 篡改攻击
-    script.integrity = 'sha512-bGuEL2NBSooMeQLM6bf6Xdywje4PWKegNTuKpghz2xgFXtRjEs4B3X1ql7nghiCvt8gXBAks5S3KN3Jp3Jgtow==';
-    script.crossOrigin = 'anonymous';
+    // 本地化：同源加载 /vendor/js/mammoth.browser.min.js，规避国内服务器访问国外 CDN 被重置
+    script.src = '/vendor/js/mammoth.browser.min.js';
     script.async = true;
     document.head.appendChild(script);
 }

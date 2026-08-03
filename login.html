@@ -5,6 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>食品安全检验管理系统 - 登录</title>
     <script>
+        // 登录成功后跳转目标：学校代码即 URL 路径首段（/<code>/index.html），
+        // 与 extractSchoolCode 约定一致。若当前在 /<code>/login.html 或带 ?school=，则回跳 /<code>/index.html；
+        // 否则（根部署/无 schoolCode）回退根 /index.html，避免跳错学校导致令牌命名空间不匹配。
+        window.__schoolIndexUrl = function () {
+            var m = location.pathname.match(/^\/([a-z0-9-]+)\//);
+            var code = m ? m[1] : (new URLSearchParams(location.search).get('school') || '');
+            return code ? ('/' + encodeURIComponent(code) + '/index.html') : '/index.html';
+        };
+
         // 生产环境日志降噪，避免控制台被第三方/调试信息刷屏
         (function () {
             const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1'
@@ -47,7 +56,7 @@
     <!-- 预设主题（学校换肤） -->
     <script src="/js/utils/themePresets.js"></script>
     <!-- Font Awesome -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <link rel="stylesheet" href="/css/vendor/fa/all.min.css" />
     
     <style>
         body {
@@ -449,11 +458,21 @@
 
         // 若用户已登录（含页面意外重载场景），直接跳转主界面。
         // 例外：平台超管访问 /<code>/login.html 时放行（超管无学校归属，但应能自由进入各校登录页预览/测试）
-        if (authService.isAuthenticated()) {
+        // TD-TenantIsolation 防循环：本地已登录态的 schoolCode 必须与当前登录页 URL 的
+        // schoolCode 匹配，否则视为「残留/串租户 token」——清除并停留在登录页，
+        // 不能跳回主界面（否则 index.html 拦截又会踢回登录页，形成无限循环闪退）。
+        {
+            const _pageCode = extractSchoolCode() || '';
             const _alreadyUser = authService.getUser();
-            const _urlHasSchool = !!location.pathname.match(/^\/[a-z0-9-]+\/login/);
-            if (!(_alreadyUser && _alreadyUser.role === 'admin' && !_alreadyUser.schoolCode && _urlHasSchool)) {
-                window.location.replace('./index.html');
+            const _tokenSchool = _alreadyUser && (_alreadyUser.schoolCode || '');
+            if (_pageCode && _tokenSchool && _tokenSchool !== _pageCode) {
+                console.warn(`[auth] 登录页检测到 token 归属不匹配（token=${_tokenSchool}，页面=${_pageCode}），清除残留并停留在登录页`);
+                authService.clearAuth();
+            } else if (authService.isAuthenticated()) {
+                const _urlHasSchool = !!location.pathname.match(/^\/[a-z0-9-]+\/login/);
+                if (!(_alreadyUser && _alreadyUser.role === 'admin' && !_alreadyUser.schoolCode && _urlHasSchool)) {
+                    window.location.replace(window.__schoolIndexUrl());
+                }
             }
         }
 
@@ -585,7 +604,7 @@
                     
                     // 重定向到主应用
                     setTimeout(() => {
-                        window.location.replace('./index.html');
+                        window.location.replace(window.__schoolIndexUrl());
                     }, 50);
                 } else {
                     const errorMsg = result.message || '登录失败，请检查用户名和密码';
@@ -669,7 +688,7 @@
                 const r = await authService.changePassword(currentPassword, np);
                 if (r.success) {
                     submitBtn.textContent = '✅ 修改成功，正在进入系统…';
-                    setTimeout(() => window.location.replace('./index.html'), 300);
+                    setTimeout(() => window.location.replace(window.__schoolIndexUrl()), 300);
                 } else {
                     submitBtn.disabled = false;
                     submitBtn.textContent = '确认修改并进入系统';

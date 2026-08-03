@@ -109,6 +109,13 @@ export async function applySchoolBranding(schoolCode, force = false) {
         ? logoStyle.croppedUrl
         : info.logoUrl
     const badgeSize = logoStyle ? logoStyle.badgeSize : 48
+    // DS-BRAND-OPACITY：小徽章模式也支持透明度（管理员在徽章编辑器里可调）
+    // 取徽章独立 badgeOpacity 字段，缺省时回落到 1 (不透明)
+    const badgeOpacity = (logoStyle && typeof logoStyle.badgeOpacity === 'number')
+        ? logoStyle.badgeOpacity
+        : 1
+    // 与容器背景合成（白色环背景 + 阴影）也按比例淡化，使整个徽章"半透明"语义一致
+    logoWrap.style.opacity = String(badgeOpacity)
 
     // 重置容器为统一徽章样式（替换默认 FontAwesome 图标的扁平外观）
     // DS-BRAND-CIRCLE：圆形徽章（编辑器可选手动选择）用 rounded-full
@@ -171,7 +178,15 @@ function isValidLogoStyle(s) {
         posX: clampNum(s.posX, 0, 100, 50),
         posY: clampNum(s.posY, 0, 100, 50),
         scale: clampNum(s.scale, 0.1, 5, 1.6),
+        // 背景水印模式透明度（默认 0.16，半透明水印）
         opacity: clampNum(s.opacity, 0, 1, 0.16),
+        // 小徽章模式独立透明度（默认 1.0=不透明），与背景水印互不影响
+        // 兼容旧数据：旧数据无 badgeOpacity 字段时回落到 1（不透明），
+        // 避免把背景水印的 0.16 误用于徽章导致过淡
+        badgeOpacity: clampNum(
+            (typeof s.badgeOpacity === 'number') ? s.badgeOpacity : 1,
+            0, 1, 1
+        ),
         aspectLock: !!s.aspectLock,
         badgeSize: Math.round(clampNum(s.badgeSize, 24, 120, 48)),
     }

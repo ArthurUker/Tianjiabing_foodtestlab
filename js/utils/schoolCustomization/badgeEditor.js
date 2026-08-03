@@ -23,7 +23,8 @@ const DEFAULTS = {
     posX: 88,                // 背景模式下在水印层的水平位置（%）
     posY: 50,                // 垂直位置（%）
     scale: 1.6,              // 背景模式缩放（相对导航高度的倍率）
-    opacity: 0.16,           // 背景模式不透明度
+    opacity: 0.16,           // 背景模式不透明度（水印）
+    badgeOpacity: 1,         // 小徽章模式不透明度（默认不透明；与背景水印互不影响）
     aspectLock: true,        // 裁切锁定比例
     badgeSize: 48,           // 徽章模式尺寸(px)
 }
@@ -87,18 +88,22 @@ function controlsHTML() {
     <div>
       <div style="display:flex;gap:8px;">
         <button id="beModeBg" type="button" class="be-mode" style="flex:1;padding:8px;border-radius:8px;border:1px solid #d1d5db;background:#fff;cursor:pointer;font-size:13px;color:#374151;">背景水印</button>
-        <button id="beModeBadge" type="button" class="be-mode" style="flex:1;padding:8px;border-radius:8px;border:1px solid #d1d5db;background:#fff;cursor:pointer;font-size:13px;color:#374151;">小徽章</button>
+        <button id="beModeBadge" type="button" class="be-mode" style="flex:1;padding:8px;border-radius:8px;border:1px solid #d1d5db;background:#fff;cursor:pointer;font-size:13px;color:#374151;">小徽章（固定在标题左侧）</button>
       </div>
       <div id="beBgCtrls" style="margin-top:14px;">
         <label style="display:block;font-size:12px;color:#6b7280;margin-bottom:4px;">缩放（相对导航高度）</label>
         <input id="beScale" type="range" min="0.4" max="4" step="0.05" value="1.6" style="width:100%;">
-        <label style="display:block;font-size:12px;color:#6b7280;margin-top:10px;margin-bottom:4px;">不透明度</label>
+        <label style="display:block;font-size:12px;color:#6b7280;margin-top:10px;margin-bottom:4px;">不透明度（水印）</label>
         <input id="beOpacity" type="range" min="0.05" max="0.6" step="0.01" value="0.16" style="width:100%;">
         <p style="font-size:11px;color:#9ca3af;margin-top:6px;">提示：在上方预览条上按住拖动可调整校徽位置。</p>
       </div>
       <div id="beBadgeCtrls" style="margin-top:14px;display:none;">
         <label style="display:block;font-size:12px;color:#6b7280;margin-bottom:4px;">徽章尺寸 (px)</label>
         <input id="beBadgeSize" type="range" min="32" max="80" step="2" value="48" style="width:100%;">
+        <!-- DS-BRAND-OPACITY：小徽章模式独立透明度（与背景水印互不影响） -->
+        <label style="display:block;font-size:12px;color:#6b7280;margin-top:10px;margin-bottom:4px;">不透明度</label>
+        <input id="beBadgeOpacity" type="range" min="0.2" max="1" step="0.01" value="1" style="width:100%;">
+        <p style="font-size:11px;color:#9ca3af;margin-top:6px;">徽章固定显示在标题左侧，不受窗口宽度影响。</p>
       </div>
     </div>`
 }
@@ -165,6 +170,8 @@ export function mountBadgeEditor(container, opts) {
         posY: num(base.posY, 50),
         scale: num(base.scale, 1.6),
         opacity: num(base.opacity, 0.16),
+        // DS-BRAND-OPACITY：小徽章模式独立透明度（默认 1=不透明）
+        badgeOpacity: num(base.badgeOpacity, 1),
         aspectLock: !!base.aspectLock,
         badgeSize: num(base.badgeSize, 48),
         crop: (base.crop && typeof base.crop === 'object')
@@ -294,9 +301,10 @@ export function mountBadgeEditor(container, opts) {
         } else {
             titleEl.style.textShadow = 'none'
             const size = state.badgeSize
+            const opacity = clamp(state.badgeOpacity, 0.2, 1)
             // 用 DOM 构建而非 innerHTML 拼接，避免 url 含引号/事件属性导致 XSS
             const wrap = document.createElement('div')
-            wrap.style.cssText = `width:${size}px;height:${size}px;border-radius:12px;overflow:hidden;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.25);flex-shrink:0;`
+            wrap.style.cssText = `width:${size}px;height:${size}px;border-radius:12px;overflow:hidden;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.25);flex-shrink:0;opacity:${opacity};`
             const img = document.createElement('img')
             img.src = url
             img.style.cssText = 'width:100%;height:100%;object-fit:contain;padding:2px;'
@@ -403,6 +411,8 @@ export function mountBadgeEditor(container, opts) {
     $('beScale').addEventListener('input', (e) => { state.scale = parseFloat(e.target.value); renderPreview() })
     $('beOpacity').addEventListener('input', (e) => { state.opacity = parseFloat(e.target.value); renderPreview() })
     $('beBadgeSize').addEventListener('input', (e) => { state.badgeSize = parseInt(e.target.value, 10); renderPreview() })
+    // DS-BRAND-OPACITY：小徽章模式独立的透明度滑块
+    $('beBadgeOpacity').addEventListener('input', (e) => { state.badgeOpacity = parseFloat(e.target.value); renderPreview() })
 
     function setMode(m) {
         state.display = m
@@ -424,6 +434,8 @@ export function mountBadgeEditor(container, opts) {
             posY: Math.round(state.posY * 10) / 10,
             scale: state.scale,
             opacity: state.opacity,
+            // DS-BRAND-OPACITY：小徽章模式独立透明度（与背景水印 opacity 区分）
+            badgeOpacity: state.badgeOpacity,
             aspectLock: state.aspectLock,
             badgeSize: state.badgeSize,
         }
@@ -454,6 +466,12 @@ export function mountBadgeEditor(container, opts) {
     }
 
     function cleanup() { /* 容器 innerHTML 由调用方清空；此处预留清理钩子 */ }
+
+    // 初始化：把已存配置回显到滑块（避免打开已有排版时滑块显示默认值）
+    $('beScale').value = String(state.scale)
+    $('beOpacity').value = String(state.opacity)
+    $('beBadgeSize').value = String(state.badgeSize)
+    $('beBadgeOpacity').value = String(state.badgeOpacity)
 
     // 初始化
     setMode(state.display)

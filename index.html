@@ -31,13 +31,46 @@
             var _token = localStorage.getItem(_nsKey('auth_token'));
             var _guest = localStorage.getItem(_nsKey('guest_token'));
 
-            function _goLogin(reason) {
-                console.warn('[auth] 拒绝进入学校控制台：', reason);
-                var q = _code ? ('?school=' + encodeURIComponent(_code)) : '';
-                location.replace('./login.html' + q);
+            // 清除本地认证残留：当前命名空间 key + 裸 key（旧版本无命名空间残留），
+            // 避免「令牌属其他学校」场景下 login.html 用同一残留 token 判定已登录又跳回，
+            // 形成 /index.html → /login.html → /index.html 无限循环（闪退 + 乱跳网址）。
+            function _clearLocalAuth() {
+                try {
+                    var keys = ['auth_token', 'current_user', 'token_expiry', 'guest_token', 'current_guest', 'is_quick_access'];
+                    keys.forEach(function (k) {
+                        var nsKey = _code ? (k + '__' + _code) : k;
+                        try { localStorage.removeItem(nsKey); } catch (e) {}
+                        try { sessionStorage.removeItem(nsKey); } catch (e) {}
+                        // 裸 key 残留（旧版本无命名空间写入的），一并清除，防死循环
+                        if (_code) {
+                            try { localStorage.removeItem(k); } catch (e) {}
+                            try { sessionStorage.removeItem(k); } catch (e) {}
+                        }
+                    });
+                    // 跨标签协调键也清理，避免残留信标干扰
+                    ['auth_token_updated_at', 'auth_refresh_rotated_at', 'auth_refresh_lock'].forEach(function (k) {
+                        try { localStorage.removeItem(k); } catch (e) {}
+                        try { localStorage.removeItem(_code ? (k + '__' + _code) : k); } catch (e) {}
+                    });
+                } catch (e) { /* 存储不可用忽略 */ }
             }
 
-            // 无任何 token：直接跳登录页
+            function _goLogin(reason, clearAuth) {
+                console.warn('[auth] 拒绝进入学校控制台：', reason);
+                if (clearAuth !== false) _clearLocalAuth();
+                // 跳转目标始终落在 /<code>/ 命名空间下（与 extractSchoolCode 约定一致），
+                // 确保登录页与控制台处于同一租户子路径，避免令牌命名空间错位导致"令牌属其他学校"。
+                // 页面本身已在 /<code>/index.html 时直接用 ./login.html（解析为 /<code>/login.html）；
+                // 根部署/无 code 时回退 /login.html。
+                var q = _code ? ('?school=' + encodeURIComponent(_code)) : '';
+                if (_code) {
+                    location.replace('/' + encodeURIComponent(_code) + '/login.html' + q);
+                } else {
+                    location.replace('/login.html' + q);
+                }
+            }
+
+            // 无任何 token：直接跳登录页（无残留可清，仍调用以防万一）
             if (!_token && !_guest) {
                 _goLogin('无令牌');
                 return;
@@ -58,9 +91,12 @@
                 var claimed = res.body.user && res.body.user.schoolCode; // 平台超管为 null
                 if (!claimed || claimed !== _code) {
                     if (!claimed) {
-                        // 平台超管误入学校租户页 → 回平台控制台
-                        location.replace('./admin-schools.html');
+                        // 平台超管误入学校租户页 → 回平台控制台（清残留，防止超管态污染学校页）
+                        _clearLocalAuth();
+                        location.replace('/admin-schools.html');
                     } else {
+                        // 令牌属于其他学校：清除本地残留（含该学校命名空间 key + 裸 key），
+                        // 再跳登录，避免 login.html 用残留 token 又跳回形成无限循环。
                         _goLogin('令牌属于其他学校(' + claimed + ')，当前访问=' + _code);
                     }
                     return;
@@ -131,8 +167,8 @@
             }, true)
         })()
     </script>
-    <!-- 样式库 -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <!-- 样式库（font-awesome 已本地化，避免国内服务器访问国外 CDN 被重置 ERR_CONNECTION_RESET） -->
+    <link rel="stylesheet" href="/css/vendor/fa/all.min.css" />
     <link rel="stylesheet" href="/css/tailwind.css">
     <link rel="stylesheet" href="/css/style.css">
     
@@ -145,11 +181,10 @@
         }
     </style>
     
-    <!-- 脚本库 (defer 延迟加载) -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js" defer crossorigin="anonymous"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer crossorigin="anonymous"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer crossorigin="anonymous"></script>
-
+    <!-- 脚本库 (defer 延迟加载)，已本地化到 /vendor/js，避免国内服务器访问国外 CDN 被重置 ERR_CONNECTION_RESET -->
+    <script src="/vendor/js/chart.min.js" defer crossorigin="anonymous"></script>
+    <script src="/vendor/js/html2canvas.min.js" defer crossorigin="anonymous"></script>
+    <script src="/vendor/js/jspdf.umd.min.js" defer crossorigin="anonymous"></script>
     <!-- 🎯 快速访问模式样式 - 隐藏管理菜单 -->
     <style id="quickAccessStyles" display="none">
         /* 这个样式块仅在 quickAccess 参数存在时激活 */
@@ -279,12 +314,16 @@
 
     <!-- 顶部导航（吸顶：滚动时固定在顶部） -->
     <nav class="glass-dark text-white sticky top-0 z-50">
-        <div class="container mx-auto px-4 py-3 flex justify-between items-center">
-            <div class="flex items-center space-x-3">
-                <span id="systemLogo" class="text-2xl"><i class="fas fa-shield-alt"></i></span>
-                <h1 id="systemTitle" class="text-xl font-bold">食品安全检验管理系统</h1>
+        <div class="container mx-auto px-4 py-3 flex justify-between items-center gap-4">
+            <!-- DS-BRAND-LAYOUT：
+                 - flex-1 + min-w-0：占据左侧主空间，又允许收缩（避免撑爆 nav）
+                 - logo 元素 shrink-0：校徽永不被挤压，位置固定在标题左侧
+                 - 标题 truncate：长学校名走省略号，不影响校徽位置 -->
+            <div class="flex items-center space-x-3 flex-1 min-w-0">
+                <span id="systemLogo" class="text-2xl shrink-0"><i class="fas fa-shield-alt"></i></span>
+                <h1 id="systemTitle" class="text-xl font-bold truncate min-w-0">食品安全检验管理系统</h1>
             </div>
-            <div class="text-sm flex items-center space-x-4">
+            <div class="text-sm flex items-center space-x-4 shrink-0">
                 <div>
                     <i class="far fa-user mr-2"></i>
                     <span data-user-name>用户</span>
@@ -729,7 +768,7 @@
     </script>
 
     <!-- 模块入口 -->
-    <script type="module" src="/js/main.js?t=1776768000000"></script>
+    <script type="module" src="/js/main.js?t=1785722270978"></script>
 
     <!-- 🎯 快速访问模式处理脚本 - 在DOM准备好后运行 -->
     <script>

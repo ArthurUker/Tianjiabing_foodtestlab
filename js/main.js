@@ -21,6 +21,7 @@ import { permissionService } from './services/PermissionService.js';
 import { initAuditLog } from './modules/AuditLog.js';
 import { sessionManager } from './services/SessionManager.js';
 import guestAuthService from './services/GuestAuthService.js';
+import { authService } from './services/AuthService.js';
 import { GuestDashboard } from './modules/GuestDashboard.js';
 // 6. ✨ 引入会话管理服务
 

@@ -19,7 +19,8 @@ const filesToCopy = [
 
 const dirsToCopy = [
   'css',
-  'js'
+  'js',
+  'vendor'
 ];
 
 function ensureCleanDist() {

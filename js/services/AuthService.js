@@ -189,12 +189,13 @@ export class AuthService {
 
             if (data.success && data.token) {
                 // 🎯 在登录前清除所有访客信息（切换身份）
+                // TD-TenantIsolation：按当前学校命名空间清除（与 GuestAuthService._nsKey 一致），避免残留访客令牌被早期拦截误领养
                 console.log('🔧 清除访客信息，准备以管理员身份登录...');
-                localStorage.removeItem('current_guest');
-                localStorage.removeItem('guest_token');
-                localStorage.removeItem('is_quick_access');
-                sessionStorage.removeItem('current_guest');
-                sessionStorage.removeItem('guest_token');
+                localStorage.removeItem(this._nsKey('current_guest'));
+                localStorage.removeItem(this._nsKey('guest_token'));
+                localStorage.removeItem(this._nsKey('is_quick_access'));
+                sessionStorage.removeItem(this._nsKey('current_guest'));
+                sessionStorage.removeItem(this._nsKey('guest_token'));
                 
                 // 保存 Token 和用户信息
                 this.saveToken(data.token, data.expiresIn);
