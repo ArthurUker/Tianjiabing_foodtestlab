@@ -21,9 +21,15 @@
                 return new URLSearchParams(location.search).get('school') || '';
             }
 
+            // TD-TenantIsolation：认证态 key 已按学校命名空间隔离（auth_token__<schoolCode>），
+            // 与 AuthService._nsKey 保持一致；无学校代码（dev/test 共享 schema）时退化为裸 key。
+            function _nsKey(base) {
+                return _code ? (base + '__' + _code) : base;
+            }
+
             var _code = _extractCode();
-            var _token = localStorage.getItem('auth_token');
-            var _guest = localStorage.getItem('guest_token');
+            var _token = localStorage.getItem(_nsKey('auth_token'));
+            var _guest = localStorage.getItem(_nsKey('guest_token'));
 
             function _goLogin(reason) {
                 console.warn('[auth] 拒绝进入学校控制台：', reason);
@@ -151,8 +157,16 @@
     
     <!-- 🎯 立即检查 URL 参数并隐藏菜单 -->
     <script>
+        // TD-TenantIsolation：按学校命名空间读取 token（与 AuthService._nsKey 一致）
+        (function () {
+            var m = location.pathname.match(/^\/([a-z0-9-]+)\//);
+            var code = m ? m[1] : (new URLSearchParams(location.search).get('school') || '');
+            var adminKey = code ? ('auth_token__' + code) : 'auth_token';
+            var guestKey = code ? ('guest_token__' + code) : 'guest_token';
+            window.__isGuestLoggedIn = !localStorage.getItem(adminKey) && !!localStorage.getItem(guestKey);
+        })();
         // 检查是否是访客模式（URL参数 或 localStorage 中有访客token但无管理员token）
-        const _isGuestLoggedIn = !localStorage.getItem('auth_token') && !!localStorage.getItem('guest_token');
+        const _isGuestLoggedIn = window.__isGuestLoggedIn;
         const isQuickAccess = new URLSearchParams(window.location.search).get('quickAccess') === 'true' || _isGuestLoggedIn;
         
         console.log('===== 页面加载调试信息 =====');

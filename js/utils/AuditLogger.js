@@ -4,6 +4,8 @@
  * Key 格式：audit_YYYY-MM-DD
  * 最多保留 30 天日志
  */
+// TD-TenantIsolation：认证态 key 已按学校命名空间隔离，读取需拼 schoolCode 前缀
+import { extractSchoolCode } from './schoolCode.js';
 
 const MAX_DAYS = 30;
 
@@ -33,7 +35,9 @@ function getTodayKey() {
 
 function getCurrentUser() {
     try {
-        const raw = localStorage.getItem('current_user');
+        // TD-TenantIsolation：按当前学校命名空间读取
+        const code = extractSchoolCode() || '';
+        const raw = localStorage.getItem(code ? `current_user__${code}` : 'current_user');
         if (!raw) return '未知用户';
         const user = JSON.parse(raw);
         return user.fullName || user.username || '未知用户';
@@ -56,7 +60,10 @@ export function logOperation(action, resourceType = null, resourceId = null, det
 
         // RK44: 审计日志补充 school_code，便于多租户审计检索
         let userObj = null;
-        try { userObj = JSON.parse(localStorage.getItem('current_user') || 'null'); } catch { /* ignore */ }
+        try {
+        const code = extractSchoolCode() || '';
+        userObj = JSON.parse(localStorage.getItem(code ? `current_user__${code}` : 'current_user') || 'null');
+    } catch { /* ignore */ }
         const sc = schoolCode || (userObj && (userObj.schoolCode || userObj.school_code)) || '未知学校';
 
         existing.push({

@@ -2,6 +2,9 @@
  * 身份认证服务模块 (Authentication Service)
  * 负责处理用户身份识别和敏感操作的权限校验
  */
+// TD-TenantIsolation：认证态 key 已按学校命名空间隔离，读取需拼 schoolCode 前缀
+import { extractSchoolCode } from '../utils/schoolCode.js';
+
 export class OperationGuard {
     /**
      * 核心功能：敏感操作权限控制
@@ -23,7 +26,9 @@ export class OperationGuard {
      */
     getCurrentUser() {
         try {
-            const raw = localStorage.getItem('current_user');
+            // TD-TenantIsolation：按当前学校命名空间读取用户信息
+            const code = extractSchoolCode() || '';
+            const raw = localStorage.getItem(code ? `current_user__${code}` : 'current_user');
             if (!raw) return '未知用户';
             const user = JSON.parse(raw);
             return user.fullName || user.username || '未知用户';

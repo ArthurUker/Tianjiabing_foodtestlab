@@ -247,9 +247,10 @@ function initCanteenFilter() {
 
 function getRecordCanteen(record) {
     if (!record || typeof record !== 'object') return '';
+    // ⚠️ 不再回退 record.location：location 是餐具检测中的"检测点位"（如餐具表面、砧板表面），
+    // 不是食堂名称。若 canteen 为空而 location 有值，会把检测点位误当作食堂显示在合格率对比图中。
     return (
         record.canteen ||
-        record.location ||
         record.canteenName ||
         record.diningHall ||
         ''

@@ -4,6 +4,8 @@
  */
 
 import { authService } from './AuthService.js';
+// TD-TenantIsolation：访客令牌 key 已按学校命名空间隔离，读取需拼 schoolCode 前缀
+import { extractSchoolCode } from '../utils/schoolCode.js';
 
 export class PermissionService {
     constructor() {
@@ -75,7 +77,10 @@ export class PermissionService {
         // 如果是访客用户，返回访客的权限列表
         if (!user) {
             // 无登录用户：检查 localStorage 中是否有访客令牌，返回访客权限
-            if (typeof localStorage !== 'undefined' && localStorage.getItem('guest_token')) {
+            // TD-TenantIsolation：按命名空间读取（与 GuestAuthService._nsKey 一致）
+            const code = extractSchoolCode() || '';
+            const guestKey = code ? `guest_token__${code}` : 'guest_token';
+            if (typeof localStorage !== 'undefined' && localStorage.getItem(guestKey)) {
                 return this.rolePermissionMap['guest'] || [];
             }
             return [];

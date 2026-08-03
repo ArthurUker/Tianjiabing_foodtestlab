@@ -458,8 +458,15 @@
         }
 
         // 每次打开登录页时清除访客 session（访客为临时身份，不自动重登录）
-        localStorage.removeItem('guest_token');
-        localStorage.removeItem('current_guest');
+        // TD-TenantIsolation：按学校命名空间清除（与 GuestAuthService._nsKey 一致）
+        (function () {
+            var lm = location.pathname.match(/^\/([a-z0-9-]+)\//);
+            var lcode = lm ? lm[1] : (new URLSearchParams(location.search).get('school') || '');
+            var gKey = lcode ? ('guest_token__' + lcode) : 'guest_token';
+            var cKey = lcode ? ('current_guest__' + lcode) : 'current_guest';
+            localStorage.removeItem(gKey);
+            localStorage.removeItem(cKey);
+        })();
         
         // ===== 管理员登录表单元素 =====
         const form = document.getElementById('loginForm');

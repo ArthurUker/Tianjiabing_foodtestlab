@@ -6,6 +6,13 @@
 import { authService } from '../services/AuthService.js';
 import { permissionService } from '../services/PermissionService.js';
 import { GuestAuthService } from '../services/GuestAuthService.js';
+// TD-TenantIsolation：存储事件与登出清除需使用命名空间 key（与 AuthService._nsKey 一致）
+import { extractSchoolCode } from '../utils/schoolCode.js';
+
+function _ns(base) {
+    const code = extractSchoolCode() || '';
+    return code ? `${base}__${code}` : base;
+}
 
 // P2-05: 模块级共享单例，避免 Router 各方法每次调用都实例化新的 GuestAuthService
 const guestAuthService = new GuestAuthService();
@@ -69,11 +76,11 @@ export class Router {
 
             // 监听存储变化（用于跨标签页登出同步）
             window.addEventListener('storage', (e) => {
-                if (e.key === 'auth_token' && !authService.getToken()) {
+                if (e.key === _ns('auth_token') && !authService.getToken()) {
                     console.log('🔔 用户在其他标签页登出，本页面也进行登出');
                     this.handleLogout();
                 }
-                if (e.key === 'guest_token' && !guestAuthService.getToken()) {
+                if (e.key === _ns('guest_token') && !guestAuthService.getToken()) {
                     console.log('🔔 访客在其他标签页登出，本页面也进行登出');
                     this.handleLogout();
                 }
@@ -269,10 +276,11 @@ export class Router {
             
             // 清除所有本地存储数据
             console.log('  3️⃣ 清除本地存储...');
+            // TD-TenantIsolation：认证态 key 按命名空间清除（其余缓存 key 不带命名空间，照常清）
             const clearKeys = ['auth_token', 'current_user', 'token_expiry', 'refresh_token', 'guest_token', 'current_guest', 'is_quick_access', 'cache_tableware', 'cache_pesticide', 'cache_oil', 'cache_leanMeat', 'cache_pathogen'];
             clearKeys.forEach(key => {
-                localStorage.removeItem(key);
-                sessionStorage.removeItem(key);
+                localStorage.removeItem(_ns(key));
+                sessionStorage.removeItem(_ns(key));
             });
             console.log(`  已清除 ${clearKeys.length} 个存储项`);
             

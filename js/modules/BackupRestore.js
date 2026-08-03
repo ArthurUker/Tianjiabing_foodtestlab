@@ -600,7 +600,10 @@ export class BackupRestoreService {
         const btn = document.getElementById('btn-cloud-restore');
         if(btn) btn.disabled = true;
 
-        const token = localStorage.getItem('auth_token') || localStorage.getItem('guest_token');
+        // TD-TenantIsolation：按当前学校命名空间读取 token（与 AuthService._nsKey 一致）
+        const _code = extractSchoolCode() || '';
+        const token = localStorage.getItem(_code ? `auth_token__${_code}` : 'auth_token')
+            || localStorage.getItem(_code ? `guest_token__${_code}` : 'guest_token');
         if (!token || token.startsWith('temp-token-')) {
             this.showStatus('❌ 云端同步需要登录有效账号后再执行', 'red');
             UINotification.error('请先使用有效账号登录后再执行云端同步');
@@ -629,7 +632,19 @@ export class BackupRestoreService {
                     // 兼容历史数据中的 data 嵌套结构
                     const content = (row.data && typeof row.data === 'object') ? row.data : row;
                     // 标记为已同步
-                    return { ...content, id: row.id, _status: 'synced' };
+                    const cleaned = { ...content, id: row.id, _status: 'synced' };
+                    // 净化历史脏数据：canteen 为空且 location 为合法食堂名时回填
+                    const info = cleaned.sample_info && typeof cleaned.sample_info === 'object' ? cleaned.sample_info : null;
+                    if (info) {
+                        const VALID_CANTEENS = ['一食堂', '二食堂', '三食堂'];
+                        const canteen = (info.canteen || '').toString().trim();
+                        const location = (info.location || '').toString().trim();
+                        if (!canteen && location && VALID_CANTEENS.includes(location)) {
+                            info.canteen = location;
+                            delete info.location;
+                        }
+                    }
+                    return cleaned;
                 });
 
                 // 直接写入缓存
@@ -1005,7 +1020,10 @@ export class BackupRestoreService {
     }
 
     async uploadRestoredDataToServer(restoredTableRecords) {
-        const token = localStorage.getItem('auth_token') || localStorage.getItem('guest_token');
+        // TD-TenantIsolation：按当前学校命名空间读取 token（与 AuthService._nsKey 一致）
+        const _code = extractSchoolCode() || '';
+        const token = localStorage.getItem(_code ? `auth_token__${_code}` : 'auth_token')
+            || localStorage.getItem(_code ? `guest_token__${_code}` : 'guest_token');
         if (!token || token.startsWith('temp-token-')) {
             throw new Error('缺少有效登录态，无法上传到服务器');
         }

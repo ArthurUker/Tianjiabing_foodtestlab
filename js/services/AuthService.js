@@ -5,6 +5,8 @@
 
 import { auditService } from './AuditService.js';
 import { maskSensitive } from '../utils/fieldMasking.js';
+// TD-TenantIsolation：引入租户标识，用于认证态 key 的命名空间隔离
+import { extractSchoolCode } from '../utils/schoolCode.js';
 // REG-02/NB-05: 导入 permissionService 以便 clearAuth 清除权限缓存
 import { permissionService } from './PermissionService.js';
 
@@ -27,6 +29,15 @@ export class AuthService {
         this.refreshRotatedAtKey = 'auth_refresh_rotated_at'; // 任一标签页最近一次成功轮转 refresh 的时间（信标）
         this.refreshLockKey = 'auth_refresh_lock';            // 跨标签页刷新锁（Web Locks 不可用时的回退）
         this.refreshSavedAtKey = 'refresh_token_saved_at';    // 本标签页 refresh token 的保存时间（sessionStorage，随复制标签页一起被复制）
+
+        // TD-TenantIsolation：租户命名空间隔离，根治「同一浏览器不同窗口开不同学校时
+        // token 串租户」。浏览器 localStorage/sessionStorage 按「同源」共享、不按租户隔离，
+        // 原先所有租户共用裸 key（auth_token / current_user），窗口 A（学校 A）登录后写入的
+        // token 会被窗口 B（学校 B）以同一裸 key 读出 → 用错租户的 token 验证。
+        // 解决方案：把认证态 key 加上 schoolCode 命名空间前缀（auth_token__<schoolCode>），
+        // 不同学校的 key 互不可见，自然隔离。无 schoolCode（dev/test 共享 schema）时退化为
+        // 裸 key，保持旧行为。
+        this._ns = extractSchoolCode() || '';
 
         // DS-17: 内存态 token 作为第一优先读取源（XSS 需精确命中该实例才能读到）。
         // sessionStorage 为第二优先（页面关闭即清）；localStorage 仅作兼容层保留——
@@ -52,6 +63,15 @@ export class AuthService {
 
         // 初始化时检查是否已登录
         this.init();
+    }
+
+    /**
+     * 返回带租户命名空间的存储 key。
+     * @param {string} base 裸 key（如 'auth_token'）
+     * @returns {string} 命名空间化 key（如 'auth_token__demo'），无租户时原样返回
+     */
+    _nsKey(base) {
+        return this._ns ? `${base}__${this._ns}` : base;
     }
 
     /**
@@ -81,17 +101,17 @@ export class AuthService {
      */
     _adoptSharedToken() {
         try {
-            const shared = localStorage.getItem(this.tokenKey);
+            const shared = localStorage.getItem(this._nsKey(this.tokenKey));
             if (!isPlausibleJwt(shared)) return null;
             // 与本地持有的是同一份 → 没有"别人刷出的新 token"可采用。
             // ⚠️ 不能返回该 token：401 触发的刷新走到这里时，服务端已拒绝这份 token，
             // 若把它当"已被其他标签页刷新"返回成功，会短路掉真正必需的网络刷新。
             if (shared === this._memToken) return null;
-            const updatedAt = Number(localStorage.getItem(this.tokenUpdatedAtKey)) || 0;
+            const updatedAt = Number(localStorage.getItem(this._nsKey(this.tokenUpdatedAtKey))) || 0;
             if (updatedAt <= this._memTokenUpdatedAt) return null;
             this._memToken = shared;
             this._memTokenUpdatedAt = updatedAt;
-            try { sessionStorage.setItem(this.tokenKey, shared); } catch (e) { /* 存储不可用时忽略 */ }
+            try { sessionStorage.setItem(this._nsKey(this.tokenKey), shared); } catch (e) { /* 存储不可用时忽略 */ }
             return shared;
         } catch (e) {
             return null;
@@ -386,13 +406,13 @@ export class AuthService {
         try {
             for (;;) {
                 let cur = null;
-                try { cur = JSON.parse(localStorage.getItem(this.refreshLockKey) || 'null'); } catch (e) { cur = null; }
+                try { cur = JSON.parse(localStorage.getItem(this._nsKey(this.refreshLockKey)) || 'null'); } catch (e) { cur = null; }
                 const now = Date.now();
                 if (!cur || !cur.ts || (now - cur.ts) > LOCK_TTL) {
-                    localStorage.setItem(this.refreshLockKey, JSON.stringify({ id: this._tabId, ts: now }));
+                    localStorage.setItem(this._nsKey(this.refreshLockKey), JSON.stringify({ id: this._tabId, ts: now }));
                     await sleep(20); // 等一拍再复读，缩小 check-then-set 竞争窗口
                     let after = null;
-                    try { after = JSON.parse(localStorage.getItem(this.refreshLockKey) || 'null'); } catch (e) { after = null; }
+                    try { after = JSON.parse(localStorage.getItem(this._nsKey(this.refreshLockKey)) || 'null'); } catch (e) { after = null; }
                     if (after && after.id === this._tabId) return true;
                     // 被并发覆盖 → 对方持锁，继续等待
                 }
@@ -407,8 +427,8 @@ export class AuthService {
 
     _releaseStorageLock() {
         try {
-            const cur = JSON.parse(localStorage.getItem(this.refreshLockKey) || 'null');
-            if (cur && cur.id === this._tabId) localStorage.removeItem(this.refreshLockKey);
+            const cur = JSON.parse(localStorage.getItem(this._nsKey(this.refreshLockKey)) || 'null');
+            if (cur && cur.id === this._tabId) localStorage.removeItem(this._nsKey(this.refreshLockKey));
         } catch (e) { /* 忽略 */ }
     }
 
@@ -421,7 +441,7 @@ export class AuthService {
         if (adopted && !this.isTokenExpired()) {
             // 其他标签页已完成轮转：若本标签页 refresh token 早于最近一次轮转信标，
             // 它已在服务端被标记 rotated，再使用必触发重放判定 → 主动丢弃。
-            const rotatedAt = Number(localStorage.getItem(this.refreshRotatedAtKey)) || 0;
+            const rotatedAt = Number(localStorage.getItem(this._nsKey(this.refreshRotatedAtKey))) || 0;
             if (this._refreshTokenSavedAt && rotatedAt > this._refreshTokenSavedAt) {
                 this._discardRefreshToken();
             }
@@ -435,7 +455,7 @@ export class AuthService {
         try {
             // 第六轮：若本标签页 refresh token 已确认被其他标签页轮转（信标晚于保存时间），
             // 发出去必被判定二次使用——直接丢弃并尝试采用共享 token，不发注定失败的请求。
-            const rotatedAt = Number(localStorage.getItem(this.refreshRotatedAtKey)) || 0;
+            const rotatedAt = Number(localStorage.getItem(this._nsKey(this.refreshRotatedAtKey))) || 0;
             if (this._refreshTokenSavedAt && rotatedAt > this._refreshTokenSavedAt) {
                 this._discardRefreshToken();
                 const shared = this._adoptSharedToken();
@@ -507,7 +527,7 @@ export class AuthService {
                 this.saveRefreshToken(data.refreshToken);
                 // 第六轮：写轮转信标——通知（并留证给）其他标签页：旧 refresh token 已作废。
                 // 持有更早 refresh token 的标签页据此主动丢弃，不再发出注定触发重放判定的请求。
-                try { localStorage.setItem(this.refreshRotatedAtKey, String(Date.now())); } catch (e) { /* 忽略 */ }
+                try { localStorage.setItem(this._nsKey(this.refreshRotatedAtKey), String(Date.now())); } catch (e) { /* 忽略 */ }
             }
 
             console.log('✅ Token 已刷新');
@@ -529,24 +549,25 @@ export class AuthService {
         if (isPlausibleJwt(this._memToken)) return this._memToken;
 
         // 主存储：sessionStorage（标签页独立，不受其他标签页登录/登出影响）
-        const fromSession = sessionStorage.getItem(this.tokenKey);
+        // TD-TenantIsolation：所有读取均走 _nsKey(...) 命名空间 key，因此即使 localStorage
+        // 是同源共享，本窗口（学校 B）也只命中 auth_token__schoolB，绝不会读到窗口 A（学校 A）
+        // 的 token。下面 localStorage 回退分支已是「本租户命名空间内」的兼容读取，安全。
+        const nsTokenKey = this._nsKey(this.tokenKey);
+        const fromSession = sessionStorage.getItem(nsTokenKey);
         if (isPlausibleJwt(fromSession)) {
             this._memToken = fromSession;
             return fromSession;
         }
 
-        // 兼容路径：旧标签页/旧代码可能只在 localStorage 写了 token（如 login.html 跳转后首次加载）
-        const fromLocal = localStorage.getItem(this.tokenKey);
+        const fromLocal = localStorage.getItem(nsTokenKey);
         if (isPlausibleJwt(fromLocal)) {
-            // 回填到 sessionStorage，后续本标签页以此为准
             this._memToken = fromLocal;
-            try { sessionStorage.setItem(this.tokenKey, fromLocal); } catch (e) { /* 存储不可用时忽略 */ }
+            try { sessionStorage.setItem(nsTokenKey, fromLocal); } catch (e) { /* 忽略 */ }
             return fromLocal;
         }
 
-        // 三层均无有效 token：清除残留
+        // 两层均无有效 token：清除残留内存态
         this._memToken = null;
-        try { sessionStorage.removeItem(this.tokenKey); } catch (e) { /* 存储不可用时忽略 */ }
         return null;
     }
 
@@ -555,16 +576,17 @@ export class AuthService {
      * @returns {object|null}
      */
     getUser() {
-        // 主存储：sessionStorage（标签页独立），localStorage 为降级兼容
-        let userStr = sessionStorage.getItem(this.userKey);
-        if (!userStr) userStr = localStorage.getItem(this.userKey);
+        // TD-TenantIsolation：统一走 _nsKey 命名空间 key
+        const nsUserKey = this._nsKey(this.userKey);
+        let userStr = sessionStorage.getItem(nsUserKey);
+        if (!userStr) userStr = localStorage.getItem(nsUserKey);
         if (!userStr) return null;
         try {
             return JSON.parse(userStr);
         } catch (e) {
             console.error('❌ current_user 解析失败，清除损坏数据:', e.message);
-            sessionStorage.removeItem(this.userKey);
-            localStorage.removeItem(this.userKey);
+            sessionStorage.removeItem(nsUserKey);
+            localStorage.removeItem(nsUserKey);
             return null;
         }
     }
@@ -583,9 +605,10 @@ export class AuthService {
      * @returns {boolean}
      */
     isTokenExpired() {
-        // 主存储：sessionStorage（标签页独立），localStorage 降级
-        let expiry = sessionStorage.getItem(this.tokenExpiryKey);
-        if (!expiry) expiry = localStorage.getItem(this.tokenExpiryKey);
+        // TD-TenantIsolation：统一走 _nsKey 命名空间 key
+        const nsExpiryKey = this._nsKey(this.tokenExpiryKey);
+        let expiry = sessionStorage.getItem(nsExpiryKey);
+        if (!expiry) expiry = localStorage.getItem(nsExpiryKey);
         if (!expiry) return true;
 
         const expiryTime = parseInt(expiry, 10);
@@ -610,21 +633,27 @@ export class AuthService {
     saveToken(token, expiresIn) {
         const safeExpiresIn = Number.isFinite(Number(expiresIn)) ? Number(expiresIn) : 3600;
 
-        // DS-17: 内存 + sessionStorage 为主存储；localStorage 保留为兼容层
-        // （Storage.js/BackupRestore.js/AuditService.js 直接读、Router/SessionManager 依赖其 storage 事件做跨标签登出）
+        // TD-TenantIsolation：token 双写内存 + sessionStorage + localStorage，但三处均使用
+        // 带 schoolCode 命名空间的 key（auth_token__<schoolCode>）。不同学校的 key 互不可见，
+        // 窗口 B（学校 B）读取时只会命中 auth_token__schoolB，绝不会拿到窗口 A（学校 A）的
+        // auth_token__schoolA，从根上消除「同一浏览器不同窗口串租户 token」。
+        // 注意：保留 localStorage 双写是为兼容 Storage.js/AuditService.js 等直接读
+        // localStorage['auth_token'] 的旧模块（见下方 _nsKey 命名空间化同样作用于它们）。
         this._memToken = token;
-        try { sessionStorage.setItem(this.tokenKey, token); } catch (e) { /* 存储不可用时忽略 */ }
-        localStorage.setItem(this.tokenKey, token);
+        const nsTokenKey = this._nsKey(this.tokenKey);
+        try { sessionStorage.setItem(nsTokenKey, token); } catch (e) { /* 存储不可用时忽略 */ }
+        try { localStorage.setItem(nsTokenKey, token); } catch (e) { /* 存储不可用时忽略 */ }
 
-        // 第六轮：记录共享写入时间戳，供其他标签页 _adoptSharedToken() 判定新旧
+        // 第六轮：记录写入时间戳（带命名空间，避免跨租户刷新信标误触发）
         this._memTokenUpdatedAt = Date.now();
-        try { localStorage.setItem(this.tokenUpdatedAtKey, String(this._memTokenUpdatedAt)); } catch (e) { /* 忽略 */ }
+        try { localStorage.setItem(this._nsKey(this.tokenUpdatedAtKey), String(this._memTokenUpdatedAt)); } catch (e) { /* 忽略 */ }
 
-        // 计算过期时间 (当前时间 + 过期时间)，双写避免跨标签污染
+        // 计算过期时间 (当前时间 + 过期时间)，双写（带命名空间）
         const expiryTime = Date.now() + (safeExpiresIn * 1000);
         const expiryStr = expiryTime.toString();
-        try { sessionStorage.setItem(this.tokenExpiryKey, expiryStr); } catch (e) { /* 忽略 */ }
-        localStorage.setItem(this.tokenExpiryKey, expiryStr);
+        const nsExpiryKey = this._nsKey(this.tokenExpiryKey);
+        try { sessionStorage.setItem(nsExpiryKey, expiryStr); } catch (e) { /* 忽略 */ }
+        try { localStorage.setItem(nsExpiryKey, expiryStr); } catch (e) { /* 忽略 */ }
     }
 
     /**
@@ -632,9 +661,10 @@ export class AuthService {
      * @param {object} user - 用户对象
      */
     saveUser(user) {
-        // 双写：sessionStorage 为主（标签页独立），localStorage 为兼容层
-        try { sessionStorage.setItem(this.userKey, JSON.stringify(user)); } catch (e) { /* 存储不可用时忽略 */ }
-        localStorage.setItem(this.userKey, JSON.stringify(user));
+        // TD-TenantIsolation：用户信息同样带命名空间双写，避免窗口 B 读到窗口 A 的用户。
+        const nsUserKey = this._nsKey(this.userKey);
+        try { sessionStorage.setItem(nsUserKey, JSON.stringify(user)); } catch (e) { /* 存储不可用时忽略 */ }
+        try { localStorage.setItem(nsUserKey, JSON.stringify(user)); } catch (e) { /* 存储不可用时忽略 */ }
     }
 
     /**
@@ -684,30 +714,32 @@ export class AuthService {
         // DS-17: 同步清除内存态与 sessionStorage 副本
         this._memToken = null;
         this._memRefreshToken = null;
-        sessionStorage.removeItem(this.tokenKey);
-        sessionStorage.removeItem(this.userKey);
-        sessionStorage.removeItem(this.tokenExpiryKey);
+        // TD-TenantIsolation：userKey/tokenExpiryKey 均带命名空间清除
+        sessionStorage.removeItem(this._nsKey(this.tokenKey));
+        sessionStorage.removeItem(this._nsKey(this.userKey));
+        sessionStorage.removeItem(this._nsKey(this.tokenExpiryKey));
         sessionStorage.removeItem(this.refreshTokenKey);
-        localStorage.removeItem(this.tokenKey);
-        localStorage.removeItem(this.userKey);
-        localStorage.removeItem(this.tokenExpiryKey);
+        localStorage.removeItem(this._nsKey(this.tokenKey));
+        localStorage.removeItem(this._nsKey(this.userKey));
+        localStorage.removeItem(this._nsKey(this.tokenExpiryKey));
         localStorage.removeItem(this.refreshTokenKey);
-        // 第六轮：清除跨标签协调键（信标/时间戳/锁），防止残值影响下次会话
+        // 第六轮：清除跨标签协调键（信标/时间戳/锁），带命名空间隔离防止跨租户误触发
         this._memTokenUpdatedAt = 0;
         this._refreshTokenSavedAt = 0;
         try {
             sessionStorage.removeItem(this.refreshSavedAtKey);
-            localStorage.removeItem(this.tokenUpdatedAtKey);
-            localStorage.removeItem(this.refreshRotatedAtKey);
-            localStorage.removeItem(this.refreshLockKey);
+            localStorage.removeItem(this._nsKey(this.tokenUpdatedAtKey));
+            localStorage.removeItem(this._nsKey(this.refreshRotatedAtKey));
+            localStorage.removeItem(this._nsKey(this.refreshLockKey));
         } catch (e) { /* 忽略 */ }
         // 同时清除访客态，避免登出后 guest_token 残留导致越权（TD-Logout-Token）
-        localStorage.removeItem('guest_token');
-        localStorage.removeItem('current_guest');
-        localStorage.removeItem('is_quick_access');
-        sessionStorage.removeItem('guest_token');
-        sessionStorage.removeItem('current_guest');
-        sessionStorage.removeItem('is_quick_access');
+        // TD-TenantIsolation：访客态 key 同样按命名空间清除（与 GuestAuthService._nsKey 一致）
+        localStorage.removeItem(this._nsKey('guest_token'));
+        localStorage.removeItem(this._nsKey('current_guest'));
+        localStorage.removeItem(this._nsKey('is_quick_access'));
+        sessionStorage.removeItem(this._nsKey('guest_token'));
+        sessionStorage.removeItem(this._nsKey('current_guest'));
+        sessionStorage.removeItem(this._nsKey('is_quick_access'));
         // RK14/RK26: 清除学校定制缓存，防止上一账号/学校的配置泄漏到下次会话
         try {
             const staleKeys = [];

@@ -2,6 +2,8 @@ import { StorageService } from '../core/Storage.js';  // ✅ 添加导入
 import { UINotification } from '../utils/UINotification.js';
 import { isRecordQualifiedByCustomFields } from '../utils/schoolCustomization.js';
 import { getLocalDateStr } from '../utils/dateUtil.js';
+// TD-TenantIsolation：认证态 key 已按学校命名空间隔离，读取需拼 schoolCode 前缀
+import { extractSchoolCode } from '../utils/schoolCode.js';
 // BS-12: 敏感自定义字段（姓名/手机等）导出前脱敏
 import { maskSensitive, getSensitiveMarkedCustomFields } from '../utils/fieldMasking.js';
 
@@ -341,7 +343,10 @@ export class ExportService {
         await Promise.all(types.map(async (type) => {
             try {
                 // 尝试从后端获取最新数据
-                const token = localStorage.getItem('auth_token') || localStorage.getItem('guest_token');
+                // TD-TenantIsolation：按当前学校命名空间读取 token（与 AuthService._nsKey 一致）
+                const _code = extractSchoolCode() || '';
+                const token = localStorage.getItem(_code ? `auth_token__${_code}` : 'auth_token')
+                    || localStorage.getItem(_code ? `guest_token__${_code}` : 'guest_token');
                 const response = await fetch(`/api/records/${type}?limit=10000`, {
                     headers: token ? { 'Authorization': `Bearer ${token}` } : {}
                 });

@@ -22,15 +22,26 @@ export class GuestAuthService {
     }
 
     /**
+     * TD-TenantIsolation：访客态 key 同样按 schoolCode 命名空间隔离，避免同一浏览器
+     * 不同学校窗口的 guest_token / current_guest 互相串读（与 AuthService._nsKey 一致）。
+     */
+    _nsKey(base) {
+        const code = extractSchoolCode() || '';
+        return code ? `${base}__${code}` : base;
+    }
+
+    /**
      * DS-17: 统一保存访客会话（内存 + sessionStorage 为主，localStorage 兼容层）
      * @param {string} token
      * @param {object} guest
      */
     _storeGuestSession(token, guest) {
         this._memToken = token;
-        try { sessionStorage.setItem('guest_token', token); } catch (e) { /* 存储不可用时忽略 */ }
-        localStorage.setItem('guest_token', token);
-        localStorage.setItem('current_guest', JSON.stringify(guest));
+        const nsGuest = this._nsKey('guest_token');
+        const nsCurrent = this._nsKey('current_guest');
+        try { sessionStorage.setItem(nsGuest, token); } catch (e) { /* 存储不可用时忽略 */ }
+        localStorage.setItem(nsGuest, token);
+        localStorage.setItem(nsCurrent, JSON.stringify(guest));
     }
 
     /**
@@ -144,13 +155,13 @@ export class GuestAuthService {
      * @returns {object|null}
      */
     getCurrentGuest() {
-        const guest = localStorage.getItem('current_guest');
+        const guest = localStorage.getItem(this._nsKey('current_guest'));
         if (!guest) return null;
         try {
             return JSON.parse(guest);
         } catch (e) {
             console.error('❌ current_guest 解析失败，清除损坏数据:', e.message);
-            localStorage.removeItem('current_guest');
+            localStorage.removeItem(this._nsKey('current_guest'));
             return null;
         }
     }
@@ -161,18 +172,19 @@ export class GuestAuthService {
      * @returns {string|null}
      */
     getToken() {
-        const fromLocal = localStorage.getItem('guest_token');
+        const nsGuest = this._nsKey('guest_token');
+        const fromLocal = localStorage.getItem(nsGuest);
 
         // 兼容层副本不存在（未登录/已在其它标签页登出）→ 同步失效内存/session 副本
         if (!fromLocal) {
             this._memToken = null;
-            try { sessionStorage.removeItem('guest_token'); } catch (e) { /* 存储不可用时忽略 */ }
+            try { sessionStorage.removeItem(nsGuest); } catch (e) { /* 存储不可用时忽略 */ }
             return null;
         }
 
         if (isPlausibleJwt(this._memToken)) return this._memToken;
 
-        const fromSession = sessionStorage.getItem('guest_token');
+        const fromSession = sessionStorage.getItem(nsGuest);
         if (isPlausibleJwt(fromSession)) {
             this._memToken = fromSession;
             return fromSession;
@@ -181,13 +193,13 @@ export class GuestAuthService {
         if (isPlausibleJwt(fromLocal)) {
             // 兼容路径：login.html 注册/登录后跳转 → 回填内存/sessionStorage
             this._memToken = fromLocal;
-            try { sessionStorage.setItem('guest_token', fromLocal); } catch (e) { /* 存储不可用时忽略 */ }
+            try { sessionStorage.setItem(nsGuest, fromLocal); } catch (e) { /* 存储不可用时忽略 */ }
             return fromLocal;
         }
 
         // 存在但形态非法（被篡改/脏数据）：清除
         console.warn('⚠️ 检测到非法格式的 guest_token，已清除');
-        localStorage.removeItem('guest_token');
+        localStorage.removeItem(nsGuest);
         return null;
     }
 
@@ -196,10 +208,12 @@ export class GuestAuthService {
      */
     logout() {
         this._memToken = null;
-        sessionStorage.removeItem('guest_token');
-        sessionStorage.removeItem('current_guest');
-        localStorage.removeItem('guest_token');
-        localStorage.removeItem('current_guest');
+        const nsGuest = this._nsKey('guest_token');
+        const nsCurrent = this._nsKey('current_guest');
+        sessionStorage.removeItem(nsGuest);
+        sessionStorage.removeItem(nsCurrent);
+        localStorage.removeItem(nsGuest);
+        localStorage.removeItem(nsCurrent);
     }
 
     /**

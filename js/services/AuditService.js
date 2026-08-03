@@ -15,6 +15,8 @@
  */
 
 import { logOperation } from '../utils/AuditLogger.js'
+// TD-TenantIsolation：认证态 key 已按学校命名空间隔离，读取需拼 schoolCode 前缀
+import { extractSchoolCode } from '../utils/schoolCode.js'
 
 // 与 AuthService 一致：同源部署走相对路径，特殊环境经 window.__API_BASE_URL 覆盖。
 function getApiBaseUrl() {
@@ -26,7 +28,9 @@ function getApiBaseUrl() {
 
 function getAuthToken() {
     try {
-        return localStorage.getItem('auth_token') || null
+        // TD-TenantIsolation：按当前学校命名空间读取（与 AuthService._nsKey 一致）
+        const code = extractSchoolCode() || ''
+        return localStorage.getItem(code ? `auth_token__${code}` : 'auth_token') || null
     } catch {
         return null
     }

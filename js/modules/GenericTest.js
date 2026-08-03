@@ -232,9 +232,9 @@ export class GenericTestModule {
 
     getRecordCanteen(record) {
         if (!record || typeof record !== 'object') return '';
+        // ⚠️ 不再回退 record.location：location 是检测点位而非食堂名称，避免误显示
         return (
             record.canteen ||
-            record.location ||
             record.canteenName ||
             record.diningHall ||
             ''

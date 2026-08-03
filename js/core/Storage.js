@@ -2,6 +2,8 @@
 
 import { auditService } from '../services/AuditService.js';
 import { AdaptiveUploadQueue } from './AdaptiveUploadQueue.js';
+// TD-TenantIsolation：认证态 key 已按学校命名空间隔离，读取需拼 schoolCode 前缀
+import { extractSchoolCode } from '../utils/schoolCode.js';
 
 const DEFAULT_CONFIG = {
     apiBaseUrl: '/api/records',
@@ -210,8 +212,10 @@ export class StorageService {
     }
 
     _getAuthToken() {
-        const adminToken = localStorage.getItem('auth_token');
-        const guestToken = localStorage.getItem('guest_token');
+        // TD-TenantIsolation：按当前学校命名空间读取（与 AuthService._nsKey 保持一致）
+        const code = extractSchoolCode() || '';
+        const adminToken = localStorage.getItem(code ? `auth_token__${code}` : 'auth_token');
+        const guestToken = localStorage.getItem(code ? `guest_token__${code}` : 'guest_token');
         return adminToken || guestToken || null;
     }
 
@@ -468,6 +472,46 @@ export class StorageService {
             localStorage.setItem(this.pendingRequestsKey, JSON.stringify([]));
         }
         this._loadPersistedFingerprintIndex();
+        this._migrateCache(); // 净化已存在于 localStorage 的历史脏数据（如田家炳中学）
+    }
+
+    // 历史脏数据净化：部分旧记录 canteen(食堂) 为空，而 location 被误填成
+    // 「检测点位 / 设备芯片编号」(如"芯片编号"/"餐具表面")。此处把 location
+    // 确实是合法食堂名的情况回填到 canteen，其余保持原样（不再被 getRecordCanteen 当作食堂）。
+    _normalizeRecord(rec) {
+        if (!rec || typeof rec !== 'object') return rec;
+        const info = rec.sample_info && typeof rec.sample_info === 'object' ? rec.sample_info : null;
+        if (!info) return rec;
+        // 合法食堂名白名单（与 Dashboard.DEFAULT_CANTEENS 保持一致）
+        const VALID_CANTEENS = ['一食堂', '二食堂', '三食堂'];
+        const canteen = (info.canteen || '').toString().trim();
+        const location = (info.location || '').toString().trim();
+        if (!canteen && location && VALID_CANTEENS.includes(location)) {
+            info.canteen = location;
+            delete info.location; // 清空，避免再次被误读为食堂
+        }
+        return rec;
+    }
+
+    // 一次性迁移：把当前 localStorage 缓存里历史脏数据写回，确保已存在的田家炳中学
+    // 等数据在下次渲染前被净化。
+    _migrateCache() {
+        try {
+            const raw = localStorage.getItem(this.localCacheKey);
+            if (!raw) return;
+            const parsed = JSON.parse(raw);
+            const rows = Array.isArray(parsed) ? parsed : parsed && Array.isArray(parsed.data) ? parsed.data : null;
+            if (!rows) return;
+            let changed = false;
+            for (const r of rows) {
+                const before = JSON.stringify(r.sample_info);
+                this._normalizeRecord(r);
+                if (JSON.stringify(r.sample_info) !== before) changed = true;
+            }
+            if (changed) this._updateLocalCache(rows);
+        } catch {
+            /* 迁移失败不影响正常使用 */
+        }
     }
 
     _getLocalCacheData() {
@@ -475,9 +519,12 @@ export class StorageService {
             const raw = localStorage.getItem(this.localCacheKey);
             if (!raw) return [];
             const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed)) return parsed;
-            if (parsed && Array.isArray(parsed.data)) return parsed.data;
-            return [];
+            let rows;
+            if (Array.isArray(parsed)) rows = parsed;
+            else if (parsed && Array.isArray(parsed.data)) rows = parsed.data;
+            else return [];
+            // 读取即净化：保证任意来源（缓存/导入）的数据在消费前已规范
+            return rows.map((r) => this._normalizeRecord(r));
         } catch {
             return [];
         }

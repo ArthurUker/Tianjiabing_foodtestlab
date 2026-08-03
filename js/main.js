@@ -394,7 +394,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.log('🔧 GuestDashboard 初始化中...');
         try {
             // 🎯 关键修复：只有当访客已登录且管理员未登录时，才显示访客仪表板
-            const isAdminLoggedIn = router.getToken ? router.getToken() : localStorage.getItem('auth_token');
+            const isAdminLoggedIn = router.getToken ? router.getToken() : authService.getToken();
             const isGuestLoggedIn = guestAuthService.isLoggedIn();
             
             // DS-16: 仅打印是否持有 token 的布尔值，严禁输出 token 内容
