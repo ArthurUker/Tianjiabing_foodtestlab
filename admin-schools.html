@@ -128,9 +128,11 @@
     <!-- 顶部导航 -->
     <nav class="glass-dark text-white sticky top-0 z-50">
         <div class="container mx-auto px-4 py-3 flex justify-between items-center gap-4">
-            <!-- DS-BRAND-LAYOUT：校徽位置固定在标题左侧，不受宽度影响 -->
+            <!-- 平台超管顶部 logo：固定显示平台统一图标（盾牌），不显示任何学校校徽，避免超管产生"我在某校页面"的视觉混淆 -->
             <div class="flex items-center space-x-3 flex-1 min-w-0">
-                <span id="adminNavLogo" class="shrink-0 hidden"></span>
+                <span id="adminNavLogo" class="shrink-0 w-9 h-9 rounded-lg bg-white/20 flex items-center justify-center" title="平台超管">
+                    <i class="fas fa-shield-alt text-yellow-300 text-lg"></i>
+                </span>
                 <h1 class="text-xl font-bold truncate min-w-0">学校管理控制台</h1>
                 <span class="text-xs px-2 py-0.5 bg-white/20 rounded-full shrink-0">平台超管</span>
             </div>
@@ -272,6 +274,16 @@
                     </div>
                 </div>
 
+                <!-- 学校食堂信息：学校基本信息，保存后同步各检测模块的"食堂"下拉选项 -->
+                <div class="mb-4 p-4 border border-gray-200 rounded-lg bg-gray-50 md:col-span-2">
+                    <h3 class="font-medium text-gray-700 mb-1"><i class="fas fa-utensils mr-1 text-blue-600"></i>学校食堂信息</h3>
+                    <p class="text-xs text-gray-400 mb-3">维护该校的食堂列表。保存后，餐具洁净度 / 果蔬农残 / 食用油品质 / 肉蛋农残检测各模块的「食堂」下拉选项将自动同步。留空时使用默认：一食堂 / 二食堂 / 三食堂。</p>
+                    <div id="canteenList" class="flex flex-col gap-2 mb-2"></div>
+                    <button type="button" id="addCanteenBtn" class="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-sm hover:bg-blue-100 border border-blue-100 transition">
+                        <i class="fas fa-plus"></i> 添加食堂
+                    </button>
+                </div>
+
                 <!-- 校徽排版：属于「基本信息」，与上方校徽在「保存修改」时一并保存 -->
                 <!-- md:col-span-2：跨满整排，避免只占两栏网格的左半边导致预览不像真实整条顶部栏 -->
                 <div class="mb-4 p-4 border border-gray-200 rounded-lg bg-gray-50 md:col-span-2">
@@ -410,8 +422,23 @@
                         <option value="checkbox">勾选框</option>
                     </select>
                     <div id="spOptionsWrap" style="display:none;">
-                        <div class="text-xs text-gray-500 mb-1">下拉选项（逗号分隔，如：合格,不合格）</div>
-                        <input type="text" id="spOptions" class="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-3">
+                        <div class="text-xs text-gray-500 mb-1">下拉选项（点击 × 删除）</div>
+                        <div id="spOptionsList" class="flex flex-wrap gap-1.5 mb-2 min-h-[28px] p-1.5 border border-gray-200 rounded bg-gray-50">
+                            <span class="text-xs text-gray-400 italic px-1 self-center">暂无选项</span>
+                        </div>
+                        <div class="flex gap-1.5 mb-3">
+                            <input type="text" id="spOptionInput" placeholder="输入新选项后回车或点 + 添加" class="flex-1 border border-gray-300 rounded px-2 py-1 text-sm">
+                            <button type="button" id="spOptionAddBtn" class="px-2.5 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition">+ 添加</button>
+                        </div>
+                        <input type="hidden" id="spOptions">
+                    </div>
+                    <!-- 级联字段（FieldOption 表）选项树编辑器：value/label 分离 + 任意层级联动 -->
+                    <div id="spTreeWrap" style="display:none;" class="mb-3 pt-3 border-t border-gray-200">
+                        <div class="text-xs text-gray-500 mb-2">
+                            <i class="fas fa-sitemap mr-1 text-blue-500"></i>选项与联动（存于选项表，改动随「保存定制」生效；<span id="spTreeHint"></span>）
+                        </div>
+                        <div id="spTreeList" class="space-y-2 max-h-64 overflow-y-auto pr-1"></div>
+                        <button type="button" id="spTreeAddTop" class="mt-2 w-full px-2 py-1 text-sm border border-dashed border-blue-300 text-blue-600 rounded hover:bg-blue-50 transition">+ 添加顶级选项</button>
                     </div>
                     <div class="text-xs text-gray-500 mb-1">统计角色</div>
                     <select id="spStatRole" class="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-3">
@@ -545,9 +572,13 @@
                                 <label class="block text-sm text-gray-600 mb-1">登录标题 <span class="text-gray-400 text-xs">（留空=校名）</span></label>
                                 <input id="ls_brand_title" type="text" placeholder="如 田家炳中学食品安全检验系统" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
                             </div>
-                            <div>
+                            <div class="mb-3">
                                 <label class="block text-sm text-gray-600 mb-1">副标题 / 标语 <span class="text-gray-400 text-xs">（留空=校简称）</span></label>
                                 <input id="ls_brand_subtitle" type="text" placeholder="如 食品安全检验管理平台" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm text-gray-600 mb-1">页脚注释 <span class="text-gray-400 text-xs">（系统版本号等，留空=默认文案）</span></label>
+                                <input id="ls_brand_footer" type="text" maxlength="80" placeholder="如 系统版本 3.1.0 · © 2026" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
                             </div>
                         </div>
                     </div>
@@ -648,12 +679,18 @@
                     <label class="block text-sm text-gray-600 mb-1">校徽 URL</label>
                     <input id="cf_logoUrl" type="url" placeholder="https://..." class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
                 </div>
-                <div>
-                    <label class="block text-sm text-gray-600 mb-1">Manager 初始密码 <span class="text-red-500">*</span></label>
-                    <input id="cf_adminPassword" type="password" required minlength="8" placeholder="至少 8 位" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    <p class="text-xs text-gray-400 mt-1">学校内最高权限为 manager（用户/记录/导出管理）；admin 角色仅平台超管拥有</p>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm text-gray-600 mb-1">初始管理员用户名 <span class="text-red-500">*</span></label>
+                        <input id="cf_adminUsername" type="text" required pattern="[A-Za-z0-9_]{3,50}" title="3~50 位字母、数字或下划线" value="manager" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <p class="text-xs text-gray-400 mt-1">该校首个 manager 账号用户名，建议每校不同（如 tjb_admin），便于区分</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-600 mb-1">初始密码 <span class="text-red-500">*</span></label>
+                        <input id="cf_adminPassword" type="password" required minlength="8" placeholder="至少 8 位" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
                 </div>
-                <p class="text-xs text-gray-400">创建后将自动建立独立数据空间（schema）、业务表与该校 manager 账号。访问地址：<code>/&lt;代码&gt;/index.html</code>（学校代码即部署子路径，如 /demo/index.html）</p>
+                <p class="text-xs text-gray-400">学校内最高权限为 manager（用户/记录/导出管理）；admin 角色仅平台超管拥有。创建后将自动建立独立数据空间（schema）、业务表与该校 manager 账号。访问地址：<code>/&lt;代码&gt;/index.html</code>（学校代码即部署子路径，如 /demo/index.html）</p>
                 <div class="flex justify-end gap-3 pt-2">
                     <button type="button" id="cancelCreate" class="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition">取消</button>
                     <button type="submit" id="createBtn" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium flex items-center">
@@ -1011,6 +1048,31 @@
                 // 等待 iframe 内 JS 初始化完成后再操作 DOM
                 setTimeout(async () => {
                     try {
+                        // 防御性：注入预览模式强制启用 + 拦截所有跳转到 login.html 的尝试
+                        // （部分用户反馈 iframe 被误跳转到 login.html，覆盖默认 index.html 内容）
+                        try {
+                            const w = previewIframe.contentWindow;
+                            if (w) {
+                                w.__PREVIEW_MODE__ = true;
+                                const blocked = (url) => typeof url === 'string' && /login\.html/.test(url);
+                                try {
+                                    const origAssign = w.location.assign.bind(w.location);
+                                    w.location.assign = (u) => blocked(u) ? null : origAssign(u);
+                                } catch (_) {}
+                                try {
+                                    const origReplace = w.location.replace.bind(w.location);
+                                    w.location.replace = (u) => blocked(u) ? null : origReplace(u);
+                                } catch (_) {}
+                                try {
+                                    const desc = Object.getOwnPropertyDescriptor(w.location, 'href');
+                                    Object.defineProperty(w.location, 'href', {
+                                        configurable: true,
+                                        get: () => desc && desc.get ? desc.get.call(w.location) : String(w.location),
+                                        set: (v) => blocked(v) ? null : (desc && desc.set ? desc.set.call(w.location, v) : origReplace(v))
+                                    });
+                                } catch (_) {}
+                            }
+                        } catch (e) { console.warn('⚠️ 预览防御注入失败:', e); }
                         previewApi = await loadPreviewApi();
                     } catch (e) {
                         console.error('❌ 预览桥接加载失败（定制预览降级为仅主题/标题）:', e);
@@ -1759,10 +1821,10 @@
             document.getElementById('bf_status').value = school.status || 'active';
             updateLogoPreview(school.logo_url);
 
-            // XR-04：进入某校配置页时，管理后台自身应用该校主题色/校徽
+            // XR-04：进入某校配置页时，管理后台自身应用该校主题色
             // （先用基本信息的 theme_color 兜底；打开「界面定制」后 loadCustomization 会用完整 theme_config 精确化）
+            // 顶部 logo 保持平台统一盾牌，不显示该校校徽（避免超管误读为该校页面）
             applyAdminTheme({ themeColor: school.theme_color });
-            setAdminNavLogo(school.logo_url);
 
             // 切到基本信息 Tab
             customDirty = false; logoStyle = null; logoStyleDirty = false;  // 切换学校时重置，避免沿用上校的未保存编辑
@@ -1799,6 +1861,57 @@
         let inlineOpen = false;
 
         function getLogoUrl() { return (document.getElementById('bf_logoUrl')?.value || '').trim() }
+
+        // ===== 学校食堂信息管理 =====
+        function renderCanteenInputs(arr) {
+            const list = document.getElementById('canteenList');
+            if (!list) return;
+            const items = Array.isArray(arr) ? arr : [];
+            if (!items.length) {
+                list.innerHTML = '<span class="text-xs text-gray-400 italic px-1">暂无食堂，请添加（或留空保存以使用默认 一食堂/二食堂/三食堂）</span>';
+                return;
+            }
+            list.innerHTML = items.map((name, idx) => `
+                <div class="flex items-center gap-2" data-canteen-row>
+                    <i class="fas fa-utensils text-gray-400 text-xs shrink-0"></i>
+                    <input type="text" value="${escapeHtml(name)}" placeholder="食堂名称（如：一食堂）" class="canteen-input flex-1 px-2 py-1.5 border border-gray-300 rounded-lg text-sm" data-canteen-idx="${idx}">
+                    <button type="button" class="canteen-del text-red-400 hover:text-red-600 px-1.5 text-sm" title="删除该食堂"><i class="fas fa-trash"></i></button>
+                </div>`).join('');
+            // 绑定删除事件
+            list.querySelectorAll('.canteen-del').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const values = getCanteenValues();
+                    const row = btn.closest('[data-canteen-row]');
+                    const idx = Array.from(list.children).indexOf(row);
+                    if (idx >= 0) values.splice(idx, 1);
+                    renderCanteenInputs(values);
+                    markDirty();
+                });
+            });
+        }
+        function getCanteenValues() {
+            const list = document.getElementById('canteenList');
+            if (!list) return [];
+            return Array.from(list.querySelectorAll('.canteen-input'))
+                .map(i => i.value.trim())
+                .filter(Boolean);
+        }
+        function initCanteenEditor() {
+            const addBtn = document.getElementById('addCanteenBtn');
+            if (!addBtn) return;
+            addBtn.addEventListener('click', () => {
+                const values = getCanteenValues();
+                values.push('');
+                renderCanteenInputs(values);
+                // 聚焦最后一个输入框
+                const inputs = document.getElementById('canteenList').querySelectorAll('.canteen-input');
+                if (inputs.length) inputs[inputs.length - 1].focus();
+                markDirty();
+            });
+            // 输入变化标脏（删除按钮已单独处理）
+            document.getElementById('canteenList')?.addEventListener('input', () => markDirty());
+        }
+        initCanteenEditor();
 
         function schoolNameVal() { return (document.getElementById('bf_name').value || '').trim() || '示例学校' }
 
@@ -1923,9 +2036,8 @@
             if (loginStyleDesigner.hasUnsaved() && !confirm('「登录样式」有未保存的修改，确定关闭吗？修改将丢失。')) return;
             document.getElementById('detailPanel').classList.add('hidden');
             currentSchoolCode = null;
-            // XR-04：离开配置页，管理后台还原默认主题与图标
+            // XR-04：离开配置页，管理后台还原默认主题（顶部 logo 始终显示平台统一盾牌，无需还原）
             applyAdminTheme(null);
-            setAdminNavLogo(null);
         });
 
         // 主题色联动
@@ -1957,6 +2069,7 @@
                         themeColor: document.getElementById('bf_themeColor').value.trim(),
                         logoUrl: document.getElementById('bf_logoUrl').value.trim(),
                         systemTitle: (document.getElementById('bf_systemTitle')?.value || '').trim(),
+                        canteens: getCanteenValues(),
                         ...(logoStyleDirty ? { logoStyle: logoStyle || null } : {}),
                     })
                 });
@@ -2008,41 +2121,47 @@
             tableware: [
                 // 主信息（标题隐式）
                 { name: 'testDate', label: '日期', builtin: true, type: 'date', section: 'main' },
-                { name: 'canteen', label: '食堂', builtin: true, type: 'select', section: 'main' },
-                { name: 'inspector', label: '检测员', builtin: true, type: 'select', section: 'main' },
+                { name: 'canteen', label: '食堂', builtin: true, type: 'select', section: 'main' },  // 默认 options 来自学校基本信息设置（field_options.canteen）
+                { name: 'inspector', label: '检测员', builtin: true, type: 'select', section: 'main' },  // 运行时从 users 列表填充
                 // 检测点位信息
-                { name: 'testType', label: '检测项目', builtin: true, type: 'select', section: 'points' },
-                { name: 'location', label: '检测点位', builtin: true, type: 'select', section: 'points' },
+                { name: 'testType', label: '检测项目', builtin: true, type: 'select', section: 'points', options: ['表面清洁度', '洗涤剂残留'] },
+                { name: 'location', label: '检测点位', builtin: true, type: 'select', section: 'points', options: ['餐具表面', '砧板表面', '操作台面', '餐桌表面', '其他接触面'] },
                 { name: 'rluValue', label: 'RLU值', builtin: true, type: 'number', section: 'points' },
-                { name: 'result', label: '结果', builtin: true, type: 'select', section: 'points' },
+                { name: 'result', label: '结果', builtin: true, type: 'select', section: 'points', options: ['合格', '不合格'] },
                 // 整改记录
                 { name: 'correctiveAction', label: '整改措施', builtin: true, type: 'textarea', section: 'rectification' },
                 { name: 'recheckResult', label: '复检结果备注', builtin: true, type: 'textarea', section: 'rectification' },
             ],
             pesticide: [
-                { name: 'testDate', label: '日期', builtin: true, type: 'date' },
-                { name: 'canteen', label: '食堂', builtin: true, type: 'select' },
-                { name: 'vegetableType', label: '蔬菜品种', builtin: true, type: 'text' },
-                { name: 'batchNo', label: '检测项目', builtin: true, type: 'text' },
-                { name: 'result', label: '结果', builtin: true, type: 'select' },
-                { name: 'inspector', label: '检测员', builtin: true, type: 'select' },
+                // 基本信息（与 GenericTest 录入表单第一段对齐）
+                { name: 'testDate', label: '日期', builtin: true, type: 'date', section: 'main' },
+                { name: 'canteen', label: '食堂', builtin: true, type: 'select', section: 'main' },
+                { name: 'inspector', label: '检测员', builtin: true, type: 'select', section: 'main' },
+                // 检测点位信息（与录入表单第二段对齐）
+                { name: 'vegetableType', label: '蔬菜品种', builtin: true, type: 'text', section: 'points' },
+                { name: 'batchNo', label: '检测项目', builtin: true, type: 'text', section: 'points' },
+                { name: 'result', label: '结果', builtin: true, type: 'select', section: 'points', options: ['合格', '不合格'] },
             ],
             oil: [
-                { name: 'testDate', label: '日期', builtin: true, type: 'date' },
-                { name: 'canteen', label: '食堂', builtin: true, type: 'select' },
-                { name: 'oilTemp', label: '油温', builtin: true, type: 'number' },
-                { name: 'tpmValue', label: '油品颜色', builtin: true, type: 'select' },
-                { name: 'acidValue', label: '酸价值', builtin: true, type: 'number' },
-                { name: 'qualityLevel', label: '品质等级', builtin: true, type: 'text' },
-                { name: 'inspector', label: '检测员', builtin: true, type: 'select' },
+                // 基本信息
+                { name: 'testDate', label: '日期', builtin: true, type: 'date', section: 'main' },
+                { name: 'canteen', label: '食堂', builtin: true, type: 'select', section: 'main' },
+                { name: 'inspector', label: '检测员', builtin: true, type: 'select', section: 'main' },
+                // 检测点位信息
+                { name: 'oilTemp', label: '油温', builtin: true, type: 'number', section: 'points' },
+                { name: 'tpmValue', label: '油品颜色', builtin: true, type: 'select', section: 'points', options: ['浅黄色', '淡黄色', '微绿色', '浅绿色', '明显绿色', '深绿色', '蓝色'] },
+                { name: 'acidValue', label: '酸价值', builtin: true, type: 'number', section: 'points' },
+                { name: 'qualityLevel', label: '品质等级', builtin: true, type: 'text', section: 'points' },
             ],
             leanMeat: [
-                { name: 'testDate', label: '日期', builtin: true, type: 'date' },
-                { name: 'canteen', label: '食堂', builtin: true, type: 'select' },
-                { name: 'meatType', label: '肉类品种', builtin: true, type: 'select' },
-                { name: 'batchNo', label: '检测项目', builtin: true, type: 'text' },
-                { name: 'result', label: '结果', builtin: true, type: 'select' },
-                { name: 'inspector', label: '检测员', builtin: true, type: 'select' },
+                // 基本信息
+                { name: 'testDate', label: '日期', builtin: true, type: 'date', section: 'main' },
+                { name: 'canteen', label: '食堂', builtin: true, type: 'select', section: 'main' },
+                { name: 'inspector', label: '检测员', builtin: true, type: 'select', section: 'main' },
+                // 检测点位信息
+                { name: 'meatType', label: '肉类品种', builtin: true, type: 'select', section: 'points', options: ['猪肉', '牛肉', '羊肉', '鸡肉', '鸭肉', '其他'] },
+                { name: 'batchNo', label: '检测项目', builtin: true, type: 'text', section: 'points' },
+                { name: 'result', label: '结果', builtin: true, type: 'select', section: 'points', options: ['合格', '不合格'] },
             ],
         };
 
@@ -2103,6 +2222,7 @@
             sectionTitles = {};
             fieldRules = {};
             fieldOrder = {};
+            fieldCascade = {};   // 级联字段选项（FieldOption 表）
 
             // 首次进入时渲染菜单项 checkbox DOM（dataset 标记防重复，避免重建 DOM 丢失用户勾选）
             const menuContainer = document.getElementById('visibleMenuItems');
@@ -2132,11 +2252,26 @@
             customFields = parseJSON(c.custom_fields) || parseJSON(c.theme_config)?.custom_fields || {};
             fieldTypes = parseJSON(c.field_types) || parseJSON(c.theme_config)?.field_types || {};
             fieldOptions = parseJSON(c.field_options) || parseJSON(c.theme_config)?.field_options || {};
+            // 级联字段选项（FieldOption 表）：后端 GET customization 已把 field_cascade 合并进 data
+            fieldCascade = (parseJSON(c.field_cascade) && typeof c.field_cascade === 'object') ? parseJSON(c.field_cascade) : {};
+            Object.keys(TABLE_MANAGED_FIELDS).forEach(mod => {
+                if (!fieldCascade[mod]) fieldCascade[mod] = {};
+                TABLE_MANAGED_FIELDS[mod].forEach(f => {
+                    if (!Array.isArray(fieldCascade[mod][f])) fieldCascade[mod][f] = [];
+                });
+            });
             sectionTitles = parseJSON(c.theme_config)?.section_titles || {};
             const sysTitleVal = parseJSON(c.theme_config)?.systemTitle || '';
             document.getElementById('bf_systemTitle').value = sysTitleVal;
             const sysCount = document.getElementById('bf_systemTitleCount');
             if (sysCount) sysCount.textContent = Array.from(sysTitleVal).length;
+            // 学校食堂信息回填（canteens 新列优先；兼容旧数据从 field_options.canteen 读取）
+            let canteens = parseJSON(c.canteens);
+            if (!Array.isArray(canteens) || !canteens.length) {
+                const foOpts = parseJSON(c.field_options)?.canteen;
+                if (Array.isArray(foOpts) && foOpts.length) canteens = foOpts;
+            }
+            renderCanteenInputs(Array.isArray(canteens) ? canteens : []);
             fieldOrder = parseJSON(c.field_order) || parseJSON(c.theme_config)?.field_order || {};
             // 校徽排版配置（主题定制一部分）。存在未保存修改时保留内存中的草稿，
             // 避免从基本信息 Tab 进入「界面定制」时把刚排好的校徽覆盖掉。
@@ -2254,7 +2389,7 @@
                     ${isCustom ? '<span class="text-xs px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded">自定义</span>' : ''}
                     ${isCustom && (f.statRole === 'result') ? '<span class="text-xs px-1.5 py-0.5 bg-green-100 text-green-700 rounded" title="参与合格率统计">统计</span>' : ''}
                     ${reqBadge}
-                    <button type="button" class="sp-gear px-2 py-1 text-xs text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded transition" data-field="${escapeHtml(f.name)}" data-label="${escapeHtml(label)}" title="设置字段类型与统计规则"><i class="fas fa-chart-pie"></i></button>
+                    <button type="button" class="sp-gear px-2 py-1 text-xs text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded transition" data-field="${escapeHtml(f.name)}" data-label="${escapeHtml(label)}" title="${isTableManagedField(currentFieldModule, f.name) ? '设置选项与联动（含子选项级联）' : '设置字段类型与统计规则'}"><i class="fas fa-chart-pie"></i></button>
                     <button type="button" class="rp-gear px-2 py-1 text-xs text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition" data-field="${escapeHtml(f.name)}" data-label="${escapeHtml(label)}" title="设置校验规则（必填 / 字数）"><i class="fas fa-cog"></i></button>
                     <button type="button" class="fl-delete px-2 py-1 text-xs text-red-500 hover:bg-red-50 rounded transition" data-field="${escapeHtml(f.name)}" data-builtin="${f.builtin}" title="${f.builtin ? '隐藏该字段' : '删除该字段'}">
                         <i class="fas ${f.builtin ? 'fa-eye-slash' : 'fa-trash'}"></i>
@@ -2281,13 +2416,22 @@
 
             // 分块渲染：每段显示标题（统一 mt-3 间距），段内按 fieldOrder 保留
             const parts = [];
+            // 模块特定的 'points' 段标题（与 GenericTest 录入表单保持一致）
+            const POINTS_TITLE_BY_MODULE = {
+                pesticide: '果蔬农残检测信息',
+                oil: '食用油品质检测信息',
+                leanMeat: '肉蛋农残检测信息',
+            };
             grouped.forEach((arr, sec) => {
                 if (!arr.length) return;
                 const info = SECTION_INFO[sec] || { title: sec, showTitle: true };
+                // 模块特定标题覆盖
+                const titleOverride = sec === 'points' ? POINTS_TITLE_BY_MODULE[currentFieldModule] : null;
+                const sectionTitle = titleOverride || info.title;
                 if (info.showTitle) {
                     parts.push(
                         `<div class="fl-section flex items-center gap-2 mt-3 py-1.5 px-1 border-b border-gray-200" data-section="${escapeHtml(sec)}">` +
-                            `<span class="text-xs font-semibold text-gray-600">${escapeHtml(info.title)}</span>` +
+                            `<span class="text-xs font-semibold text-gray-600">${escapeHtml(sectionTitle)}</span>` +
                             `<span class="text-xs text-gray-400">${arr.length} 个字段</span>` +
                         `</div>`
                     );
@@ -2584,11 +2728,228 @@
             return list.find(f => f.name === fieldName) || null;
         }
         function syncStatPopoverVisibility() {
-            document.getElementById('spOptionsWrap').style.display =
-                document.getElementById('spType').value === 'select' ? 'block' : 'none';
+            const tableManaged = _statPopoverField && isTableManagedField(currentFieldModule, _statPopoverField);
+            const spTypeEl = document.getElementById('spType');
+            const spStatRoleEl = document.getElementById('spStatRole');
+            document.getElementById('spTreeWrap').style.display = tableManaged ? 'block' : 'none';
+            document.getElementById('spOptionsWrap').style.display = (!tableManaged && spTypeEl.value === 'select') ? 'block' : 'none';
+            spTypeEl.disabled = !!tableManaged;
+            spStatRoleEl.disabled = !!tableManaged;
             document.getElementById('spQualifiedWrap').style.display =
-                document.getElementById('spStatRole').value === 'result' ? 'block' : 'none';
+                (!tableManaged && spStatRoleEl.value === 'result') ? 'block' : 'none';
         }
+
+        // ===== RK35 选项 chips 管理 =====
+        // 把现有选项数组渲染为可删除的标签
+        function renderSpOptionsChips(arr) {
+            const list = document.getElementById('spOptionsList');
+            if (!list) return;
+            if (!Array.isArray(arr) || arr.length === 0) {
+                list.innerHTML = '<span class="text-xs text-gray-400 italic px-1 self-center">暂无选项</span>';
+                _statPopoverChips = [];
+                return;
+            }
+            list.innerHTML = arr.map((opt, idx) =>
+                `<span class="inline-flex items-center gap-1 px-2 py-1 bg-purple-100 text-purple-800 rounded text-xs" data-opt-idx="${idx}">${escapeHtml(opt)}<button type="button" class="sp-opt-del text-purple-500 hover:text-purple-900 ml-1" data-opt="${escapeHtml(opt)}" title="删除该选项">×</button></span>`
+            ).join('');
+            _statPopoverChips = arr.slice();
+            // 重新绑定删除事件（innerHTML 覆盖了原元素）
+            list.querySelectorAll('.sp-opt-del').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const cur = getSpOptionsChips();
+                    const v = btn.dataset.opt;
+                    const next = cur.filter(x => x !== v);
+                    renderSpOptionsChips(next);
+                });
+            });
+        }
+
+        // 从 chips DOM 读出当前数组（去重、去空、保留顺序）
+        function getSpOptionsChips() {
+            const list = document.getElementById('spOptionsList');
+            if (!list) return [];
+            return Array.from(list.querySelectorAll('[data-opt-idx]'))
+                .map(el => el.dataset.opt || '')
+                .filter(Boolean);
+        }
+
+        // ====== 级联字段（FieldOption 表）选项树编辑器 ======
+        // 级联字段的选项整体存于租户 FieldOption 表（不在 field_options JSON）：
+        //   - value（机器值，如 atp）/ label（显示文本，如 表面清洁度）可分离
+        //   - 顶级选项 + 子选项（跨字段联动：testType → location）
+        // 编辑实时写回内存 fieldCascade，随「保存定制」统一 PUT 到后端。
+        const TABLE_MANAGED_FIELDS = { tableware: ['testType', 'location'] };
+        // 级联源字段 → 联动目标字段（source 顶级选项的 children 归属 target 字段）
+        const CASCADE_SOURCE_MAP = { tableware: { testType: 'location' } };
+        function isTableManagedField(module, field) {
+            return Array.isArray(TABLE_MANAGED_FIELDS[module]) && TABLE_MANAGED_FIELDS[module].includes(field);
+        }
+        function isCascadeSource(module, field) {
+            return !!(CASCADE_SOURCE_MAP[module] && CASCADE_SOURCE_MAP[module][field]);
+        }
+        function fieldLabelOf(field) {
+            return { testType: '检测项目', location: '检测点位' }[field] || field;
+        }
+        let _statPopoverField = null;
+        let _statPopoverChips = [];
+        let fieldCascade = {};   // { module: { field: [ {value,label,isDefault,children:[{value,label}]} ] } }
+
+        // 读取单行 DOM 状态（含子选项）
+        function readTreeRowState(row) {
+            const value = (row.querySelector('.tree-value')?.value || '').trim();
+            const label = (row.querySelector('.tree-label')?.value || '').trim() || value;
+            const isDefault = !!row.querySelector('.tree-default')?.checked;
+            const children = [];
+            row.querySelectorAll('[data-child-chip]').forEach(chip => {
+                const v = chip.dataset.value || '';
+                if (v) children.push({ value: v, label: chip.dataset.label || v });
+            });
+            return { value, label, isDefault, children };
+        }
+
+        // 从 DOM 收集整棵树 → 写回 fieldCascade（输入实时同步；增删走重渲染）
+        function collectSpTreeToState() {
+            const field = _statPopoverField;
+            if (!field || !isTableManagedField(currentFieldModule, field)) return;
+            const listEl = document.getElementById('spTreeList');
+            if (!listEl) return;
+            const module = currentFieldModule;
+            if (!fieldCascade[module]) fieldCascade[module] = {};
+            const rows = [];
+            listEl.querySelectorAll('[data-tree-row]').forEach(row => {
+                const state = readTreeRowState(row);
+                if (state.value) rows.push(state);
+            });
+            fieldCascade[module][field] = rows;
+        }
+
+        // 从内存状态渲染树编辑器
+        function renderSpTree() {
+            const field = _statPopoverField;
+            if (!field || !isTableManagedField(currentFieldModule, field)) return;
+            const listEl = document.getElementById('spTreeList');
+            if (!listEl) return;
+            const module = currentFieldModule;
+            if (!fieldCascade[module]) fieldCascade[module] = {};
+            const rows = fieldCascade[module][field] || (fieldCascade[module][field] = []);
+            const source = isCascadeSource(module, field);
+            const hintEl = document.getElementById('spTreeHint');
+            if (hintEl) {
+                hintEl.textContent = source
+                    ? '「' + fieldLabelOf(field) + '」每项可配置联动子选项，录入端按所选值自动切换点位下拉'
+                    : '该字段为联动目标，顶级选项作为未配置联动时的默认可选值';
+            }
+            listEl.innerHTML = rows.length ? rows.map((r, ri) => {
+                const childChips = source && Array.isArray(r.children) && r.children.length
+                    ? r.children.map(c => '<span class="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-800 rounded text-xs" data-child-chip data-value="' + escapeHtml(c.value) + '" data-label="' + escapeHtml(c.label || c.value) + '">' + escapeHtml(c.label || c.value) + '<button type="button" class="tree-child-del text-blue-500 hover:text-blue-900 ml-0.5" data-value="' + escapeHtml(c.value) + '" title="删除该子选项">×</button></span>').join('')
+                    : '<span class="text-xs text-gray-400 italic px-1 self-center">无子选项</span>';
+                return `
+                    <div class="border border-gray-200 rounded p-2 bg-gray-50" data-tree-row>
+                        <div class="flex items-center gap-1.5 mb-1">
+                            <input type="text" class="tree-value flex-1 px-1.5 py-0.5 border border-gray-300 rounded text-xs" placeholder="选项值（如 atp）" value="${escapeHtml(r.value)}">
+                            <input type="text" class="tree-label flex-1 px-1.5 py-0.5 border border-gray-300 rounded text-xs" placeholder="显示名称" value="${escapeHtml(r.label || r.value)}">
+                            <label class="flex items-center gap-0.5 text-[11px] text-gray-500 whitespace-nowrap" title="设为录入表单默认选中"><input type="radio" name="treeDefault_${ri}" class="tree-default" ${r.isDefault ? 'checked' : ''}>默认</label>
+                            <button type="button" class="tree-del px-1.5 py-0.5 text-red-500 hover:bg-red-50 rounded" title="${source ? '删除（将同时删除其子选项）' : '删除该选项'}"><i class="fas fa-trash-alt"></i></button>
+                        </div>
+                        ${source ? `
+                        <div class="ml-3 border-l border-gray-200 pl-2 mt-1">
+                            <div class="text-[11px] text-gray-400 mb-1">联动子选项（录入端选「<b>${escapeHtml(r.label || r.value)}</b>」时可选）</div>
+                            <div class="flex flex-wrap gap-1.5 mb-1 min-h-[22px]">${childChips}</div>
+                            <div class="flex gap-1.5">
+                                <input type="text" placeholder="添加子选项（回车或点 +）" class="tree-child-input flex-1 px-2 py-0.5 border border-gray-300 rounded text-sm">
+                                <button type="button" class="tree-child-add px-2 py-0.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition">+ 添加</button>
+                            </div>
+                        </div>` : ''}
+                    </div>`;
+            }).join('') : '<div class="text-xs text-gray-400 italic px-2">暂无选项，点击下方按钮添加</div>';
+
+            // 输入实时同步到内存（不重渲染，避免打断输入焦点）
+            listEl.querySelectorAll('.tree-value, .tree-label, .tree-default').forEach(el => {
+                el.addEventListener('input', collectSpTreeToState);
+                el.addEventListener('change', collectSpTreeToState);
+            });
+            // 删除顶级选项
+            listEl.querySelectorAll('.tree-del').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const row = btn.closest('[data-tree-row]');
+                    if (source && row.querySelector('[data-child-chip]')) {
+                        if (!confirm('删除该选项将同时删除其下所有子选项，确定？')) return;
+                    }
+                    row.remove();
+                    collectSpTreeToState();
+                    renderSpTree();
+                });
+            });
+            // 删除子选项
+            listEl.querySelectorAll('.tree-child-del').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    btn.closest('[data-child-chip]').remove();
+                    collectSpTreeToState();
+                    renderSpTree();
+                });
+            });
+            // 添加子选项
+            const doChildAdd = (row, input) => {
+                const v = (input.value || '').trim();
+                if (!v) return;
+                const state = readTreeRowState(row);
+                if (state.children.some(c => c.value === v)) { showNotice('该子选项已存在', 'error'); return; }
+                state.children.push({ value: v, label: v });
+                if (!fieldCascade[currentFieldModule]) fieldCascade[currentFieldModule] = {};
+                const list = fieldCascade[currentFieldModule][field] || [];
+                const idx = Array.from(row.parentElement.querySelectorAll('[data-tree-row]')).indexOf(row);
+                if (idx >= 0) list[idx] = state;
+                fieldCascade[currentFieldModule][field] = list;
+                renderSpTree();
+                const rowsEl = document.querySelectorAll('[data-tree-row]');
+                const newInput = rowsEl[idx] && rowsEl[idx].querySelector('.tree-child-input');
+                if (newInput) newInput.focus();
+            };
+            listEl.querySelectorAll('.tree-child-add').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const row = btn.closest('[data-tree-row]');
+                    doChildAdd(row, row.querySelector('.tree-child-input'));
+                });
+            });
+            listEl.querySelectorAll('.tree-child-input').forEach(input => {
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); doChildAdd(input.closest('[data-tree-row]'), input); }
+                });
+            });
+        }
+
+        // 添加顶级选项
+        document.getElementById('spTreeAddTop').addEventListener('click', () => {
+            const field = _statPopoverField;
+            if (!field) return;
+            if (!fieldCascade[currentFieldModule]) fieldCascade[currentFieldModule] = {};
+            if (!fieldCascade[currentFieldModule][field]) fieldCascade[currentFieldModule][field] = [];
+            fieldCascade[currentFieldModule][field].push({ value: '', label: '', isDefault: false, children: [] });
+            renderSpTree();
+            const rowsEl = document.querySelectorAll('[data-tree-row]');
+            const last = rowsEl[rowsEl.length - 1];
+            if (last) last.querySelector('.tree-value')?.focus();
+        });
+
+        // 绑定输入框回车 + 添加按钮 + 初始化
+        function bindSpOptionsEditor() {
+            const input = document.getElementById('spOptionInput');
+            const addBtn = document.getElementById('spOptionAddBtn');
+            if (!input || !addBtn) return;
+            const doAdd = () => {
+                const v = input.value.trim();
+                if (!v) return;
+                const cur = getSpOptionsChips();
+                if (cur.includes(v)) { showNotice('该选项已存在', 'error'); return; }
+                cur.push(v);
+                renderSpOptionsChips(cur);
+                input.value = '';
+                input.focus();
+            };
+            addBtn.addEventListener('click', doAdd);
+            input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); doAdd(); } });
+        }
+        bindSpOptionsEditor();
         function findAnyFieldDef(fieldName) {
             const custom = findCustomFieldDef(fieldName);
             if (custom) return { isCustom: true, def: custom };
@@ -2603,11 +2964,28 @@
             const any = findAnyFieldDef(fieldName);
             if (!any) return;
             statPopoverField = fieldName;
+            _statPopoverField = fieldName;  // 用于树编辑器重渲染
             const def = any.def;
             document.getElementById('spLabel').textContent = label || fieldName;
+            // 级联字段（FieldOption 表）：仅显示选项树编辑器（value/label + 联动子选项）
+            const tableManaged = isTableManagedField(currentFieldModule, fieldName);
+            if (tableManaged) {
+                document.getElementById('spType').value = 'select';
+                document.getElementById('spStatRole').value = '';
+                document.getElementById('spQualified').value = '';
+                syncStatPopoverVisibility();
+                renderSpTree();
+                positionPopover(document.getElementById('statPopover'), btn, 400);
+                return;
+            }
             const resolvedType = any.isCustom ? (def.type || 'text') : (fieldTypes[fieldName] || def.type || 'text');
             document.getElementById('spType').value = resolvedType;
-            document.getElementById('spOptions').value = Array.isArray(def.options) ? def.options.join(',') : '';
+            // 把现有选项渲染为 chips（替代旧的逗号分隔文本框）
+            // builtin 字段的选项实际存在全局 fieldOptions[fieldName]（用户保存的覆盖值），自定义字段在 def.options
+            const opts = (Array.isArray(fieldOptions[fieldName]) && fieldOptions[fieldName].length)
+                ? fieldOptions[fieldName]
+                : (Array.isArray(def.options) ? def.options : []);
+            renderSpOptionsChips(opts.slice());
             document.getElementById('spStatRole').value = def.statRole === 'result' ? 'result' : '';
             document.getElementById('spQualified').value = Array.isArray(def.qualifiedValues) ? def.qualifiedValues.join(',') : '';
             syncStatPopoverVisibility();
@@ -2617,15 +2995,24 @@
             if (!statPopoverField) return;
             const any = findAnyFieldDef(statPopoverField);
             if (!any) return;
+            // 级联字段（FieldOption 表）：编辑已实时写回 fieldCascade，仅标记脏并刷新
+            if (isTableManagedField(currentFieldModule, statPopoverField)) {
+                collectSpTreeToState();
+                markDirty();
+                renderFieldList();
+                renderPreview();
+                return;
+            }
             const type = document.getElementById('spType').value;
             const statRole = document.getElementById('spStatRole').value;
-            const optionsRaw = document.getElementById('spOptions').value.trim();
+            // 从 chips 数组读（替代旧的逗号分隔解析）
+            const optionsArr = getSpOptionsChips();
             const qualifiedRaw = document.getElementById('spQualified').value.trim();
             if (any.isCustom) {
                 const def = any.def;
                 def.type = type;
                 if (type === 'select') {
-                    def.options = optionsRaw ? optionsRaw.split(/[，,]/).map(s => s.trim()).filter(Boolean) : [];
+                    def.options = optionsArr;
                     if (!def.options.length) showNotice('下拉类型建议填写至少一个选项', 'error');
                 } else {
                     delete def.options;
@@ -2650,8 +3037,8 @@
                 } else {
                     delete fieldTypes[statPopoverField];
                 }
-                if (type === 'select' && optionsRaw) {
-                    fieldOptions[statPopoverField] = optionsRaw.split(/[，,]/).map(s => s.trim()).filter(Boolean);
+                if (type === 'select' && optionsArr.length) {
+                    fieldOptions[statPopoverField] = optionsArr;
                 } else if (type !== 'select') {
                     delete fieldOptions[statPopoverField];
                 }
@@ -2679,6 +3066,30 @@
             const pop = document.getElementById('statPopover');
             if (e.key === 'Escape' && pop.style.display === 'block') closeStatPopover();
         });
+
+        // 级联字段选项整树提交（FieldOption 表，PUT 幂等替换）
+        async function saveFieldCascade() {
+            for (const module of Object.keys(TABLE_MANAGED_FIELDS)) {
+                const fields = fieldCascade[module] || {};
+                for (const field of Object.keys(fields)) {
+                    const options = (fields[field] || []).map(o => ({
+                        value: o.value,
+                        label: o.label || o.value,
+                        isDefault: !!o.isDefault,
+                        children: Array.isArray(o.children) ? o.children.map(c => ({ value: c.value, label: c.label || c.value })) : [],
+                    }));
+                    const resp = await fetch(`${API_BASE}/api/admin/schools/${currentSchoolCode}/field-options`, {
+                        method: 'PUT',
+                        headers: authHeaders(),
+                        body: JSON.stringify({ module_code: module, field_code: field, options })
+                    });
+                    if (!resp.ok) {
+                        const j = await resp.json().catch(() => ({}));
+                        throw new Error(`保存级联「${module}.${field}」失败：${j.error || ('HTTP ' + resp.status)}`);
+                    }
+                }
+            }
+        }
 
         // 保存定制
         document.getElementById('saveCustomBtn').addEventListener('click', async () => {
@@ -2739,7 +3150,15 @@
                     dark: activeTheme.dark,
                     darkSolid: activeTheme.darkSolid,
                 } : null;
-                const themeConfig = { custom_fields: customFields, field_options: fieldOptions, section_titles: sectionTitles, field_order: fieldOrder, theme: themePayload, logo_style: logoStyle || undefined };
+                // 级联字段（testType/location）的选项由 FieldOption 表管理，不写 field_options JSON
+                // （避免录入端 fields.js 用文本数组覆盖 value/label 分离的下拉）；
+                // 同时清理历史遗留的 field_options.cascade 简化版数据（完整重做后不再使用）。
+                const fieldOptionsPayload = { ...fieldOptions };
+                Object.keys(TABLE_MANAGED_FIELDS).forEach(mod => {
+                    TABLE_MANAGED_FIELDS[mod].forEach(f => delete fieldOptionsPayload[f]);
+                });
+                delete fieldOptionsPayload.cascade;
+                const themeConfig = { custom_fields: customFields, field_options: fieldOptionsPayload, section_titles: sectionTitles, field_order: fieldOrder, theme: themePayload, logo_style: logoStyle || undefined };
                 // RK-LS：保留「登录样式」模块已保存的 login（避免界面定制整写 theme_config 时把它清空）
                 const preservedLogin = parseJSON(currentCustomization?.theme_config)?.login;
                 if (preservedLogin) themeConfig.login = preservedLogin;
@@ -2768,7 +3187,7 @@
                     theme_config: themeConfig,
                     // 顶层新列（与 theme_config 嵌套并行写入；录入/统计端消费顶层列）
                     custom_fields: customFieldsPayload,
-                    field_options: fieldOptions,
+                    field_options: fieldOptionsPayload,
                     field_order: fieldOrder,
                     field_types: fieldTypes,
                     // BS-06: 乐观锁——加载时的 updated_at，被他人改过则后端返回 409
@@ -2787,12 +3206,27 @@
                 const json = await resp.json();
                 if (!resp.ok) throw new Error(json.error || '保存失败');
 
+                // 级联字段选项（FieldOption 表）整树提交
+                await saveFieldCascade();
+
                 // BS-06: 刷新乐观锁基线，避免连续两次保存误报冲突
                 if (json.updated_at && currentCustomization) currentCustomization.updated_at = json.updated_at;
 
                 // 写入本地定制缓存：跨标签页 storage 事件触发该校师生端实时重应用，
                 // 无需等待 5 分钟 TTL 或手动刷新页面（预览区亦随之刷新）。
-                try { setSchoolCustomization(currentSchoolCode, customizationPayload) } catch (_) { /* 非关键路径 */ }
+                // 优先重新拉取公开 config（其 customization 含 field_cascade 级联数据），
+                // 保证师生端缓存完整（否则保存后级联下拉会暂时缺失直到 TTL 过期重拉）。
+                try {
+                    let freshCustomization = null;
+                    try {
+                        const freshResp = await fetch(`${API_BASE}/api/schools/${currentSchoolCode}/config`);
+                        if (freshResp.ok) {
+                            const freshJson = await freshResp.json();
+                            freshCustomization = freshJson.data?.customization || null;
+                        }
+                    } catch (_) { /* 拉取失败则回落内存 payload */ }
+                    setSchoolCustomization(currentSchoolCode, freshCustomization || customizationPayload);
+                } catch (_) { /* 非关键路径 */ }
 
                 // 同步强调色到学校基本信息（theme_color），保证列表/兜底展示一致
                 if (themePayload?.accent) {
@@ -3071,6 +3505,7 @@
             const shortName = document.getElementById('cf_shortName').value.trim();
             const themeColor = document.getElementById('cf_themeColor').value.trim();
             const logoUrl = document.getElementById('cf_logoUrl').value.trim();
+            const adminUsername = document.getElementById('cf_adminUsername').value.trim();
             const adminPassword = document.getElementById('cf_adminPassword').value;
 
             const btn = document.getElementById('createBtn');
@@ -3082,12 +3517,12 @@
                 const resp = await fetch(`${API_BASE}/api/admin/schools`, {
                     method: 'POST',
                     headers: authHeaders(),
-                    body: JSON.stringify({ code, name, adminPassword })
+                    body: JSON.stringify({ code, name, adminUsername, adminPassword })
                 });
                 const json = await resp.json();
                 if (!resp.ok) throw new Error(json.error || json.details || '创建失败');
 
-                // 创建成功后如果有外观信息，更新它（provisionSchool 只接受 code/name/adminPassword）
+                // 创建成功后如果有外观信息，更新它
                 if (shortName || themeColor || logoUrl) {
                     await fetch(`${API_BASE}/api/admin/schools/${code}`, {
                         method: 'PUT',
@@ -3096,7 +3531,8 @@
                     });
                 }
 
-                showNotice(`✅ 学校 ${code} 创建成功（登录入口 ${schoolLoginUrl(code)}，用 manager 账号登录）`, 'success');
+                const createdUsername = (json.data && json.data.adminUsername) || adminUsername || 'manager';
+                showNotice(`✅ 学校 ${code} 创建成功（登录入口 ${schoolLoginUrl(code)}，初始账号 ${createdUsername}）`, 'success');
                 closeCreateModal();
                 loadSchools();
             } catch (e) {

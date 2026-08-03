@@ -180,13 +180,15 @@ export function applySchoolCustomizationToForm(formEl, customization) {
         if (typeof rule.minLength === 'number') field.setAttribute('minlength', String(rule.minLength))
 
         // 4) 下拉选项覆盖（select 专用）：用校定制的选项列表替换默认项，尽量保留当前选中值
+        // 支持 chips object 格式 [{value, subOptions?}]：取 .value 作为 option value/text
         // CR-03/BS-05: 当前值不在新选项中时，追加一个 disabled 的"历史值"option，
         // 避免用户已选值/历史记录值被静默丢弃
         if (field.tagName === 'SELECT' && Array.isArray(fieldOptions[name]) && fieldOptions[name].length) {
             const opts = fieldOptions[name]
             const current = field.value
-            field.innerHTML = opts.map(o => `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`).join('')
-            if (opts.includes(current)) {
+            const optValues = opts.map(o => (typeof o === 'string' ? o : (o && o.value != null ? String(o.value) : ''))).filter(Boolean)
+            field.innerHTML = optValues.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('')
+            if (optValues.includes(current)) {
                 field.value = current
             } else if (current) {
                 const legacy = document.createElement('option')

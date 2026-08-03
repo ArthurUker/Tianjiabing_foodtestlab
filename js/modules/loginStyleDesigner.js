@@ -25,7 +25,7 @@ function defaultLoginStyle() {
   return {
     background: { type: 'aurora' },
     card: { align: 'center', width: 420, radius: 18, shadow: true, blur: true, top: 0 },
-    branding: { showLogo: true, title: '', subtitle: '', logoUrl: '' },
+    branding: { showLogo: true, title: '', subtitle: '', logoUrl: '', footer: '' },
   }
 }
 
@@ -187,6 +187,8 @@ export function initLoginStyleDesigner({ API_BASE, authHeaders, notify }) {
       ? `<img src="${escapeHtml(logoSrc)}" alt="logo" style="width:56px;height:56px;object-fit:contain" onerror="this.style.display='none'">`
       : '<i class="fas fa-shield-alt text-4xl" style="color:var(--accent,#1a73e8)"></i>'
     const accent = (resolvedTheme() && resolvedTheme().accent) || schoolInfo.themeColor || '#1a73e8'
+    // 页脚注释（系统版本号等）：未设置时使用默认文案
+    const footer = (bd.footer && bd.footer.trim()) || '系统版本 3.1.0 · © 2026'
 
     preview.innerHTML = `
       <div style="position:absolute;inset:0;${bgStyle}"></div>
@@ -207,7 +209,7 @@ export function initLoginStyleDesigner({ API_BASE, authHeaders, notify }) {
             <div style="width:100%;padding:10px 14px;border:1px solid #d1d5db;border-radius:8px;color:#9ca3af;font-size:14px;background:#fff;">••••••••</div>
           </div>
           <button type="button" style="width:100%;margin-top:8px;padding:11px;border:none;border-radius:8px;color:#fff;font-weight:600;font-size:15px;background:linear-gradient(90deg,${accent},${window.SchoolThemes.shade(accent, -12)});cursor:default;">登 录</button>
-          <p style="text-align:center;margin-top:16px;font-size:11px;color:#9ca3af;">系统版本 3.1.0 · © 2026</p>
+          <p data-ls-edit="footer" style="text-align:center;margin-top:16px;font-size:11px;color:#9ca3af;outline:none;">${escapeHtml(footer)}</p>
         </div>
       </div>`
 
@@ -242,6 +244,7 @@ export function initLoginStyleDesigner({ API_BASE, authHeaders, notify }) {
     updateLogoPreview((bd.logoUrl && bd.logoUrl.trim()) || schoolInfo.logoUrl)
     if ($('ls_brand_title')) $('ls_brand_title').value = bd.title || ''
     if ($('ls_brand_subtitle')) $('ls_brand_subtitle').value = bd.subtitle || ''
+    if ($('ls_brand_footer')) $('ls_brand_footer').value = bd.footer || ''
   }
 
   function render() {
@@ -277,11 +280,13 @@ export function initLoginStyleDesigner({ API_BASE, authHeaders, notify }) {
     }
     handle.addEventListener('pointerdown', onHandlePointerDown)
 
-    // 标题 / 标语：点击就地编辑文字
+    // 标题 / 标语 / 页脚：点击就地编辑文字
     const titleEl = cardEl.querySelector('[data-ls-edit="title"]')
     const subEl = cardEl.querySelector('[data-ls-edit="subtitle"]')
+    const footerEl = cardEl.querySelector('[data-ls-edit="footer"]')
     if (titleEl) titleEl.addEventListener('click', (e) => { e.stopPropagation(); beginInlineEdit(titleEl, 'title') })
     if (subEl) subEl.addEventListener('click', (e) => { e.stopPropagation(); beginInlineEdit(subEl, 'subtitle') })
+    if (footerEl) footerEl.addEventListener('click', (e) => { e.stopPropagation(); beginInlineEdit(footerEl, 'footer') })
   }
 
   function onCardPointerDown(e) {
@@ -361,7 +366,8 @@ export function initLoginStyleDesigner({ API_BASE, authHeaders, notify }) {
       el.classList.remove('ls-editing')
       const txt = el.textContent.trim()
       if (key === 'title') config.branding.title = txt
-      else config.branding.subtitle = txt
+      else if (key === 'subtitle') config.branding.subtitle = txt
+      else if (key === 'footer') config.branding.footer = txt
       syncControls()
       markDirty()
       el.removeEventListener('blur', finish)
@@ -609,6 +615,11 @@ export function initLoginStyleDesigner({ API_BASE, authHeaders, notify }) {
     const subtitle = $('ls_brand_subtitle')
     if (subtitle) subtitle.addEventListener('input', (e) => {
       config.branding.subtitle = e.target.value
+      render(); markDirty()
+    })
+    const footer = $('ls_brand_footer')
+    if (footer) footer.addEventListener('input', (e) => {
+      config.branding.footer = e.target.value
       render(); markDirty()
     })
     // 图形化编辑开关（DS-LOGIN-GRAPHIC）

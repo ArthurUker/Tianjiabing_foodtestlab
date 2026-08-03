@@ -26,6 +26,31 @@ import { provisionSchool, isValidSchoolCode } from './lib/tenantProvisioner.js'
 import { disconnectAllTenantClients, createTenantClient, schemaNameOf } from './lib/tenantClient.js'
 import { syncAllTenantSchemas } from './lib/tenantSync.js'
 import { startSecurityEventAlerting } from './lib/securityAlerts.js'
+import {
+    listFieldOptions, buildFieldCascade, ensureFieldOptionSeeds,
+    replaceFieldOptions, createFieldOption, updateFieldOption, deleteFieldOption,
+    TABLE_MANAGED_FIELDS,
+} from './lib/fieldOptionService.js'
+
+// 防御性归一化：级联字段（testType/location 等）的选项由 FieldOption 表唯一管理，
+// 返回给客户端前剔除 field_options 中的表管理字段键与历史 cascade 简化版残留，
+// 避免录入端 fields.js 用文本数组覆盖 value/label 分离的下拉。
+function sanitizeFieldOptionsForClient(fo) {
+    // 兼容 JSON 字符串存储（列类型为 text）：parse → 清理 → stringify
+    if (typeof fo === 'string') {
+        try {
+            const parsed = JSON.parse(fo)
+            return JSON.stringify(sanitizeFieldOptionsForClient(parsed))
+        } catch (_) { return fo }
+    }
+    if (!fo || typeof fo !== 'object' || Array.isArray(fo)) return fo
+    const out = { ...fo }
+    delete out.cascade
+    for (const fields of Object.values(TABLE_MANAGED_FIELDS)) {
+        for (const f of fields) delete out[f]
+    }
+    return out
+}
 // 窗口3（资源访问控制与外围加固）：归属校验 / guest 脱敏 / Logo 魔数校验 / CORS 通配符检测
 import { canModifyRecord, maskGuestSensitiveFields, isSafeLogoUrl, corsConfigHasWildcard } from './lib/securityGuards.js'
 import bcryptjs from 'bcryptjs'
@@ -639,11 +664,19 @@ app.get('/api/school/config', authenticateUser, async (req, res) => {
             code
         )
         const customRows = await prisma.$queryRawUnsafe(
-            `SELECT "visible_types","visible_menu_items","field_labels","hidden_fields","theme_config","field_rules","field_options","field_order","custom_fields","test_types","field_types","updated_at" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`,
+            `SELECT "visible_types","visible_menu_items","canteens","field_labels","hidden_fields","theme_config","field_rules","field_options","field_order","custom_fields","test_types","field_types","updated_at" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`,
             code
         )
         const school = schoolRows?.[0] || null
         const customization = customRows?.[0] || null
+        // 字段级联配置（FieldOption 表）：合并进 customization 返回（录入端经缓存统一消费）；
+        // 租户表未 provision / code 为空时优雅降级为空对象
+        if (customization && code) {
+            try {
+                customization.field_cascade = await buildFieldCascade(createTenantClient(prisma, code))
+                customization.field_options = sanitizeFieldOptionsForClient(customization.field_options)
+            } catch (_) { /* 表尚未创建时忽略 */ }
+        }
         res.json({
             success: true,
             data: {
@@ -680,7 +713,7 @@ app.get('/api/schools/:schoolCode/config', rateLimit(60, 60 * 1000), async (req,
             code
         )
         const customRows = await prisma.$queryRawUnsafe(
-            `SELECT "visible_types","visible_menu_items","field_labels","hidden_fields","theme_config","field_rules","field_options","field_order","custom_fields","test_types","field_types","updated_at" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`,
+            `SELECT "visible_types","visible_menu_items","canteens","field_labels","hidden_fields","theme_config","field_rules","field_options","field_order","custom_fields","test_types","field_types","updated_at" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`,
             code
         )
         const school = schoolRows?.[0] || null
@@ -688,6 +721,13 @@ app.get('/api/schools/:schoolCode/config', rateLimit(60, 60 * 1000), async (req,
             return res.status(404).json({ error: '学校不存在或未激活' })
         }
         const customization = customRows?.[0] || null
+        // 字段级联配置（FieldOption 表）：合并进 customization，供录入端下拉联动消费
+        if (customization) {
+            try {
+                customization.field_cascade = await buildFieldCascade(createTenantClient(prisma, code))
+                customization.field_options = sanitizeFieldOptionsForClient(customization.field_options)
+            } catch (_) { /* 租户表未 provision 时忽略 */ }
+        }
         res.json({
             success: true,
             data: {
@@ -731,12 +771,16 @@ app.get('/api/admin/schools', authenticateUser, requirePlatformSuperAdmin, async
     }
 })
 
-// 动态新增学校（建 schema + 推表 + 系统记录 + 租户 admin）
+// 动态新增学校（建 schema + 推表 + 系统记录 + 租户首个 manager 账号）
 app.post('/api/admin/schools', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
     try {
-        const { code, name, adminPassword } = req.body || {}
+        const { code, name, adminUsername, adminPassword } = req.body || {}
         if (!isValidSchoolCode(code)) {
             return res.status(400).json({ error: '❌ 非法学校代码（仅允许小写字母、数字、连字符，长度 1~40）' })
+        }
+        // 初始 manager 用户名：可选，默认 'manager'；提供时必须符合用户名规则
+        if (adminUsername != null && adminUsername !== '' && !/^[a-zA-Z0-9_]{3,50}$/.test(String(adminUsername))) {
+            return res.status(400).json({ error: '❌ 初始管理员用户名需为 3~50 位字母、数字或下划线' })
         }
         if (!adminPassword || String(adminPassword).length < 8) {
             return res.status(400).json({ error: '❌ 必须提供该校 manager 初始密码（至少 8 位）' })
@@ -746,9 +790,17 @@ app.post('/api/admin/schools', authenticateUser, requirePlatformSuperAdmin, asyn
             prisma,
             code,
             name,
+            adminUsername: adminUsername || 'manager',
             adminPassword,
             log: (m) => console.log(`[provision:${code}] ${m}`)
         })
+
+        // 字段选项种子（FieldOption 表）：新学校开通即带系统默认选项与级联
+        try {
+            await ensureFieldOptionSeeds(prisma, code, (m) => console.log(`[provision:${code}] ${m}`))
+        } catch (e) {
+            console.warn(`⚠️ 字段选项种子失败 ${code}:`, e.message)
+        }
 
         res.json({
             success: true,
@@ -765,7 +817,7 @@ app.post('/api/admin/schools', authenticateUser, requirePlatformSuperAdmin, asyn
 app.put('/api/admin/schools/:code', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
     try {
         const { code } = req.params
-        const { name, shortName, themeColor, logoUrl, logoStyle, systemTitle } = req.body || {}
+        const { name, shortName, themeColor, logoUrl, logoStyle, systemTitle, canteens } = req.body || {}
         // RK8/DS-12: 主题色/Logo 服务器端校验
         if (themeColor != null && !HEX_COLOR_RE.test(themeColor)) {
             return res.status(400).json({ error: '主题色必须为 #RRGGBB 格式' })
@@ -833,6 +885,37 @@ app.put('/api/admin/schools/:code', authenticateUser, requirePlatformSuperAdmin,
                 JSON.stringify(tc), code
             )
         }
+        // 学校食堂信息：写入 SchoolCustomization.canteens，并同步 field_options.canteen，
+        // 使录入表单（tableware/pesticide/oil/leanMeat）的食堂下拉自动应用
+        if (canteens !== undefined) {
+            if (canteens !== null && (!Array.isArray(canteens) || canteens.some(c => typeof c !== 'string' || c.trim().length === 0))) {
+                return res.status(400).json({ error: 'canteens 必须为非空字符串数组' })
+            }
+            const safeCanteens = Array.isArray(canteens) ? canteens.map(c => c.trim()).filter(Boolean) : []
+            if (safeCanteens.length > 50) return res.status(400).json({ error: '食堂数量过多（≤50）' })
+            await prisma.$queryRawUnsafe(
+                `INSERT INTO public."SchoolCustomization" ("id","school_code","updated_at")
+                 VALUES ($1,$2,now()) ON CONFLICT ("school_code") DO NOTHING`,
+                crypto.randomUUID(), code
+            )
+            await prisma.$queryRawUnsafe(
+                `UPDATE public."SchoolCustomization" SET "canteens" = $1, "updated_at" = now() WHERE "school_code" = $2`,
+                JSON.stringify(safeCanteens), code
+            )
+            // 同步 field_options.canteen（让录入表单下拉自动应用）
+            const foRows = await prisma.$queryRawUnsafe(
+                `SELECT "field_options" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`, code
+            )
+            let fo = {}
+            try { fo = JSON.parse(foRows?.[0]?.field_options || '{}') } catch (_) { fo = {} }
+            if (!fo || typeof fo !== 'object' || Array.isArray(fo)) fo = {}
+            if (safeCanteens.length) fo.canteen = safeCanteens
+            else delete fo.canteen
+            await prisma.$queryRawUnsafe(
+                `UPDATE public."SchoolCustomization" SET "field_options" = $1, "updated_at" = now() WHERE "school_code" = $2`,
+                JSON.stringify(fo), code
+            )
+        }
         res.json({ success: true, data: updated[0] })
     } catch (error) {
         console.error('❌ Error updating school:', error)
@@ -862,7 +945,7 @@ app.patch('/api/admin/schools/:code/status', authenticateUser, requirePlatformSu
 
 // 定制配置的全部 JSON 列（与 schema.prisma SchoolCustomization 对齐）
 const CUSTOMIZATION_COLUMNS = [
-    'visible_types', 'visible_menu_items', 'field_labels', 'hidden_fields', 'theme_config', 'field_rules',
+    'visible_types', 'visible_menu_items', 'canteens', 'field_labels', 'hidden_fields', 'theme_config', 'field_rules',
     'field_options', 'field_order', 'custom_fields', 'test_types', 'field_types'
 ]
 
@@ -874,7 +957,15 @@ app.get('/api/admin/schools/:code/customization', authenticateUser, requirePlatf
             `SELECT ${CUSTOMIZATION_COLUMNS.map(c => `"${c}"`).join(',')},"updated_at"
              FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`, code
         )
-        res.json({ success: true, data: rows[0] || null })
+        // 级联配置（FieldOption 表）：合并进 data 一并返回，管理端级联编辑器据此渲染
+        const data = rows[0] || null
+        if (data) {
+            try {
+                data.field_cascade = await buildFieldCascade(createTenantClient(prisma, code))
+                data.field_options = sanitizeFieldOptionsForClient(data.field_options)
+            } catch (_) { /* 租户表未 provision 时忽略 */ }
+        }
+        res.json({ success: true, data })
     } catch (error) {
         res.status(500).json({ error: '获取定制配置失败' })
     }
@@ -971,6 +1062,117 @@ app.put('/api/admin/schools/:code/customization', authenticateUser, requirePlatf
     }
 })
 
+// ====== 字段选项（FieldOption 表）：动态表单级联配置，平台超管专属 ======
+// 数据落在租户 schema（school_<code>）的 FieldOption 表，经 createTenantClient 路由。
+// 历史检测记录存文本快照，故选项增删不影响历史展示；删除保护仅约束"有子选项的父选项"。
+function assertFieldOptionCode(req, res) {
+    const { code } = req.params
+    if (!isValidSchoolCode(code)) {
+        res.status(400).json({ error: '非法学校代码' })
+        return null
+    }
+    return code
+}
+function recordFieldOptionAudit(req, code, action, details) {
+    try {
+        return writeAdminOpsLog(prisma, {
+            action,
+            level: 'info',
+            actor: {
+                userId: req.user?.userId ?? null,
+                username: req.user?.username ?? null,
+                role: req.user?.role ?? null,
+                schoolCode: req.user?.schoolCode ?? null,
+                ip: req.ip ?? null
+            },
+            targetId: code,
+            targetSchoolCode: code,
+            details
+        })
+    } catch (e) {
+        console.error('⚠️ field-options audit log failed:', e.message)
+        return Promise.resolve()
+    }
+}
+
+// 1) 列出选项树（?module=&field= 可过滤；不传则返回全部级联字段）
+app.get('/api/admin/schools/:code/field-options', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
+    const code = assertFieldOptionCode(req, res)
+    if (!code) return
+    try {
+        const db = createTenantClient(prisma, code)
+        const module = req.query.module || undefined
+        const field = req.query.field || undefined
+        const data = await listFieldOptions(db, { module, field })
+        res.json({ success: true, data })
+    } catch (e) {
+        res.status(400).json({ error: e.message })
+    }
+})
+
+// 2) 创建单条选项
+app.post('/api/admin/schools/:code/field-options', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
+    const code = assertFieldOptionCode(req, res)
+    if (!code) return
+    try {
+        const db = createTenantClient(prisma, code)
+        const row = await createFieldOption(db, req.body || {})
+        await recordFieldOptionAudit(req, code, 'create_field_option', {
+            moduleCode: row.module_code, fieldCode: row.field_code, value: row.value, optionId: row.id
+        })
+        res.json({ success: true, data: row })
+    } catch (e) {
+        res.status(400).json({ error: e.message })
+    }
+})
+
+// 3) 整树替换某 (module, field) 的选项（管理端"保存级联"调用）
+app.put('/api/admin/schools/:code/field-options', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
+    const code = assertFieldOptionCode(req, res)
+    if (!code) return
+    try {
+        const db = createTenantClient(prisma, code)
+        const { module_code, field_code } = req.body || {}
+        const result = await replaceFieldOptions(db, req.body || {})
+        await recordFieldOptionAudit(req, code, 'replace_field_options', {
+            moduleCode: module_code, fieldCode: field_code, created: result.created
+        })
+        res.json({ success: true, ...result })
+    } catch (e) {
+        res.status(400).json({ error: e.message })
+    }
+})
+
+// 4) 更新单条选项
+app.patch('/api/admin/schools/:code/field-options/:id', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
+    const code = assertFieldOptionCode(req, res)
+    if (!code) return
+    try {
+        const db = createTenantClient(prisma, code)
+        const row = await updateFieldOption(db, req.params.id, req.body || {})
+        await recordFieldOptionAudit(req, code, 'update_field_option', {
+            optionId: row.id, moduleCode: row.module_code, fieldCode: row.field_code, value: row.value
+        })
+        res.json({ success: true, data: row })
+    } catch (e) {
+        res.status(400).json({ error: e.message })
+    }
+})
+
+// 5) 删除单条选项（有子选项时 400 拒绝——删除保护）
+app.delete('/api/admin/schools/:code/field-options/:id', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
+    const code = assertFieldOptionCode(req, res)
+    if (!code) return
+    try {
+        const db = createTenantClient(prisma, code)
+        await deleteFieldOption(db, req.params.id)
+        await recordFieldOptionAudit(req, code, 'delete_field_option', { optionId: req.params.id })
+        res.json({ success: true })
+    } catch (e) {
+        res.status(400).json({ error: e.message })
+    }
+})
+
 // 列出该校用户（跨 schema 查询）
 app.get('/api/admin/schools/:code/users', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
     try {
@@ -1020,6 +1222,12 @@ app.post('/api/admin/schools/:code/reprovision', authenticateUser, requirePlatfo
             name: req.body?.name,
             adminPassword
         })
+        // 字段选项种子（幂等：已有顶级选项的字段不会被覆盖）
+        try {
+            await ensureFieldOptionSeeds(prisma, code, () => {})
+        } catch (e) {
+            console.warn(`⚠️ 字段选项种子失败 ${code}:`, e.message)
+        }
         res.json({ success: true, message: `学校「${code}」已重新初始化`, result })
     } catch (error) {
         console.error('❌ Error reprovisioning school:', error)

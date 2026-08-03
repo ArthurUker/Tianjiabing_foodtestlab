@@ -51,27 +51,38 @@ function runPrismaPush(args, databaseUrl, schema) {
   })
 }
 
+// 租户初始 manager 用户名校验规则（与 UserManager / validationMiddleware 的 username 规则一致）
+const USERNAME_RE = /^[a-zA-Z0-9_]{3,50}$/
+export { USERNAME_RE }
+
 /**
  * 初始化单个学校。
  * @param {object} opts
  * @param {import('@prisma/client').PrismaClient} opts.prisma 全局 Prisma 单例（连 public）
  * @param {string} opts.code 学校代码（小写字母数字连字符）
  * @param {string} [opts.name] 学校显示名
+ * @param {string} [opts.adminUsername] 租户首个 manager 用户名（默认 'manager'，可自定义避免各校雷同）
  * @param {string} opts.adminPassword 租户 admin 初始密码
  * @param {string} [opts.databaseUrl] 基础连接串（默认取 process.env.DATABASE_URL）
  * @param {(msg:string)=>void} [opts.log] 日志回调
- * @returns {Promise<{code:string, schema:string, created:boolean, adminCreated:boolean}>}
+ * @returns {Promise<{code:string, schema:string, created:boolean, adminCreated:boolean, adminUsername:string}>}
  */
 export async function provisionSchool({
   prisma,
   code,
   name,
+  adminUsername = 'manager',
   adminPassword,
   databaseUrl = process.env.DATABASE_URL,
   log = () => {}
 }) {
   if (!isValidSchoolCode(code)) {
     throw new Error(`非法学校代码: ${code}（仅允许小写字母、数字、连字符，长度 1~40）`)
+  }
+  // 初始 manager 用户名：自定义时强制白名单校验（字母/数字/下划线 3~50 位）
+  const managerUsername = String(adminUsername || 'manager')
+  if (!USERNAME_RE.test(managerUsername)) {
+    throw new Error(`非法初始管理员用户名: ${managerUsername}（仅允许字母、数字、下划线，长度 3~50）`)
   }
   const baseUrl = (databaseUrl || '').split('?')[0]
   if (!baseUrl) throw new Error('缺少 DATABASE_URL，无法初始化学校')
@@ -158,25 +169,27 @@ export async function provisionSchool({
   )
   log(`✅ 系统记录 public."School"/"SchoolCustomization" 就绪`)
 
-  // ④ 租户内首个 manager（幂等：已存在则跳过）
+  // ④ 租户内首个 manager（幂等：该用户名已存在则跳过）
   //    admin 角色仅保留给平台超管（public schema，schoolCode=null），
   //    学校内最高权限为 manager，避免跨校越权。
+  //    用户名默认 'manager'，支持超管自定义（如 tjb_admin），避免各校初始账号雷同。
   //    M2: 初始密码属于"临时密码"，账号一律置 must_change_password=true，
   //        首登强制改密的登录侧拦截由窗口1在 login/token 链路实现。
   let managerCreated = false
   await prisma.$transaction(async (tx) => {
     await tx.$executeRawUnsafe(`SET LOCAL search_path TO "${schema}", public`)
     const found = await tx.$queryRawUnsafe(
-      `SELECT 1 FROM "User" WHERE "username" = 'manager' LIMIT 1`
+      `SELECT 1 FROM "User" WHERE "username" = $1 LIMIT 1`,
+      managerUsername
     )
     if (found.length) {
-      log(`ℹ️ 租户 ${code} 已存在 manager，跳过创建`)
+      log(`ℹ️ 租户 ${code} 已存在用户 ${managerUsername}，跳过创建`)
       return
     }
-    // M1: 需要建号但无可用密码 → 中止（覆盖"schema 已存在但 manager 缺失"的边缘情况）
+    // M1: 需要建号但无可用密码 → 中止（覆盖"schema 已存在但初始用户缺失"的边缘情况）
     if (!pw) {
       throw new Error(
-        `拒绝为租户 ${code} 创建 manager：缺少初始密码（SEED_ADMIN_PASSWORD / adminPassword），` +
+        `拒绝为租户 ${code} 创建初始用户 ${managerUsername}：缺少初始密码（SEED_ADMIN_PASSWORD / adminPassword），` +
         `弱默认密码回退已移除`
       )
     }
@@ -184,16 +197,17 @@ export async function provisionSchool({
     await tx.$executeRawUnsafe(
       `INSERT INTO "User"
          ("id","username","password_hash","full_name","role","status","school_code","must_change_password","created_at","updated_at")
-       VALUES ($1,'manager',$2,'School Manager','manager','active',$3,true,now(),now())`,
-      `u_${code}_manager`,
+       VALUES ($1,$2,$3,'School Manager','manager','active',$4,true,now(),now())`,
+      `u_${code}_${managerUsername}`,
+      managerUsername,
       hash,
       code
     )
     managerCreated = true
-    log(`✅ 已为租户 ${code} 创建 manager 账号（must_change_password=true，首登需改密）`)
+    log(`✅ 已为租户 ${code} 创建初始用户 ${managerUsername}（must_change_password=true，首登需改密）`)
   })
 
-  return { code, schema, created, managerCreated }
+  return { code, schema, created, managerCreated, adminUsername: managerUsername }
 }
 
 export default { provisionSchool, isValidSchoolCode, schemaNameOf }

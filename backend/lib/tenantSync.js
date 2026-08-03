@@ -17,6 +17,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { provisionSchool } from './tenantProvisioner.js'
 import { schemaNameOf } from './tenantClient.js'
+import { ensureFieldOptionSeeds } from './fieldOptionService.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const BACKEND_DIR = path.resolve(__dirname, '..')
@@ -25,6 +26,7 @@ const BACKEND_DIR = path.resolve(__dirname, '..')
 const OBJ_COLS = ['field_labels', 'field_rules', 'field_options', 'field_order', 'custom_fields', 'theme_config', 'field_types']
 const ARR_COLS = ['hidden_fields', 'test_types']
 const DEFAULT_VISIBLE_TYPES = JSON.stringify(['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'])
+const DEFAULT_CANTEENS = JSON.stringify(['一食堂', '二食堂', '三食堂'])
 // 默认全部菜单项可见（与 admin-schools.html UI 的"全勾选"状态一致，
 // 避免新学校被误判为"全隐藏"导致侧边栏空白）
 const DEFAULT_VISIBLE_MENU_ITEMS = JSON.stringify([
@@ -99,6 +101,14 @@ export async function backfillSchoolCustomization(prisma, log = console.log) {
       `UPDATE "${table_schema}"."SchoolCustomization" SET "visible_menu_items" = $1 WHERE "visible_menu_items" IS NULL`,
       DEFAULT_VISIBLE_MENU_ITEMS
     )
+    // 学校食堂信息（学校基本信息）：默认 一/二/三 食堂；保存时同步 field_options.canteen
+    await prisma.$executeRawUnsafe(
+      `ALTER TABLE "${table_schema}"."SchoolCustomization" ADD COLUMN IF NOT EXISTS "canteens" TEXT`
+    )
+    await prisma.$executeRawUnsafe(
+      `UPDATE "${table_schema}"."SchoolCustomization" SET "canteens" = $1 WHERE "canteens" IS NULL`,
+      DEFAULT_CANTEENS
+    )
     log(`✅ SchoolCustomization 回填完成: ${table_schema}`)
   }
 }
@@ -136,6 +146,15 @@ export async function syncAllTenantSchemas(prisma, { adminPassword = '', skipGen
 
   log('\n③ SchoolCustomization 增量列回填（跨全部 schema）...')
   await backfillSchoolCustomization(prisma, log)
+
+  log('\n④ FieldOption 字段选项种子回填（跨全部租户，幂等）...')
+  for (const code of codes) {
+    try {
+      await ensureFieldOptionSeeds(prisma, code, (m) => log(`  [${code}] ${m}`))
+    } catch (e) {
+      log(`  ❌ ${code} 字段选项种子失败 - ${e.message}`)
+    }
+  }
 
   log('\n✅ 所有租户 schema 已与 schema.prisma 对齐。')
 }

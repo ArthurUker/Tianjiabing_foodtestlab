@@ -273,6 +273,17 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // （同标签页）收到通知，立即强制重拉服务端并重应用品牌，无需刷新页面。
                 onSchoolInfoChanged(syncCode, async () => {
                     await applySchoolBranding(syncCode, true);
+                    // 基本信息（含学校食堂信息）变更后，强制重拉定制配置并重应用表单，
+                    // 使各检测模块的 canteen 下拉选项即时同步（无需刷新页面）
+                    try {
+                        const cfg = await ensureSchoolConfig(syncCode, true);
+                        if (cfg && Object.keys(cfg).length) {
+                            applyCustomizationToAllForms(cfg);
+                            applySchoolCustomizationToTitles(cfg);
+                        }
+                    } catch (e) {
+                        console.warn('⚠️ 基本信息变更后定制配置重应用失败:', e);
+                    }
                     router.updateNavigationByPermission();
                 });
                 // RK-品牌：标签页重新可见时（如从管理控制台切回），用服务端 updated_at

@@ -210,6 +210,42 @@ model Session {
   @@index([status])
 }
 
+// ========== 字段选项表（级联配置，租户级）==========
+// 动态表单字段级联配置的【唯一数据源】。支持任意层级（parent_option_id 自引用）：
+//   - 顶级行（parent_option_id IS NULL）：某 (module_code, field_code) 字段的可选值；
+//   - 子行（parent_option_id 指向其它选项）：表示"父选项被选中时，本选项可用"。
+//     （子行 field_code 通常为目标字段，如 tableware.testType='atp' 的子行是
+//       tableware.location 的选项，实现"检测项目 → 检测点位"跨字段联动。）
+// value 为机器值（如 atp / detergent），label 为显示文本（如 表面清洁度），二者可分离。
+// 说明：
+//   - 历史检测记录存的是选项文本快照，删除选项不影响历史展示，故删除保护只约束
+//     "有子选项的父选项"（由应用层校验），不强制校验历史引用计数（used_count 保留扩展用）。
+//   - PostgreSQL 唯一索引对 NULL 不生效，顶级行（parent IS NULL）的唯一性由应用层
+//     fieldOptionService 在写入前查重保证；子行（parent 非 NULL）受本表唯一约束保护。
+//   - 本表仅覆盖"需要级联/多级结构的字段"（当前：tableware.testType / tableware.location）；
+//     普通平面下拉字段的选项仍存 SchoolCustomization.field_options（JSON），两套体系互不干扰。
+
+model FieldOption {
+  id               String   @id @default(cuid())
+  module_code      String   // 模块码（tableware / pesticide / oil / leanMeat）
+  field_code       String   // 字段名（testType / location）
+  value            String   // 机器值（唯一键组成部分；顶级行整体唯一）
+  label            String   // 显示文本（默认 = value）
+  parent_option_id String?  // 父选项 id（NULL = 顶级选项）
+  parent           FieldOption? @relation("FieldOptionChildren", fields: [parent_option_id], references: [id], onDelete: Cascade)
+  children         FieldOption[] @relation("FieldOptionChildren")
+  sort_order       Int      @default(0)    // 同父内的展示顺序
+  is_default       Boolean  @default(false) // 录入表单默认选中项
+  is_builtin       Boolean  @default(false) // 系统种子选项标记（供重置/界面提示）
+  used_count       Int      @default(0)    // 历史记录引用计数（预留扩展，当前不做强制删除保护）
+  created_at       DateTime @default(now())
+  updated_at       DateTime @updatedAt
+
+  @@unique([module_code, field_code, value, parent_option_id])
+  @@index([module_code, field_code, parent_option_id])
+  @@index([parent_option_id])
+}
+
 // ========== 系统日志 ==========
 
 model SystemLog {
@@ -252,6 +288,9 @@ model SchoolCustomization {
   // 用于菜单栏定制：管理员可单独控制每个侧边菜单项的显隐
   // （退出登录项 canHide=false 强制始终显示，应用层兜底过滤）
   visible_menu_items String?  // JSON array
+  // 学校食堂信息（JSON 数组，如 ["一食堂","二食堂","三食堂"]）
+  // 学校基本信息，保存时同步写入 field_options.canteen，使录入表单下拉自动应用
+  canteens String?  // JSON array
   // 字段标签覆盖（JSON，如 {"testDate":"检测日期"}）
   field_labels  String?  // JSON object
   // 隐藏字段（JSON 数组）

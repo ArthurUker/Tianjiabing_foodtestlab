@@ -5,12 +5,32 @@ import { UINotification } from '../utils/UINotification.js';
 import { NetworkHelper } from '../utils/NetworkHelper.js';
 import { GuestAuthService } from '../services/GuestAuthService.js';
 import { escapeHtml } from '../utils/schoolCustomization/shared.js';
+import { getSchoolCustomization } from '../utils/schoolCustomization/cache.js';
+import { extractSchoolCode } from '../utils/schoolCode.js';
 import { calculatePathogenRisk, isPositiveResult } from '../utils/pathogenRisk.js';
 import { auditService } from '../services/AuditService.js';
 import { permissionService } from '../services/PermissionService.js';
 import { getLocalDateStr } from '../utils/dateUtil.js';
 
 const storage = new StorageService('pathogen');
+
+// 学校食堂列表：与 admin-schools.html 基本信息设置的食堂保持一致。
+// 优先级：field_options.canteen（保存时自动同步）→ canteens → 默认 一/二/三食堂。
+// 兜底保留 '混样检测'（病原体报告常见特殊样本类型，不属真实食堂但需可选）。
+const DEFAULT_PATHOGEN_CANTEENS = ['一食堂', '二食堂', '三食堂'];
+function getSchoolCanteens() {
+    try {
+        const schoolCode = extractSchoolCode() || '';
+        const cfg = getSchoolCustomization(schoolCode) || {};
+        let fo = null;
+        try { fo = typeof cfg.field_options === 'string' ? JSON.parse(cfg.field_options) : (cfg.field_options || null); } catch (_) { fo = null; }
+        if (Array.isArray(fo) && Array.isArray(fo.canteen) && fo.canteen.length) return fo.canteen;
+        let cts = null;
+        try { cts = typeof cfg.canteens === 'string' ? JSON.parse(cfg.canteens) : (cfg.canteens || null); } catch (_) { cts = null; }
+        if (Array.isArray(cts) && cts.length) return cts;
+    } catch (_) { /* 忽略，使用默认 */ }
+    return DEFAULT_PATHOGEN_CANTEENS;
+}
 let currentPage = 1;
 let recordsPerPage = 10;
 let sortOrder = 'desc';
@@ -142,16 +162,37 @@ function handleFileImport(file) {
                 const arrayBuffer = event.target.result;
                 
                 window.mammoth.extractRawText({arrayBuffer: arrayBuffer})
-                    .then(function(result) {
+                    .then(async function(result) {
                         try {
                             const text = result.value;
                             console.log('提取的原始文本:', text);
-                            
+
                             const record = parseDetectionReport(text);
-                            
+
                             if (!record) {
                                 UINotification.error('❌ 未能识别报告格式，请确保上传的是标准的检测报告');
                             } else {
+                                // 检测关键字段（样本ID/食堂/检测员）是否被正确识别
+                                const missingFields = detectUnrecognizedFields(record);
+                                const hasMissing = missingFields.sampleId || missingFields.canteen || missingFields.inspector;
+
+                                if (hasMissing) {
+                                    // 弹窗让用户手动补全关键信息
+                                    const userInput = await showMissingFieldsDialog(record, missingFields);
+                                    if (userInput === null) {
+                                        UINotification.warning('⚠️ 已取消导入');
+                                        return;
+                                    }
+                                    // 用用户输入覆盖字段
+                                    record.sampleId = userInput.sampleId;
+                                    record.canteen = userInput.canteen;
+                                    record.inspector = userInput.inspector;
+                                    // 标记为手动补全（审计追溯用）
+                                    record.manualInput = true;
+                                    record.manualInputTime = new Date().toISOString();
+                                    record.manualInputFields = Object.keys(missingFields).filter(k => missingFields[k]);
+                                }
+
                                 storage.save(record);
                                 UINotification.success(
                                     `✅ 导入成功！\n` +
@@ -387,7 +428,8 @@ function parseDetectionReport(text) {
     // ... (保持原有的食堂判定逻辑)
     let canteen = '未知';
     const rawInfo = infoMatch ? infoMatch[1].trim() : '';
-    const canteenList = ['一食堂', '二食堂', '三食堂', '四食堂', '教工食堂', '混样检测'];
+    // 用学校基本信息配置的食堂列表识别（与管理员设置保持一致）；兜底混样检测
+    const canteenList = [...getSchoolCanteens(), '混样检测'];
     for (const c of canteenList) {
         if (rawInfo.includes(c)) {
             canteen = c;
@@ -425,6 +467,236 @@ function formatDateStandard(dateStr) {
     const date = new Date(dateStr.replace(/年|月/g, '-').replace(/日/g, ''));
     if (isNaN(date.getTime())) return dateStr;
     return getLocalDateStr(date);
+}
+
+/**
+ * 检测病原体记录中的关键字段（样本ID/食堂/检测员）是否被正确识别
+ * @param {Object} record - parseDetectionReport 返回的记录
+ * @returns {Object} { sampleId, canteen, inspector } 各字段是否未识别（true=未识别）
+ */
+function detectUnrecognizedFields(record) {
+    // 病原体模块认可的标准食堂列表（与解析器保持一致）：学校基本信息配置 + 混样检测兜底
+    const validCanteens = [...getSchoolCanteens(), '混样检测'];
+    // 检测报告中可能被错误捕获为"检测员姓名"的常见字段标签
+    // 这些都是报告模板中的列名/表头，不可能是真实的人名
+    const inspectorFalsePositives = [
+        '检测项目', '样本信息', '芯片编号', '检测人员', '检测靶标',
+        '通道', '点位', 'Ct', 'Ct值', '结果', 'Rn*', '内参', '内标',
+        '项目', '内容', '食源性8项检测芯片'
+    ];
+
+    const missing = {
+        sampleId: false,
+        canteen: false,
+        inspector: false
+    };
+
+    // 样本ID：空、未识别、或自动生成的 Unknown-xxx 占位符
+    if (!record.sampleId ||
+        record.sampleId.startsWith('Unknown-') ||
+        record.sampleId === '未识别' ||
+        record.sampleId === '(未识别)') {
+        missing.sampleId = true;
+    }
+
+    // 食堂：空、未知、不在标准列表中（说明是误识别为其他文本）
+    if (!record.canteen || record.canteen === '未知' || !validCanteens.includes(record.canteen)) {
+        missing.canteen = true;
+    }
+
+    // 检测员：空、未识别、或匹配到常见的字段标签（说明是误识别）
+    if (!record.inspector ||
+        record.inspector === '(未识别)' ||
+        record.inspector === '未知' ||
+        record.inspector === '未知用户' ||
+        inspectorFalsePositives.includes(record.inspector)) {
+        missing.inspector = true;
+    }
+
+    return missing;
+}
+
+/**
+ * 弹出对话框让用户手动补全病原体记录的关键信息
+ * @param {Object} record - 当前已解析的记录
+ * @param {Object} missingFields - detectUnrecognizedFields 返回的未识别字段标记
+ * @returns {Promise<Object|null>} 用户输入的字段值 { sampleId, canteen, inspector }，或 null 表示取消
+ */
+function showMissingFieldsDialog(record, missingFields) {
+    return new Promise((resolve) => {
+        const modal = document.createElement('div');
+        modal.id = 'pathogenMissingFieldsDialog';
+        modal.className = 'fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4';
+
+        // 食堂下拉选项 = 学校基本信息配置的食堂列表 + 混样检测兜底
+        const canteenOptions = [...getSchoolCanteens(), '混样检测'];
+
+        // P2-18: 转义所有动态值，避免 XSS
+        const safeSampleId = escapeHtml(record.sampleId || '');
+        const safeCanteen = escapeHtml(record.canteen || '');
+        const safeInspector = escapeHtml(record.inspector || '');
+        const safeTestDate = escapeHtml(record.testDate || '-');
+        const safePositiveItems = escapeHtml(record.positiveItems || '-');
+        const safeRiskLevel = escapeHtml(record.riskLevel || '-');
+
+        const renderBadge = (isMissing) => isMissing
+            ? '<span class="text-xs text-red-500 ml-2"><i class="fas fa-exclamation-circle"></i> 未识别</span>'
+            : '<span class="text-xs text-green-500 ml-2"><i class="fas fa-check-circle"></i> 已识别</span>';
+
+        const inputClass = (isMissing) => isMissing
+            ? 'w-full border border-red-400 bg-red-50 p-2 rounded focus:outline-none focus:border-blue-500'
+            : 'w-full border border-gray-300 p-2 rounded focus:outline-none focus:border-blue-500';
+
+        modal.innerHTML = `
+            <div class="bg-white rounded-lg shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto animate-scaleIn">
+                <div class="bg-gradient-to-r from-yellow-500 to-orange-500 text-white p-5 rounded-t-lg flex items-center">
+                    <i class="fas fa-exclamation-triangle text-3xl mr-3"></i>
+                    <div>
+                        <h3 class="text-lg font-bold">检测报告关键信息未识别</h3>
+                        <p class="text-sm text-yellow-100 mt-1">请手动补全以下信息以确保记录准确</p>
+                    </div>
+                </div>
+                <div class="p-6 space-y-4">
+                    <div class="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800">
+                        <i class="fas fa-info-circle mr-1"></i>
+                        <strong>已成功识别的检测数据：</strong>
+                        <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+                            <div><span class="text-gray-600">检测日期：</span><strong>${safeTestDate}</strong></div>
+                            <div><span class="text-gray-600">风险等级：</span><strong>${safeRiskLevel}</strong></div>
+                            <div class="md:col-span-2"><span class="text-gray-600">阳性项：</span><strong>${safePositiveItems}</strong></div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label for="missingSampleId" class="block text-sm font-medium text-gray-700 mb-1">
+                            样本ID <span class="text-red-500">*</span>${renderBadge(missingFields.sampleId)}
+                        </label>
+                        <input type="text" id="missingSampleId" value="${safeSampleId}"
+                               class="${inputClass(missingFields.sampleId)}"
+                               placeholder="请输入样本编号" autocomplete="off">
+                    </div>
+
+                    <div>
+                        <label for="missingCanteen" class="block text-sm font-medium text-gray-700 mb-1">
+                            食堂 <span class="text-red-500">*</span>${renderBadge(missingFields.canteen)}
+                        </label>
+                        <select id="missingCanteen" class="${inputClass(missingFields.canteen)}">
+                            <option value="">-- 请选择食堂 --</option>
+                            ${canteenOptions.map(c => `<option value="${escapeHtml(c)}" ${record.canteen === c ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')}
+                            <option value="__other__">其他（自定义输入）</option>
+                        </select>
+                        <input type="text" id="missingCanteenOther"
+                               class="w-full border border-gray-300 p-2 rounded mt-2 hidden"
+                               placeholder="请输入自定义食堂名称" autocomplete="off"
+                               value="${record.canteen && !canteenOptions.includes(record.canteen) && record.canteen !== '未知' ? safeCanteen : ''}">
+                    </div>
+
+                    <div>
+                        <label for="missingInspector" class="block text-sm font-medium text-gray-700 mb-1">
+                            检测员 <span class="text-red-500">*</span>${renderBadge(missingFields.inspector)}
+                        </label>
+                        <input type="text" id="missingInspector" value="${safeInspector}"
+                               class="${inputClass(missingFields.inspector)}"
+                               placeholder="请输入检测员姓名" autocomplete="off">
+                    </div>
+
+                    <div class="bg-yellow-50 border border-yellow-200 rounded p-3 text-xs text-yellow-800">
+                        <i class="fas fa-lightbulb mr-1"></i>
+                        <strong>提示：</strong>必填字段不能为空。标红字段表示系统未能自动识别，建议仔细核对。
+                    </div>
+                </div>
+                <div class="flex justify-end gap-3 p-4 border-t bg-gray-50 rounded-b-lg">
+                    <button id="missingFieldsCancel" type="button" class="px-4 py-2 bg-gray-300 text-gray-800 rounded hover:bg-gray-400 transition">
+                        <i class="fas fa-times mr-1"></i>取消导入
+                    </button>
+                    <button id="missingFieldsConfirm" type="button" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition">
+                        <i class="fas fa-check mr-1"></i>确认导入
+                    </button>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(modal);
+
+        const canteenSelect = modal.querySelector('#missingCanteen');
+        const canteenOtherInput = modal.querySelector('#missingCanteenOther');
+
+        // "其他" 选项切换：显示/隐藏自定义输入框
+        canteenSelect.addEventListener('change', () => {
+            if (canteenSelect.value === '__other__') {
+                canteenOtherInput.classList.remove('hidden');
+                canteenOtherInput.focus();
+            } else {
+                canteenOtherInput.classList.add('hidden');
+            }
+        });
+
+        // 初始化：如果当前 canteen 不在标准列表中且不是"未知"，自动选中"其他"并显示输入框
+        if (record.canteen && !canteenOptions.includes(record.canteen) && record.canteen !== '未知') {
+            canteenSelect.value = '__other__';
+            canteenOtherInput.classList.remove('hidden');
+        }
+
+        // 自动聚焦第一个未识别的字段
+        if (missingFields.sampleId) {
+            modal.querySelector('#missingSampleId').focus();
+        } else if (missingFields.canteen) {
+            modal.querySelector('#missingCanteen').focus();
+        } else if (missingFields.inspector) {
+            modal.querySelector('#missingInspector').focus();
+        }
+
+        // ESC 键关闭
+        const handleEsc = (e) => {
+            if (e.key === 'Escape') {
+                cleanup();
+                resolve(null);
+            }
+        };
+
+        const cleanup = () => {
+            modal.remove();
+            document.removeEventListener('keydown', handleEsc);
+        };
+
+        document.addEventListener('keydown', handleEsc);
+
+        modal.querySelector('#missingFieldsCancel').addEventListener('click', () => {
+            cleanup();
+            resolve(null);
+        });
+
+        modal.querySelector('#missingFieldsConfirm').addEventListener('click', () => {
+            const sampleId = modal.querySelector('#missingSampleId').value.trim();
+            const inspector = modal.querySelector('#missingInspector').value.trim();
+            let canteen = canteenSelect.value;
+            if (canteen === '__other__') {
+                canteen = canteenOtherInput.value.trim();
+            }
+
+            // 校验必填
+            const errors = [];
+            if (!sampleId) errors.push('样本ID');
+            if (!canteen) errors.push('食堂');
+            if (!inspector) errors.push('检测员');
+
+            if (errors.length > 0) {
+                UINotification.warning(`请填写以下必填字段：${errors.join('、')}`);
+                return;
+            }
+
+            cleanup();
+            resolve({ sampleId, canteen, inspector });
+        });
+
+        // 点击 modal 背景关闭（取消）
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                cleanup();
+                resolve(null);
+            }
+        });
+    });
 }
 
 async function handleDeleteRecord(recordId) {

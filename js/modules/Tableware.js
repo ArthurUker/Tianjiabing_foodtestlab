@@ -881,7 +881,7 @@ function renderTable() {
 
         points.forEach((p, idx) => {
             const isDetergent = p.testType === 'detergent';
-            const typeLabel = isDetergent ? '洗涤剂残留' : '表面清洁度';
+            const typeLabel = getTablewareTestTypeLabel(p.testType);
             const valueDisplay = isDetergent
                 ? `${p.rlu} <span class="text-xs text-gray-500">mg/100cm<sup>2</sup></span>`
                 : p.rlu;
@@ -1061,6 +1061,33 @@ function addAtpPoint() {
 }
 
 function getLocationOptionsByType(type) {
+    // 优先从服务端注入的字段级联配置（FieldOption 表，customization.field_cascade）读取。
+    // 路径：field_cascade.tableware.testType 中 value===type 的项的 children（location 子选项）；
+    //       未配置级联时回退到 field_cascade.tableware.location 顶级点位。
+    // 都没有则 fallback 到默认硬编码。
+    try {
+        const cfg = (typeof getSchoolCustomization === 'function') ? getSchoolCustomization() : null;
+        const fc = cfg && cfg.field_cascade;
+        const mod = fc && fc.tableware;
+        if (mod) {
+            const ttList = mod.testType;
+            if (Array.isArray(ttList) && ttList.length) {
+                const found = ttList.find(o => o && o.value === type);
+                if (found && Array.isArray(found.children) && found.children.length) {
+                    return [{ value: '', label: '请选择点位' }].concat(
+                        found.children.map(c => ({ value: c.value ?? c.label, label: c.label ?? c.value }))
+                    );
+                }
+            }
+            const locList = mod.location;
+            if (Array.isArray(locList) && locList.length) {
+                return [{ value: '', label: '请选择点位' }].concat(
+                    locList.map(o => ({ value: o.value ?? o.label, label: o.label ?? o.value }))
+                );
+            }
+        }
+    } catch (_) { /* 忽略，使用硬编码默认 */ }
+
     if (type === 'detergent') {
         return [
             { value: '', label: '请选择点位' },
@@ -1077,6 +1104,36 @@ function getLocationOptionsByType(type) {
         { value: '餐桌表面', label: '餐桌表面' },
         { value: '其他接触面', label: '其他接触面' }
     ];
+}
+
+// 读取餐具洁净度「检测项目」下拉选项（value/label 分离，来自 FieldOption 表注入的 field_cascade）。
+// 未配置（老缓存 / 表未建）时 fallback 到内置 atp / detergent。
+function getTablewareTestTypeOptions() {
+    try {
+        const cfg = (typeof getSchoolCustomization === 'function') ? getSchoolCustomization() : null;
+        const ttList = cfg && cfg.field_cascade && cfg.field_cascade.tableware && cfg.field_cascade.tableware.testType;
+        if (Array.isArray(ttList) && ttList.length) {
+            return ttList.map(o => ({ value: o.value, label: o.label || o.value }));
+        }
+    } catch (_) { /* ignore */ }
+    return [
+        { value: 'atp', label: '表面清洁度' },
+        { value: 'detergent', label: '洗涤剂残留' }
+    ];
+}
+
+// 由检测项目 value 反查显示文本（详情页历史记录展示用；未知值回退默认规则）
+function getTablewareTestTypeLabel(value) {
+    try {
+        const opts = getTablewareTestTypeOptions();
+        const found = opts.find(o => o.value === value);
+        if (found) return found.label;
+    } catch (_) { /* ignore */ }
+    return value === 'detergent' ? '洗涤剂残留' : '表面清洁度';
+}
+
+function escAttr(s) {
+    return String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 }
 
 // 统一绑定点位事件（支持ATP和洗涤剂两种类型）
@@ -1168,8 +1225,7 @@ function getPointTemplate(removable = false) {
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">检测项目 <span class="text-red-500">*</span></label>
                 <select name="testType" class="w-full border border-gray-300 p-2 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 point-test-type">
-                    <option value="atp">表面清洁度</option>
-                    <option value="detergent">洗涤剂残留</option>
+                    ${getTablewareTestTypeOptions().map(o => `<option value="${escAttr(o.value)}">${escAttr(o.label)}</option>`).join('')}
                 </select>
             </div>
             <div>
