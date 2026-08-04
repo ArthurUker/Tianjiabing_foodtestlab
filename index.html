@@ -735,22 +735,14 @@
                 <!-- AuditLog.js 会把界面渲染到这里 -->
             </div>
 
-            <!-- 11.5 ✨ N1/N3 检测频率与月报 (所有登录用户可查看) -->
+            <!-- 11.5 ✨ N1/N3 检测频率与月报 (所有登录用户可查看, 标题由模块内渲染) -->
             <div id="frequency-report" class="content-section hidden">
-                <h2 class="text-xl font-bold text-gray-800 mb-2"><i class="fas fa-chart-line text-blue-600 mr-1"></i>检测频率与月报</h2>
-                <p class="text-sm text-gray-500 mb-4">查看各检测项目本周达标情况、本月与上月次数对比、检测频率趋势</p>
-                <div id="frequency-report-panel">
-                    <!-- FrequencyModule.js renderFrequencyCards() 会把卡片渲染到这里 -->
-                </div>
+                <!-- FrequencyModule.js renderFrequencyCards() 会把界面渲染到这里 -->
             </div>
 
-            <!-- 11.6 ✨ N1/N2 检测频率与日历设置 (manager+) -->
+            <!-- 11.6 ✨ N1/N2 检测频率与日历设置 (manager+, 标题由模块内渲染) -->
             <div id="frequency-settings" class="content-section hidden">
-                <h2 class="text-xl font-bold text-gray-800 mb-2"><i class="fas fa-cog text-blue-600 mr-1"></i>检测频率与日历设置</h2>
-                <p class="text-sm text-gray-500 mb-4">配置各检测项目每周目标频率与每周检测日历</p>
-                <div id="frequency-settings-panel">
-                    <!-- FrequencyModule.js initFrequencySettings() 会把配置界面渲染到这里 -->
-                </div>
+                <!-- FrequencyModule.js initFrequencySettings() 会把配置界面渲染到这里 -->
             </div>
 
             <!-- 12. ✨ 访客中心 (仅访客登录后显示) -->
