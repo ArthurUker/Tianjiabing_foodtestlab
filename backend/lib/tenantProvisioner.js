@@ -74,7 +74,8 @@ export async function provisionSchool({
   adminUsername = 'manager',
   adminPassword,
   databaseUrl = process.env.DATABASE_URL,
-  log = () => {}
+  log = () => {},
+  allowExisting = false
 }) {
   if (!isValidSchoolCode(code)) {
     throw new Error(`非法学校代码: ${code}（仅允许小写字母、数字、连字符，长度 1~40）`)
@@ -124,6 +125,12 @@ export async function provisionSchool({
     log(`✅ 创建 schema: ${schema}`)
   } else {
     log(`ℹ️ schema 已存在: ${schema}`)
+    // P2: 默认拒绝重复建校；批量同步/重建场景须显式 allowExisting=true
+    if (!allowExisting) {
+      const err = new Error(`学校代码已存在: ${code}（schema ${schema} 已存在）`)
+      err.status = 409
+      throw err
+    }
   }
 
   // ② 推送业务表到该 schema（prisma db push，指定 ?schema=）

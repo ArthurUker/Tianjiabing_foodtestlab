@@ -127,13 +127,14 @@ export async function syncAllTenantSchemas(prisma, { adminPassword = '', skipGen
     await runPrismaGenerate()
   }
 
-  const rows = await prisma.$queryRawUnsafe(`SELECT "code" FROM public."School"`)
+  // P1/P2: 仅同步启用中的学校,已停用(逻辑删除)学校不再纳入批量同步
+  const rows = await prisma.$queryRawUnsafe(`SELECT "code" FROM public."School" WHERE "status" = 'active'`)
   const codes = rows.map((r) => r.code).filter(Boolean)
   if (codes.length) {
     log(`\n② 同步 ${codes.length} 个租户 schema 与 schema.prisma 对齐（含控制台 UI 新建的租户）...`)
     for (const code of codes) {
       try {
-        await provisionSchool({ prisma, code, adminPassword, log: () => {} })
+        await provisionSchool({ prisma, code, adminPassword, log: () => {}, allowExisting: true })
         log(`  ✅ ${code}`)
       } catch (e) {
         // 单个租户失败不阻断其余租户与回填，记录后继续

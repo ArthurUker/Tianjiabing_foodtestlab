@@ -49,7 +49,8 @@ async function main() {
         code,
         name: process.env[`SCHOOL_NAME_${code}`],
         adminPassword,
-        log: (m) => console.log(`  ${m}`)
+        log: (m) => console.log(`  ${m}`),
+        allowExisting: true   // P2: 批量初始化允许 schema 已存在(幂等跳过)
       })
     } catch (e) {
       failed += 1

@@ -809,7 +809,8 @@ app.post('/api/admin/schools', authenticateUser, requirePlatformSuperAdmin, asyn
         })
     } catch (error) {
         console.error('❌ Error provisioning school:', error)
-        res.status(500).json({ error: '学校初始化失败' })
+        // P2: 学校代码已存在(provisionSchool 抛 status=409)返回 409,其余 500
+        res.status(error.status || 500).json({ error: error.status === 409 ? error.message : '学校初始化失败' })
     }
 })
 
@@ -1220,7 +1221,8 @@ app.post('/api/admin/schools/:code/reprovision', authenticateUser, requirePlatfo
             prisma,
             code,
             name: req.body?.name,
-            adminPassword
+            adminPassword,
+            allowExisting: true   // P2: reprovision 显式重建,允许 schema 已存在
         })
         // 字段选项种子（幂等：已有顶级选项的字段不会被覆盖）
         try {
