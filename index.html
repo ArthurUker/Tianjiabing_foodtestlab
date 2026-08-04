@@ -383,6 +383,9 @@
                 <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="audit-log" data-admin-only>
                     <i class="fas fa-history mr-3 w-5"></i>审计日志
                 </button>
+                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="frequency-settings" data-admin-only>
+                    <i class="fas fa-chart-line mr-3 w-5"></i>检测频率与日历
+                </button>
             </nav>
             
             <!-- 用户菜单 (顶部右侧) -->
@@ -727,6 +730,15 @@
             <!-- 11. ✨ 审计日志 (仅管理员) -->
             <div id="audit-log" class="content-section hidden">
                 <!-- AuditLog.js 会把界面渲染到这里 -->
+            </div>
+
+            <!-- 11.5 ✨ N1/N2 检测频率与日历设置 (manager+) -->
+            <div id="frequency-settings" class="content-section hidden">
+                <h2 class="text-xl font-bold text-gray-800 mb-2"><i class="fas fa-chart-line text-blue-600 mr-1"></i>检测频率与日历</h2>
+                <p class="text-sm text-gray-500 mb-4">配置各检测项目每周目标频率与每周检测日历</p>
+                <div id="frequency-settings-panel">
+                    <!-- FrequencyModule.js 会把配置界面渲染到这里 -->
+                </div>
             </div>
 
             <!-- 12. ✨ 访客中心 (仅访客登录后显示) -->

@@ -24,6 +24,8 @@ import guestAuthService from './services/GuestAuthService.js';
 import { authService } from './services/AuthService.js';
 import { GuestDashboard } from './modules/GuestDashboard.js';
 // 6. ✨ 引入会话管理服务
+// N1/N2/N3: 检测频率/日历/月报模块
+import { showTodayDetectionHint, renderFrequencyCards, initFrequencySettings } from './modules/FrequencyModule.js';
 
 // P2-10 阶段B：移除 window.renderQuickAccessData 全局函数。
 // 快速访问模式的表格渲染由 index.html 内联脚本自身兜底完成，无需全局暴露。
@@ -327,6 +329,30 @@ document.addEventListener('DOMContentLoaded', async () => {
             }, 500);
         } catch (error) {
             console.error('❌ initDashboard 执行出错:', error.message, error.stack);
+        }
+
+        // N1/N2/N3: 检测频率卡片 + 每日提示 + 配置页初始化
+        if (!isQuickAccessMode) {
+            try {
+                // N1+N3: 在 dashboard 末尾渲染频率风险警告与月报摘要
+                const dashEl = document.getElementById('dashboard');
+                if (dashEl) {
+                    let freqBox = document.getElementById('frequency-cards-box');
+                    if (!freqBox) {
+                        freqBox = document.createElement('div');
+                        freqBox.id = 'frequency-cards-box';
+                        freqBox.className = 'mt-6';
+                        dashEl.appendChild(freqBox);
+                    }
+                    renderFrequencyCards(freqBox);
+                }
+                // N2: 每日登录提示今日检测项目
+                showTodayDetectionHint();
+                // N1/N2: 检测日历/频率设置页(manager+)
+                initFrequencySettings();
+            } catch (e) {
+                console.error('❌ 检测频率模块初始化失败:', e.message);
+            }
         }
 
         // 4. 看板快速导出功能 (仅非快速访问模式)
