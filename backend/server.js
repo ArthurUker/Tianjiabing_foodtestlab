@@ -1307,9 +1307,9 @@ app.post('/api/admin/schools/:code/users', authenticateUser, requirePlatformSupe
         const hash = await bcryptjs.hash(String(password), 10)
         const id = crypto.randomUUID()
         await tenantPrisma.$executeRawUnsafe(
-            `INSERT INTO "${schema}"."User" ("id","username","password_hash","role","full_name","phone","status","created_at","updated_at")
-             VALUES ($1,$2,$3,$4,$5,$6,$7,NOW(),NOW())`,
-            id, username, hash, role, full_name || null, phone || null, 'active'
+            `INSERT INTO "${schema}"."User" ("id","username","password_hash","role","full_name","phone","status","school_code","created_at","updated_at")
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW(),NOW())`,
+            id, username, hash, role, full_name || null, phone || null, 'active', code
         )
         res.status(201).json({
             success: true,
