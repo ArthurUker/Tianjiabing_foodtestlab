@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>帮助中心 - 食品安全检验系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        [x-cloak] { display: none; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <nav class="bg-white shadow-sm sticky top-0 z-50">
+        <div class="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <i class="fas fa-question-circle text-blue-600"></i>
+                <h1 class="text-lg font-bold text-gray-800">帮助中心</h1>
+            </div>
+            <a href="./login.html" class="text-sm text-blue-600 hover:text-blue-800 transition">
+                <i class="fas fa-arrow-left mr-1"></i>返回登录
+            </a>
+        </div>
+    </nav>
+
+    <main class="max-w-3xl mx-auto px-4 py-8 space-y-6">
+        <!-- 账号与登录 -->
+        <section class="bg-white rounded-lg shadow-sm overflow-hidden">
+            <header class="px-5 py-3 bg-blue-50 border-b border-blue-100 flex items-center gap-2">
+                <i class="fas fa-user-lock text-blue-600"></i>
+                <h2 class="font-semibold text-gray-800">账号与登录</h2>
+            </header>
+            <div class="divide-y divide-gray-100">
+                <div class="px-5 py-4">
+                    <h3 class="font-medium text-gray-800 mb-1">忘记密码怎么办？</h3>
+                    <p class="text-sm text-gray-600 leading-relaxed">
+                        请联系您所在学校的<strong>学校管理员</strong>或<strong>平台超管</strong>重置密码。
+                        管理员在「用户管理」页面可为用户重置初始密码，重置后首次登录需修改密码。
+                    </p>
+                </div>
+                <div class="px-5 py-4">
+                    <h3 class="font-medium text-gray-800 mb-1">新账号无法登录？</h3>
+                    <p class="text-sm text-gray-600 leading-relaxed">
+                        请确认：① 使用的是学校提供的专属登录链接（地址形如 /&lt;学校代码&gt;/login.html）；
+                        ② 账号由管理员创建且状态为「启用」；③ 密码输入正确（密码至少 8 位，含字母和数字）。
+                    </p>
+                </div>
+                <div class="px-5 py-4">
+                    <h3 class="font-medium text-gray-800 mb-1">账号被临时锁定？</h3>
+                    <p class="text-sm text-gray-600 leading-relaxed">
+                        连续多次输入错误密码会触发临时锁定（约 15 分钟自动解锁）。
+                        请稍后再试，或联系管理员确认账号状态。
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <!-- 系统使用 -->
+        <section class="bg-white rounded-lg shadow-sm overflow-hidden">
+            <header class="px-5 py-3 bg-green-50 border-b border-green-100 flex items-center gap-2">
+                <i class="fas fa-clipboard-check text-green-600"></i>
+                <h2 class="font-semibold text-gray-800">系统使用</h2>
+            </header>
+            <div class="divide-y divide-gray-100">
+                <div class="px-5 py-4">
+                    <h3 class="font-medium text-gray-800 mb-1">如何录入检测记录？</h3>
+                    <p class="text-sm text-gray-600 leading-relaxed">
+                        登录后从左侧导航选择对应检测模块（餐具洁净度 / 果蔬农残 / 食用油 / 肉蛋农残 / 病原体），
+                        点击「新增」填写表单并保存。数据支持离线缓存，联网后自动同步。
+                    </p>
+                </div>
+                <div class="px-5 py-4">
+                    <h3 class="font-medium text-gray-800 mb-1">如何导出数据？</h3>
+                    <p class="text-sm text-gray-600 leading-relaxed">
+                        在「数据导出」模块选择检测类型与日期范围，可导出 PDF 或 Excel。
+                        访客账号默认无导出权限，需提交申请经审批后开通。
+                    </p>
+                </div>
+                <div class="px-5 py-4">
+                    <h3 class="font-medium text-gray-800 mb-1">数据备份与恢复？</h3>
+                    <p class="text-sm text-gray-600 leading-relaxed">
+                        在「数据备份与恢复」模块可查看本地缓存状态、从服务器同步数据、暂停同步或清空本地缓存。
+                        建议定期检查同步状态，确保本地数据已上传服务器。
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <!-- 检测规范 -->
+        <section class="bg-white rounded-lg shadow-sm overflow-hidden">
+            <header class="px-5 py-3 bg-yellow-50 border-b border-yellow-100 flex items-center gap-2">
+                <i class="fas fa-flask text-yellow-600"></i>
+                <h2 class="font-semibold text-gray-800">检测频率与月报</h2>
+            </header>
+            <div class="divide-y divide-gray-100">
+                <div class="px-5 py-4">
+                    <h3 class="font-medium text-gray-800 mb-1">检测频率是什么？</h3>
+                    <p class="text-sm text-gray-600 leading-relaxed">
+                        系统支持为各检测项目设置每周目标检测频率，当某周实际检测次数低于目标时会提示风险警告，
+                        用于防范检测频率下降。检测日历会按周安排各项目检测计划，每日登录自动提示今日检测项目。
+                    </p>
+                </div>
+                <div class="px-5 py-4">
+                    <h3 class="font-medium text-gray-800 mb-1">月报怎么看？</h3>
+                    <p class="text-sm text-gray-600 leading-relaxed">
+                        系统每月自动生成检测月报并在主界面展示，包含各项目检测次数统计、与上月对比（上升/下降）
+                        以及检测频率趋势图，方便食安员掌握检测频次变化。
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <!-- 联系我们 -->
+        <section class="bg-white rounded-lg shadow-sm overflow-hidden">
+            <header class="px-5 py-3 bg-red-50 border-b border-red-100 flex items-center gap-2">
+                <i class="fas fa-headset text-red-500"></i>
+                <h2 class="font-semibold text-gray-800">联系我们</h2>
+            </header>
+            <div class="px-5 py-4">
+                <p class="text-sm text-gray-600 leading-relaxed">
+                    如以上内容无法解决您的问题，请联系<strong>学校管理员</strong>或<strong>平台技术支持</strong>获取帮助。
+                </p>
+            </div>
+        </section>
+    </main>
+
+    <footer class="max-w-3xl mx-auto px-4 py-6 text-center text-xs text-gray-400">
+        <p>© 2026 食品安全检验系统 · 系统版本 3.1.0</p>
+    </footer>
+</body>
+</html>
