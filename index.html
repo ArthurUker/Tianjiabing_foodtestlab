@@ -361,10 +361,13 @@
                 <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="lean-meat-test">
                     <i class="fas fa-drumstick-bite mr-3 w-5"></i>肉、蛋农残检测
                 </button>
-                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="pathogen-test">
+<button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="pathogen-test">
                     <i class="fas fa-virus mr-3 w-5"></i>病原体检测
                 </button>
-                
+                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="frequency-report">
+                    <i class="fas fa-chart-line mr-3 w-5"></i>检测频率与月报
+                </button>
+
                 <!-- 管理功能 (仅管理员可见) -->
                 <div class="border-t border-gray-700 my-2" data-admin-only></div>
                 <div class="px-4 py-2 text-xs text-gray-400 font-semibold" data-admin-only data-section-title="admin">管理</div>
@@ -732,12 +735,21 @@
                 <!-- AuditLog.js 会把界面渲染到这里 -->
             </div>
 
-            <!-- 11.5 ✨ N1/N2 检测频率与日历设置 (manager+) -->
+            <!-- 11.5 ✨ N1/N3 检测频率与月报 (所有登录用户可查看) -->
+            <div id="frequency-report" class="content-section hidden">
+                <h2 class="text-xl font-bold text-gray-800 mb-2"><i class="fas fa-chart-line text-blue-600 mr-1"></i>检测频率与月报</h2>
+                <p class="text-sm text-gray-500 mb-4">查看各检测项目本周达标情况、本月与上月次数对比、检测频率趋势</p>
+                <div id="frequency-report-panel">
+                    <!-- FrequencyModule.js renderFrequencyCards() 会把卡片渲染到这里 -->
+                </div>
+            </div>
+
+            <!-- 11.6 ✨ N1/N2 检测频率与日历设置 (manager+) -->
             <div id="frequency-settings" class="content-section hidden">
-                <h2 class="text-xl font-bold text-gray-800 mb-2"><i class="fas fa-chart-line text-blue-600 mr-1"></i>检测频率与日历</h2>
+                <h2 class="text-xl font-bold text-gray-800 mb-2"><i class="fas fa-cog text-blue-600 mr-1"></i>检测频率与日历设置</h2>
                 <p class="text-sm text-gray-500 mb-4">配置各检测项目每周目标频率与每周检测日历</p>
                 <div id="frequency-settings-panel">
-                    <!-- FrequencyModule.js 会把配置界面渲染到这里 -->
+                    <!-- FrequencyModule.js initFrequencySettings() 会把配置界面渲染到这里 -->
                 </div>
             </div>
 

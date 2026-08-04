@@ -331,20 +331,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             console.error('❌ initDashboard 执行出错:', error.message, error.stack);
         }
 
-        // N1/N2/N3: 检测频率卡片 + 每日提示 + 配置页初始化
+        // N1/N2/N3: 检测频率卡片(月报) + 每日提示 + 配置页初始化
         if (!isQuickAccessMode) {
             try {
-                // N1+N3: 在 dashboard 末尾渲染频率风险警告与月报摘要
-                const dashEl = document.getElementById('dashboard');
-                if (dashEl) {
-                    let freqBox = document.getElementById('frequency-cards-box');
-                    if (!freqBox) {
-                        freqBox = document.createElement('div');
-                        freqBox.id = 'frequency-cards-box';
-                        freqBox.className = 'mt-6';
-                        dashEl.appendChild(freqBox);
-                    }
-                    renderFrequencyCards(freqBox);
+                // N1+N3: 月报卡片渲染到独立区块 #frequency-report-panel(侧栏菜单切换可见)
+                const reportEl = document.getElementById('frequency-report-panel');
+                if (reportEl) {
+                    renderFrequencyCards(reportEl);
                 }
                 // N2: 每日登录提示今日检测项目
                 showTodayDetectionHint();
