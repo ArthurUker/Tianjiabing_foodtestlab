@@ -3,26 +3,30 @@
 // - Dashboard 风险警告卡片 + 月报摘要(N1 + N3)
 // - 检测日历配置页(manager+)(N2) + 频率阈值配置(manager+)(N1)
 import { UINotification } from '../utils/UINotification.js';
+import { authService } from '../services/AuthService.js';
 
 const API_BASE = window.API_BASE || '';
 
+// 复用 authService.getToken()——其已处理命名空间 key(schoolCode)与 sessionStorage/localStorage
+// 多级读取,手拼 key 会读不到 sessionStorage 主存储导致 401
 function authHeaders() {
-    const token = localStorage.getItem('auth_token') || localStorage.getItem('auth_token__' + extractSchoolCode()) || '';
+    const token = authService.getToken() || '';
     return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
 }
 
+function currentUser() {
+    try {
+        const raw = authService.getUser();
+        return raw || null;
+    } catch (e) { return null; }
+}
+
+// 从 URL 提取学校代码(如 /tjb/index.html -> tjb),用于提示去重 key
 function extractSchoolCode() {
     try {
         const m = location.pathname.match(/\/([^/]+)\/index\.html/);
         return m ? m[1] : '';
     } catch (e) { return ''; }
-}
-
-function currentUser() {
-    try {
-        const raw = localStorage.getItem('current_user') || localStorage.getItem('current_user__' + extractSchoolCode());
-        return raw ? JSON.parse(raw) : null;
-    } catch (e) { return null; }
 }
 
 function isManagerOrAbove() {
