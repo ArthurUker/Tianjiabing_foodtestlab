@@ -2119,6 +2119,16 @@
         // 保存基本信息
         document.getElementById('basicForm').addEventListener('submit', async (e) => {
             e.preventDefault();
+            // P3: 前端预校验(与后端 HEX_COLOR_RE / isSafeLogoUrl 1MB 上限一致),避免静默失败
+            const themeColor = document.getElementById('bf_themeColor').value.trim();
+            const logoUrl = document.getElementById('bf_logoUrl').value.trim();
+            const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
+            if (themeColor && !HEX_COLOR_RE.test(themeColor)) {
+                return showNotice('主题色必须为 #RRGGBB 格式，如 #3498db', 'error');
+            }
+            if (logoUrl && logoUrl.startsWith('data:image') && logoUrl.length > 1024 * 1024) {
+                return showNotice('Logo 图片过大（base64 上限约 1MB），请压缩后再试', 'error');
+            }
             const btn = document.getElementById('saveBasicBtn');
             btn.disabled = true;
             btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>保存中...';
@@ -2129,8 +2139,8 @@
                     body: JSON.stringify({
                         name: document.getElementById('bf_name').value.trim(),
                         shortName: document.getElementById('bf_shortName').value.trim(),
-                        themeColor: document.getElementById('bf_themeColor').value.trim(),
-                        logoUrl: document.getElementById('bf_logoUrl').value.trim(),
+                        themeColor,
+                        logoUrl,
                         systemTitle: (document.getElementById('bf_systemTitle')?.value || '').trim(),
                         canteens: getCanteenValues(),
                         ...(logoStyleDirty ? { logoStyle: logoStyle || null } : {}),
