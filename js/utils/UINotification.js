@@ -162,10 +162,10 @@ export class UINotification {
                     </h3>
                     <p class="text-gray-700 mb-6 confirm-message"></p>
                     <div class="flex justify-end gap-3">
-                        <button class="px-4 py-2 bg-gray-300 text-gray-800 rounded hover:bg-gray-400 transition" id="btnCancel">
+                        <button type="button" class="px-4 py-2 bg-gray-300 text-gray-800 rounded hover:bg-gray-400 transition" data-action="cancel">
                             取消
                         </button>
-                        <button class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition" id="btnConfirm">
+                        <button type="button" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition" data-action="confirm">
                             确认
                         </button>
                     </div>
@@ -173,17 +173,17 @@ export class UINotification {
             `
             modal.querySelector('.confirm-title').textContent = title
             modal.querySelector('.confirm-message').textContent = message
-            
+
             document.body.appendChild(modal)
-            
+
             const cleanup = () => modal.remove()
-            
-            document.getElementById('btnCancel').addEventListener('click', () => {
+
+            modal.querySelector('[data-action="cancel"]').addEventListener('click', () => {
                 cleanup()
                 resolve(false)
             })
-            
-            document.getElementById('btnConfirm').addEventListener('click', () => {
+
+            modal.querySelector('[data-action="confirm"]').addEventListener('click', () => {
                 cleanup()
                 resolve(true)
             })
@@ -218,8 +218,8 @@ export class UINotification {
                     <p class="text-gray-700 mb-4 prompt-message"></p>
                     <input type="text" id="promptInput" class="w-full border border-gray-300 rounded px-3 py-2 mb-6 focus:outline-none focus:border-blue-500">
                     <div class="flex justify-end gap-3">
-                        <button class="px-4 py-2 bg-gray-300 text-gray-800 rounded hover:bg-gray-400 transition" id="btnCancel">取消</button>
-                        <button class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition" id="btnConfirm">确认</button>
+                        <button type="button" class="px-4 py-2 bg-gray-300 text-gray-800 rounded hover:bg-gray-400 transition" data-action="cancel">取消</button>
+                        <button type="button" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition" data-action="confirm">确认</button>
                     </div>
                 </div>
             `
@@ -227,23 +227,23 @@ export class UINotification {
             modal.querySelector('.prompt-message').textContent = message
             const input = modal.querySelector('#promptInput')
             input.value = defaultValue
-            
+
             document.body.appendChild(modal)
             input.focus()
-            
+
             const cleanup = () => modal.remove()
-            
+
             const handleSubmit = () => {
                 cleanup()
                 resolve(input.value)
             }
-            
-            document.getElementById('btnCancel').addEventListener('click', () => {
+
+            modal.querySelector('[data-action="cancel"]').addEventListener('click', () => {
                 cleanup()
                 resolve(null)
             })
-            
-            document.getElementById('btnConfirm').addEventListener('click', handleSubmit)
+
+            modal.querySelector('[data-action="confirm"]').addEventListener('click', handleSubmit)
             
             input.addEventListener('keypress', (e) => {
                 if (e.key === 'Enter') handleSubmit()

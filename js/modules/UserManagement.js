@@ -157,7 +157,7 @@ export class UserManagement {
                             <input type="text" id="formFullName" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                         </div>
                         <div class="flex gap-2 justify-end pt-4">
-                            <button type="button" id="btnCancel" class="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400">取消</button>
+                            <button type="button" id="btnCancelUserModal" class="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400">取消</button>
                             <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">保存</button>
                         </div>
                     </form>
@@ -192,7 +192,7 @@ export class UserManagement {
         }, { signal });
 
         // 模态框事件
-        document.getElementById('btnCancel').addEventListener('click', () => this.closeModal(), { signal });
+        document.getElementById('btnCancelUserModal').addEventListener('click', () => this.closeModal(), { signal });
         document.getElementById('userForm').addEventListener('submit', (e) => this.handleFormSubmit(e), { signal });
     }
 
