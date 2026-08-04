@@ -1269,7 +1269,7 @@ app.post('/api/admin/schools/:code/users/:userId/reset-password', authenticateUs
         const hash = await bcryptjs.hash(newPassword, 10)
         const tenantPrisma = createTenantClient(prisma, code)
         const result = await tenantPrisma.$executeRawUnsafe(
-            `UPDATE "${schema}"."User" SET "password_hash" = $2 WHERE "id" = $1`,
+            `UPDATE "${schema}"."User" SET "password_hash" = $2, "must_change_password" = true WHERE "id" = $1`,
             userId, hash
         )
         if (!result) return res.status(404).json({ error: '用户不存在' })

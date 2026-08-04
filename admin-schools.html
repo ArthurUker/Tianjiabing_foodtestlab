@@ -3491,6 +3491,7 @@
                 showNotice('✅ 密码已重置', 'success');
                 document.getElementById('resetPwdModal').classList.add('hidden');
                 document.getElementById('resetPwdModal').classList.remove('flex');
+                loadUsers();   // P5: 重置后刷新用户列表,避免需手动刷新才生效
             } catch (e) {
                 showNotice('❌ ' + e.message, 'error');
             }
