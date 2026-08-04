@@ -14,7 +14,8 @@ const filesToCopy = [
   'index.html',
   'login.html',
   'admin-schools.html',
-  'super-admin-login.html'
+  'super-admin-login.html',
+  'help.html'
 ];
 
 const dirsToCopy = [
