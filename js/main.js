@@ -377,12 +377,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
 
-        // 7. ✨ 初始化审计日志模块 (仅管理员可访问)
+        // 7. ✨ 初始化审计日志模块 (admin/manager 可访问,与 README §7.1 及后端权限一致)
+        // P15: 原仅 router.isAdmin() 导致 manager 登录见空白页;放宽为与用户管理同条件
         // P2-10：动态导航通过 import 的 initAuditLog 直接调用，无需挂 window
         if (!isQuickAccessMode) {
             console.log('🔧 AuditLog 初始化中...');
             try {
-                if (router.isAdmin()) {
+                if (router.isAdmin() || permissionService.hasRole('manager')) {
                     initAuditLog();
                     console.log('✅ AuditLog 初始化成功');
                 } else {
