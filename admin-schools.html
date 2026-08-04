@@ -1788,7 +1788,10 @@
                     <td>${s.logo_url ? `<img src="${escapeHtml(s.logo_url)}" alt="logo" class="w-7 h-7 object-contain rounded">` : '<i class="fas fa-school text-gray-300"></i>'}</td>
                     <td class="text-xs text-gray-500">${s.created_at ? new Date(s.created_at).toLocaleDateString() : ''}</td>
                     <td><div class="flex items-center gap-1"><a href="${escapeHtml(schoolLoginUrl(s.code))}" target="_blank" rel="noopener" class="text-xs text-blue-600 hover:text-blue-800 hover:underline break-all max-w-[200px] truncate" title="${escapeHtml(schoolLoginUrl(s.code))}（点击新窗口打开）">${escapeHtml(schoolLoginUrl(s.code))}</a><button class="btn-copy-login flex-shrink-0 px-1.5 py-0.5 text-xs bg-gray-100 hover:bg-blue-100 text-gray-500 hover:text-blue-700 rounded transition" data-url="${escapeHtml(schoolLoginUrl(s.code))}" title="复制登录地址（请用无痕窗口打开）"><i class="fas fa-copy"></i></button></div></td>
-                    <td><button class="px-2 py-1 text-xs bg-blue-50 text-blue-700 rounded hover:bg-blue-100 transition btn-manage" data-code="${escapeHtml(s.code)}"><i class="fas fa-cog mr-1"></i>管理</button></td>
+                    <td><div class="flex items-center gap-1">
+                        <button class="px-2 py-1 text-xs bg-blue-50 text-blue-700 rounded hover:bg-blue-100 transition btn-manage" data-code="${escapeHtml(s.code)}"><i class="fas fa-cog mr-1"></i>管理</button>
+                        <button class="px-2 py-1 text-xs bg-red-50 text-red-700 rounded hover:bg-red-100 transition btn-delete-school" data-code="${escapeHtml(s.code)}" title="停用该校（数据保留）"><i class="fas fa-trash mr-1"></i>停用</button>
+                    </div></td>
                 </tr>
             `).join('');
 
@@ -1836,6 +1839,25 @@
             });
             tbody.querySelectorAll('.btn-manage').forEach(btn => {
                 btn.addEventListener('click', () => openDetail(btn.dataset.code));
+            });
+
+            // P1: 逻辑删除(软删除——置 disabled,数据保留)
+            tbody.querySelectorAll('.btn-delete-school').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const code = btn.dataset.code;
+                    if (!confirm(`确定要停用学校「${code}」吗？\n停用后该校用户将无法登录，数据会保留。`)) return;
+                    try {
+                        const resp = await fetch(`${API_BASE}/api/admin/schools/${code}`, {
+                            method: 'DELETE', headers: authHeaders()
+                        });
+                        const data = await resp.json();
+                        if (!resp.ok) throw new Error(data.error || '删除失败');
+                        showNotice(data.message || `✅ 学校 ${code} 已停用`, 'success');
+                        loadSchools();
+                    } catch (e) {
+                        showNotice('❌ ' + e.message, 'error');
+                    }
+                });
             });
         }
 

@@ -944,6 +944,25 @@ app.patch('/api/admin/schools/:code/status', authenticateUser, requirePlatformSu
     }
 })
 
+// P1: 逻辑删除学校(软删除——仅置 disabled,不做物理删除,数据安全)
+app.delete('/api/admin/schools/:code', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
+    try {
+        const { code } = req.params
+        if (!isValidSchoolCode(code)) return res.status(400).json({ error: '非法学校代码' })
+        const updated = await prisma.$queryRawUnsafe(
+            `UPDATE public."School" SET "status" = 'disabled', "updated_at" = now()
+             WHERE "code" = $1 AND "status" <> 'disabled'
+             RETURNING "code","name","status"`,
+            code
+        )
+        if (!updated.length) return res.status(404).json({ error: '学校不存在或已停用' })
+        res.json({ success: true, message: `学校 ${code} 已停用（逻辑删除，数据保留）`, data: updated[0] })
+    } catch (error) {
+        console.error('❌ Error deleting school:', error)
+        res.status(500).json({ error: '删除学校失败' })
+    }
+})
+
 // 定制配置的全部 JSON 列（与 schema.prisma SchoolCustomization 对齐）
 const CUSTOMIZATION_COLUMNS = [
     'visible_types', 'visible_menu_items', 'canteens', 'field_labels', 'hidden_fields', 'theme_config', 'field_rules',
