@@ -224,9 +224,9 @@ export async function renderFrequencyCards(container) {
 }
 
 // ========== N1 + N2: 检测频率与日历设置页(manager+) ==========
-export function initFrequencySettings() {
+// 直接渲染到传入的容器(与其他模块一致:容器=content-section 区块)
+export function initFrequencySettings(panel) {
     if (!isManagerOrAbove()) return;
-    const panel = document.getElementById('frequency-settings-panel');
     if (!panel) return;
 
     const render = async () => {

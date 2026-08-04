@@ -334,15 +334,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         // N1/N2/N3: 检测频率卡片(月报) + 每日提示 + 配置页初始化
         if (!isQuickAccessMode) {
             try {
-                // N1+N3: 月报卡片渲染到独立区块 #frequency-report-panel(侧栏菜单切换可见)
-                const reportEl = document.getElementById('frequency-report-panel');
+                // N1+N3: 月报卡片渲染到独立区块 #frequency-report(侧栏菜单切换可见)
+                const reportEl = document.getElementById('frequency-report');
                 if (reportEl) {
                     renderFrequencyCards(reportEl);
                 }
                 // N2: 每日登录提示今日检测项目
                 showTodayDetectionHint();
-                // N1/N2: 检测日历/频率设置页(manager+)
-                initFrequencySettings();
+                // N1/N2: 检测日历/频率设置页(manager+) - 直接渲染到区块
+                const settingsEl = document.getElementById('frequency-settings');
+                if (settingsEl) {
+                    initFrequencySettings(settingsEl);
+                }
             } catch (e) {
                 console.error('❌ 检测频率模块初始化失败:', e.message);
             }
