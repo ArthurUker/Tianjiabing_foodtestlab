@@ -43,6 +43,7 @@ export {
     injectCustomFields,
     collectCustomFieldValues,
     isRecordQualifiedByCustomFields,
+    getSchoolCanteens,
 } from './schoolCustomization/fields.js'
 
 export {

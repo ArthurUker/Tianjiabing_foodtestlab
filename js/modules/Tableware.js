@@ -7,7 +7,11 @@ import { GuestAuthService } from '../services/GuestAuthService.js';
 import { auditService } from '../services/AuditService.js';
 import { permissionService } from '../services/PermissionService.js';
 // RK2: 补齐餐具洁净度模块的自定义字段收集（此前仅有 GenericTest 收集，Tableware 遗漏）
-import { collectCustomFieldValues, getSchoolCustomization } from '../utils/schoolCustomization.js';
+import { collectCustomFieldValues, getSchoolCustomization, getSchoolCanteens } from '../utils/schoolCustomization.js';
+// TD-CascadeFieldOption: 必须传 schoolCode；不传则 cache.js 的 getSchoolCustomization 因
+// `if (!schoolCode) return {}` 始终返回空对象，FieldOption 级联配置读不到，级联下拉永远
+// fallback 到 Tableware.js 内置硬编码（包含「密胺类餐具」），导致管理端删除无效。
+import { extractSchoolCode } from '../utils/schoolCode.js';
 
 const storage = new StorageService('tableware');
 let currentPage = 1;
@@ -572,13 +576,12 @@ function updateFormStructure() {
                 <h3 class="font-medium text-gray-800 flex items-center mb-2 md:mb-0"><i class="fas fa-table text-blue-600 mr-2"></i>历史检测记录</h3>
                 <div class="flex flex-wrap items-center gap-2">
                     <!-- ✅ 新增：食堂筛选 -->
+                    <!-- TD-CanteenFromConfig: option 不再硬编码 3 个食堂；由 renderCanteenFilter()
+                         从学校管理控制台保存的 customization 动态生成（与 Dashboard / Pathogen 同源）。 -->
                     <div class="flex items-center">
                         <label class="text-sm text-gray-600 mr-2">食堂:</label>
-                        <select id="canteenFilterSelect" class="border border-gray-300 rounded px-3 py-1 text-sm">
+                        <select id="canteenFilterSelect" class="border border-gray-300 rounded px-3 py-1 text-sm" data-source="configurable">
                             <option value="all">全部</option>
-                            <option value="一食堂">一食堂</option>
-                            <option value="二食堂">二食堂</option>
-                            <option value="三食堂">三食堂</option>
                         </select>
                     </div>
                     <div class="flex items-center">
@@ -667,8 +670,10 @@ function handleFormSubmit(e) {
     const data = Object.fromEntries(formData.entries());
 
     // RK2: 收集学校自定义字段（层级A），与 GenericTest 提交口径统一
+    // TD-CascadeFieldOption: collectCustomFieldValues 内部仍会从 customization 派生下拉/标签，
+    // 传 schoolCode 保证拿到该校缓存，否则会读到空对象导致学校定制失效。
     try {
-        const customFields = collectCustomFieldValues(e.target, getSchoolCustomization());
+        const customFields = collectCustomFieldValues(e.target, getSchoolCustomization(extractSchoolCode()));
         Object.assign(data, customFields);
     } catch (e) {
         console.warn('⚠️ Tableware 自定义字段收集失败，继续提交通用字段:', e.message);
@@ -927,6 +932,25 @@ function renderTable() {
     console.log('✅ 表格已渲染，当前tbody包含', tbody.querySelectorAll('tr').length, '行');
 }
 
+// TD-CanteenFromConfig: 用学校管理控制台保存的 customization 动态生成食堂筛选下拉。
+// 顺序：管理端配置的顺序（不再额外按字典序排，避免打乱管理员的排列）。
+// 兜底：['一食堂', '二食堂', '三食堂']（与 getSchoolCanteens 默认一致）。
+function renderCanteenFilter(sel) {
+    if (!sel) return;
+    // 仅渲染一次（避免每次 renderTable 重建 option 抖动）
+    if (sel.dataset.rendered === '1') return;
+    const configured = getSchoolCanteens(extractSchoolCode(), ['一食堂', '二食堂', '三食堂']);
+    // 保留"全部"在最前；之后插入配置项（去重 trim）
+    const seen = new Set();
+    const optsHtml = ['<option value="all">全部</option>'];
+    configured.forEach(c => {
+        const v = String(c || '').trim();
+        if (v && !seen.has(v)) { seen.add(v); optsHtml.push(`<option value="${v}">${v}</option>`); }
+    });
+    sel.innerHTML = optsHtml.join('');
+    sel.dataset.rendered = '1';
+}
+
 // ✅ 修改：setupPaginationListeners 函数增加食堂筛选事件
 function setupPaginationListeners() {
     const paginationContainer = document.getElementById('tablePaginationContainer');
@@ -934,6 +958,8 @@ function setupPaginationListeners() {
     const sortBtn = document.getElementById('sortOrderBtn');
     const jumpForm = document.getElementById('pageJumpForm');
     const canteenFilterSelect = document.getElementById('canteenFilterSelect'); // ✅ 新增
+    // TD-CanteenFromConfig: option 列表按学校管理控制台配置动态生成，保留用户当前选择
+    renderCanteenFilter(canteenFilterSelect);
 
     if (paginationContainer && paginationContainer.dataset.listenersAttached === 'true') {
         console.log('分页事件监听器已存在，跳过绑定');
@@ -1065,8 +1091,10 @@ function getLocationOptionsByType(type) {
     // 路径：field_cascade.tableware.testType 中 value===type 的项的 children（location 子选项）；
     //       未配置级联时回退到 field_cascade.tableware.location 顶级点位。
     // 都没有则 fallback 到默认硬编码。
+    // TD-CascadeFieldOption: 必须传 schoolCode；不传则 cache.js 中 `if (!schoolCode) return {}`
+    // 会让 cfg 恒为 {}，管理端在 FieldOption 表中删掉的「密胺类餐具」永远出现在下拉中。
     try {
-        const cfg = (typeof getSchoolCustomization === 'function') ? getSchoolCustomization() : null;
+        const cfg = (typeof getSchoolCustomization === 'function') ? getSchoolCustomization(extractSchoolCode()) : null;
         const fc = cfg && cfg.field_cascade;
         const mod = fc && fc.tableware;
         if (mod) {
@@ -1108,9 +1136,11 @@ function getLocationOptionsByType(type) {
 
 // 读取餐具洁净度「检测项目」下拉选项（value/label 分离，来自 FieldOption 表注入的 field_cascade）。
 // 未配置（老缓存 / 表未建）时 fallback 到内置 atp / detergent。
+// TD-CascadeFieldOption: 同样必须传 schoolCode，否则 getSchoolCustomization 返回 {}，
+// 永远走到 fallback；管理端对 testType 顶级选项的增删改不生效。
 function getTablewareTestTypeOptions() {
     try {
-        const cfg = (typeof getSchoolCustomization === 'function') ? getSchoolCustomization() : null;
+        const cfg = (typeof getSchoolCustomization === 'function') ? getSchoolCustomization(extractSchoolCode()) : null;
         const ttList = cfg && cfg.field_cascade && cfg.field_cascade.tableware && cfg.field_cascade.tableware.testType;
         if (Array.isArray(ttList) && ttList.length) {
             return ttList.map(o => ({ value: o.value, label: o.label || o.value }));
@@ -1123,6 +1153,7 @@ function getTablewareTestTypeOptions() {
 }
 
 // 由检测项目 value 反查显示文本（详情页历史记录展示用；未知值回退默认规则）
+// TD-CascadeFieldOption: 同上，必须传 schoolCode 才能读到管理端维护的 label 映射。
 function getTablewareTestTypeLabel(value) {
     try {
         const opts = getTablewareTestTypeOptions();

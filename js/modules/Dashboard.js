@@ -8,7 +8,7 @@ import { UINotification } from '../utils/UINotification.js';
 import { NetworkHelper } from '../utils/NetworkHelper.js';
 import { calculatePathogenRisk } from '../utils/pathogenRisk.js';
 import { auditService } from '../services/AuditService.js';
-import { isRecordQualifiedByCustomFields, getVisibleTypes, getSchoolCustomization } from '../utils/schoolCustomization.js';
+import { isRecordQualifiedByCustomFields, getVisibleTypes, getSchoolCustomization, getSchoolCanteens } from '../utils/schoolCustomization.js';
 import { extractSchoolCode } from '../utils/schoolCode.js';
 import { getLocalDateStr, getLocalMonthStr, startOfLocalDay, endOfLocalDay } from '../utils/dateUtil.js';
 
@@ -195,17 +195,27 @@ export function initDashboard() {
 
 // ✅ 新增：初始化食堂筛选器
 function initCanteenFilter() {
-    const canteenSet = new Set();
+    // TD-CanteenFromConfig: 数据看板的食堂下拉必须先从学校定制配置读取
+    // （管理端新增的食堂不可能立刻就有检测记录覆盖），仅从 records 提取会导致
+    // 「管理端加了 2 个食堂、看板下拉只显示 1 个」之类的不一致。
+    // 优先级：学校定制配置（field_options.canteen / canteens）> records 中实际出现过的食堂 > DEFAULT_CANTEENS。
+    const ordered = [];
+    const seen = new Set();
+    // 1) 先放学校管理控制台配置的食堂（保持管理端排序）
+    getSchoolCanteens(extractSchoolCode(), DEFAULT_CANTEENS).forEach(c => {
+        const v = String(c || '').trim();
+        if (v && !seen.has(v)) { ordered.push(v); seen.add(v); }
+    });
     const types = getDashboardVisibleTypes();
     const canteenFilter = document.getElementById('canteenFilter');
     const selectedBefore = canteenFilter?.value || 'all';
-    
+
     const isQuickAccess = new URLSearchParams(window.location.search).get('quickAccess') === 'true';
-    
-    // 收集所有出现过的食堂
+
+    // 2) 收集所有出现过的食堂，追加到配置列表（保留历史数据用过的食堂名）
     types.forEach(type => {
         let records;
-        
+
         if (isQuickAccess) {
             try {
                 const cacheKey = `cache_${type}`;
@@ -218,30 +228,29 @@ function initCanteenFilter() {
         } else {
             records = services[type].getAll();
         }
-        
+
         records.forEach(r => {
             const canteen = getRecordCanteen(r);
-            if (canteen) canteenSet.add(canteen);
+            if (canteen && !seen.has(canteen)) { ordered.push(canteen); seen.add(canteen); }
         });
     });
 
-    if (canteenSet.size === 0) {
-        DEFAULT_CANTEENS.forEach(c => canteenSet.add(c));
-    }
+    // 3) 兜底：连配置都没有时使用 DEFAULT_CANTEENS
+    if (!ordered.length) DEFAULT_CANTEENS.forEach(c => { if (!seen.has(c)) { ordered.push(c); seen.add(c); } });
 
     if (canteenFilter) {
         // 添加"全部食堂"选项
         canteenFilter.innerHTML = '<option value="all">全部食堂</option>';
-        
+
         // 添加实际存在的食堂
-        Array.from(canteenSet).sort().forEach(canteen => {
+        ordered.forEach(canteen => {
             const option = document.createElement('option');
             option.value = canteen;
             option.textContent = canteen;
             canteenFilter.appendChild(option);
         });
 
-        canteenFilter.value = Array.from(canteenSet).includes(selectedBefore) ? selectedBefore : 'all';
+        canteenFilter.value = ordered.includes(selectedBefore) ? selectedBefore : 'all';
     }
 }
 
@@ -1644,7 +1653,11 @@ function calculateCanteenTrends(startDate, endDate, selectedCanteen = 'all', met
         });
     });
 
-    const canteens = Object.keys(canteenData).length ? Object.keys(canteenData) : DEFAULT_CANTEENS;
+    // TD-CanteenFromConfig: 趋势图同样要把「学校管理端配置的食堂」纳入画图范围，否则
+    // 新增的食堂在没产生数据前不会出现在折线中，与下拉筛选形成不一致。
+    const configuredCanteens = getSchoolCanteens(extractSchoolCode(), DEFAULT_CANTEENS);
+    const allCanteens = Array.from(new Set([...configuredCanteens, ...Object.keys(canteenData)]));
+    const canteens = allCanteens.length ? allCanteens : DEFAULT_CANTEENS;
 
     // 2) 仅保留"至少一家食堂有检测"的时间桶，避免空轴与 100% 平板假象
     const periodKeys = Array.from(new Set(
@@ -1696,7 +1709,11 @@ function calculateCanteenPassRate(startDate, endDate, selectedCanteen = 'all') {
         });
     });
 
-    const canteens = canteenSet.size ? Array.from(canteenSet) : DEFAULT_CANTEENS;
+    // TD-CanteenFromConfig: 对比图也必须把「学校管理端配置的食堂」纳入范围，
+    // 与下拉/趋势图保持一致。
+    const configuredCanteens = getSchoolCanteens(extractSchoolCode(), DEFAULT_CANTEENS);
+    const allCanteens = Array.from(new Set([...configuredCanteens, ...Array.from(canteenSet)]));
+    const canteens = allCanteens.length ? allCanteens : DEFAULT_CANTEENS;
 
     const stats = {};
     canteens.forEach(canteen => {

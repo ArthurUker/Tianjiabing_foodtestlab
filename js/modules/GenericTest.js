@@ -5,7 +5,11 @@ import { UINotification } from '../utils/UINotification.js';
 import { NetworkHelper } from '../utils/NetworkHelper.js';
 import { GuestAuthService } from '../services/GuestAuthService.js';
 import { permissionService } from '../services/PermissionService.js';
-import { collectCustomFieldValues, getSchoolCustomization } from '../utils/schoolCustomization.js';
+import { collectCustomFieldValues, getSchoolCustomization, getSchoolCanteens } from '../utils/schoolCustomization.js';
+// TD-CascadeFieldOption: collectCustomFieldValues 内部会从 customization.hidden_fields
+// 过滤"已隐藏的自定义字段"；若 getSchoolCustomization 不传 schoolCode 则恒为 {}，
+// 隐藏规则失效，被管理端隐藏的字段会随提交再次落库。
+import { extractSchoolCode } from '../utils/schoolCode.js';
 
 export class GenericTestModule {
     constructor(config) {
@@ -101,6 +105,21 @@ export class GenericTestModule {
         this.storage.on('sync', this._syncHandler);
     }
 
+    // TD-CanteenFromConfig: 食堂筛选下拉按学校管理控制台配置动态生成；只在第一次调用时生成
+    // （dataset.rendered 标记），保留用户当前选择。
+    renderCanteenFilterOptions(sel) {
+        if (!sel || sel.dataset.rendered === '1') return;
+        const configured = getSchoolCanteens(extractSchoolCode(), ['一食堂', '二食堂', '三食堂']);
+        const seen = new Set();
+        const optsHtml = ['<option value="all">全部</option>'];
+        configured.forEach(c => {
+            const v = String(c || '').trim();
+            if (v && !seen.has(v)) { seen.add(v); optsHtml.push(`<option value="${v}">${v}</option>`); }
+        });
+        sel.innerHTML = optsHtml.join('');
+        sel.dataset.rendered = '1';
+    }
+
     setupPaginationListeners() {
         const container = document.getElementById(`${this.moduleName}_pagination`);
         if (!container || container.dataset.listenersAttached === 'true') return;
@@ -142,6 +161,8 @@ export class GenericTestModule {
         }
 
         const canteenFilterSelect = document.getElementById(`${this.moduleName}_canteenFilter`);
+        // TD-CanteenFromConfig: 从学校管理控制台保存的 customization 动态生成 option
+        this.renderCanteenFilterOptions(canteenFilterSelect);
         if (canteenFilterSelect && !canteenFilterSelect.dataset.listenerAttached) {
             canteenFilterSelect.addEventListener('change', (e) => {
                 this.selectedCanteenFilter = e.target.value;
@@ -812,11 +833,9 @@ export class GenericTestModule {
                             </div>
                             <div class="flex items-center">
                                 <label class="text-sm text-gray-600 mr-2">食堂:</label>
-                                <select id="${this.moduleName}_canteenFilter" class="border border-gray-300 rounded px-3 py-1 text-sm">
+                                <!-- TD-CanteenFromConfig: option 不再硬编码；由 renderGenericCanteenFilter() 从学校配置动态生成 -->
+                                <select id="${this.moduleName}_canteenFilter" class="border border-gray-300 rounded px-3 py-1 text-sm" data-source="configurable">
                                     <option value="all">全部</option>
-                                    <option value="一食堂">一食堂</option>
-                                    <option value="二食堂">二食堂</option>
-                                    <option value="三食堂">三食堂</option>
                                 </select>
                             </div>
                         `;
@@ -824,11 +843,9 @@ export class GenericTestModule {
                         filterHTML = `
                             <div class="flex items-center">
                                 <label class="text-sm text-gray-600 mr-2">食堂:</label>
-                                <select id="${this.moduleName}_canteenFilter" class="border border-gray-300 rounded px-3 py-1 text-sm">
+                                <!-- TD-CanteenFromConfig: 同上 -->
+                                <select id="${this.moduleName}_canteenFilter" class="border border-gray-300 rounded px-3 py-1 text-sm" data-source="configurable">
                                     <option value="all">全部</option>
-                                    <option value="一食堂">一食堂</option>
-                                    <option value="二食堂">二食堂</option>
-                                    <option value="三食堂">三食堂</option>
                                 </select>
                             </div>
                         `;
@@ -976,7 +993,8 @@ export class GenericTestModule {
             // 层级A：学校自定义字段（整单级，随每条点位记录一并存入 result_data）
         };
         try {
-            const customFields = collectCustomFieldValues(e.target, getSchoolCustomization())
+            // TD-CascadeFieldOption: 传 schoolCode 才会读到本校 customization（hidden_fields 等）。
+            const customFields = collectCustomFieldValues(e.target, getSchoolCustomization(extractSchoolCode()))
             Object.assign(baseInfo, customFields)
         } catch (err) {
             console.warn('⚠️ 自定义字段收集失败，继续提交基础字段:', err.message)

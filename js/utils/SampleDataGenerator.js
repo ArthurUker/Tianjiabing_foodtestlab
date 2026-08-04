@@ -4,10 +4,13 @@
  */
 import { getSchoolCustomization, resolveCustomFields } from './schoolCustomization.js';
 import { getLocalDateStr } from './dateUtil.js';
+// TD-CascadeFieldOption: 同样需要 schoolCode；快速访问模式下空 customization 会导致示例数据
+// 永远不带学校定制字段，体验与正式租户不一致。
+import { extractSchoolCode } from './schoolCode.js';
 
 // RK45: 为学校自定义字段补示例值，避免快速访问示例数据缺少定制字段
 function withCustomFields(moduleCode, record) {
-    const defs = resolveCustomFields(getSchoolCustomization(), moduleCode)
+    const defs = resolveCustomFields(getSchoolCustomization(extractSchoolCode()), moduleCode)
     if (!defs.length) return record
     const extra = {}
     defs.forEach((d, i) => { extra[d.name] = d.label ? `示例${i + 1}` : '' })

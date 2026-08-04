@@ -6,6 +6,9 @@ import { NetworkHelper } from '../utils/NetworkHelper.js';
 import { GuestAuthService } from '../services/GuestAuthService.js';
 import { escapeHtml } from '../utils/schoolCustomization/shared.js';
 import { getSchoolCustomization } from '../utils/schoolCustomization/cache.js';
+// TD-CanteenFromConfig: 改用共享实现，避免 Pathogen 与 Dashboard / 后续模块对「学校配置的食堂」
+// 各持一份逻辑导致排序、容错、默认值不同步。
+import { getSchoolCanteens as getSchoolCanteensFromConfig } from '../utils/schoolCustomization.js';
 import { extractSchoolCode } from '../utils/schoolCode.js';
 import { calculatePathogenRisk, isPositiveResult } from '../utils/pathogenRisk.js';
 import { auditService } from '../services/AuditService.js';
@@ -16,20 +19,60 @@ const storage = new StorageService('pathogen');
 
 // 学校食堂列表：与 admin-schools.html 基本信息设置的食堂保持一致。
 // 优先级：field_options.canteen（保存时自动同步）→ canteens → 默认 一/二/三食堂。
-// 兜底保留 '混样检测'（病原体报告常见特殊样本类型，不属真实食堂但需可选）。
+// 严格按学校管理控制台设置为准（不再混入"混样检测"等额外项），识别不出来时由用户从下拉手动确认。
+// TD-CanteenFromConfig: 委托 schoolCustomization.getSchoolCanteens，避免各处实现漂移
+// （之前本函数将 cfg.field_options 当作数组判断，是历史 bug，共享实现已修正为对象结构）。
 const DEFAULT_PATHOGEN_CANTEENS = ['一食堂', '二食堂', '三食堂'];
 function getSchoolCanteens() {
     try {
-        const schoolCode = extractSchoolCode() || '';
-        const cfg = getSchoolCustomization(schoolCode) || {};
-        let fo = null;
-        try { fo = typeof cfg.field_options === 'string' ? JSON.parse(cfg.field_options) : (cfg.field_options || null); } catch (_) { fo = null; }
-        if (Array.isArray(fo) && Array.isArray(fo.canteen) && fo.canteen.length) return fo.canteen;
-        let cts = null;
-        try { cts = typeof cfg.canteens === 'string' ? JSON.parse(cfg.canteens) : (cfg.canteens || null); } catch (_) { cts = null; }
-        if (Array.isArray(cts) && cts.length) return cts;
-    } catch (_) { /* 忽略，使用默认 */ }
+        return getSchoolCanteensFromConfig(extractSchoolCode(), DEFAULT_PATHOGEN_CANTEENS)
+    } catch (_) { /* 共享实现已自带兜底，这里只是容错二次保护 */ }
     return DEFAULT_PATHOGEN_CANTEENS;
+}
+// 食堂名别名生成：Word 报告中"1食堂 / 第1食堂 / 1号食堂 / 第一食堂 / 一号食堂"
+// 等都能匹配到学校管理控制台设置的"一食堂"。
+function canteenAliases(name) {
+    if (!name) return [name];
+    const m = /^([一二三四五六七八九十\d]+)食堂$/.exec(name);
+    if (!m) return [name];
+    const n = m[1];
+    const cnToNum = { '一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10 };
+    let num;
+    if (/^\d+$/.test(n)) num = parseInt(n, 10);
+    else num = cnToNum[n];
+    if (!num || num < 1 || num > 10) return [name];
+    const numToCn = ['一','二','三','四','五','六','七','八','九','十'];
+    const cn = numToCn[num - 1];
+    const numStr = String(num);
+    return [
+        name,                    // 原始（如"一食堂"）
+        cn + '食堂',             // 一食堂（汉字）
+        numStr + '食堂',         // 1食堂
+        '第' + numStr + '食堂',  // 第1食堂
+        numStr + '号食堂',       // 1号食堂
+        '第' + cn + '食堂',      // 第一食堂
+        cn + '号食堂',           // 一号食堂
+    ];
+}
+// 在 rawText 中查找学校食堂列表（支持模糊别名）；返回第一个匹配的学校食堂名，未匹配返回 null。
+// 容忍 Word 报告里的全/半角空格与全角数字（"三 食堂" / "１食堂" 等同"三食堂"）。
+function normalizeForCanteenMatch(t) {
+    return String(t || '').replace(/[\s\u3000]+/g, '').replace(/[\uFF10-\uFF19]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
+}
+function matchSchoolCanteen(rawText, schoolCanteens) {
+    if (!rawText || !Array.isArray(schoolCanteens) || !schoolCanteens.length) return null;
+    const text = normalizeForCanteenMatch(rawText);
+    // 先按原始名匹配（优先级最高）
+    for (const c of schoolCanteens) {
+        if (text.includes(c)) return c;
+    }
+    // 再按别名匹配
+    for (const c of schoolCanteens) {
+        for (const alias of canteenAliases(c)) {
+            if (alias !== c && text.includes(alias)) return c;
+        }
+    }
+    return null;
 }
 let currentPage = 1;
 let recordsPerPage = 10;
@@ -425,18 +468,13 @@ function parseDetectionReport(text) {
     }
 
     // --- 5. 后续逻辑 (风险计算、食堂判定等) ---
-    // ... (保持原有的食堂判定逻辑)
+    // 食堂判定：仅在学校管理控制台设置的食堂范围内做模糊匹配（支持"1食堂/第1食堂/1号食堂"等别名），
+    // 未识别时保持 '未知'，由下游 detectUnrecognizedFields 触发手动确认弹窗。
     let canteen = '未知';
     const rawInfo = infoMatch ? infoMatch[1].trim() : '';
-    // 用学校基本信息配置的食堂列表识别（与管理员设置保持一致）；兜底混样检测
-    const canteenList = [...getSchoolCanteens(), '混样检测'];
-    for (const c of canteenList) {
-        if (rawInfo.includes(c)) {
-            canteen = c;
-            break;
-        }
-    }
-    if (canteen === '未知' && rawInfo) canteen = rawInfo.split(/\s+/)[0];
+    const schoolCanteens = getSchoolCanteens();
+    const matched = matchSchoolCanteen(rawInfo, schoolCanteens);
+    if (matched) canteen = matched;
 
     const internalControlStatus = allTestItems
         .filter(item => item.isInternalControl)
@@ -475,8 +513,8 @@ function formatDateStandard(dateStr) {
  * @returns {Object} { sampleId, canteen, inspector } 各字段是否未识别（true=未识别）
  */
 function detectUnrecognizedFields(record) {
-    // 病原体模块认可的标准食堂列表（与解析器保持一致）：学校基本信息配置 + 混样检测兜底
-    const validCanteens = [...getSchoolCanteens(), '混样检测'];
+    // 病原体模块认可的合法食堂列表（与解析器保持一致）：仅学校管理控制台设置的食堂（不再含混样检测等额外项）
+    const validCanteens = getSchoolCanteens();
     // 检测报告中可能被错误捕获为"检测员姓名"的常见字段标签
     // 这些都是报告模板中的列名/表头，不可能是真实的人名
     const inspectorFalsePositives = [
@@ -528,8 +566,8 @@ function showMissingFieldsDialog(record, missingFields) {
         modal.id = 'pathogenMissingFieldsDialog';
         modal.className = 'fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4';
 
-        // 食堂下拉选项 = 学校基本信息配置的食堂列表 + 混样检测兜底
-        const canteenOptions = [...getSchoolCanteens(), '混样检测'];
+        // 食堂下拉选项：严格按学校管理控制台设置的食堂（不再包含"混样检测"等额外项）
+        const canteenOptions = getSchoolCanteens();
 
         // P2-18: 转义所有动态值，避免 XSS
         const safeSampleId = escapeHtml(record.sampleId || '');
@@ -583,12 +621,8 @@ function showMissingFieldsDialog(record, missingFields) {
                         <select id="missingCanteen" class="${inputClass(missingFields.canteen)}">
                             <option value="">-- 请选择食堂 --</option>
                             ${canteenOptions.map(c => `<option value="${escapeHtml(c)}" ${record.canteen === c ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')}
-                            <option value="__other__">其他（自定义输入）</option>
                         </select>
-                        <input type="text" id="missingCanteenOther"
-                               class="w-full border border-gray-300 p-2 rounded mt-2 hidden"
-                               placeholder="请输入自定义食堂名称" autocomplete="off"
-                               value="${record.canteen && !canteenOptions.includes(record.canteen) && record.canteen !== '未知' ? safeCanteen : ''}">
+                        <p class="text-xs text-gray-400 mt-1">食堂范围严格按学校管理控制台"基本信息"中设置的食堂列表（识别规则支持"一/1/第1/1号/第一/一号食堂"等别名）</p>
                     </div>
 
                     <div>
@@ -619,23 +653,6 @@ function showMissingFieldsDialog(record, missingFields) {
         document.body.appendChild(modal);
 
         const canteenSelect = modal.querySelector('#missingCanteen');
-        const canteenOtherInput = modal.querySelector('#missingCanteenOther');
-
-        // "其他" 选项切换：显示/隐藏自定义输入框
-        canteenSelect.addEventListener('change', () => {
-            if (canteenSelect.value === '__other__') {
-                canteenOtherInput.classList.remove('hidden');
-                canteenOtherInput.focus();
-            } else {
-                canteenOtherInput.classList.add('hidden');
-            }
-        });
-
-        // 初始化：如果当前 canteen 不在标准列表中且不是"未知"，自动选中"其他"并显示输入框
-        if (record.canteen && !canteenOptions.includes(record.canteen) && record.canteen !== '未知') {
-            canteenSelect.value = '__other__';
-            canteenOtherInput.classList.remove('hidden');
-        }
 
         // 自动聚焦第一个未识别的字段
         if (missingFields.sampleId) {
@@ -669,10 +686,7 @@ function showMissingFieldsDialog(record, missingFields) {
         modal.querySelector('#missingFieldsConfirm').addEventListener('click', () => {
             const sampleId = modal.querySelector('#missingSampleId').value.trim();
             const inspector = modal.querySelector('#missingInspector').value.trim();
-            let canteen = canteenSelect.value;
-            if (canteen === '__other__') {
-                canteen = canteenOtherInput.value.trim();
-            }
+            const canteen = canteenSelect.value;
 
             // 校验必填
             const errors = [];
@@ -859,9 +873,7 @@ function showEditModal(record, currentUser) {
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">食堂</label>
                             <select id="editCanteen" class="w-full border p-2 rounded">
-                                <option value="一食堂" ${record.canteen === '一食堂' ? 'selected' : ''}>一食堂</option>
-                                <option value="二食堂" ${record.canteen === '二食堂' ? 'selected' : ''}>二食堂</option>
-                                <option value="三食堂" ${record.canteen === '三食堂' ? 'selected' : ''}>三食堂</option>
+                                ${getSchoolCanteens().map(c => `<option value="${escapeHtml(c)}" ${record.canteen === c ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')}
                             </select>
                         </div>
                         <div>
@@ -1513,10 +1525,7 @@ function renderTable() {
                         <label class="text-sm text-gray-600 mr-2">食堂:</label>
                         <select id="pathogen-canteenFilterSelect" class="border border-gray-300 rounded px-3 py-1 text-sm">
                             <option value="all">全部</option>
-                            <option value="一食堂">一食堂</option>
-                            <option value="二食堂">二食堂</option>
-                            <option value="三食堂">三食堂</option>
-                            <option value="混样检测">混样检测</option>
+                            ${getSchoolCanteens().map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}
                         </select>
                     </div>
                     <div class="flex items-center">

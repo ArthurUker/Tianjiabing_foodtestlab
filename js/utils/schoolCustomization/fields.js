@@ -439,3 +439,41 @@ export function applyCustomizationToAllForms(customization) {
         if (form) applySchoolCustomizationToForm(form, customization)
     })
 }
+
+/**
+ * TD-CanteenFromConfig: 读取学校管理控制台配置的食堂列表。
+ * 数据源（按优先级，与 admin-schools.html 基本信息保存路径一致）：
+ *   1) field_options.canteen  — 后端保存时同步写入，最权威
+ *   2) canteens（顶层 JSON 列）— 兼容老缓存/历史定制
+ *   3) 内置兜底 ['一食堂', '二食堂', '三食堂']
+ * 说明：与 Pathogen.js 内置的 getSchoolCanteens 同源实现抽到此处，供 Dashboard
+ * 数据看板、Pathogen 录入/补录、ExportService 导出筛选等统一调用，避免出现
+ * 「管理端加了两个食堂，看板下拉只显示一个」之类的「配置不同步」故障。
+ *
+ * @param {string} [schoolCode] 不传则用 extractSchoolCode() 自动取当前校
+ * @param {string[]} [fallback] 自定义兜底（默认一/二/三食堂）
+ * @returns {string[]} 学校食堂名数组（保证非空）
+ */
+export function getSchoolCanteens(schoolCode, fallback) {
+    try {
+        const code = schoolCode || (typeof extractSchoolCode === 'function' ? extractSchoolCode() : null)
+        const cfg = code ? getSchoolCustomization(code) : {}
+        if (cfg && typeof cfg === 'object') {
+            // 1) field_options.canteen（最权威，后端每次保存都同步）
+            try {
+                const fo = typeof cfg.field_options === 'string' ? JSON.parse(cfg.field_options) : cfg.field_options
+                if (fo && Array.isArray(fo.canteen) && fo.canteen.length) {
+                    return fo.canteen.map(c => String(c).trim()).filter(Boolean)
+                }
+            } catch (_) { /* 容错：JSON 解析失败时回退下一来源 */ }
+            // 2) 顶层 canteens JSON 列（兼容历史定制）
+            try {
+                const cts = typeof cfg.canteens === 'string' ? JSON.parse(cfg.canteens) : cfg.canteens
+                if (Array.isArray(cts) && cts.length) {
+                    return cts.map(c => String(c).trim()).filter(Boolean)
+                }
+            } catch (_) { /* 容错 */ }
+        }
+    } catch (_) { /* 读取失败时回退兜底 */ }
+    return (Array.isArray(fallback) && fallback.length) ? fallback.slice() : ['一食堂', '二食堂', '三食堂']
+}

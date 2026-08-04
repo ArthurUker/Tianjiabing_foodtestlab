@@ -20,6 +20,32 @@
     <style>
       /* ====== 统一编辑弹层（字段规则 / 类型统计）====== */
       .sc-popover{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 12px 32px rgba(0,0,0,.16);padding:14px;}
+      /* TD-PopoverAutoSize: 字段管理弹窗宽度按视口自适应（由 JS 在打开时设置 --sp-width）；
+         内部 padding / gap 跟随宽度调整（窄屏紧凑、宽屏舒展），避免内容紧密堆叠。 */
+      .sc-popover--auto {
+          width: var(--sp-width, 540px);
+          min-width: 360px;
+          max-width: min(96vw, 800px);
+          padding: clamp(12px, 1.2vw, 20px);
+      }
+      .sc-popover--auto .tree-card { padding: clamp(8px, 0.8vw, 14px); }
+      .sc-popover--auto .tree-card .flex.items-center.gap-2 { gap: clamp(6px, 0.6vw, 10px); }
+      .sc-popover--auto #spTreeList { gap: clamp(6px, 0.6vw, 10px); }
+      .sc-popover--auto .sp-child-chip { padding: clamp(4px, 0.4vw, 8px) clamp(6px, 0.6vw, 12px); }
+      /* 大屏（>1200px）进一步放松间距，让选项不再紧密；窄屏保持紧凑以容纳更多内容 */
+      @media (min-width: 1200px) {
+          .sc-popover--auto { padding: 18px 22px; }
+          .sc-popover--auto #spTreeList { gap: 10px; }
+          .sc-popover--auto .tree-card { padding: 14px; }
+          .sc-popover--auto .tree-card .flex.items-center.gap-2 { gap: 10px; }
+          .sc-popover--auto input.tree-value,
+          .sc-popover--auto input.tree-label { padding: 8px 12px; }
+          .sc-popover--auto .sp-child-chip { padding: 6px 10px; font-size: 12.5px; }
+      }
+      /* 极窄屏：退化为通栏弹窗，宽度几乎占满视口 */
+      @media (max-width: 640px) {
+          .sc-popover--auto { width: calc(100vw - 16px) !important; min-width: 0; }
+      }
     </style>
     <style>
         /* ====== 预设主题选择卡片 ====== */
@@ -409,49 +435,65 @@
                     </div>
                 </div>
 
-                <!-- RK35: 自定义字段「类型与统计」弹层（仅自定义字段可见） -->
-                <div id="statPopover" class="sc-popover" style="display:none;position:fixed;z-index:1000;width:300px;">
-                    <div class="text-sm font-medium text-gray-800 mb-3">字段类型与统计 · <span id="spLabel" class="text-purple-600"></span></div>
-                    <div class="text-xs text-gray-500 mb-1">输入类型</div>
-                    <select id="spType" class="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-3">
-                        <option value="text">单行文本</option>
-                        <option value="number">数字</option>
-                        <option value="date">日期</option>
-                        <option value="select">下拉选择</option>
-                        <option value="textarea">多行文本</option>
-                        <option value="checkbox">勾选框</option>
-                    </select>
-                    <div id="spOptionsWrap" style="display:none;">
+                <!-- RK35: 自定义字段「类型与统计」弹层（仅自定义字段可见）
+                     宽度不再硬编码 540px：openStatPopover 中 sizeStatPopover() 根据视口宽度
+                     （1/3~1/2）与内容高度自动设定，避免选项紧密、贴合当前窗口大小。 -->
+                <div id="statPopover" class="sc-popover sc-popover--auto" style="display:none;position:fixed;z-index:1000;max-height:calc(100vh - 32px);overflow-y:auto;">
+                    <div class="flex items-center mb-3 pb-2 border-b border-gray-100">
+                        <i class="fas fa-sliders-h text-indigo-500 mr-2"></i>
+                        <span id="spLabel" class="text-sm font-semibold text-gray-800"></span>
+                    </div>
+                    <!-- 输入类型 -->
+                    <div id="spTypeSection" class="mb-3">
+                        <div class="text-xs text-gray-500 mb-1">输入类型</div>
+                        <select id="spType" class="w-full border border-gray-300 rounded px-2 py-1 text-sm">
+                            <option value="text">单行文本</option>
+                            <option value="number">数字</option>
+                            <option value="date">日期</option>
+                            <option value="select">下拉选择</option>
+                            <option value="textarea">多行文本</option>
+                            <option value="checkbox">勾选框</option>
+                        </select>
+                    </div>
+                    <!-- 下拉选项 chips 区 -->
+                    <div id="spOptionsWrap" style="display:none;" class="mb-3">
                         <div class="text-xs text-gray-500 mb-1">下拉选项（点击 × 删除）</div>
                         <div id="spOptionsList" class="flex flex-wrap gap-1.5 mb-2 min-h-[28px] p-1.5 border border-gray-200 rounded bg-gray-50">
                             <span class="text-xs text-gray-400 italic px-1 self-center">暂无选项</span>
                         </div>
-                        <div class="flex gap-1.5 mb-3">
+                        <div class="flex gap-1.5">
                             <input type="text" id="spOptionInput" placeholder="输入新选项后回车或点 + 添加" class="flex-1 border border-gray-300 rounded px-2 py-1 text-sm">
                             <button type="button" id="spOptionAddBtn" class="px-2.5 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition">+ 添加</button>
                         </div>
                         <input type="hidden" id="spOptions">
                     </div>
                     <!-- 级联字段（FieldOption 表）选项树编辑器：value/label 分离 + 任意层级联动 -->
-                    <div id="spTreeWrap" style="display:none;" class="mb-3 pt-3 border-t border-gray-200">
-                        <div class="text-xs text-gray-500 mb-2">
-                            <i class="fas fa-sitemap mr-1 text-blue-500"></i>选项与联动（存于选项表，改动随「保存定制」生效；<span id="spTreeHint"></span>）
+                    <div id="spTreeWrap" style="display:none;" class="mb-3">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="text-sm font-medium text-gray-800"><i class="fas fa-diagram-project text-indigo-500 mr-1.5"></i>选项与联动</div>
+                            <span class="text-[11px] text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">存于选项表</span>
                         </div>
-                        <div id="spTreeList" class="space-y-2 max-h-64 overflow-y-auto pr-1"></div>
-                        <button type="button" id="spTreeAddTop" class="mt-2 w-full px-2 py-1 text-sm border border-dashed border-blue-300 text-blue-600 rounded hover:bg-blue-50 transition">+ 添加顶级选项</button>
+                        <div id="spTreeHint" class="text-xs text-gray-600 mb-3 bg-indigo-50 border border-indigo-100 rounded-md px-2.5 py-2 leading-relaxed"></div>
+                        <div id="spTreeList" class="space-y-1.5"></div>
+                        <button type="button" id="spTreeAddTop" class="mt-3 w-full px-3 py-2 text-sm font-medium border border-dashed border-indigo-300 text-indigo-600 rounded-lg hover:bg-indigo-50 hover:border-indigo-400 transition">
+                            <i class="fas fa-plus mr-1"></i>新增顶级选项
+                        </button>
                     </div>
-                    <div class="text-xs text-gray-500 mb-1">统计角色</div>
-                    <select id="spStatRole" class="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-3">
-                        <option value="">不参与统计（仅记录）</option>
-                        <option value="result">参与合格率统计</option>
-                    </select>
-                    <div id="spQualifiedWrap" style="display:none;">
-                        <div class="text-xs text-gray-500 mb-1">合格值（逗号分隔；记录该字段取值在此列表内才计为合格）</div>
-                        <input type="text" id="spQualified" class="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-3" placeholder="如：合格,阴性">
+                    <!-- 统计角色 -->
+                    <div id="spStatSection" class="mb-3">
+                        <div class="text-xs text-gray-500 mb-1">统计角色</div>
+                        <select id="spStatRole" class="w-full border border-gray-300 rounded px-2 py-1 text-sm">
+                            <option value="">不参与统计（仅记录）</option>
+                            <option value="result">参与合格率统计</option>
+                        </select>
+                        <div id="spQualifiedWrap" style="display:none;" class="mt-2">
+                            <div class="text-xs text-gray-500 mb-1">合格值（逗号分隔；记录该字段取值在此列表内才计为合格）</div>
+                            <input type="text" id="spQualified" class="w-full border border-gray-300 rounded px-2 py-1 text-sm" placeholder="如：合格,阴性">
+                        </div>
                     </div>
-                    <div class="flex justify-end gap-2">
+                    <div class="sticky bottom-0 -mx-1 px-1 pt-3 pb-1 mt-4 border-t border-gray-100 bg-white/95 backdrop-blur flex justify-end gap-2">
                         <button type="button" id="spCancel" class="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700">取消</button>
-                        <button type="button" id="spDone" class="px-3 py-1.5 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700">完成</button>
+                        <button type="button" id="spDone" class="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">完成</button>
                     </div>
                 </div>
 
@@ -2672,6 +2714,56 @@
             pop.style.left = left + 'px';
             pop.style.top = top + 'px';
         }
+
+        // TD-PopoverAutoSize: 字段管理弹窗宽度自适应——以视口宽度的 1/3~1/2 为基础区间，
+        // 再按内容（顶级选项数、是否有子选项）做微调；过窄/过宽都修正。极窄屏退化为通栏。
+        // 通过 CSS 变量 --sp-width 传给 .sc-popover--auto；高度仍走 max-height + 内容自适应。
+        function sizeStatPopover(pop) {
+            if (!pop) return;
+            const vw = window.innerWidth;
+            const vh = window.innerHeight;
+            // 1) 极窄屏（手机/侧边栏折叠态）：宽度近似通栏，留 16px 边距
+            if (vw < 640) {
+                pop.style.setProperty('--sp-width', (vw - 16) + 'px');
+                pop.style.maxHeight = (vh - 32) + 'px';
+                return;
+            }
+            // 2) 计算候选宽度：先按 1/2 视口作为「理想宽度」，再按内容微调
+            const halfVw = vw * 0.5;        // 理想上限：半屏
+            const thirdVw = vw / 3;         // 下限：1/3 屏（保证不会被压到极窄）
+            // 内容密度因子：树形结构项越多，宽度倾向于接近上限（让 chips/输入框不挤）
+            const topRows = pop.querySelectorAll('[data-tree-row]').length;
+            const childChips = pop.querySelectorAll('[data-child-chip]').length;
+            let density = 0.5; // 默认 1/2
+            if (topRows >= 4 || childChips >= 8) density = 0.5;        // 内容多 → 顶到 1/2
+            else if (topRows === 0) density = Math.max(0.4, 0.5);     // 空态：略窄
+            else if (topRows <= 2 && childChips <= 3) density = 0.42;  // 内容少：略窄
+            let ideal = vw * density;
+            // 3) 上下限夹紧
+            const minW = Math.max(360, thirdVw);                       // 至少 360px
+            const maxW = Math.min(800, halfVw);                         // 最多 800px 或半屏
+            let width = Math.min(maxW, Math.max(minW, ideal));
+            // 4) 不超过视口（含边距）；移动端平板额外留 32px
+            const viewportCap = vw - 32;
+            width = Math.min(width, viewportCap);
+            // 5) 高度：自适应内容，最大不超过视口 - 32
+            pop.style.setProperty('--sp-width', width + 'px');
+            pop.style.maxHeight = (vh - 32) + 'px';
+        }
+        // 视口尺寸变化时同步重置弹窗尺寸（用户拖动浏览器边缘 / 折叠侧栏时）
+        let _spResizeRaf = null;
+        window.addEventListener('resize', () => {
+            if (document.getElementById('statPopover').style.display !== 'block') return;
+            if (_spResizeRaf) return;
+            _spResizeRaf = requestAnimationFrame(() => {
+                _spResizeRaf = null;
+                sizeStatPopover(document.getElementById('statPopover'));
+                // 重置后位置可能越界，再走一次定位
+                const pop = document.getElementById('statPopover');
+                const anchor = pop._anchorBtn;
+                if (anchor) positionPopover(pop, anchor, 540);
+            });
+        });
         let rulePopoverField = null;
         function openRulePopover(btn, fieldName, label) {
             closeRulePopover();
@@ -2731,10 +2823,11 @@
             const tableManaged = _statPopoverField && isTableManagedField(currentFieldModule, _statPopoverField);
             const spTypeEl = document.getElementById('spType');
             const spStatRoleEl = document.getElementById('spStatRole');
+            // 级联字段：「输入类型」与「统计角色」整段隐藏（选项由 FieldOption 表管理，类型固定 select）
+            document.getElementById('spTypeSection').style.display = tableManaged ? 'none' : 'block';
+            document.getElementById('spStatSection').style.display = tableManaged ? 'none' : 'block';
             document.getElementById('spTreeWrap').style.display = tableManaged ? 'block' : 'none';
             document.getElementById('spOptionsWrap').style.display = (!tableManaged && spTypeEl.value === 'select') ? 'block' : 'none';
-            spTypeEl.disabled = !!tableManaged;
-            spStatRoleEl.disabled = !!tableManaged;
             document.getElementById('spQualifiedWrap').style.display =
                 (!tableManaged && spStatRoleEl.value === 'result') ? 'block' : 'none';
         }
@@ -2794,10 +2887,12 @@
         let _statPopoverChips = [];
         let fieldCascade = {};   // { module: { field: [ {value,label,isDefault,children:[{value,label}]} ] } }
 
-        // 读取单行 DOM 状态（含子选项）
+        // 读取单行 DOM 状态（含子选项）。简单字段无 .tree-value 时，value 自动从 label 同步。
         function readTreeRowState(row) {
-            const value = (row.querySelector('.tree-value')?.value || '').trim();
-            const label = (row.querySelector('.tree-label')?.value || '').trim() || value;
+            const valueEl = row.querySelector('.tree-value');
+            const labelEl = row.querySelector('.tree-label');
+            const label = (labelEl?.value || '').trim();
+            const value = (valueEl?.value || '').trim() || label;  // 无 .tree-value 的简单字段：value=label
             const isDefault = !!row.querySelector('.tree-default')?.checked;
             const children = [];
             row.querySelectorAll('[data-child-chip]').forEach(chip => {
@@ -2836,37 +2931,68 @@
             const hintEl = document.getElementById('spTreeHint');
             if (hintEl) {
                 hintEl.textContent = source
-                    ? '「' + fieldLabelOf(field) + '」每项可配置联动子选项，录入端按所选值自动切换点位下拉'
-                    : '该字段为联动目标，顶级选项作为未配置联动时的默认可选值';
+                    ? '为每项配置点位联动；录入端选「' + fieldLabelOf(field) + '」时自动切换点位下拉（未配置的项使用默认可选值）'
+                    : '该字段为联动目标，顶级选项将作为未配置联动时的默认可选值（不参与联动）';
             }
             listEl.innerHTML = rows.length ? rows.map((r, ri) => {
                 const childChips = source && Array.isArray(r.children) && r.children.length
-                    ? r.children.map(c => '<span class="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-800 rounded text-xs" data-child-chip data-value="' + escapeHtml(c.value) + '" data-label="' + escapeHtml(c.label || c.value) + '">' + escapeHtml(c.label || c.value) + '<button type="button" class="tree-child-del text-blue-500 hover:text-blue-900 ml-0.5" data-value="' + escapeHtml(c.value) + '" title="删除该子选项">×</button></span>').join('')
+                    ? r.children.map(c => '<span class="inline-flex items-center gap-1 pl-2.5 pr-1 py-1 bg-indigo-100 text-indigo-700 rounded-full text-xs font-medium" data-child-chip data-value="' + escapeHtml(c.value) + '" data-label="' + escapeHtml(c.label || c.value) + '">' + escapeHtml(c.label || c.value) + '<button type="button" class="tree-child-del text-indigo-400 hover:text-white hover:bg-indigo-500 rounded-full w-4 h-4 flex items-center justify-center text-[10px] leading-none" data-value="' + escapeHtml(c.value) + '" title="删除该子选项">×</button></span>').join('')
                     : '<span class="text-xs text-gray-400 italic px-1 self-center">无子选项</span>';
+                const defaultLabelCls = r.isDefault
+                    ? 'flex items-center gap-1 px-2 py-1.5 border border-amber-300 bg-amber-50 text-amber-700 rounded-md cursor-pointer text-xs font-medium transition select-none'
+                    : 'flex items-center gap-1 px-2 py-1.5 border border-gray-200 text-gray-500 hover:border-amber-200 hover:bg-amber-50 rounded-md cursor-pointer text-xs font-medium transition select-none';
+                const defaultIconCls = r.isDefault ? 'fas fa-star' : 'fas fa-star text-gray-300';
+                // 简单字段（value 与 label 相同，无机器值/显示值区分）：只显示一个输入框，避免重复
+                const isSimpleField = !r.value || r.value === (r.label || '');
                 return `
-                    <div class="border border-gray-200 rounded p-2 bg-gray-50" data-tree-row>
-                        <div class="flex items-center gap-1.5 mb-1">
-                            <input type="text" class="tree-value flex-1 px-1.5 py-0.5 border border-gray-300 rounded text-xs" placeholder="选项值（如 atp）" value="${escapeHtml(r.value)}">
-                            <input type="text" class="tree-label flex-1 px-1.5 py-0.5 border border-gray-300 rounded text-xs" placeholder="显示名称" value="${escapeHtml(r.label || r.value)}">
-                            <label class="flex items-center gap-0.5 text-[11px] text-gray-500 whitespace-nowrap" title="设为录入表单默认选中"><input type="radio" name="treeDefault_${ri}" class="tree-default" ${r.isDefault ? 'checked' : ''}>默认</label>
-                            <button type="button" class="tree-del px-1.5 py-0.5 text-red-500 hover:bg-red-50 rounded" title="${source ? '删除（将同时删除其子选项）' : '删除该选项'}"><i class="fas fa-trash-alt"></i></button>
+                    <div class="tree-card group border border-gray-200 rounded-lg p-2.5 bg-white shadow-sm hover:shadow-md hover:border-indigo-200 transition" data-tree-row>
+                        <div class="flex items-center gap-2">
+                            <span class="text-gray-300 group-hover:text-gray-400 select-none text-sm leading-none" title="拖拽排序（占位）">⋮⋮</span>
+                            ${isSimpleField
+                                ? `<input type="text" class="tree-label flex-1 min-w-0 px-2 py-1.5 text-sm text-gray-700 border border-gray-200 rounded-md focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 focus:outline-none" placeholder="选项名称" value="${escapeHtml(r.label || r.value)}">`
+                                : `<input type="text" class="tree-value flex-1 min-w-0 px-2 py-1.5 border border-gray-200 rounded-md text-sm font-mono focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 focus:outline-none" placeholder="选项值（如 atp）" value="${escapeHtml(r.value)}">
+                                   <input type="text" class="tree-label flex-1 min-w-0 px-2 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-md focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 focus:outline-none" placeholder="显示名称" value="${escapeHtml(r.label || r.value)}">`
+                            }
+                            <label class="${defaultLabelCls}" title="设为录入表单默认选中">
+                                <input type="radio" name="treeDefault_${ri}" class="tree-default sr-only" ${r.isDefault ? 'checked' : ''}>
+                                <i class="${defaultIconCls}"></i><span>默认</span>
+                            </label>
+                            <button type="button" class="tree-del p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-md transition" title="${source ? '删除（将同时删除其子选项）' : '删除该选项'}"><i class="fas fa-trash-alt text-xs"></i></button>
                         </div>
                         ${source ? `
-                        <div class="ml-3 border-l border-gray-200 pl-2 mt-1">
-                            <div class="text-[11px] text-gray-400 mb-1">联动子选项（录入端选「<b>${escapeHtml(r.label || r.value)}</b>」时可选）</div>
-                            <div class="flex flex-wrap gap-1.5 mb-1 min-h-[22px]">${childChips}</div>
+                        <div class="mt-2 ml-4 pl-3 border-l-2 border-indigo-100">
+                            <div class="text-[11px] text-gray-500 mb-1 flex items-center"><i class="fas fa-link text-indigo-400 mr-1.5"></i>选「<b class="text-indigo-700 mx-0.5">${escapeHtml(r.label || r.value)}</b>」时，下点位可选：</div>
+                            <div class="flex flex-wrap gap-1.5 mb-1.5 min-h-[30px] py-1">${childChips}</div>
                             <div class="flex gap-1.5">
-                                <input type="text" placeholder="添加子选项（回车或点 +）" class="tree-child-input flex-1 px-2 py-0.5 border border-gray-300 rounded text-sm">
-                                <button type="button" class="tree-child-add px-2 py-0.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition">+ 添加</button>
+                                <input type="text" placeholder="添加点位（Enter 或点 + 添加）" class="tree-child-input flex-1 min-w-0 px-2.5 py-1.5 border border-gray-200 rounded-md text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 focus:outline-none">
+                                <button type="button" class="tree-child-add flex-shrink-0 px-3 py-1.5 text-sm font-medium bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition whitespace-nowrap"><i class="fas fa-plus mr-1"></i>添加</button>
                             </div>
                         </div>` : ''}
                     </div>`;
-            }).join('') : '<div class="text-xs text-gray-400 italic px-2">暂无选项，点击下方按钮添加</div>';
+            }).join('') : '<div class="text-xs text-gray-400 italic text-center py-6 bg-gray-50 rounded-lg border border-dashed border-gray-200"><i class="fas fa-inbox block text-gray-300 text-2xl mb-2"></i>暂无选项，点击下方「新增顶级选项」添加</div>';
 
             // 输入实时同步到内存（不重渲染，避免打断输入焦点）
-            listEl.querySelectorAll('.tree-value, .tree-label, .tree-default').forEach(el => {
+            listEl.querySelectorAll('.tree-value, .tree-label').forEach(el => {
                 el.addEventListener('input', collectSpTreeToState);
-                el.addEventListener('change', collectSpTreeToState);
+            });
+            // 「默认」单选切换：收集内存 + 同步视觉（不重渲染，否则会丢其它输入焦点）
+            listEl.querySelectorAll('.tree-default').forEach(el => {
+                el.addEventListener('change', () => {
+                    collectSpTreeToState();
+                    listEl.querySelectorAll('.tree-card').forEach(card => {
+                        const isDef = !!card.querySelector('.tree-default').checked;
+                        const lbl = card.querySelector('label');
+                        const icon = lbl && lbl.querySelector('i');
+                        if (!lbl || !icon) return;
+                        if (isDef) {
+                            lbl.className = 'flex items-center gap-1 px-2 py-1.5 border border-amber-300 bg-amber-50 text-amber-700 rounded-md cursor-pointer text-xs font-medium transition select-none';
+                            icon.className = 'fas fa-star';
+                        } else {
+                            lbl.className = 'flex items-center gap-1 px-2 py-1.5 border border-gray-200 text-gray-500 hover:border-amber-200 hover:bg-amber-50 rounded-md cursor-pointer text-xs font-medium transition select-none';
+                            icon.className = 'fas fa-star text-gray-300';
+                        }
+                    });
+                });
             });
             // 删除顶级选项
             listEl.querySelectorAll('.tree-del').forEach(btn => {
@@ -2967,6 +3093,9 @@
             _statPopoverField = fieldName;  // 用于树编辑器重渲染
             const def = any.def;
             document.getElementById('spLabel').textContent = label || fieldName;
+            const pop = document.getElementById('statPopover');
+            // 记录锚点按钮：resize 时重定位需要
+            pop._anchorBtn = btn;
             // 级联字段（FieldOption 表）：仅显示选项树编辑器（value/label + 联动子选项）
             const tableManaged = isTableManagedField(currentFieldModule, fieldName);
             if (tableManaged) {
@@ -2975,7 +3104,9 @@
                 document.getElementById('spQualified').value = '';
                 syncStatPopoverVisibility();
                 renderSpTree();
-                positionPopover(document.getElementById('statPopover'), btn, 400);
+                // TD-PopoverAutoSize: 先按内容/视口自动设定宽度，再定位
+                sizeStatPopover(pop);
+                positionPopover(pop, btn, 540);
                 return;
             }
             const resolvedType = any.isCustom ? (def.type || 'text') : (fieldTypes[fieldName] || def.type || 'text');
@@ -2989,7 +3120,9 @@
             document.getElementById('spStatRole').value = def.statRole === 'result' ? 'result' : '';
             document.getElementById('spQualified').value = Array.isArray(def.qualifiedValues) ? def.qualifiedValues.join(',') : '';
             syncStatPopoverVisibility();
-            positionPopover(document.getElementById('statPopover'), btn, 360);
+            // TD-PopoverAutoSize: 同上，宽度自适应
+            sizeStatPopover(pop);
+            positionPopover(pop, btn, 360);
         }
         function saveStatFromPopover() {
             if (!statPopoverField) return;
@@ -3050,7 +3183,9 @@
         function closeStatPopover() {
             if (statPopoverField) saveStatFromPopover();
             statPopoverField = null;
-            document.getElementById('statPopover').style.display = 'none';
+            const pop = document.getElementById('statPopover');
+            pop.style.display = 'none';
+            pop._anchorBtn = null;     // TD-PopoverAutoSize: 释放锚点引用，避免内存泄漏
         }
         document.getElementById('spType').addEventListener('change', syncStatPopoverVisibility);
         document.getElementById('spStatRole').addEventListener('change', syncStatPopoverVisibility);
