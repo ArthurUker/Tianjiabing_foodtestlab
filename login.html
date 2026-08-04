@@ -218,16 +218,16 @@
 
                 <!-- 记住我 & 忘记密码 -->
                 <div class="flex items-center justify-between text-sm">
-                    <label class="flex items-center text-gray-700">
-                        <input 
-                            type="checkbox" 
-                            id="rememberMe" 
+                    <label class="flex items-center text-gray-700" title="勾选后登录成功时,浏览器会提示保存用户名和密码,下次自动填充">
+                        <input
+                            type="checkbox"
+                            id="rememberMe"
                             name="rememberMe"
                             class="mr-2 w-4 h-4 rounded border-gray-300"
                         >
                         记住我
                     </label>
-                    <a href="#" class="text-blue-600 hover:text-blue-700 font-medium">忘记密码？</a>
+                    <a href="#" id="forgotPasswordLink" class="text-blue-600 hover:text-blue-700 font-medium">忘记密码？</a>
                 </div>
 
                 <!-- 错误提示 -->
@@ -491,7 +491,6 @@
         const form = document.getElementById('loginForm');
         const usernameInput = document.getElementById('username');
         const passwordInput = document.getElementById('password');
-        const rememberMeCheckbox = document.getElementById('rememberMe');
         const loginBtn = document.getElementById('loginBtn');
         const loginBtnText = document.getElementById('loginBtnText');
         const errorMessage = document.getElementById('errorMessage');
@@ -547,15 +546,10 @@
             });
         }
 
-        // 恢复记住的用户名
-        window.addEventListener('load', function() {
-            const savedUsername = localStorage.getItem('saved_username');
-            if (savedUsername) {
-                usernameInput.value = savedUsername;
-                rememberMeCheckbox.checked = true;
-                passwordInput.focus();
-            }
-        });
+        // P9: 移除自定义 saved_username 存储逻辑——改为浏览器原生「保存密码」机制
+        // (输入框已带 autocomplete="username"/"current-password",登录成功后由浏览器
+        //  弹出「是否保存密码」提示,密码存入浏览器加密保险库,页面 JS 读不到明文)。
+        // 不再从 localStorage 恢复用户名,避免多校串号与明文存储风险。
 
         // 管理员表单提交
         form.addEventListener('submit', async function(e) {
@@ -563,7 +557,6 @@
             
             const username = usernameInput.value.trim();
             const password = passwordInput.value;
-            const rememberMe = rememberMeCheckbox.checked;
 
             // 清除错误提示
             errorMessage.classList.add('hidden');
@@ -584,12 +577,8 @@
                 const result = await authService.login(username, password, currentSchoolCode);
 
                 if (result.success) {
-                    // 保存用户名（如果勾选记住我）
-                    if (rememberMe) {
-                        localStorage.setItem('saved_username', username);
-                    } else {
-                        localStorage.removeItem('saved_username');
-                    }
+                    // P9: 不再写自定义 saved_username——浏览器原生保存密码机制接管。
+                    // 登录表单 autocomplete 属性已就绪,浏览器自行提示「是否保存密码」。
 
                     // IF-2/M2: 临时密码账号（管理员重置/建号初始密码）首登强制改密。
                     // 后端已对非改密接口一律 403（MUST_CHANGE_PASSWORD），此处不改密无法使用系统。
