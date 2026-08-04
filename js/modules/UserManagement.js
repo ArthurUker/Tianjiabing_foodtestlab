@@ -13,6 +13,7 @@ export class UserManagement {
     constructor() {
         this.moduleName = '用户管理';
         this.users = [];
+        this.allUsers = [];   // P13: 前端内存过滤的全量数据源
         this.currentPage = 1;
         this.pageSize = 10;
         this.totalUsers = 0;
@@ -173,21 +174,21 @@ export class UserManagement {
         // 创建用户按钮
         document.getElementById('btnCreateUser').addEventListener('click', () => this.showCreateModal(), { signal });
 
-        // 搜索
-        document.getElementById('btnSearch').addEventListener('click', () => this.loadUsers(), { signal });
+        // 搜索 (P13: 前端内存过滤,读取搜索词与角色后 applyFilter)
+        document.getElementById('btnSearch').addEventListener('click', () => this.applyFilter(), { signal });
 
         // 分页
         document.getElementById('btnPrevPage').addEventListener('click', () => {
             if (this.currentPage > 1) {
                 this.currentPage--;
-                this.loadUsers();
+                this.applyFilter();
             }
         }, { signal });
 
         document.getElementById('btnNextPage').addEventListener('click', () => {
             if (this.currentPage * this.pageSize < this.totalUsers) {
                 this.currentPage++;
-                this.loadUsers();
+                this.applyFilter();
             }
         }, { signal });
 
@@ -203,12 +204,13 @@ export class UserManagement {
         try {
             UINotification.loading('正在加载用户列表...');
 
-            const result = await authService.listUsers(this.currentPage, this.pageSize);
+            // P13: 前端内存过滤——一次拉取全量用户,后续按搜索词/角色在前端过滤
+            const result = await authService.listUsers(1, 100000);
 
             if (result.success) {
-                this.users = result.users || [];
-                this.totalUsers = result.total || 0;
-                this.renderUserTable();
+                this.allUsers = result.users || [];
+                this.totalUsers = this.allUsers.length;
+                this.applyFilter();
                 UINotification.success('用户列表已加载');
             } else {
                 UINotification.error('加载用户列表失败: ' + (result.message || '未知错误'));
@@ -217,6 +219,29 @@ export class UserManagement {
             console.error('❌ 加载用户列表错误:', error);
             UINotification.error('加载用户列表时出错');
         }
+    }
+
+    /**
+     * P13: 前端内存过滤——按搜索词(用户名/手机号)与角色筛选,再渲染
+     */
+    applyFilter() {
+        const keyword = (document.getElementById('searchInput')?.value || '').trim().toLowerCase();
+        const role = document.getElementById('roleFilter')?.value || '';
+
+        let filtered = this.allUsers || [];
+        if (keyword) {
+            filtered = filtered.filter(u =>
+                (u.username || '').toLowerCase().includes(keyword) ||
+                (u.phone || '').includes(keyword)
+            );
+        }
+        if (role) {
+            filtered = filtered.filter(u => u.role === role);
+        }
+
+        this.users = filtered;
+        this.totalUsers = filtered.length;
+        this.renderUserTable();
     }
 
     /**
