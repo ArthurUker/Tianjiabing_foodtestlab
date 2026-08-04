@@ -310,3 +310,28 @@ model SchoolCustomization {
   test_types    String?  // JSON array
   updated_at    DateTime @updatedAt
 }
+
+// ========== N1：检测频率阈值 ==========
+// 每个检测项目的每周目标检测次数（学校 manager 可调整，平台超管可设默认）
+model FrequencyThreshold {
+  id            String   @id @default(cuid())
+  school_code   String
+  test_type     String   // tableware | pesticide | oil | lean_meat | pathogen
+  weekly_target Int      // 每周目标次数
+  updated_at    DateTime @updatedAt
+
+  @@unique([school_code, test_type])
+}
+
+// ========== N2：检测日历 ==========
+// 各检测项目按周几安排的检测计划（每日登录自动提示今日项目）
+model DetectionCalendar {
+  id          String  @id @default(cuid())
+  school_code String
+  test_type   String  // tableware | pesticide | oil | lean_meat | pathogen
+  day_of_week Int     // 1-7（周一~周日）
+  enabled     Boolean @default(true)
+  updated_at  DateTime @updatedAt
+
+  @@unique([school_code, test_type, day_of_week])
+}

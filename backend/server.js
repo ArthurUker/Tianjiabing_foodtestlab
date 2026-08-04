@@ -22,6 +22,7 @@ import idempotencyMiddleware from './middleware/idempotencyMiddleware.js'
 import { createAuthMiddleware } from './middleware/authMiddleware.js'
 import { createTenantMiddleware } from './middleware/tenantMiddleware.js'
 import { createSyncRoutes } from './routes/syncRoutes.js'
+import frequencyRoutes from './routes/frequencyRoutes.js'
 import { provisionSchool, isValidSchoolCode } from './lib/tenantProvisioner.js'
 import { disconnectAllTenantClients, createTenantClient, schemaNameOf } from './lib/tenantClient.js'
 import { syncAllTenantSchemas } from './lib/tenantSync.js'
@@ -1468,6 +1469,10 @@ app.use('/api/guest-export-request', guestExportRequestRoutes)
 // ====== Sync Routes ======
 const syncRoutes = createSyncRoutes(userManager, prisma)
 app.use('/api/sync', syncRoutes)
+
+// N1/N2/N3: 检测频率阈值 / 检测日历 / 检测月报
+// 需 authenticateUser 注入 req.db/req.user(与 /api/test-records 等一致)
+app.use('/api/frequency', authenticateUser, frequencyRoutes)
 
 // ====== Test Records API ======
 
