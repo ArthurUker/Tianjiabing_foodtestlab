@@ -694,6 +694,38 @@
             }
         });
 
+        // P7: 忘记密码——引导联系管理员重置(复用现有 overlay 弹窗模式,不新增服务)
+        const forgotPasswordLink = document.getElementById('forgotPasswordLink');
+        if (forgotPasswordLink) {
+            forgotPasswordLink.addEventListener('click', function(e) {
+                e.preventDefault();
+                const overlay = document.createElement('div');
+                overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+                overlay.innerHTML = [
+                    '<div style="background:#fff;border-radius:12px;max-width:400px;width:100%;padding:28px;box-shadow:0 20px 60px rgba(0,0,0,.3);">',
+                    '<h3 style="margin:0 0 6px;font-size:18px;font-weight:700;color:#111827;">',
+                    '<i class="fas fa-key" style="color:#2563eb;margin-right:8px;"></i>忘记密码？',
+                    '</h3>',
+                    '<p style="margin:0 0 16px;font-size:14px;color:#374151;line-height:1.7;">',
+                    '如忘记密码，请<strong>联系所在学校的学校管理员</strong>或<strong>平台超管</strong>重置密码。',
+                    '</p>',
+                    '<p style="margin:0 0 20px;font-size:13px;color:#6b7280;line-height:1.6;">',
+                    '管理员可在「用户管理」中为用户重置初始密码；重置后首次登录需修改密码（至少 8 位，含字母和数字）。',
+                    '</p>',
+                    '<button type="button" style="width:100%;background:#2563eb;color:#fff;border:none;border-radius:8px;padding:11px;font-size:14px;font-weight:600;cursor:pointer;">',
+                    '我知道了',
+                    '</button>',
+                    '</div>'
+                ].join('');
+                document.body.appendChild(overlay);
+                overlay.addEventListener('click', function(ev) {
+                    if (ev.target === overlay || ev.target.tagName === 'BUTTON') {
+                        overlay.remove();
+                    }
+                });
+            });
+        }
+
         // ===== 访客登录 - 简化版 =====
         const guestEnterBtn = document.getElementById('guestEnterBtn');
         const guestErrorMessage = document.getElementById('guestErrorMessage');
