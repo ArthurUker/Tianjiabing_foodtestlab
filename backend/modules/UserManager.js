@@ -227,7 +227,10 @@ export class UserManager {
             })
 
             if (existingUser) {
-                throw new Error('用户名已存在')
+                // P14: 用户名冲突属业务错误,打标供路由白名单透出
+                const err = new Error('用户名已存在')
+                err.validation = true
+                throw err
             }
 
             // 3. 检查手机号是否已使用
@@ -1087,7 +1090,10 @@ export class UserManager {
         }
 
         if (errors.length > 0) {
-            throw new Error(errors.join('; '))
+            // P14: 业务校验错误打标,路由层据此白名单透出具体原因
+            const err = new Error(errors.join('; '))
+            err.validation = true
+            throw err
         }
     }
 

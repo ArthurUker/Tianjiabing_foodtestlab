@@ -308,7 +308,7 @@ export class AuthService {
      */
     async registerUser(userData) {
         try {
-            const { username, phone, password, fullName } = userData;
+            const { username, phone, password, fullName, role } = userData;
 
             if (!username || !password) {
                 throw new Error('用户名和密码是必填项');
@@ -319,13 +319,18 @@ export class AuthService {
                 throw new Error('用户名需为 3-50 位字母、数字或下划线');
             }
 
+            // P14: 前端密码强度预校验(与后端 isStrongPassword 一致,减少无效请求)
+            if (!/^(?=.*[A-Za-z])(?=.*\d).{8,}$/.test(password)) {
+                throw new Error('密码至少 8 个字符，且必须包含字母和数字');
+            }
+
             const response = await fetch(`${this.apiBaseUrl}/api/user/register`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${this.getToken()}`
                 },
-                body: JSON.stringify({ username, phone, password, fullName })
+                body: JSON.stringify({ username, phone, password, fullName, role })
             });
 
             const data = await response.json();

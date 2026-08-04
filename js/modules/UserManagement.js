@@ -377,7 +377,7 @@ export class UserManagement {
             } else {
                 // 创建新用户
                 UINotification.loading('正在创建用户...');
-                const result = await authService.registerUser({ username, phone, password, fullName });
+                const result = await authService.registerUser({ username, phone, password, fullName, role });
                 if (result.success) {
                     UINotification.success('用户已创建');
                     auditService.log('create', 'users', null, `新增用户 ${username}`);

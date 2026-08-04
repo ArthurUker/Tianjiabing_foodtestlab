@@ -52,8 +52,11 @@ export function createUserRoutes(userManager) {
             const result = await userManager.forTenant(req.user.schoolCode).registerUser(username, phone, password, fullName)
             res.status(201).json(result)
         } catch (error) {
-            // 唯一约束冲突（P2002）返回 409，其余沿用 400
-            res.status(error.status || 400).json({ error: `注册失败` })
+            // P14: 仅透出业务校验错误(validation 标记),其余(数据库/系统层)统一返回"注册失败"
+            if (error.validation) {
+                return res.status(error.status || 400).json({ error: error.message })
+            }
+            res.status(error.status || 400).json({ error: '注册失败' })
         }
     })
 
