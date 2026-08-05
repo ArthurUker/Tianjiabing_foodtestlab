@@ -64,18 +64,22 @@ export async function showTodayDetectionHint() {
 export async function renderFrequencyCards(container) {
     // 页面骨架(与其他模块一致: glass 主容器 + 标题 + 子面板)
     container.innerHTML = `
-        <div class="glass p-6 space-y-6">
-            <h2 class="text-2xl font-bold mb-4 border-b pb-2 flex items-center justify-between">
-                <span><i class="fas fa-chart-line text-blue-600 mr-2"></i>检测频率与月报</span>
-                <button id="btnRefreshFrequency" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-normal flex items-center">
-                    <i class="fas fa-sync-alt mr-2"></i>刷新
-                </button>
-            </h2>
-            <div class="bg-blue-50 border border-blue-200 p-4 rounded mb-4 text-sm text-blue-800">
-                各检测项目本周达标情况、本月与上月次数对比、近 6 个月检测频率趋势(检测频率不足时提示风险警告)
+        <div class="space-y-4">
+            <div class="glass p-6">
+                <div class="flex items-center justify-between mb-4 border-b pb-2">
+                    <h2 class="text-2xl font-bold flex items-center">
+                        <i class="fas fa-chart-line text-blue-600 mr-2"></i>检测频率与月报
+                    </h2>
+                    <button id="btnRefreshFrequency" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm flex items-center">
+                        <i class="fas fa-sync-alt mr-2"></i>刷新
+                    </button>
+                </div>
+                <div class="bg-blue-50 border border-blue-200 p-4 rounded text-sm text-blue-800">
+                    各检测项目本周达标情况、本月与上月次数对比、近 6 个月检测频率趋势(检测频率不足时提示风险警告)
+                </div>
             </div>
             <div id="frequency-content">
-                <div class="glass-panel p-8 flex justify-center text-gray-400">
+                <div class="glass p-8 flex justify-center text-gray-400">
                     <i class="fas fa-spinner fa-spin mr-2"></i>正在加载检测频率数据...
                 </div>
             </div>
@@ -90,32 +94,32 @@ export async function renderFrequencyCards(container) {
             if (!json.success) throw new Error(json.error || '加载失败');
             const { items, trend } = json.data || { items: [], trend: [] };
 
-            // 风险警告卡片(N1)
+            // 风险警告:每条独立成大块面(不再嵌套,平铺)
             const warnings = items.filter(i => i.warning);
-            const warningHtml = warnings.length ? `
-                <div class="glass-panel p-4">
-                    <div class="text-sm font-bold text-gray-700 mb-3 border-b pb-2">
-                        <i class="fas fa-exclamation-triangle text-red-500 mr-1"></i>本周检测频率风险警告
-                    </div>
-                    <div class="space-y-2">
-                        ${warnings.map(w => `
-                            <div class="flex items-center justify-between px-4 py-2.5 bg-red-50 border border-red-200 rounded">
-                                <div class="flex items-center gap-3 text-sm">
-                                    <i class="fas fa-exclamation-triangle text-red-500"></i>
-                                    <span class="text-red-700 font-medium">${w.name}</span>
-                                    <span class="text-gray-600">本周 ${w.week_count} 次</span>
-                                    <span class="text-gray-400">目标 ${w.weekly_target} 次/周</span>
-                                </div>
-                                <span class="text-xs bg-red-500 text-white px-2 py-0.5 rounded-full font-semibold">检测频率不足</span>
-                            </div>`).join('')}
-                    </div>
-                </div>` : `
-                <div class="glass-panel p-4">
-                    <div class="flex items-center gap-2 text-sm text-green-700">
-                        <i class="fas fa-check-circle text-green-500"></i>
-                        <span>本周各项目检测频率均达标</span>
-                    </div>
-                </div>`;
+            const warningHtml = warnings.length
+                ? `<div class="space-y-3">
+                        <div class="glass p-5">
+                            <div class="text-base font-bold text-gray-700 mb-4 flex items-center">
+                                <i class="fas fa-exclamation-triangle text-red-500 mr-2 text-lg"></i>本周检测频率风险警告
+                            </div>
+                            <div class="space-y-3">
+                                ${warnings.map(w => `
+                                    <div class="bg-red-50 border border-red-300 p-4 rounded-lg flex items-center justify-between">
+                                        <div class="flex items-center gap-4">
+                                            <i class="fas fa-exclamation-triangle text-red-500 text-xl"></i>
+                                            <span class="text-red-700 font-semibold text-base">${w.name}</span>
+                                            <span class="text-gray-700">本周 ${w.week_count} 次</span>
+                                            <span class="text-gray-500">目标 ${w.weekly_target} 次/周</span>
+                                        </div>
+                                        <span class="text-sm bg-red-500 text-white px-3 py-1 rounded-full font-semibold">检测频率不足</span>
+                                    </div>`).join('')}
+                            </div>
+                        </div>
+                    </div>`
+                : `<div class="glass p-5 flex items-center gap-3">
+                        <i class="fas fa-check-circle text-green-500 text-xl"></i>
+                        <span class="text-base text-green-700">本周各项目检测频率均达标</span>
+                    </div>`;
 
             // 月报统计表(N3)
             const rowsHtml = items.map(i => {
@@ -138,12 +142,12 @@ export async function renderFrequencyCards(container) {
             }).join('');
 
             const tableHtml = `
-                <div class="glass-panel overflow-hidden">
-                    <div class="px-4 py-3 bg-gray-50 border-b border-gray-200 text-sm font-bold text-gray-700">
-                        <i class="fas fa-table text-blue-600 mr-1"></i>检测月报统计（${new Date().getFullYear()} 年 ${new Date().getMonth() + 1} 月）
+                <div class="glass p-5">
+                    <div class="text-base font-bold text-gray-700 mb-4 flex items-center border-b pb-3">
+                        <i class="fas fa-table text-blue-600 mr-2 text-lg"></i>检测月报统计（${new Date().getFullYear()} 年 ${new Date().getMonth() + 1} 月）
                     </div>
                     <div class="overflow-x-auto">
-                        <table class="min-w-full bg-white text-left">
+                        <table class="min-w-full text-left">
                             <thead>
                                 <tr class="bg-gray-50 border-b border-gray-200">
                                     <th class="px-4 py-3 text-xs font-semibold text-gray-600">项目</th>
@@ -184,11 +188,11 @@ export async function renderFrequencyCards(container) {
                         <span style="width:12px;height:3px;background:${color[tp]};display:inline-block;border-radius:2px"></span>${TYPE_NAMES[tp]}
                     </span>`).join('');
                 trendHtml = `
-                    <div class="glass-panel p-4">
-                        <div class="text-sm font-bold text-gray-700 mb-3 border-b pb-2">
-                            <i class="fas fa-chart-line text-blue-600 mr-1"></i>近 6 个月检测次数趋势
+                    <div class="glass p-5">
+                        <div class="text-base font-bold text-gray-700 mb-4 flex items-center border-b pb-3">
+                            <i class="fas fa-chart-line text-blue-600 mr-2 text-lg"></i>近 6 个月检测次数趋势
                         </div>
-                        <div class="flex flex-wrap items-center mb-2">${legend}</div>
+                        <div class="flex flex-wrap items-center mb-3">${legend}</div>
                         <svg viewBox="0 0 ${W} ${H}" class="w-full h-auto bg-gray-50 rounded-lg">
                             ${paths}${monthLabels}
                         </svg>
@@ -198,7 +202,7 @@ export async function renderFrequencyCards(container) {
             content.innerHTML = warningHtml + tableHtml + trendHtml;
         } catch (e) {
             console.warn('检测频率卡片渲染失败:', e.message);
-            content.innerHTML = '<div class="glass-panel p-6 text-center text-sm text-red-500">检测频率数据加载失败: ' + e.message + '</div>';
+            content.innerHTML = '<div class="glass p-6 text-center text-base text-red-500">检测频率数据加载失败: ' + e.message + '</div>';
         }
     };
 
@@ -259,20 +263,22 @@ export function initFrequencySettings(panel) {
             const dayHeader = days.map(d => `<th class="px-1 py-3 text-xs font-semibold text-gray-600 text-center">${d.n}</th>`).join('');
 
             panel.innerHTML = `
-                <div class="glass p-6 space-y-6">
-                    <h2 class="text-2xl font-bold mb-4 border-b pb-2 flex items-center">
-                        <i class="fas fa-cog text-blue-600 mr-2"></i>检测频率与日历设置
-                    </h2>
-                    <div class="bg-blue-50 border border-blue-200 p-4 rounded text-sm text-blue-800">
-                        配置各检测项目每周目标频率与每周检测日历。当周实际检测次数低于目标时,「检测频率与月报」页出现风险警告;每日登录自动提示今日项目。
+                <div class="space-y-4">
+                    <div class="glass p-6">
+                        <h2 class="text-2xl font-bold mb-4 border-b pb-2 flex items-center">
+                            <i class="fas fa-cog text-blue-600 mr-2"></i>检测频率与日历设置
+                        </h2>
+                        <div class="bg-blue-50 border border-blue-200 p-4 rounded text-sm text-blue-800">
+                            配置各检测项目每周目标频率与每周检测日历。当周实际检测次数低于目标时,「检测频率与月报」页出现风险警告;每日登录自动提示今日项目。
+                        </div>
                     </div>
 
-                    <div class="glass-panel overflow-hidden">
-                        <div class="px-4 py-3 bg-gray-50 border-b border-gray-200 text-sm font-bold text-gray-700">
-                            <i class="fas fa-bullseye text-blue-600 mr-1"></i>每周检测频率阈值
+                    <div class="glass p-5">
+                        <div class="text-base font-bold text-gray-700 mb-4 flex items-center border-b pb-3">
+                            <i class="fas fa-bullseye text-blue-600 mr-2 text-lg"></i>每周检测频率阈值
                         </div>
                         <div class="overflow-x-auto">
-                            <table class="min-w-full bg-white text-left">
+                            <table class="min-w-full text-left">
                                 <thead>
                                     <tr class="bg-gray-50 border-b border-gray-200">
                                         <th class="px-4 py-3 text-xs font-semibold text-gray-600">项目</th>
@@ -284,19 +290,19 @@ export function initFrequencySettings(panel) {
                                 <tbody>${thRows}</tbody>
                             </table>
                         </div>
-                        <div class="px-4 py-3 bg-gray-50 border-t border-gray-200 flex justify-end">
+                        <div class="pt-4 flex justify-end">
                             <button id="btnSaveThresholds" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center">
                                 <i class="fas fa-save mr-2"></i>保存阈值
                             </button>
                         </div>
                     </div>
 
-                    <div class="glass-panel overflow-hidden">
-                        <div class="px-4 py-3 bg-gray-50 border-b border-gray-200 text-sm font-bold text-gray-700">
-                            <i class="fas fa-calendar-alt text-green-600 mr-1"></i>每周检测日历
+                    <div class="glass p-5">
+                        <div class="text-base font-bold text-gray-700 mb-4 flex items-center border-b pb-3">
+                            <i class="fas fa-calendar-alt text-green-600 mr-2 text-lg"></i>每周检测日历
                         </div>
                         <div class="overflow-x-auto">
-                            <table class="min-w-full bg-white text-left">
+                            <table class="min-w-full text-left">
                                 <thead>
                                     <tr class="bg-gray-50 border-b border-gray-200">
                                         <th class="px-4 py-3 text-xs font-semibold text-gray-600">项目</th>
@@ -306,7 +312,7 @@ export function initFrequencySettings(panel) {
                                 <tbody>${calRows}</tbody>
                             </table>
                         </div>
-                        <div class="px-4 py-3 bg-gray-50 border-t border-gray-200 flex justify-end">
+                        <div class="pt-4 flex justify-end">
                             <button id="btnSaveCalendar" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 flex items-center">
                                 <i class="fas fa-save mr-2"></i>保存日历
                             </button>
