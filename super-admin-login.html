@@ -189,6 +189,14 @@
                 setTimeout(() => schoolCodeInput.classList.remove('ring-2', 'ring-red-400'), 1500);
                 return;
             }
+            // Q5: 仅允许小写字母/数字/连字符(与 extractSchoolCode 正则一致),避免非法输入
+            if (!/^[a-z0-9-]+$/.test(c)) {
+                schoolCodeInput.classList.add('ring-2', 'ring-red-400');
+                schoolCodeInput.value = '';
+                schoolCodeInput.placeholder = '学校代码仅含小写字母/数字/连字符';
+                setTimeout(() => schoolCodeInput.classList.remove('ring-2', 'ring-red-400'), 1800);
+                return;
+            }
             // 生产 Caddy 会将 /<code>/login.html rewrite 回根 /login.html(丢 schoolCode 路径前缀),
             // 因此改用 ?school=<code> 查询参数(login.html 的 extractSchoolCode 通过查询参数兜底识别学校),
             // 避免触发"未识别到有效学校入口"红字。
