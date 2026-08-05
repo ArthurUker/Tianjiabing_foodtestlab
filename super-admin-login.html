@@ -77,9 +77,29 @@
                 <div class="flex-1 h-px bg-gray-200"></div>
             </div>
 
-            <a href="./login.html" class="block text-center text-sm text-indigo-600 hover:text-indigo-800 font-medium">
+            <button type="button" id="btnGoSchoolLogin" class="block w-full text-center text-sm text-indigo-600 hover:text-indigo-800 font-medium">
                 <i class="fas fa-arrow-left mr-1"></i>我是学校管理员 / 检测员 / 访客？前往普通登录
-            </a>
+            </button>
+
+            <!-- Q5: 学校代码输入区(点击按钮展开,避免直接跳根 login.html 触发"未识别学校入口"红字) -->
+            <div id="schoolCodeBox" class="hidden mt-3 p-4 rounded-lg bg-white/10 border border-white/20">
+                <label class="block text-xs text-indigo-100 mb-2" for="schoolCodeInput">请输入学校代码（如 tjb / hqyz）</label>
+                <div class="flex gap-2">
+                    <input
+                        type="text"
+                        id="schoolCodeInput"
+                        class="flex-1 px-3 py-2 rounded-lg bg-white/90 text-gray-800 placeholder-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                        placeholder="学校代码"
+                        autocomplete="off"
+                    >
+                    <button
+                        type="button"
+                        id="btnGoSchool"
+                        class="px-4 py-2 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-white text-sm font-semibold transition"
+                    >进入</button>
+                </div>
+                <p class="text-xs text-indigo-200/70 mt-2">学校代码由学校管理员提供，如不确定请联系学校管理员</p>
+            </div>
         </div>
 
         <p class="text-center text-white/60 text-xs mt-6">食品安全检验管理系统 · 平台超管专用通道</p>
@@ -154,6 +174,41 @@
                 loginBtnText.textContent = '登 录';
             }
         });
+
+        // ===== Q5: "我是学校管理员" —— 先输入学校代码,再跳转到 /<code>/login.html =====
+        const btnGoSchoolLogin = document.getElementById('btnGoSchoolLogin');
+        const schoolCodeBox = document.getElementById('schoolCodeBox');
+        const schoolCodeInput = document.getElementById('schoolCodeInput');
+        const btnGoSchool = document.getElementById('btnGoSchool');
+
+        function goToSchoolLogin(code) {
+            const c = (code || '').trim().toLowerCase();
+            if (!c) {
+                schoolCodeInput.classList.add('ring-2', 'ring-red-400');
+                schoolCodeInput.placeholder = '请输入学校代码';
+                setTimeout(() => schoolCodeInput.classList.remove('ring-2', 'ring-red-400'), 1500);
+                return;
+            }
+            // 生产 Caddy 会将 /<code>/login.html rewrite 回根 /login.html(丢 schoolCode 路径前缀),
+            // 因此改用 ?school=<code> 查询参数(login.html 的 extractSchoolCode 通过查询参数兜底识别学校),
+            // 避免触发"未识别到有效学校入口"红字。
+            window.location.replace('./login.html?school=' + encodeURIComponent(c));
+        }
+
+        if (btnGoSchoolLogin) {
+            btnGoSchoolLogin.addEventListener('click', () => {
+                schoolCodeBox.classList.toggle('hidden');
+                if (!schoolCodeBox.classList.contains('hidden')) schoolCodeInput.focus();
+            });
+        }
+        if (btnGoSchool) {
+            btnGoSchool.addEventListener('click', () => goToSchoolLogin(schoolCodeInput.value));
+        }
+        if (schoolCodeInput) {
+            schoolCodeInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') goToSchoolLogin(schoolCodeInput.value);
+            });
+        }
     </script>
 </body>
 </html>
