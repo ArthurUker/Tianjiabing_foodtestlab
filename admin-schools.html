@@ -3513,7 +3513,7 @@
                 const resp = await fetch(`${API_BASE}/api/admin/schools/${currentSchoolCode}/users/${userId}/status`, {
                     method: 'PATCH',
                     headers: authHeaders(),
-                    body: JSON.stringify({ isActive })
+                    body: JSON.stringify({ status: isActive ? 'active' : 'disabled' })
                 });
                 const json = await resp.json();
                 if (!resp.ok) throw new Error(json.error || '操作失败');
