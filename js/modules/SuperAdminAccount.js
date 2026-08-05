@@ -175,7 +175,9 @@ export function initSuperAdminAccount({ notify }) {
         if (!btn) return
         const id = btn.dataset.id
         const uname = btn.dataset.username
-        if (!confirm(`确定删除平台超管账号「${uname}」吗？此操作不可恢复。`)) return
+        // P1-2: 原生 confirm → UINotification.confirm（iframe 预览下可用）
+        const confirmed = await UINotification.confirm(`确定删除平台超管账号「${uname}」吗？此操作不可恢复。`, '删除确认')
+        if (!confirmed) return
         try {
             const res = await fetch(`${apiBase}/api/user/super-admin/${encodeURIComponent(id)}`, {
                 method: 'DELETE', headers: headers()

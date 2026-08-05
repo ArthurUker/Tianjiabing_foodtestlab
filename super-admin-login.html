@@ -57,9 +57,11 @@
                 </div>
 
                 <!-- 错误提示 -->
-                <div id="errorMessage" class="hidden p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg text-sm flex items-center">
-                    <i class="fas fa-exclamation-circle mr-2"></i>
-                    <span id="errorText"></span>
+                <div id="errorMessage" class="hidden">
+                    <div class="p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg text-sm flex items-center">
+                        <i class="fas fa-exclamation-circle mr-2"></i>
+                        <span id="errorText"></span>
+                    </div>
                 </div>
 
                 <!-- 登录按钮 -->
@@ -156,7 +158,8 @@
             loginBtnText.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>登录中...';
 
             try {
-                const result = await authService.loginSuperAdmin(username, password);
+                // P0-1: 平台超管登录默认持久化（保持登录态语义）；如需"会话级"可在登录页加勾选后传入
+                const result = await authService.loginSuperAdmin(username, password, true);
                 if (result.success) {
                     loginBtnText.innerHTML = '<i class="fas fa-check mr-2"></i>登录成功';
                     setTimeout(() => window.location.replace('./admin-schools.html'), 80);

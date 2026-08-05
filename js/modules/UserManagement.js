@@ -440,10 +440,11 @@ export class UserManagement {
         }
 
         // P1-17: 升级为两步确认，显示用户名，防止误删
+        // P1-2: 原生 confirm → UINotification.confirm（iframe 预览下可用）
         const displayName = user.username || user.name || userId
-        const firstConfirm = confirm(`⚠️ 即将删除用户「${displayName}」\n\n此操作不可撤销，确定要继续吗？`)
+        const firstConfirm = await UINotification.confirm(`⚠️ 即将删除用户「${displayName}」\n\n此操作不可撤销，确定要继续吗？`, '删除确认')
         if (!firstConfirm) return
-        const secondConfirm = confirm(`请再次确认：\n\n确定要永久删除用户「${displayName}」吗？`)
+        const secondConfirm = await UINotification.confirm(`请再次确认：\n\n确定要永久删除用户「${displayName}」吗？`, '再次确认')
         if (!secondConfirm) return
 
         try {

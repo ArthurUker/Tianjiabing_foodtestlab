@@ -408,7 +408,7 @@ export class BackupRestoreService {
     }
 
     // [关键修复] 强制同步数据到服务器
-    forceSync() {
+    async forceSync() {
         if (this.syncStatus.inProgress) return;
         
         // 1. 安全检查：检查是否有本地数据未进入上传队列
@@ -426,12 +426,14 @@ export class BackupRestoreService {
         });
 
         if (hasUnsyncedData) {
+            // P1-2: 原生 confirm/alert → UINotification（iframe 预览下原生弹窗失效）
             const confirmMsg = "⚠️ 检测到本地有数据但未列入上传队列。\n\n如果不加入队列，强制同步将会用服务器数据（可能为空）覆盖本地数据，导致数据丢失。\n\n是否将本地数据加入上传队列？";
-            if (confirm(confirmMsg)) {
+            if (await UINotification.confirm(confirmMsg, '强制同步')) {
                 this._queueAllLocalDataForUpload();
-                alert('✅ 已将本地数据加入上传队列。');
+                UINotification.success('已将本地数据加入上传队列。');
             } else {
-                if (!confirm("⚠️ 您选择了不上传。点击确定将继续同步（可能导致本地数据丢失），点击取消中止操作。")) {
+                const proceed = await UINotification.confirm("⚠️ 您选择了不上传。点击确定将继续同步（可能导致本地数据丢失），点击取消中止操作。", '确认继续');
+                if (!proceed) {
                     return;
                 }
             }
@@ -443,7 +445,7 @@ export class BackupRestoreService {
         localStorage.removeItem('block_data_sync');
         localStorage.setItem('force_data_sync', 'true');
         
-        alert('🔄 开始强制同步数据到服务器...\n\n页面将刷新以启动同步过程。');
+        UINotification.info('🔄 开始强制同步数据到服务器... 页面将刷新以启动同步过程。');
         localStorage.setItem('sync_started', Date.now().toString());
         location.reload();
     }
@@ -677,10 +679,11 @@ export class BackupRestoreService {
     async processRestoreData(backupData, sourceName) {
         try {
             // NB-21: 学校代码校验——防止跨校数据被错误恢复
+            // P1-2: 原生 confirm → UINotification.confirm（iframe 预览下可用）
             const currentCode = extractSchoolCode();
             const backupCode = backupData.schoolCode;
             if (currentCode && backupCode && backupCode !== currentCode) {
-                const proceed = confirm(`警告：备份数据属于学校 [${backupCode}]，与当前学校 [${currentCode}] 不一致。继续恢复可能造成数据混淆。是否继续？`);
+                const proceed = await UINotification.confirm(`警告：备份数据属于学校 [${backupCode}]，与当前学校 [${currentCode}] 不一致。继续恢复可能造成数据混淆。是否继续？`, '学校不匹配');
                 if (!proceed) {
                     this.showStatus('已取消恢复：学校代码不匹配', 'yellow');
                     return;
@@ -698,10 +701,12 @@ export class BackupRestoreService {
             if (isStandardFormat) {
                 const check = this._checkBackupCompatibility(backupData);
                 if (!check.ok) {
-                    const proceed = confirm(
+                    // P1-2: 原生 confirm → UINotification.confirm
+                    const proceed = await UINotification.confirm(
                         `⚠️ 版本兼容性警告\n\n${check.message}\n\n` +
                         `继续恢复可能导致数据与当前系统结构不匹配（字段错乱或丢失）。\n\n` +
-                        `点击"确定"：仍要继续恢复（风险自负）\n点击"取消"：中止恢复`
+                        `点击"确定"：仍要继续恢复（风险自负）\n点击"取消"：中止恢复`,
+                        '版本兼容性警告'
                     );
                     if (!proceed) {
                         this.showStatus(`⏹️ 已中止恢复：${check.message}`, 'yellow');
@@ -724,19 +729,20 @@ export class BackupRestoreService {
             }
             confirmMessage += '\n⚠️ 警告：此操作将覆盖现有数据且不可撤销，是否继续？';
             
-            if (!confirm(confirmMessage)) {
+            // P1-2: 原生 confirm → UINotification.confirm
+            if (!(await UINotification.confirm(confirmMessage, '恢复确认'))) {
                 this.showStatus('操作已取消', 'gray');
                 return;
             }
             
             // 3. 同步选项
-            const shouldSyncToServer = confirm(`同步控制选项:\n\n是否将恢复的数据同步到服务器？\n\n• 点击"确定"：恢复数据并自动加入上传队列\n• 点击"取消"：仅恢复到本地`);
+            const shouldSyncToServer = await UINotification.confirm(`同步控制选项:\n\n是否将恢复的数据同步到服务器？\n\n• 点击"确定"：恢复数据并自动加入上传队列\n• 点击"取消"：仅恢复到本地`, '同步选项');
 
             let restoreCount = 0;
             const restoredTableRecords = {};
             
-            // 4. 执行恢复
-            const processTable = (tableName, data) => {
+            // 4. 执行恢复（P1-2: async 化，内部含 await UINotification.confirm）
+            const processTable = async (tableName, data) => {
                 const cacheKey = `cache_${tableName}`;
                 const pendingKey = `pending_${tableName}`;
 
@@ -756,10 +762,12 @@ export class BackupRestoreService {
                 localStorage.setItem(cacheKey, JSON.stringify(dataObj));
 
                 if (Array.isArray(existingPending) && existingPending.length > 0) {
-                    const keep = confirm(
+                    // P1-2: 原生 confirm → UINotification.confirm
+                    const keep = await UINotification.confirm(
                         `⚠️ 检测到表 [${tableName}] 存在 ${existingPending.length} 条尚未同步到服务器的离线数据。\n\n` +
                         `点击"确定"：保留这些离线数据（推荐，避免丢失），恢复的数据仅写入缓存。\n` +
-                        `点击"取消"：用恢复的数据覆盖（将丢弃这些离线数据）。`
+                        `点击"取消"：用恢复的数据覆盖（将丢弃这些离线数据）。`,
+                        '离线数据冲突'
                     );
                     if (keep) {
                         // 保留现有离线队列；恢复数据仅落入缓存，不加入上传队列
@@ -794,17 +802,17 @@ export class BackupRestoreService {
 
             try {
                 if (isStandardFormat) {
-                    Object.keys(backupData.tables).forEach(t => {
-                        if (this.targetTables.includes(t)) processTable(t, backupData.tables[t]);
-                    });
+                    for (const t of Object.keys(backupData.tables)) {
+                        if (this.targetTables.includes(t)) await processTable(t, backupData.tables[t]);
+                    }
                 } else {
-                    Object.keys(backupData).forEach(t => {
+                    for (const t of Object.keys(backupData)) {
                         if (this.targetTables.includes(t)) {
                             let d = backupData[t];
                             if (typeof d === 'string') try { d = JSON.parse(d); } catch(e){}
-                            processTable(t, d);
+                            await processTable(t, d);
                         }
-                    });
+                    }
                 }
             } catch (restoreErr) {
                 // NB-20: 写入过程失败，回滚到旧数据

@@ -839,6 +839,16 @@ app.put('/api/admin/schools/:code', authenticateUser, requirePlatformSuperAdmin,
         if (shortName != null && (typeof shortName !== 'string' || shortName.length > 50)) {
             return res.status(400).json({ error: '学校简称需为 ≤50 字符的字符串' })
         }
+        // P1-1: 学校简称全校唯一（非空时查重，与 DB UNIQUE 约束 double-check，返回 409）
+        if (shortName != null && String(shortName).trim() !== '') {
+            const dupShort = await prisma.$queryRawUnsafe(
+                `SELECT 1 FROM public."School" WHERE "short_name" = $1 AND "code" <> $2 LIMIT 1`,
+                String(shortName).trim(), code
+            )
+            if (dupShort.length) {
+                return res.status(409).json({ error: `学校简称「${shortName}」已被其他学校使用` })
+            }
+        }
         const exists = await prisma.$queryRawUnsafe(
             `SELECT 1 FROM public."School" WHERE "code" = $1`, code
         )
@@ -1332,6 +1342,13 @@ app.post('/api/admin/schools/:code/users', authenticateUser, requirePlatformSupe
             `SELECT "id" FROM "${schema}"."User" WHERE "username" = $1`, username
         )
         if (exist.length) return res.status(409).json({ error: '用户名已存在' })
+        // P1-1: 手机号全校唯一（非空时查重；空值允许多个，与 DB 部分唯一索引口径一致）
+        if (phone && String(phone).trim()) {
+            const dupPhone = await tenantPrisma.$queryRawUnsafe(
+                `SELECT "id" FROM "${schema}"."User" WHERE "phone" = $1 LIMIT 1`, String(phone).trim()
+            )
+            if (dupPhone.length) return res.status(409).json({ error: '手机号已被其他用户使用' })
+        }
         const hash = await bcryptjs.hash(String(password), 10)
         const id = crypto.randomUUID()
         await tenantPrisma.$executeRawUnsafe(
@@ -1368,6 +1385,14 @@ app.put('/api/admin/schools/:code/users/:userId', authenticateUser, requirePlatf
             if (!isSchoolUserRole(role)) return res.status(400).json({ error: '用户类别无效' })
         }
         if (phone !== undefined && phone && !PHONE_RE.test(phone)) return res.status(400).json({ error: '手机号格式不正确' })
+        // P1-1: 手机号全校唯一（更新场景排除自身；仅对非空值查重）
+        if (phone !== undefined && String(phone).trim()) {
+            const dupPhone = await tenantPrisma.$queryRawUnsafe(
+                `SELECT "id" FROM "${schema}"."User" WHERE "phone" = $1 AND "id" <> $2 LIMIT 1`,
+                String(phone).trim(), userId
+            )
+            if (dupPhone.length) return res.status(409).json({ error: '手机号已被其他用户使用' })
+        }
         if (status !== undefined && !['active', 'disabled'].includes(status)) {
             return res.status(400).json({ error: '状态值无效（仅允许 active/disabled）' })
         }

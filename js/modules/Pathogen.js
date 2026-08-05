@@ -132,7 +132,8 @@ export function initPathogen() {
         });
     }
 
-    document.getElementById('pathogenRecords')?.addEventListener('click', (e) => {
+    // P1-2: 事件回调 async 化（operationGuard.verify 已改为异步 UINotification.confirm）
+    document.getElementById('pathogenRecords')?.addEventListener('click', async (e) => {
         const deleteBtn = e.target.closest('.btn-delete');
         if (deleteBtn) {
             // P1-06: 按钮点击层权限前置拦截（视觉层隐藏不可信）
@@ -140,7 +141,7 @@ export function initPathogen() {
               UINotification.error('权限不足：您没有删除记录的权限');
               return;
             }
-            operationGuard.verify('删除病原体检测记录', (user) => {
+            await operationGuard.verify('删除病原体检测记录', (user) => {
                 handleDeleteRecord(deleteBtn.dataset.id);
             });
             return;
@@ -148,7 +149,7 @@ export function initPathogen() {
 
         const editBtn = e.target.closest('.btn-edit');
         if (editBtn) {
-            operationGuard.verify('编辑病原体检测记录', (user) => {
+            await operationGuard.verify('编辑病原体检测记录', (user) => {
                 handleEditRecord(editBtn.dataset.id, user);
             });
             return;

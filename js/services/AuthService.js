@@ -163,9 +163,10 @@ export class AuthService {
      * @param {string} username - 用户名
      * @param {string} password - 密码
      * @param {string} [schoolCode] - 所属学校代码（方案A：来自 URL 路径前缀；schoolCode 即 schema 名，用于在登录前定位该校 schema）
+     * @param {boolean} [rememberMe] - 记住我：true 持久化到 localStorage（关浏览器重开保持登录）；false 仅 sessionStorage（关闭即登出）
      * @returns {Promise<{success: boolean, user?: object, token?: string, message?: string}>}
      */
-    async login(username, password, schoolCode = null) {
+    async login(username, password, schoolCode = null, rememberMe = true) {
         try {
             // 输入验证
             if (!username || !password) {
@@ -197,13 +198,13 @@ export class AuthService {
                 sessionStorage.removeItem(this._nsKey('current_guest'));
                 sessionStorage.removeItem(this._nsKey('guest_token'));
                 
-                // 保存 Token 和用户信息
-                this.saveToken(data.token, data.expiresIn);
-                this.saveUser(data.user);
+                // 保存 Token 和用户信息（P0-1: rememberMe 决定持久化层级）
+                this.saveToken(data.token, data.expiresIn, rememberMe);
+                this.saveUser(data.user, rememberMe);
                 
-                // 如果返回了 refresh token，也保存
+                // 如果返回了 refresh token，也保存（rememberMe=true 时持久化以支持跨浏览器会话续期）
                 if (data.refreshToken) {
-                    this.saveRefreshToken(data.refreshToken);
+                    this.saveRefreshToken(data.refreshToken, rememberMe);
                 }
 
                 // DS-16 & M3: 日志不输出完整用户名（PII 脱敏），审计日志同样脱敏
@@ -226,9 +227,10 @@ export class AuthService {
      * 平台超管登录（独立入口，区别于普通用户登录）
      * @param {string} username - 平台超管用户名
      * @param {string} password - 密码
+     * @param {boolean} [rememberMe] - 记住我：true 持久化；false 仅会话级
      * @returns {Promise<{success: boolean, user?: object, message?: string}>}
      */
-    async loginSuperAdmin(username, password) {
+    async loginSuperAdmin(username, password, rememberMe = true) {
         try {
             if (!username || !password) {
                 throw new Error('用户名和密码不能为空');
@@ -254,8 +256,9 @@ export class AuthService {
                 sessionStorage.removeItem('current_guest');
                 sessionStorage.removeItem('guest_token');
 
-                this.saveToken(data.token, data.expiresIn);
-                this.saveUser(data.user);
+                this.saveToken(data.token, data.expiresIn, rememberMe);
+                this.saveUser(data.user, rememberMe);
+                if (data.refreshToken) this.saveRefreshToken(data.refreshToken, rememberMe);
 
                 console.log('✅ 平台超管登录成功:', maskSensitive(data.user.username, 'name'));
                 auditService.log('login', 'auth', null, `平台超管 ${maskSensitive(data.user.username, 'name')} 登录系统`);
@@ -635,8 +638,10 @@ export class AuthService {
      * 保存 Token
      * @param {string} token - JWT Token
      * @param {number} expiresIn - 过期时间 (秒)
+     * @param {boolean} [rememberMe] - P0-1: true=持久化(localStorage,关浏览器重开保持登录);
+     *                                 false=仅会话级(sessionStorage,关闭即登出)
      */
-    saveToken(token, expiresIn) {
+    saveToken(token, expiresIn, rememberMe = true) {
         const safeExpiresIn = Number.isFinite(Number(expiresIn)) ? Number(expiresIn) : 3600;
 
         // TD-TenantIsolation：token 双写内存 + sessionStorage + localStorage，但三处均使用
@@ -648,38 +653,60 @@ export class AuthService {
         this._memToken = token;
         const nsTokenKey = this._nsKey(this.tokenKey);
         try { sessionStorage.setItem(nsTokenKey, token); } catch (e) { /* 存储不可用时忽略 */ }
-        try { localStorage.setItem(nsTokenKey, token); } catch (e) { /* 存储不可用时忽略 */ }
+        if (rememberMe) {
+            try { localStorage.setItem(nsTokenKey, token); } catch (e) { /* 存储不可用时忽略 */ }
+        } else {
+            // P0-1: 不记住我 → 移除可能残留的 localStorage 副本，确保会话级语义
+            try { localStorage.removeItem(nsTokenKey); } catch (e) { /* 忽略 */ }
+        }
 
         // 第六轮：记录写入时间戳（带命名空间，避免跨租户刷新信标误触发）
         this._memTokenUpdatedAt = Date.now();
-        try { localStorage.setItem(this._nsKey(this.tokenUpdatedAtKey), String(this._memTokenUpdatedAt)); } catch (e) { /* 忽略 */ }
+        if (rememberMe) {
+            try { localStorage.setItem(this._nsKey(this.tokenUpdatedAtKey), String(this._memTokenUpdatedAt)); } catch (e) { /* 忽略 */ }
+        } else {
+            try { localStorage.removeItem(this._nsKey(this.tokenUpdatedAtKey)); } catch (e) { /* 忽略 */ }
+        }
 
         // 计算过期时间 (当前时间 + 过期时间)，双写（带命名空间）
         const expiryTime = Date.now() + (safeExpiresIn * 1000);
         const expiryStr = expiryTime.toString();
         const nsExpiryKey = this._nsKey(this.tokenExpiryKey);
         try { sessionStorage.setItem(nsExpiryKey, expiryStr); } catch (e) { /* 忽略 */ }
-        try { localStorage.setItem(nsExpiryKey, expiryStr); } catch (e) { /* 忽略 */ }
+        if (rememberMe) {
+            try { localStorage.setItem(nsExpiryKey, expiryStr); } catch (e) { /* 忽略 */ }
+        } else {
+            try { localStorage.removeItem(nsExpiryKey); } catch (e) { /* 忽略 */ }
+        }
     }
 
     /**
      * 保存用户信息
      * @param {object} user - 用户对象
+     * @param {boolean} [rememberMe] - P0-1: 同 saveToken，控制是否持久化到 localStorage
      */
-    saveUser(user) {
+    saveUser(user, rememberMe = true) {
         // TD-TenantIsolation：用户信息同样带命名空间双写，避免窗口 B 读到窗口 A 的用户。
         const nsUserKey = this._nsKey(this.userKey);
         try { sessionStorage.setItem(nsUserKey, JSON.stringify(user)); } catch (e) { /* 存储不可用时忽略 */ }
-        try { localStorage.setItem(nsUserKey, JSON.stringify(user)); } catch (e) { /* 存储不可用时忽略 */ }
+        if (rememberMe) {
+            try { localStorage.setItem(nsUserKey, JSON.stringify(user)); } catch (e) { /* 存储不可用时忽略 */ }
+        } else {
+            try { localStorage.removeItem(nsUserKey); } catch (e) { /* 忽略 */ }
+        }
     }
 
     /**
      * 保存刷新 Token
-     * DS-17: refresh token 敏感性更高——仅存内存 + sessionStorage，不落 localStorage
+     * DS-17: refresh token 敏感性更高——默认仅存内存 + sessionStorage，不落 localStorage
      * （无跨文件使用方直接读 localStorage['refresh_token']，可安全收紧）。
+     * P0-1 决策：当用户显式勾选「记住我」时，将 refresh token 持久化到 localStorage——
+     * 否则 access token（TTL 30 分钟）过期后无 refresh 可续期，「记住我」语义在关浏览器
+     * 重开后 30 分钟内即失效。这是对 DS-17 的有条件放宽，仅限用户显式授权长期登录。
      * @param {string} refreshToken
+     * @param {boolean} [rememberMe] - 记住我开关：true 持久化；false 仅会话级
      */
-    saveRefreshToken(refreshToken) {
+    saveRefreshToken(refreshToken, rememberMe = true) {
         this._memRefreshToken = refreshToken;
         // 第六轮：记录保存时间（sessionStorage，随「复制标签页」一起被复制），
         // 与共享轮转信标（refreshRotatedAtKey）比对即可识别"我手里的 refresh token
@@ -689,8 +716,13 @@ export class AuthService {
             sessionStorage.setItem(this.refreshTokenKey, refreshToken);
             sessionStorage.setItem(this.refreshSavedAtKey, String(this._refreshTokenSavedAt));
         } catch (e) { /* 存储不可用时忽略 */ }
-        // 清理历史遗留的 localStorage 副本（旧版本写入的）
-        localStorage.removeItem(this.refreshTokenKey);
+        if (rememberMe) {
+            // P0-1: 记住我 → 持久化 refresh token（长期会话续期能力）
+            try { localStorage.setItem(this.refreshTokenKey, refreshToken); } catch (e) { /* 存储不可用时忽略 */ }
+        } else {
+            // 不记住我 → 清理 localStorage 副本（含历史遗留）
+            try { localStorage.removeItem(this.refreshTokenKey); } catch (e) { /* 忽略 */ }
+        }
     }
 
     /**

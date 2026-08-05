@@ -165,7 +165,7 @@
 
             <!-- Tab 选项卡 -->
             <div class="flex mb-6 border-b border-gray-200" id="loginTabs">
-                <button type="button" id="adminTabBtn" class="tab-btn flex-1 py-3 px-4 font-medium text-gray-700 border-b-2 border-blue-600 text-blue-600 transition" data-tab="admin">
+                <button type="button" id="adminTabBtn" class="tab-btn flex-1 py-3 px-4 font-medium border-b-2 border-blue-600 text-blue-600 transition" data-tab="admin">
                     <i class="fas fa-user-shield mr-2"></i>管理员登录
                 </button>
                 <button type="button" id="guestTabBtn" class="tab-btn flex-1 py-3 px-4 font-medium text-gray-500 border-b-2 border-transparent hover:text-gray-700 transition" data-tab="guest">
@@ -231,9 +231,11 @@
                 </div>
 
                 <!-- 错误提示 -->
-                <div id="errorMessage" class="hidden p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg text-sm flex items-center">
-                    <i class="fas fa-exclamation-circle mr-2"></i>
-                    <span id="errorText"></span>
+                <div id="errorMessage" class="hidden">
+                    <div class="p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg text-sm flex items-center">
+                        <i class="fas fa-exclamation-circle mr-2"></i>
+                        <span id="errorText"></span>
+                    </div>
                 </div>
 
                 <!-- 登录按钮 -->
@@ -256,9 +258,11 @@
                         <p class="text-gray-500 text-sm">可查看餐具、农残、食用油等检测数据，无法新增或修改，病原体检测模块不可见</p>
                     </div>
                     <!-- 错误提示 -->
-                    <div id="guestErrorMessage" class="hidden mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg text-sm flex items-center">
-                        <i class="fas fa-exclamation-circle mr-2"></i>
-                        <span id="guestErrorText"></span>
+                    <div id="guestErrorMessage" class="hidden">
+                        <div class="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg text-sm flex items-center">
+                            <i class="fas fa-exclamation-circle mr-2"></i>
+                            <span id="guestErrorText"></span>
+                        </div>
                     </div>
                     <button 
                         type="button" 
@@ -574,7 +578,10 @@
 
             try {
                 // 调用 AuthService 登录（携带 schoolCode，供后端路由到对应 schema）
-                const result = await authService.login(username, password, currentSchoolCode);
+                // P0-1: 读取「记住我」勾选状态——true 持久化 localStorage（关浏览器重开保持登录），
+                //       false 仅 sessionStorage（关闭即登出）
+                const rememberMe = document.getElementById('rememberMe')?.checked ?? true;
+                const result = await authService.login(username, password, currentSchoolCode, rememberMe);
 
                 if (result.success) {
                     // P9: 不再写自定义 saved_username——浏览器原生保存密码机制接管。

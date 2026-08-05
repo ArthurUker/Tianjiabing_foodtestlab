@@ -60,7 +60,7 @@ export class GenericTestModule {
             }
         }
 
-        document.getElementById(this.tableId)?.addEventListener('click', (e) => {
+        document.getElementById(this.tableId)?.addEventListener('click', async (e) => {
             const deleteBtn = e.target.closest('.btn-delete');
             if (deleteBtn) {
                 // P1-06: 按钮点击层权限前置拦截（视觉层隐藏不可信）
@@ -68,7 +68,8 @@ export class GenericTestModule {
                   UINotification.error('权限不足：您没有删除记录的权限');
                   return;
                 }
-                operationGuard.verify('删除检测记录', () => {
+                // P1-2: operationGuard.verify 已异步化，需 await
+                await operationGuard.verify('删除检测记录', () => {
                     this.handleDeleteRecord(deleteBtn.dataset.id);
                 });
                 return;
@@ -76,7 +77,8 @@ export class GenericTestModule {
 
             const editBtn = e.target.closest('.btn-edit');
             if (editBtn) {
-                operationGuard.verify('编辑/整改记录', (user) => {
+                // P1-2: await 异步确认（编辑操作无确认弹窗，行为不变）
+                await operationGuard.verify('编辑/整改记录', (user) => {
                     this.handleEditRecord(editBtn.dataset.id, user);
                 });
                 return;

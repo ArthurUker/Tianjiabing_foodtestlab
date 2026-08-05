@@ -265,7 +265,7 @@ model School {
   id            String   @id @default(cuid())
   code          String   @unique // 学校代码，即 PostgreSQL schema 名（无前缀，如 school-a）
   name          String
-  short_name    String?
+  short_name    String?  // P1-1: 简称全校唯一（UNIQUE 索引，NULL 允许多个）
   theme_color   String?  // 主题色（外观个性化）
   logo_url      String?
   status        String   @default("active") // active / disabled
@@ -273,6 +273,8 @@ model School {
   updated_at    DateTime @updatedAt
 
   customization SchoolCustomization? @relation("SchoolCustomization")
+
+  @@unique([short_name])
 }
 
 // ========== 学校定制配置（外观 / 字段个性化，位于 public schema）==========

@@ -832,8 +832,9 @@
     </div>
 
     <!-- 平台超管账号管理 -->
-    <div id="saAccountModal" class="fixed inset-0 z-[60] hidden bg-black/50 flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+    <div id="saAccountModal" class="hidden">
+        <div class="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                 <h3 class="text-lg font-semibold text-gray-800"><i class="fas fa-user-shield mr-2 text-blue-600"></i>平台超管账号管理</h3>
                 <button id="saAccountClose" type="button" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
@@ -3690,12 +3691,18 @@
                 if (!resp.ok) throw new Error(json.error || json.details || '创建失败');
 
                 // 创建成功后如果有外观信息，更新它
+                // P0-2: 二次 PUT 也需检查 resp.ok，失败时抛出并 toast（与编辑表单反馈一致），
+                //       避免「学校已创建但外观未保存」被静默吞掉、无任何提示。
                 if (shortName || themeColor || logoUrl) {
-                    await fetch(`${API_BASE}/api/admin/schools/${code}`, {
+                    const appearanceResp = await fetch(`${API_BASE}/api/admin/schools/${code}`, {
                         method: 'PUT',
                         headers: authHeaders(),
                         body: JSON.stringify({ name, shortName, themeColor, logoUrl })
                     });
+                    const appearanceJson = await appearanceResp.json().catch(() => ({}));
+                    if (!appearanceResp.ok) {
+                        throw new Error('学校已创建，但外观信息保存失败：' + (appearanceJson.error || appearanceJson.details || '未知错误'));
+                    }
                 }
 
                 const createdUsername = (json.data && json.data.adminUsername) || adminUsername || 'manager';
