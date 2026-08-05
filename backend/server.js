@@ -722,8 +722,14 @@ app.get('/api/schools/:schoolCode/config', rateLimit(60, 60 * 1000), async (req,
             return res.status(404).json({ error: '学校不存在或未激活' })
         }
         const customization = customRows?.[0] || null
-        // 字段级联配置（FieldOption 表）：合并进 customization，供录入端下拉联动消费
+        // Q4: JSONB 列经 $queryRawUnsafe 返回为字符串,须还原为对象供前端直接消费
+        // (custom_fields/field_labels/hidden_fields/field_order/test_types/theme_config/field_rules 均为 JSONB)
         if (customization) {
+            for (const key of ['custom_fields', 'field_labels', 'hidden_fields', 'field_order', 'test_types', 'theme_config', 'field_rules', 'visible_menu_items', 'canteens', 'field_types']) {
+                if (typeof customization[key] === 'string') {
+                    try { customization[key] = JSON.parse(customization[key]) } catch (_) { customization[key] = {} }
+                }
+            }
             try {
                 customization.field_cascade = await buildFieldCascade(createTenantClient(prisma, code))
                 customization.field_options = sanitizeFieldOptionsForClient(customization.field_options)

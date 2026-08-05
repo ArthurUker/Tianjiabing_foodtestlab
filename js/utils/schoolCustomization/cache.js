@@ -58,7 +58,14 @@ export function setSchoolInfo(schoolCode, info) {
 export function getSchoolCustomization(schoolCode) {
     if (!schoolCode) return {}
     try {
-        return JSON.parse(localStorage.getItem(KEY_PREFIX + schoolCode) || '{}') || {}
+        const customization = JSON.parse(localStorage.getItem(KEY_PREFIX + schoolCode) || '{}') || {}
+        // Q4: 内层 JSON 字符串字段(旧缓存/后端字符串序列化)兜底还原为对象,避免业务代码拿不到属性
+        for (const key of ['custom_fields', 'field_labels', 'hidden_fields', 'field_order', 'test_types', 'theme_config', 'field_rules']) {
+            if (typeof customization[key] === 'string') {
+                try { customization[key] = JSON.parse(customization[key]) } catch (_) { customization[key] = {} }
+            }
+        }
+        return customization
     } catch (e) {
         return {}
     }

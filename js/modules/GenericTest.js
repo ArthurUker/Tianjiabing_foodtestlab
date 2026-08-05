@@ -963,6 +963,28 @@ export class GenericTestModule {
             }
         });
 
+        // Q4: 若学校定制了该模块 batchNo(检测项目)的 options,则覆盖克隆出的静态选项,
+        // 让"界面定制-新增检测项目"在学校端录入表单中显示;无定制时回退静态默认(向后兼容)。
+        try {
+            const customization = getSchoolCustomization(extractSchoolCode());
+            const moduleCustom = (customization && customization.custom_fields && customization.custom_fields[this.moduleName]) || [];
+            const batchNoCfg = Array.isArray(moduleCustom) ? moduleCustom.find(f => f.name === 'batchNo' || f.name === 'testType') : null;
+            if (batchNoCfg && Array.isArray(batchNoCfg.options) && batchNoCfg.options.length > 0) {
+                const batchSelect = newSection.querySelector('select[name="batchNo[]"], select[name="batchNo"]');
+                if (batchSelect) {
+                    batchSelect.innerHTML = '';
+                    batchNoCfg.options.forEach(opt => {
+                        const o = document.createElement('option');
+                        o.value = String(opt);
+                        o.textContent = String(opt);
+                        batchSelect.appendChild(o);
+                    });
+                }
+            }
+        } catch (e) {
+            console.warn('Q4: 应用检测项目自定义选项失败:', e.message);
+        }
+
         if (this.moduleName === 'oil') {
             const colorSelect = newSection.querySelector('select[name="tpmValue[]"]');
             if (colorSelect) {
