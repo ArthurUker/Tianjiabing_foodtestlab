@@ -705,6 +705,15 @@ curl http://<公网IP>:8080/health            # 经 Caddy（验证反代与安�
 | 更新返回 409 | 乐观锁版本冲突，前端需拉取最新数据后重试 |
 | 构建时 OOM | 低内存机开启 `ENABLE_SWAP` 或调低 `SERVICE_MEMORY_MAX` |
 
+### 12.6 排查方法论教训（高频误判清单）
+
+> 以下教训来自实际排查事故，供未来接手者（含未来的自己）避免重复弯路：
+
+1. **Caddy `rewrite` ≠ HTTP 重定向**：`rewrite` 是服务端内部 URI 转发，**不会改变浏览器地址栏 URL**，返回 200 且**无 `Location` 头**；而 `redir`/`redirect` 才返回 301/302 + `Location`。排查"路径前缀是否丢失"类问题时，必须先 `curl -s -I <url>` 确认响应头里是否有 `Location`，再判断是否需要担心地址栏变化。曾因此误判"登录后 schoolCode 丢失"（实际不存在）。
+2. **`grep` 找不到路由 ≠ 路由不存在**：后端路由可能用变量拼接注册（如 `/api/records/:tableName`）、或挂在 `app.use` 前缀下、或分散在不同模块文件中。grep 为空时须确认搜索范围覆盖全部路由文件、并尝试按"参数化路由名"再搜。曾因 grep 遗漏误判"`/api/records/:type` 返回 404"（实际路由存在且正常）。
+3. **`$queryRawUnsafe` 返回 JSONB 列是字符串**：PostgreSQL 经 Prisma 原生 SQL 查询时，`jsonb`/`text` 列的 JSON 内容返回为字符串，需 `JSON.parse` 后再供前端消费；前端读取配置时同样要对外层与内层 JSON 字段分别 parse。
+4. **systemd 服务 `Restart=on-failure` 会自动拉起进程**：`kill` 手动启动的进程后，systemd 管理的服务会 5 秒内自动重启并重新占用端口。排查"双进程/端口占用"时先 `systemctl status <svc>` 确认是否由 systemd 管理；部署/重启统一用 `systemctl restart`，勿手动 `nohup`。
+
 ---
 
 ## 相关文档
