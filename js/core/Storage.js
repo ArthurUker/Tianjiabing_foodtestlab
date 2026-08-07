@@ -531,7 +531,26 @@ export class StorageService {
     }
 
     _updateLocalCache(rows) {
-        localStorage.setItem(this.localCacheKey, JSON.stringify({ data: rows || [] }));
+        // Q2: 覆盖缓存前保留本地 pending/updating 记录(离线未上传数据),避免被服务器数据抹掉
+        // 与 _syncFromApi 的合并策略一致:temp_id 或 pending/updating 状态的记录优先保留
+        const incoming = rows || [];
+        const localRows = this._getLocalCacheData();
+        const pendingMap = new Map();
+        for (const item of localRows) {
+            const isTemp = this._isTempId(item.id);
+            const isDirty = item._status === 'pending' || item._status === 'updating';
+            if (isTemp || isDirty) pendingMap.set(String(item.id), item);
+        }
+        let merged = incoming.slice();
+        if (pendingMap.size > 0) {
+            const seen = new Set(merged.map(r => String(r.id)));
+            // 服务器已有同名 id 时以本地 pending 版本优先(可能含未上传修改)
+            merged = merged.map(r => pendingMap.get(String(r.id)) || r);
+            for (const [id, p] of pendingMap) {
+                if (!seen.has(id)) merged.push(p);
+            }
+        }
+        localStorage.setItem(this.localCacheKey, JSON.stringify({ data: merged }));
     }
 
     _addToLocalCache(record) {
