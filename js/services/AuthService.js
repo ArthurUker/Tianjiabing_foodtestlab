@@ -75,6 +75,50 @@ export class AuthService {
     }
 
     /**
+     * P0-1C 设备指纹：生成/读取本设备的持久化标识（UA 特征 + 随机 ID），
+     * 用于「记住我」refresh token 的同设备绑定——被 XSS 窃取的 refresh token
+     * 在【其他设备/浏览器】上无法兑换新 access token（缓解 DS-17 风险）。
+     * 存储：cookie（7 天，与 refresh TTL 对齐）+ localStorage 兜底。
+     * @returns {string} deviceId（形如 dev_<12位随机>）
+     */
+    _getOrCreateDeviceId() {
+        try {
+            const cookieKey = 'foodtestlab_dev_id';
+            const match = document.cookie.split('; ').find((c) => c.startsWith(cookieKey + '='));
+            if (match) return decodeURIComponent(match.split('=').slice(1).join('='));
+        } catch (e) { /* cookie 不可用则走 localStorage */ }
+        try {
+            const lsKey = this._nsKey('device_id');
+            const cached = localStorage.getItem(lsKey);
+            if (cached) return cached;
+        } catch (e) { /* 忽略 */ }
+        const deviceId = 'dev_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+        try {
+            const ua = (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent.slice(0, 80) : 'unknown';
+            const uaHash = ua.split('').reduce((a, c) => ((a << 5) - a + c.charCodeAt(0)) | 0, 0);
+            // 以 UA 哈希作为设备特征码的一部分，同一浏览器不同用户仍共享同一 cookie ID
+            document.cookie = `foodtestlab_dev_id=${encodeURIComponent(deviceId + '_' + Math.abs(uaHash))}; path=/; max-age=${7 * 24 * 3600}; SameSite=Lax`;
+        } catch (e) { /* 忽略 */ }
+        try {
+            localStorage.setItem(this._nsKey('device_id'), deviceId);
+        } catch (e) { /* 忽略 */ }
+        return deviceId;
+    }
+
+    /**
+     * P0-1C：登录/刷新请求统一附加设备指纹头，后端据此校验「记住我」refresh 的同设备绑定。
+     * @returns {string|null} 无 DOM（非浏览器环境/测试）时返回 null，不附加
+     */
+    _getDeviceHeader() {
+        try {
+            if (typeof document === 'undefined') return null;
+            return this._getOrCreateDeviceId();
+        } catch (e) {
+            return null;
+        }
+    }
+
+    /**
      * 第六轮：监听同源其他标签页写入的新 access token（storage 事件仅在"其他"
      * 标签页触发，本标签页自身写入不触发），即时更新内存副本。
      * 兜底：即使事件丢失（后台节流等），getToken()/_adoptSharedToken() 的
@@ -174,10 +218,13 @@ export class AuthService {
             }
 
             // 调用后端登录 API（schoolCode 一并上报，供后端路由到对应 schema）
+            // P0-1C: 附加设备指纹头，后端写入 refresh token payload 完成同设备绑定
+            const deviceHeader = this._getDeviceHeader();
             const response = await fetch(`${this.apiBaseUrl}/api/user/login`, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    ...(deviceHeader ? { 'X-Device-Id': deviceHeader } : {})
                 },
                 body: JSON.stringify({ username, password, schoolCode })
             });
@@ -236,9 +283,14 @@ export class AuthService {
                 throw new Error('用户名和密码不能为空');
             }
 
+            // P0-1C: 超管登录同样附加设备指纹
+            const deviceHeader = this._getDeviceHeader();
             const response = await fetch(`${this.apiBaseUrl}/api/user/super-admin/login`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(deviceHeader ? { 'X-Device-Id': deviceHeader } : {})
+                },
                 body: JSON.stringify({ username, password })
             });
 
@@ -487,9 +539,12 @@ export class AuthService {
                 throw new Error('没有可用的刷新令牌，请重新登录');
             }
 
+            // P0-1C: 刷新时附加设备指纹，后端比对 refresh token payload 中的绑定设备
+            const deviceHeader = this._getDeviceHeader();
             const headers = {
                 'Content-Type': 'application/json',
-                'X-Refresh-Token': refreshToken
+                'X-Refresh-Token': refreshToken,
+                ...(deviceHeader ? { 'X-Device-Id': deviceHeader } : {})
             };
 
             const response = await fetch(`${this.apiBaseUrl}/api/user/refresh-token`, {

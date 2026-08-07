@@ -75,7 +75,9 @@ export function createUserRoutes(userManager) {
                 return res.status(400).json({ error: '❌ 非法学校代码' })
             }
 
-            const result = await userManager.forTenant(schoolCode).loginUser(username, password)
+            // P0-1C: 读取设备指纹，写入 refresh token 实现同设备绑定
+            const deviceId = (req.headers['x-device-id'] || '').trim().slice(0, 128) || null
+            const result = await userManager.forTenant(schoolCode).loginUser(username, password, deviceId)
             res.json(result)
         } catch (error) {
             respondLoginError(res, error)
@@ -95,7 +97,9 @@ export function createUserRoutes(userManager) {
             }
 
             // forTenant(null) 返回使用全局 prisma（public schema）的实例，直接查询平台超管账号
-            const result = await userManager.forTenant(null).loginUser(username, password)
+            // P0-1C: 超管登录同样绑定设备指纹
+            const deviceId = (req.headers['x-device-id'] || '').trim().slice(0, 128) || null
+            const result = await userManager.forTenant(null).loginUser(username, password, deviceId)
 
             // 二次校验：必须是平台超管（role=admin 且无 schoolCode）；
             // 普通租户用户/operator/viewer 即使密码正确也一律拒绝，强制走普通登录入口
@@ -169,6 +173,22 @@ export function createUserRoutes(userManager) {
             const userId = decoded.userId
             const schoolCode = decoded.schoolCode || null // 平台超管为 null（public schema），合法
             const rootPrisma = userManager.rootPrisma
+
+            // P0-1C 设备绑定校验：refresh token 携带 deviceId claim（记住我场景）时，
+            // 必须与请求 X-Device-Id 一致；不一致 → 疑似跨设备窃取，拒绝轮转并要求重新登录。
+            // 老 token 无该 claim → 跳过校验（向后兼容）。
+            if (decoded.deviceId) {
+                const reqDevice = (req.headers['x-device-id'] || '').trim().slice(0, 128)
+                if (!reqDevice || reqDevice !== decoded.deviceId) {
+                    await userManager.logSecurityEvent('REFRESH_DEVICE_MISMATCH', {
+                        userId, schoolCode, jti: decoded.jti, ip: req.ip
+                    })
+                    return res.status(401).json({
+                        error: '❌ 会话设备不匹配，已拒绝刷新，请重新登录',
+                        code: 'REFRESH_DEVICE_MISMATCH'
+                    })
+                }
+            }
 
             // 2. 一次性轮转 + 重放检测（原子操作）：
             //    将旧 refresh jti 写入吊销表；若 INSERT 冲突（该 jti 已存在）说明此
@@ -244,13 +264,14 @@ export function createUserRoutes(userManager) {
             }
 
             // 5. 签发新的 access + refresh 双令牌（轮转完成）
+            // P0-1C: 轮转时继承原 refresh token 的 deviceId 绑定（保持一致设备指纹）
             const pair = userManager.buildTokenPair({
                 id: dbUser.id,
                 username: dbUser.username,
                 email: dbUser.email,
                 role: dbUser.role,
                 school_code: dbUser.school_code
-            })
+            }, decoded.deviceId || null)
 
             res.json({
                 success: true,

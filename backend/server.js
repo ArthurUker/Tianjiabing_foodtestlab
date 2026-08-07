@@ -980,6 +980,159 @@ app.delete('/api/admin/schools/:code', authenticateUser, requirePlatformSuperAdm
     }
 })
 
+// ====== S1#1 回收站（垃圾箱）：彻底删除 / 恢复 / 列表 / 手动清除 ======
+// 决策（郭博）：物理删除 + 回收站 schema（路径 B，同库 ALTER SCHEMA RENAME 到 recycle_ 前缀），
+// 必须先停用才能彻底删除；暂存 3 个月可恢复；到期仅提醒、手动清除。
+const RECYCLE_KEEP_DAYS = 90 // 3 个月
+
+// 彻底删除：校验已停用 → 快照 School + SchoolCustomization → RENAME schema → 删 School 行 → 记回收站
+app.delete('/api/admin/schools/:code/hard', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
+    try {
+        const { code } = req.params
+        if (!isValidSchoolCode(code)) return res.status(400).json({ error: '非法学校代码' })
+
+        const rows = await prisma.$queryRawUnsafe(
+            `SELECT "code","name","short_name","theme_color","logo_url","status"
+             FROM public."School" WHERE "code" = $1`, code
+        )
+        if (!rows.length) return res.status(404).json({ error: '学校不存在' })
+        const school = rows[0]
+        if (school.status !== 'disabled') {
+            return res.status(409).json({ error: '必须先停用学校（软删除）后才能彻底删除' })
+        }
+
+        // 已存在未过期的回收记录（防重复）
+        const existing = await prisma.$queryRawUnsafe(
+            `SELECT 1 FROM public."recycle_bin" WHERE "original_code" = $1 AND "status" = 'active'`, code
+        )
+        if (existing.length) return res.status(409).json({ error: '该校已在回收站中，请先恢复或清除' })
+
+        // 快照定制配置（School 行删除会级联删除 SchoolCustomization，恢复时需重建）
+        const customizationRows = await prisma.$queryRawUnsafe(
+            `SELECT ${CUSTOMIZATION_COLUMNS.join(',')} FROM public."SchoolCustomization" WHERE "school_code" = $1`, code
+        )
+        const customizationSnapshot = customizationRows.length ? JSON.stringify(customizationRows[0]) : null
+
+        const recycleSchema = `recycle_${code}_${Date.now().toString(36)}`
+        const now = new Date()
+        const expiresAt = new Date(now.getTime() + RECYCLE_KEEP_DAYS * 24 * 3600 * 1000)
+        const binId = crypto.randomUUID()
+
+        // 事务：RENAME schema + 删 School 行 + 写回收站记录
+        await prisma.$transaction(async (tx) => {
+            await tx.$executeRawUnsafe(`ALTER SCHEMA "school_${code}" RENAME TO "${recycleSchema}"`)
+            await tx.$executeRawUnsafe(`DELETE FROM public."School" WHERE "code" = $1`, code)
+            await tx.$executeRawUnsafe(
+                `INSERT INTO public."recycle_bin"
+                 (id, original_code, original_schema, recycle_schema, name, short_name, theme_color, logo_url,
+                  customization, deleted_by, deleted_at, expires_at, status)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'active')`,
+                binId, code, `school_${code}`, recycleSchema, school.name, school.short_name,
+                school.theme_color, school.logo_url, customizationSnapshot,
+                req.user?.username || req.user?.userId || 'unknown', now, expiresAt
+            )
+        })
+        res.json({ success: true, message: `学校 ${code} 已彻底删除，移入回收站（${RECYCLE_KEEP_DAYS} 天内可恢复）`, data: { id: binId, recycleSchema, expiresAt } })
+    } catch (error) {
+        console.error('❌ Error hard deleting school:', error)
+        res.status(500).json({ error: '彻底删除学校失败：' + (error.message || '未知错误') })
+    }
+})
+
+// 回收站列表
+app.get('/api/admin/recycle-bin', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
+    try {
+        const rows = await prisma.$queryRawUnsafe(
+            `SELECT id, original_code, original_schema, recycle_schema, name, short_name, theme_color, logo_url,
+                    deleted_by, deleted_at, expires_at, status
+             FROM public."recycle_bin" ORDER BY deleted_at DESC`
+        )
+        const now = new Date()
+        const data = rows.map((r) => ({
+            ...r,
+            keepDays: Math.max(0, Math.ceil((new Date(r.expires_at) - now) / (24 * 3600 * 1000))),
+            expired: new Date(r.expires_at) < now
+        }))
+        res.json({ success: true, data })
+    } catch (error) {
+        console.error('❌ Error listing recycle bin:', error)
+        res.status(500).json({ error: '获取回收站失败' })
+    }
+})
+
+// 恢复学校：RENAME schema 回来 + 重建 School + 重建 SchoolCustomization
+app.post('/api/admin/recycle-bin/:id/restore', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
+    try {
+        const { id } = req.params
+        const rows = await prisma.$queryRawUnsafe(
+            `SELECT * FROM public."recycle_bin" WHERE "id" = $1`, id
+        )
+        if (!rows.length) return res.status(404).json({ error: '回收站记录不存在' })
+        const bin = rows[0]
+        if (bin.status !== 'active') return res.status(409).json({ error: '该记录已恢复或已清除' })
+        if (new Date(bin.expires_at) < new Date()) {
+            return res.status(409).json({ error: '该学校已超过 3 个月保留期，请先手动清除（数据已到期）' })
+        }
+
+        // 目标 schema 是否已被占用（恢复冲突）
+        const clash = await prisma.$queryRawUnsafe(
+            `SELECT 1 FROM information_schema.schemata WHERE schema_name = $1`, bin.original_schema
+        )
+        if (clash.length) return res.status(409).json({ error: `目标 schema ${bin.original_schema} 已存在，无法恢复` })
+
+        let customization = null
+        try { customization = bin.customization ? JSON.parse(bin.customization) : null } catch (_) { customization = null }
+
+        await prisma.$transaction(async (tx) => {
+            await tx.$executeRawUnsafe(`ALTER SCHEMA "${bin.recycle_schema}" RENAME TO "${bin.original_schema}"`)
+            // 重建 School 行
+            await tx.$executeRawUnsafe(
+                `INSERT INTO public."School" (id, code, name, short_name, theme_color, logo_url, status, created_at, updated_at)
+                 VALUES ($1,$2,$3,$4,$5,$6,'active',now(),now())`,
+                crypto.randomUUID(), bin.original_code, bin.name, bin.short_name, bin.theme_color, bin.logo_url
+            )
+            // 重建 SchoolCustomization（如有快照）
+            if (customization) {
+                const colNames = CUSTOMIZATION_COLUMNS.join(',')
+                const placeholders = CUSTOMIZATION_COLUMNS.map((_, i) => `$${i + 2}`).join(',')
+                await tx.$executeRawUnsafe(
+                    `INSERT INTO public."SchoolCustomization" (id, school_code, ${colNames}, updated_at)
+                     VALUES ($1,$2,${placeholders},now())`,
+                    crypto.randomUUID(), bin.original_code,
+                    ...CUSTOMIZATION_COLUMNS.map((c) => customization[c] ?? null)
+                )
+            }
+            await tx.$executeRawUnsafe(`UPDATE public."recycle_bin" SET "status" = 'restored' WHERE "id" = $1`, id)
+        })
+        res.json({ success: true, message: `学校 ${bin.original_code} 已从回收站恢复`, data: { code: bin.original_code } })
+    } catch (error) {
+        console.error('❌ Error restoring school:', error)
+        res.status(500).json({ error: '恢复学校失败：' + (error.message || '未知错误') })
+    }
+})
+
+// 手动清除：彻底 DROP 回收站 schema + 标记 purged（3 个月到期后）
+app.post('/api/admin/recycle-bin/:id/purge', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
+    try {
+        const { id } = req.params
+        const rows = await prisma.$queryRawUnsafe(
+            `SELECT * FROM public."recycle_bin" WHERE "id" = $1`, id
+        )
+        if (!rows.length) return res.status(404).json({ error: '回收站记录不存在' })
+        const bin = rows[0]
+        if (bin.status !== 'active') return res.status(409).json({ error: '该记录已恢复或已清除' })
+
+        await prisma.$transaction(async (tx) => {
+            await tx.$executeRawUnsafe(`DROP SCHEMA IF EXISTS "${bin.recycle_schema}" CASCADE`)
+            await tx.$executeRawUnsafe(`UPDATE public."recycle_bin" SET "status" = 'purged' WHERE "id" = $1`, id)
+        })
+        res.json({ success: true, message: `学校 ${bin.original_code} 已从回收站清除，数据不可恢复` })
+    } catch (error) {
+        console.error('❌ Error purging school:', error)
+        res.status(500).json({ error: '清除回收站记录失败：' + (error.message || '未知错误') })
+    }
+})
+
 // 定制配置的全部 JSON 列（与 schema.prisma SchoolCustomization 对齐）
 const CUSTOMIZATION_COLUMNS = [
     'visible_types', 'visible_menu_items', 'canteens', 'field_labels', 'hidden_fields', 'theme_config', 'field_rules',

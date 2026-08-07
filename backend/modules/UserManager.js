@@ -105,14 +105,18 @@ export class UserManager {
     /**
      * 签发 refresh token（DS3-H1）：type:'refresh' + jti + 独立密钥，TTL 默认 7d。
      * payload 最小化（不带 role/email），刷新时一律以 DB 权威数据重建 access token。
+     * P0-1C: 可选 deviceId claim——「记住我」同设备绑定：仅当登录/刷新请求携带
+     * X-Device-Id 时写入，后续刷新必须携带同一 deviceId 才能轮转（缓解 XSS 窃取
+     * refresh token 后跨设备兑换的 DS-17 风险）。老 token 无该 claim → 不强制校验（向后兼容）。
      */
-    buildRefreshToken(user) {
+    buildRefreshToken(user, deviceId = null) {
         const payload = {
             userId: user.id,
             schoolCode: user.school_code || user.schoolCode || this.schoolCode || null,
             type: 'refresh',
             jti: randomUUID()
         }
+        if (deviceId) payload.deviceId = String(deviceId).slice(0, 128)
         const expiry = normalizeExpiry(process.env.JWT_REFRESH_EXPIRE, '7d')
         const refreshToken = jwt.sign(payload, this.getRefreshSecret(), { expiresIn: expiry })
         return { refreshToken, refreshExpiresIn: parseJwtExpirySeconds(expiry), jti: payload.jti }
@@ -120,10 +124,12 @@ export class UserManager {
 
     /**
      * 签发 access + refresh 双令牌对（登录 / 刷新轮转共用）。
+     * @param {object} user
+     * @param {string|null} [deviceId] P0-1C 设备指纹
      */
-    buildTokenPair(user) {
+    buildTokenPair(user, deviceId = null) {
         const { token, expiresIn } = this.buildAccessToken(user)
-        const { refreshToken, refreshExpiresIn } = this.buildRefreshToken(user)
+        const { refreshToken, refreshExpiresIn } = this.buildRefreshToken(user, deviceId)
         return { token, expiresIn, refreshToken, refreshExpiresIn }
     }
 
@@ -301,7 +307,7 @@ export class UserManager {
 
     // ====== User Login ======
 
-    async loginUser(username, password) {
+    async loginUser(username, password, deviceId = null) {
         try {
             // 1. 查找用户
             const user = await this.prisma.user.findUnique({
@@ -357,7 +363,8 @@ export class UserManager {
             }
 
             // 4. 生成 JWT 双令牌（DS3-H1: access 30m + refresh 7d 一次性轮转）
-            const { token, expiresIn, refreshToken, refreshExpiresIn } = this.buildTokenPair(user)
+            // P0-1C: deviceId 写入 refresh token payload（同设备绑定）
+            const { token, expiresIn, refreshToken, refreshExpiresIn } = this.buildTokenPair(user, deviceId)
 
             // 5. 更新最后登录时间
             await this.updateLastLogin(user.id)

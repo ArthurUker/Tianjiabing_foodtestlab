@@ -279,7 +279,7 @@ describe('IF-2 · changePassword 清除 must_change_password（恢复正常访�
     );
   });
 
-  test('改密后再过 authenticateUser → 放行（闭环）', async () => {
+  test('改密后旧 token 被吊销 → 401；新登录 token → 放行（闭环）', async () => {
     const user = makeUser({ must_change_password: true });
     const prisma = makeStubPrisma({ user });
     const um = new UserManager(prisma, SECRET);
@@ -288,7 +288,27 @@ describe('IF-2 · changePassword 清除 must_change_password（恢复正常访�
     await um.changePassword('u1', PASSWORD, 'NewPassw0rd1');
     user.must_change_password = false; // 模拟 DB 更新后的权威状态
 
-    const { next } = await passAuth(prisma, um, token, '/api/test-records');
-    expect(next).toHaveBeenCalled();
+    // IF-1: changePassword 会 revokeUserSessions（吊销全部旧会话，防密码泄露后旧 token 存活）→ 旧 token 应 401
+    const oldRes = mockRes();
+    const oldNext = jest.fn();
+    await createAuthMiddleware(um, prisma).authenticateUser(
+      { headers: { authorization: `Bearer ${token}` }, originalUrl: '/api/test-records', url: '/api/test-records' },
+      oldRes, oldNext
+    );
+    expect(oldNext).not.toHaveBeenCalled();
+    expect(oldRes.status).toHaveBeenCalledWith(401);
+
+    // 改密后重新登录（新 jti）→ must_change_password 已清 + 无吊销命中 → 放行。
+    // 真实场景：重新登录必然晚于吊销时刻，这里 sleep 1.1s 越过 stub 秒级精度窗口
+    // （真实 DB 中 revoked_at 为毫秒级时间戳，而 jwt iat 为秒级，需保证 iat 严格晚于 revoked_at）。
+    await new Promise((r) => setTimeout(r, 1100));
+    const fresh = um.buildAccessToken(user);
+    const newRes = mockRes();
+    const newNext = jest.fn();
+    await createAuthMiddleware(um, prisma).authenticateUser(
+      { headers: { authorization: `Bearer ${fresh.token}` }, originalUrl: '/api/test-records', url: '/api/test-records' },
+      newRes, newNext
+    );
+    expect(newNext).toHaveBeenCalled();
   });
 });
