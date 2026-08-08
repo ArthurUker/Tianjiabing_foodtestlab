@@ -534,10 +534,18 @@ export class StorageService {
         }
     }
 
-    _updateLocalCache(rows) {
+    _updateLocalCache(rows, opts = {}) {
         // Q2: 覆盖缓存前保留本地 pending/updating 记录(离线未上传数据),避免被服务器数据抹掉
         // 与 _syncFromApi 的合并策略一致:temp_id 或 pending/updating 状态的记录优先保留
+        // 缺陷X（Step2）: 新增 opts.forceServer —— 为 true 时跳过 pending merge 覆盖，
+        //   用于"服务端写操作成功响应"路径（_applyServerRecord），避免本地旧 dirty 记录
+        //   无条件覆盖服务端最新数据（导致 _status/version 永久陈旧）。
+        //   默认 false，不改动任何现有调用点行为（离线保护语义保持不变）。
         const incoming = rows || [];
+        if (opts.forceServer === true) {
+            localStorage.setItem(this.localCacheKey, JSON.stringify({ data: incoming.slice() }));
+            return;
+        }
         const localRows = this._getLocalCacheData();
         const pendingMap = new Map();
         for (const item of localRows) {
