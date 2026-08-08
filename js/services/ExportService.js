@@ -344,9 +344,12 @@ export class ExportService {
             try {
                 // 尝试从后端获取最新数据
                 // TD-TenantIsolation：按当前学校命名空间读取 token（与 AuthService._nsKey 一致）
+                // P2-记住我：不勾选「记住我」时 token 仅存 sessionStorage，需回退读取
                 const _code = extractSchoolCode() || '';
-                const token = localStorage.getItem(_code ? `auth_token__${_code}` : 'auth_token')
-                    || localStorage.getItem(_code ? `guest_token__${_code}` : 'guest_token');
+                const _adminKey = _code ? `auth_token__${_code}` : 'auth_token';
+                const _guestKey = _code ? `guest_token__${_code}` : 'guest_token';
+                const token = localStorage.getItem(_adminKey) || sessionStorage.getItem(_adminKey)
+                    || localStorage.getItem(_guestKey) || sessionStorage.getItem(_guestKey);
                 const response = await fetch(`/api/records/${type}?limit=10000`, {
                     headers: token ? { 'Authorization': `Bearer ${token}` } : {}
                 });
