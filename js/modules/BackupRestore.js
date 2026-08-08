@@ -603,9 +603,12 @@ export class BackupRestoreService {
         if(btn) btn.disabled = true;
 
         // TD-TenantIsolation：按当前学校命名空间读取 token（与 AuthService._nsKey 一致）
+        // P2-记住我：不勾选「记住我」时 token 仅存 sessionStorage，需回退读取
         const _code = extractSchoolCode() || '';
-        const token = localStorage.getItem(_code ? `auth_token__${_code}` : 'auth_token')
-            || localStorage.getItem(_code ? `guest_token__${_code}` : 'guest_token');
+        const _adminKey = _code ? `auth_token__${_code}` : 'auth_token';
+        const _guestKey = _code ? `guest_token__${_code}` : 'guest_token';
+        const token = localStorage.getItem(_adminKey) || sessionStorage.getItem(_adminKey)
+            || localStorage.getItem(_guestKey) || sessionStorage.getItem(_guestKey);
         if (!token || token.startsWith('temp-token-')) {
             this.showStatus('❌ 云端同步需要登录有效账号后再执行', 'red');
             UINotification.error('请先使用有效账号登录后再执行云端同步');
@@ -1029,9 +1032,12 @@ export class BackupRestoreService {
 
     async uploadRestoredDataToServer(restoredTableRecords) {
         // TD-TenantIsolation：按当前学校命名空间读取 token（与 AuthService._nsKey 一致）
+        // P2-记住我：不勾选「记住我」时 token 仅存 sessionStorage，需回退读取
         const _code = extractSchoolCode() || '';
-        const token = localStorage.getItem(_code ? `auth_token__${_code}` : 'auth_token')
-            || localStorage.getItem(_code ? `guest_token__${_code}` : 'guest_token');
+        const _adminKey = _code ? `auth_token__${_code}` : 'auth_token';
+        const _guestKey = _code ? `guest_token__${_code}` : 'guest_token';
+        const token = localStorage.getItem(_adminKey) || sessionStorage.getItem(_adminKey)
+            || localStorage.getItem(_guestKey) || sessionStorage.getItem(_guestKey);
         if (!token || token.startsWith('temp-token-')) {
             throw new Error('缺少有效登录态，无法上传到服务器');
         }
