@@ -123,12 +123,53 @@ export function initPathogen() {
         }
 
         document.getElementById('btnDownloadTemplate')?.addEventListener('click', () => {
-            const link = document.createElement('a');
-            link.href = './templates/pathogen_template.docx';
-            link.download = 'pathogen_template.docx';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+            // P2-模板修复：旧实现指向 ./templates/pathogen_template.docx，但仓库从未存在 templates/
+            // 目录，导致下载 404 打不开。改为前端动态生成「导入格式说明」文档（必定可打开），
+            // 同时保留原 .docx 模板的下载逻辑：若后端已提供静态模板文件则仍可下载真实模板。
+            const fallbackTemplate = () => {
+                const content = [
+                    '病原体检测报告导入格式说明',
+                    '================================',
+                    '',
+                    '请提供符合以下字段的病原体检测报告（Word .docx）进行导入：',
+                    '',
+                    '1. 检测开始时间：YYYY-MM-DD 或 YYYY年M月D日',
+                    '2. 样本编号：字母/数字/连字符，如 SAMPLE-001',
+                    '3. 检测人员：姓名',
+                    '4. 样本信息：一行描述（食堂/批次等）',
+                    '5. 检测项目：项目名称',
+                    '6. 数据区以 [检测数据] 开头，每行一个荧光通道，格式：通道-Ct值-结果',
+                    '   示例：FAM-1 32.5 阴性',
+                    '7. 阳性/阴性结果将自动生成风险等级。',
+                    '',
+                    '说明：直接导入第三方检测报告（如实验室 PDF 导出为 Word）亦可，',
+                    '系统会自动识别字段；识别不全时可手动补全食堂/检测员等信息。'
+                ].join('\n');
+                const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = '病原体导入格式说明.txt';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+            };
+
+            fetch('./templates/pathogen_template.docx', { method: 'HEAD' })
+                .then((res) => {
+                    if (res.ok) {
+                        const link = document.createElement('a');
+                        link.href = './templates/pathogen_template.docx';
+                        link.download = 'pathogen_template.docx';
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                    } else {
+                        fallbackTemplate();
+                    }
+                })
+                .catch(() => fallbackTemplate());
         });
     }
 
