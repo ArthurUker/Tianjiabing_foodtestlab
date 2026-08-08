@@ -967,15 +967,39 @@ export class GenericTestModule {
 
         // Q4: 若学校定制了该模块 batchNo(检测项目)的 options,则覆盖克隆出的静态选项,
         // 让"界面定制-新增检测项目"在学校端录入表单中显示;无定制时回退静态默认(向后兼容)。
+        // P2-定制修复：内置字段 batchNo 的定制选项实际存于 field_options（顶层或 theme_config.field_options），
+        // 而非 custom_fields（仅含自定义字段）。此处两种来源都读取，解决"新增检测项目后录入端无显示"。
         try {
             const customization = getSchoolCustomization(extractSchoolCode());
-            const moduleCustom = (customization && customization.custom_fields && customization.custom_fields[this.moduleName]) || [];
-            const batchNoCfg = Array.isArray(moduleCustom) ? moduleCustom.find(f => f.name === 'batchNo' || f.name === 'testType') : null;
-            if (batchNoCfg && Array.isArray(batchNoCfg.options) && batchNoCfg.options.length > 0) {
+            let batchOptions = null;
+            if (customization) {
+                // 1) field_options 来源（内置字段 batchNo 定制选项）
+                const parseFO = (src) => {
+                    if (!src || typeof src !== 'object') return null;
+                    const list = src.batchNo || src.testType;
+                    return Array.isArray(list) && list.length ? list : null;
+                };
+                batchOptions = parseFO(customization.field_options);
+                if (!batchOptions) {
+                    const themeCfg = (typeof customization.theme_config === 'string')
+                        ? (() => { try { return JSON.parse(customization.theme_config) } catch { return null } })()
+                        : customization.theme_config;
+                    if (themeCfg && typeof themeCfg === 'object') batchOptions = parseFO(themeCfg.field_options);
+                }
+                // 2) custom_fields 来源（兼容旧版/自定义字段误配）
+                if (!batchOptions) {
+                    const moduleCustom = (customization.custom_fields && customization.custom_fields[this.moduleName]) || [];
+                    const batchNoCfg = Array.isArray(moduleCustom) ? moduleCustom.find(f => f.name === 'batchNo' || f.name === 'testType') : null;
+                    if (batchNoCfg && Array.isArray(batchNoCfg.options) && batchNoCfg.options.length) {
+                        batchOptions = batchNoCfg.options;
+                    }
+                }
+            }
+            if (Array.isArray(batchOptions) && batchOptions.length > 0) {
                 const batchSelect = newSection.querySelector('select[name="batchNo[]"], select[name="batchNo"]');
                 if (batchSelect) {
                     batchSelect.innerHTML = '';
-                    batchNoCfg.options.forEach(opt => {
+                    batchOptions.forEach(opt => {
                         const o = document.createElement('option');
                         o.value = String(opt);
                         o.textContent = String(opt);
