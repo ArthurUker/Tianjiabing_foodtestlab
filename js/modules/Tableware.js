@@ -176,7 +176,12 @@ function showEditModal(record, currentUser) {
                     <span class="text-gray-500">${rec.time}</span>
                 </div>
                 <div>
-                    ${rec.points.map(p => `<span class="mr-2">${p.loc}:${p.rlu}</span>`).join('')}
+                    ${rec.points.map(p => {
+                        const isDet = p.testType === 'detergent';
+                        const unit = isDet ? 'mg/100cm²' : 'RLU';
+                        const resText = p.res || '-';
+                        return `<span class="mr-2">${p.loc}:${p.rlu}${unit} ${resText}</span>`;
+                    }).join('')}
                 </div>
             </div>
         `).join('');
@@ -277,9 +282,9 @@ function showEditModal(record, currentUser) {
             record.atpPoints.forEach(p => {
                 const div = document.createElement('div');
                 div.className = 'border p-3 rounded bg-white shadow-sm recheck-point';
-                div.innerHTML = getSimplePointTemplate(p.loc);
+                div.innerHTML = getSimplePointTemplate(p.loc, p.testType);
                 container.appendChild(div);
-                bindRluCalc(div);
+                bindRluCalc(div, p.testType);
             });
         }
     };
@@ -323,13 +328,14 @@ function showEditModal(record, currentUser) {
         }
     };
 
-    // 增加复检点位
+    // 增加复检点位（沿用记录第一条点位的检测类型；洗涤剂残留走浓度判定）
     document.getElementById('btnAddRecheckPoint').onclick = () => {
         const div = document.createElement('div');
         div.className = 'border p-3 rounded bg-white shadow-sm recheck-point';
-        div.innerHTML = getSimplePointTemplate('');
+        const firstType = (record.atpPoints && record.atpPoints[0]?.testType) || 'atp';
+        div.innerHTML = getSimplePointTemplate('', firstType);
         document.getElementById('recheckPointsContainer').appendChild(div);
-        bindRluCalc(div);
+        bindRluCalc(div, firstType);
     };
 
     // 保存复检逻辑
@@ -342,9 +348,11 @@ function showEditModal(record, currentUser) {
             const loc = el.querySelector('[name="loc"]').value;
             const rlu = el.querySelector('[name="rlu"]').value;
             const res = el.querySelector('[name="res"]').value;
+            const recheckTypeEl = el.querySelector('[name="recheckType"]');
+            const testType = recheckTypeEl ? recheckTypeEl.value : (record.atpPoints && record.atpPoints[0]?.testType) || 'atp';
             
             if(loc && rlu) {
-                points.push({ loc, rlu, res });
+                points.push({ loc, rlu, res, testType });
                 // 业务口径（2026-07-02）："不合格"也包含"合格"子串，必须排除，否则不合格点位被当作通过
                 if (!res.includes('合格') || res.includes('不合格')) allPassed = false;
             }
@@ -406,23 +414,37 @@ function showEditModal(record, currentUser) {
 }
 
 // 简化的点位模板（用于复检弹窗）
-function getSimplePointTemplate(defaultLoc) {
+// P2-洗涤剂残留复检修复：复检点位需区分检测类型（atp=表面清洁度 RLU / detergent=洗涤剂残留浓度），
+// 洗涤剂残留按 GB 判定标准「≤0.005 mg/100cm² 合格」，不再与表面清洁度共用 RLU 判定。
+function getSimplePointTemplate(defaultLoc, testType) {
+    const isDetergent = testType === 'detergent';
     return `
         <div class="grid grid-cols-3 gap-2">
+            <input type="hidden" name="recheckType" value="${testType === 'detergent' ? 'detergent' : 'atp'}">
             <input type="text" name="loc" value="${defaultLoc}" placeholder="点位名称" class="border p-2 rounded text-sm w-full">
-            <input type="number" name="rlu" placeholder="RLU值" class="border p-2 rounded text-sm w-full">
+            <input type="number" name="rlu" placeholder="${isDetergent ? '洗涤剂浓度值' : 'RLU值'}" step="${isDetergent ? '0.001' : '1'}" min="0" class="border p-2 rounded text-sm w-full">
             <input type="text" name="res" readonly placeholder="结果" class="border p-2 rounded text-sm bg-gray-100 w-full">
         </div>
     `;
 }
 
-// 修复：bindRluCalc 中的逻辑顺序
-function bindRluCalc(container) {
+// 修复：bindRluCalc 中的逻辑顺序（按点位检测类型判定）
+function bindRluCalc(container, testType) {
     const input = container.querySelector('[name="rlu"]');
     const output = container.querySelector('[name="res"]');
     input.addEventListener('input', () => {
-        const val = parseInt(input.value) || 0;
-        output.value = determineResult(val);
+        if (testType === 'detergent') {
+            // 洗涤剂残留判定标准（GB）：浓度 ≤0.005 mg/100cm² 合格
+            const v = parseFloat(input.value);
+            if (input.value === '' || isNaN(v)) {
+                output.value = '';
+            } else {
+                output.value = v <= 0.005 ? '合格 (≤0.005)' : '不合格 (>0.005)';
+            }
+        } else {
+            const val = parseInt(input.value) || 0;
+            output.value = determineResult(val);
+        }
         // 优先判断不合格
         if(output.value.includes('不合格')) output.className = "border p-2 rounded text-sm bg-red-100 text-red-800 w-full";
         else if(output.value.includes('警戒')) output.className = "border p-2 rounded text-sm bg-yellow-100 text-yellow-800 w-full";
