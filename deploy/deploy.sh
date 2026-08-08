@@ -86,11 +86,15 @@ DO $$
 DECLARE
   r RECORD;
   -- 对象型定制列（默认回填 '{}'）
-  obj_cols TEXT[] := ARRAY['field_labels','field_rules','field_options','field_order','custom_fields','theme_config'];
+  -- Bug#2（Step4）: 补入 field_types（与 schema.prisma / tenantSync OBJ_COLS 对齐，此前缺失导致保存定制 500）
+  obj_cols TEXT[] := ARRAY['field_labels','field_rules','field_options','field_order','custom_fields','theme_config','field_types'];
   -- 数组型定制列（默认回填 '[]'）
-  arr_cols TEXT[] := ARRAY['hidden_fields','test_types'];
+  -- Bug#2（Step4）: 补入 visible_menu_items（菜单栏定制列，此前缺失）
+  arr_cols TEXT[] := ARRAY['hidden_fields','test_types','visible_menu_items'];
   c TEXT;
   default_visible CONSTANT TEXT := '["tableware","pesticide","oil","leanMeat","pathogen"]';
+  -- Bug#2（Step4）: canteens（学校食堂信息，数组型，默认回填三食堂；与 tenantSync DEFAULT_CANTEENS 对齐）
+  default_canteens CONSTANT TEXT := '["一食堂","二食堂","三食堂"]';
 BEGIN
   FOR r IN
     SELECT table_schema FROM information_schema.tables
@@ -110,6 +114,9 @@ BEGIN
     -- visible_types：确保存在并回填五大模块默认，避免旧学校因 NULL 白屏
     EXECUTE format('ALTER TABLE %I."SchoolCustomization" ADD COLUMN IF NOT EXISTS visible_types TEXT', r.table_schema);
     EXECUTE format('UPDATE %I."SchoolCustomization" SET visible_types = %L WHERE visible_types IS NULL', r.table_schema, default_visible);
+    -- Bug#2（Step4）: canteens（学校食堂信息）——数组型，回填默认三食堂（与 tenantSync DEFAULT_CANTEENS 一致）
+    EXECUTE format('ALTER TABLE %I."SchoolCustomization" ADD COLUMN IF NOT EXISTS canteens TEXT', r.table_schema);
+    EXECUTE format('UPDATE %I."SchoolCustomization" SET canteens = %L WHERE canteens IS NULL', r.table_schema, default_canteens);
     RAISE NOTICE 'SchoolCustomization 迁移完成: schema=%', r.table_schema;
   END LOOP;
 END $$;
