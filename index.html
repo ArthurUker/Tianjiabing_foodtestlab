@@ -28,8 +28,11 @@
             }
 
             var _code = _extractCode();
-            var _token = localStorage.getItem(_nsKey('auth_token'));
-            var _guest = localStorage.getItem(_nsKey('guest_token'));
+            // P2-记住我：AuthService.saveToken 在「不勾选记住我」时只写 sessionStorage 并清除 localStorage，
+            // 若守卫仅读 localStorage 会导致登录成功后跳转回 index.html 时被误判为「无令牌」而踢回登录页。
+            // 此处同时回退读取 sessionStorage，确保两种登录方式都能通过启动守卫。
+            var _token = localStorage.getItem(_nsKey('auth_token')) || sessionStorage.getItem(_nsKey('auth_token'));
+            var _guest = localStorage.getItem(_nsKey('guest_token')) || sessionStorage.getItem(_nsKey('guest_token'));
 
             // 清除本地认证残留：当前命名空间 key + 裸 key（旧版本无命名空间残留），
             // 避免「令牌属其他学校」场景下 login.html 用同一残留 token 判定已登录又跳回，
@@ -198,7 +201,10 @@
             var code = m ? m[1] : (new URLSearchParams(location.search).get('school') || '');
             var adminKey = code ? ('auth_token__' + code) : 'auth_token';
             var guestKey = code ? ('guest_token__' + code) : 'guest_token';
-            window.__isGuestLoggedIn = !localStorage.getItem(adminKey) && !!localStorage.getItem(guestKey);
+            // P2-记住我：token 可能只存在于 sessionStorage，访客判断同样回退读取
+            var _hasAdmin = localStorage.getItem(adminKey) || sessionStorage.getItem(adminKey);
+            var _hasGuest = localStorage.getItem(guestKey) || sessionStorage.getItem(guestKey);
+            window.__isGuestLoggedIn = !_hasAdmin && !!_hasGuest;
         })();
         // 检查是否是访客模式（URL参数 或 localStorage 中有访客token但无管理员token）
         const _isGuestLoggedIn = window.__isGuestLoggedIn;
@@ -662,6 +668,8 @@
                                     <option value="盐酸克伦特罗-胶体金检测卡">盐酸克伦特罗-胶体金检测卡</option>
                                     <option value="莱克多巴胺-胶体金检测卡">莱克多巴胺-胶体金检测卡</option>
                                     <option value="沙丁胺醇-胶体金检测卡">沙丁胺醇-胶体金检测卡</option>
+                                    <option value="铅-重金属检测（GB 2762 鱼虾类≤0.5mg/kg）">铅-重金属检测（GB 2762 鱼虾类≤0.5mg/kg）</option>
+                                    <option value="镉-重金属检测（GB 2762 鱼虾类≤0.1mg/kg）">镉-重金属检测（GB 2762 鱼虾类≤0.1mg/kg）</option>
                                 </select>
                             </div>
                             <div>
