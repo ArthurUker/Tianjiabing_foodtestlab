@@ -213,9 +213,13 @@ export class StorageService {
 
     _getAuthToken() {
         // TD-TenantIsolation：按当前学校命名空间读取（与 AuthService._nsKey 保持一致）
+        // P2-记住我：AuthService.saveToken 在「不勾选记住我」时只写 sessionStorage 并清除
+        // localStorage 副本，故此处必须回退读 sessionStorage，否则该模式下同步/拉取全部失败。
         const code = extractSchoolCode() || '';
-        const adminToken = localStorage.getItem(code ? `auth_token__${code}` : 'auth_token');
-        const guestToken = localStorage.getItem(code ? `guest_token__${code}` : 'guest_token');
+        const adminKey = code ? `auth_token__${code}` : 'auth_token';
+        const guestKey = code ? `guest_token__${code}` : 'guest_token';
+        const adminToken = localStorage.getItem(adminKey) || sessionStorage.getItem(adminKey);
+        const guestToken = localStorage.getItem(guestKey) || sessionStorage.getItem(guestKey);
         return adminToken || guestToken || null;
     }
 
