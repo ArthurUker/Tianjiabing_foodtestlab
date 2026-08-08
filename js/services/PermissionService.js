@@ -80,7 +80,9 @@ export class PermissionService {
             // TD-TenantIsolation：按命名空间读取（与 GuestAuthService._nsKey 一致）
             const code = extractSchoolCode() || '';
             const guestKey = code ? `guest_token__${code}` : 'guest_token';
-            if (typeof localStorage !== 'undefined' && localStorage.getItem(guestKey)) {
+            const hasGuest = (typeof localStorage !== 'undefined' && localStorage.getItem(guestKey)) ||
+                             (typeof sessionStorage !== 'undefined' && sessionStorage.getItem(guestKey));
+            if (hasGuest) {
                 return this.rolePermissionMap['guest'] || [];
             }
             return [];
