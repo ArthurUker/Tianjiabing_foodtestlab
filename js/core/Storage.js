@@ -432,9 +432,11 @@ export class StorageService {
         const content = (serverRow.data && typeof serverRow.data === 'object') ? serverRow.data : serverRow;
 
         // 冲突恢复后，以服务端最新版本覆盖本地，确保本地与云端一致
+        // 缺陷X（Step3）: 改用 _applyServerRecord（forceServer），避免本地旧 dirty 记录
+        // 覆盖服务端成功响应导致 _status/version 永久陈旧。
         if (serverRow && serverRow.id) {
             const patched = { ...content, id: serverRow.id, _status: 'synced' };
-            this._replaceRecordInCache(serverRow.id, patched);
+            this._applyServerRecord(patched);
             this._indexServerFingerprint(patched);
         } else {
             this._updateCacheStatus(recordId, 'synced');
@@ -580,6 +582,37 @@ export class StorageService {
         }
     }
 
+    // 缺陷X（Step3）: 服务端写操作成功响应路径的缓存落盘。
+    // 与 _replaceRecordInCache 的区别：以 forceServer 跳过 pending merge，
+    // 避免本地旧 dirty 记录（_status=updating/pending）无条件覆盖服务端最新数据，
+    // 从而消除 "_status/version 永久陈旧" 的持久性缺陷。
+    // 边界处理：
+    //   - serverV === localV：允许覆盖（serverRow 为权威，version 相等不构成回退）
+    //   - synced 但 serverV < localV：console.warn 留痕后仍以服务端为准覆盖（便于排查）
+    //   - local._status === 'pending'：本地未上传新建，禁止覆盖（离线保护）
+    _applyServerRecord(serverRecord) {
+        const rows = this._getLocalCacheData();
+        const idx = rows.findIndex(r => String(r.id) === String(serverRecord.id));
+        const fresh = { ...serverRecord, id: serverRecord.id, _status: 'synced' };
+
+        if (idx >= 0) {
+            const local = rows[idx];
+            const serverV = Number(serverRecord.version ?? 0);
+            const localV = Number(local.version ?? 0);
+            if (local._status === 'pending') {
+                // 本地未上传新建记录，禁止被服务端覆盖（离线保护）
+                return;
+            }
+            if (serverV < localV && local._status !== 'updating') {
+                console.warn(`[Storage] _applyServerRecord 异常：serverV(${serverV}) < localV(${localV}), id=${serverRecord.id}, 以服务端为准覆盖`);
+            }
+            rows[idx] = fresh;
+        } else {
+            rows.unshift(fresh);
+        }
+        this._updateLocalCache(rows, { forceServer: true });
+    }
+
     _getPendingRequests() {
         try {
             const raw = localStorage.getItem(this.pendingRequestsKey);
@@ -630,7 +663,9 @@ export class StorageService {
         const index = rows.findIndex(r => r.id === tempId);
         if (index !== -1) {
             rows[index] = { ...savedRecord, _status: 'synced' };
-            this._updateLocalCache(rows);
+            // 缺陷X（Step3）: create 成功响应以服务端为权威，跳过 pending merge，
+            // 避免本地 tempId 旧记录（pending）被误并入覆盖服务端新建数据。
+            this._updateLocalCache(rows, { forceServer: true });
         }
         this.pendingTempIds.delete(tempId);
     }
