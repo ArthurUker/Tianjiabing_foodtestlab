@@ -318,7 +318,7 @@ model SchoolCustomization {
 model FrequencyThreshold {
   id            String   @id @default(cuid())
   school_code   String
-  test_type     String   // tableware | pesticide | oil | lean_meat | pathogen
+  test_type     String   // tableware | pesticide | oil | leanMeat | pathogen
   weekly_target Int      // 每周目标次数
   updated_at    DateTime @updatedAt
 
@@ -330,7 +330,7 @@ model FrequencyThreshold {
 model DetectionCalendar {
   id          String  @id @default(cuid())
   school_code String
-  test_type   String  // tableware | pesticide | oil | lean_meat | pathogen
+  test_type   String  // tableware | pesticide | oil | leanMeat | pathogen
   day_of_week Int     // 1-7（周一~周日）
   enabled     Boolean @default(true)
   updated_at  DateTime @updatedAt
