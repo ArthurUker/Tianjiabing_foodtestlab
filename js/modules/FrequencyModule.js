@@ -36,7 +36,7 @@ const TYPE_NAMES = {
     tableware: '餐具洁净度',
     pesticide: '果蔬农残',
     oil: '食用油',
-    lean_meat: '肉蛋农残',
+    leanMeat: '肉蛋农残',
     pathogen: '病原体'
 };
 
@@ -166,11 +166,11 @@ export async function renderFrequencyCards(container) {
             // 趋势图(近6个月)
             let trendHtml = '';
             if (trend.length >= 2) {
-                const types = ['tableware', 'pesticide', 'oil', 'lean_meat', 'pathogen'];
+                const types = ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'];
                 const W = 560, H = 200, pad = 32;
                 const months = trend.map(t => t.month);
                 const maxVal = Math.max(5, ...trend.flatMap(t => types.map(tp => t.counts[tp] || 0)));
-                const color = { tableware: '#3b82f6', pesticide: '#10b981', oil: '#f59e0b', lean_meat: '#ef4444', pathogen: '#8b5cf6' };
+                const color = { tableware: '#3b82f6', pesticide: '#10b981', oil: '#f59e0b', leanMeat: '#ef4444', pathogen: '#8b5cf6' };
                 const paths = types.map(tp => {
                     const pts = trend.map((t, i) => {
                         const x = pad + (i * (W - 2 * pad)) / Math.max(1, trend.length - 1);
@@ -250,7 +250,7 @@ export function initFrequencySettings(panel) {
 
             // 日历编辑(项目 x 周几 勾选)
             const days = [{v:1,n:'周一'},{v:2,n:'周二'},{v:3,n:'周三'},{v:4,n:'周四'},{v:5,n:'周五'},{v:6,n:'周六'},{v:7,n:'周日'}];
-            const types = ['tableware','pesticide','oil','lean_meat','pathogen'];
+            const types = ['tableware','pesticide','oil','leanMeat','pathogen'];
             const calSet = new Set(calendar.filter(c => c.enabled).map(c => `${c.test_type}_${c.day_of_week}`));
             const calRows = types.map(tp => `
                 <tr class="border-b border-gray-100 hover:bg-gray-50 transition">
