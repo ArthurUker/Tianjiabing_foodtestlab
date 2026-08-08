@@ -29,8 +29,10 @@ function getApiBaseUrl() {
 function getAuthToken() {
     try {
         // TD-TenantIsolation：按当前学校命名空间读取（与 AuthService._nsKey 一致）
+        // P2-记住我：不勾选「记住我」时 token 仅存 sessionStorage，需回退读取
         const code = extractSchoolCode() || ''
-        return localStorage.getItem(code ? `auth_token__${code}` : 'auth_token') || null
+        const key = code ? `auth_token__${code}` : 'auth_token'
+        return localStorage.getItem(key) || sessionStorage.getItem(key) || null
     } catch {
         return null
     }
