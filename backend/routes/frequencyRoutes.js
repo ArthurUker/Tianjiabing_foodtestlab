@@ -5,23 +5,26 @@ import { Router } from 'express'
 const router = Router()
 
 // 检测项目 code -> 名称映射(与前端模块 test_type 对应)
+// ⚠️ 命名约定：test_type 必须与 TestRecord.test_type 存储值完全一致
+// （RECORD_ROUTE_TYPES / server.js TEST_TYPE_LABELS 统一用驼峰 leanMeat）。
+// 历史上 frequency 模块曾误用下划线 lean_meat 导致月报统计恒为 0，此处已统一。
 const TEST_TYPES = {
     tableware: { name: '餐具洁净度' },
     pesticide: { name: '果蔬农残' },
     oil: { name: '食用油' },
-    lean_meat: { name: '肉蛋农残' },
+    leanMeat: { name: '肉蛋农残' },
     pathogen: { name: '病原体' }
 }
 
 // N1 默认周目标(餐具 5 次/周,其余 3 次/周)
-const DEFAULT_WEEKLY_TARGET = { tableware: 5, pesticide: 3, oil: 3, lean_meat: 3, pathogen: 3 }
+const DEFAULT_WEEKLY_TARGET = { tableware: 5, pesticide: 3, oil: 3, leanMeat: 3, pathogen: 3 }
 
 // N2 默认周计划(周一~周五轮排)
 const DEFAULT_WEEKLY_PLAN = [
     { day_of_week: 1, test_type: 'tableware' },
     { day_of_week: 2, test_type: 'pesticide' },
     { day_of_week: 3, test_type: 'oil' },
-    { day_of_week: 4, test_type: 'lean_meat' },
+    { day_of_week: 4, test_type: 'leanMeat' },
     { day_of_week: 5, test_type: 'pathogen' }
 ]
 
@@ -40,6 +43,25 @@ function requireManagerOrAbove(req, res, next) {
  */
 async function ensureSeed(db, schoolCode) {
     const code = schoolCode || 'default'
+
+    // ⚠️ 历史数据迁移：旧版 frequency 模块误用下划线 lean_meat 存储阈值/日历，
+    // 与 TestRecord.test_type=leanMeat 不一致导致月报统计恒为 0。此处幂等迁移：
+    // 若租户存在旧的 lean_meat 阈值/日历行，改写为 leanMeat（防止重复 seed + 保持统计口径一致）。
+    const legacyTypes = await db.frequencyThreshold.findMany({ where: { school_code: code, test_type: 'lean_meat' } })
+    for (const row of legacyTypes) {
+        await db.frequencyThreshold.update({
+            where: { id: row.id },
+            data: { test_type: 'leanMeat' }
+        })
+    }
+    const legacyCal = await db.detectionCalendar.findMany({ where: { school_code: code, test_type: 'lean_meat' } })
+    for (const row of legacyCal) {
+        await db.detectionCalendar.update({
+            where: { id: row.id },
+            data: { test_type: 'leanMeat' }
+        })
+    }
+
     const thresholds = await db.frequencyThreshold.findMany({ where: { school_code: code } })
     const existingTypes = new Set(thresholds.map(t => t.test_type))
     for (const [type, target] of Object.entries(DEFAULT_WEEKLY_TARGET)) {
