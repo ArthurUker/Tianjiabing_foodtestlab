@@ -176,14 +176,22 @@ export class AdaptiveUploadQueue {
             this._queueMap.set(queueKey, item);
             this._scheduleNext(500);
           } else {
+            // 缺陷B修复：重试耗尽 reject 后必须释放 _isProcessing 并继续调度，
+            // 否则 enqueue 因 _isProcessing===true 不再 _scheduleNext → 队列永久死锁。
             item.rejectors.forEach(r => r(error));
             this._totalCompleted++;
             this._notifyProgress();
+            this._isProcessing = false;
+            this._scheduleNext(this._currentInterval);
           }
         } catch (fetchError) {
+          // 缺陷B修复：_fetchLatest 失败 reject 后同样释放 _isProcessing 并继续调度，
+          // 防止同 key 后续 enqueue 被 _isProcessing===true 拦截导致静默死锁。
           item.rejectors.forEach(r => r(error));
           this._totalCompleted++;
           this._notifyProgress();
+          this._isProcessing = false;
+          this._scheduleNext(this._currentInterval);
         }
       } else {
         item.attempt++;
