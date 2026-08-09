@@ -100,16 +100,18 @@ export async function backfillSchoolCustomization(prisma, log = console.log) {
     await prisma.$executeRawUnsafe(
       `ALTER TABLE "${table_schema}"."SchoolCustomization" ADD COLUMN IF NOT EXISTS "visible_menu_items" TEXT`
     )
+    // Bug#2-visible_menu_items: 同 visible_types —— public 历史遗留为 jsonb，$1::jsonb 双类型兼容
     await prisma.$executeRawUnsafe(
-      `UPDATE "${table_schema}"."SchoolCustomization" SET "visible_menu_items" = $1 WHERE "visible_menu_items" IS NULL`,
+      `UPDATE "${table_schema}"."SchoolCustomization" SET "visible_menu_items" = $1::jsonb WHERE "visible_menu_items" IS NULL`,
       DEFAULT_VISIBLE_MENU_ITEMS
     )
     // 学校食堂信息（学校基本信息）：默认 一/二/三 食堂；保存时同步 field_options.canteen
     await prisma.$executeRawUnsafe(
       `ALTER TABLE "${table_schema}"."SchoolCustomization" ADD COLUMN IF NOT EXISTS "canteens" TEXT`
     )
+    // Bug#2-canteens: 同 visible_types —— public 历史遗留为 jsonb，$1::jsonb 双类型兼容
     await prisma.$executeRawUnsafe(
-      `UPDATE "${table_schema}"."SchoolCustomization" SET "canteens" = $1 WHERE "canteens" IS NULL`,
+      `UPDATE "${table_schema}"."SchoolCustomization" SET "canteens" = $1::jsonb WHERE "canteens" IS NULL`,
       DEFAULT_CANTEENS
     )
     log(`✅ SchoolCustomization 回填完成: ${table_schema}`)
