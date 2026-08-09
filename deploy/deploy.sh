@@ -637,7 +637,7 @@ $CADDY_ADDR {
     # API 路由仍禁止框嵌套（server.js 另设 CSP frame-ancestors 'none' 双重防护）。
     @apiPath path /api/*
     header @apiPath {
-        X-Frame-Options "SAMEORIGIN""
+        X-Frame-Options "SAMEORIGIN"
     }
 
     # 方案A：路径前缀多租户识别（/<code>/login → 登录页，URL 不变）
