@@ -88,8 +88,11 @@ export async function backfillSchoolCustomization(prisma, log = console.log) {
     await prisma.$executeRawUnsafe(
       `ALTER TABLE "${table_schema}"."SchoolCustomization" ADD COLUMN IF NOT EXISTS "visible_types" TEXT`
     )
+    // Bug#2-visible_types: public schema 历史遗留 visible_types 为 jsonb 类型，
+    // 纯 text 参数($1) 赋 jsonb 列触发 PG 42804。用 $1::jsonb 显式转换，
+    // 经本地实验验证对 jsonb 列与 text 列均兼容（jsonb→text 赋值存在 assignment cast）。
     await prisma.$executeRawUnsafe(
-      `UPDATE "${table_schema}"."SchoolCustomization" SET "visible_types" = $1 WHERE "visible_types" IS NULL`,
+      `UPDATE "${table_schema}"."SchoolCustomization" SET "visible_types" = $1::jsonb WHERE "visible_types" IS NULL`,
       DEFAULT_VISIBLE_TYPES
     )
     // 菜单栏定制（菜单项可见性）：默认全选（与可见检测类型一致的"友好默认"策略）
