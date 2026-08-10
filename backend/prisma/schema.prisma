@@ -170,6 +170,11 @@ model GuestExportRequest {
 
 // ========== 系统备份元数据 ==========
 
+// ⚠️【历史遗留】Backup 模型为旧版「浏览器 localStorage + Supabase」架构设计，
+// 全库无任何代码写入（无 /api/backup 路由、前端 BackupRestore.js 纯 localStorage）。
+// 保留不动以免破坏 User.backups 关系；新备份体系统一使用下方 BackupRun（P0 备份引擎）。
+// @deprecated — 仅供历史兼容，勿再新增引用。
+
 model Backup {
   id            String   @id @default(cuid())
   backup_name   String
@@ -184,6 +189,34 @@ model Backup {
   created_user  User?    @relation(fields: [created_by], references: [id], onDelete: SetNull)
 
   @@index([created_by])
+}
+
+// ========== 运维备份执行记录（P0 备份引擎）==========
+// 系统级运维实体：记录每次 pg_dump 逻辑备份的执行结果。
+// ⚠️ 权威副本位于 public schema（备份服务经基础 prisma 单例显式读写 public."BackupRun"）；
+// 由于 provisionSchool 对每租户 schema 执行全量 db push，本模型会冗余存在于各租户 schema，
+// 与 School/SchoolCustomization 的双份现状一致——租户侧的冗余空表忽略，不参与读写。
+// created_by 存 super_admin username 或 'system'（不建外键：备份是平台实体，跨 schema 外键不可达）。
+
+model BackupRun {
+  id            String   @id @default(cuid())
+  run_type      String   // scheduled_all | scheduled_school | manual_all | manual_school
+  scope         String   // all | single
+  schema_name   String?  // 单校时 school_<code>（已归一）；全库为 null
+  school_code   String?  // 学校代码（UI 展示 / 筛选用）
+  file_path     String   @unique
+  file_size     Int?
+  table_counts  String?  // JSON {"schema.table": count}，供 L2 恢复后行数对比
+  checksum      String?  // 备份文件（gz 压缩流）的 sha256（与 meta.json 同值，恢复时校验）
+  encrypted     Boolean  @default(true)
+  status        String   @default("pending") // pending | running | ok | error
+  verify_status String?  // pending | passed | failed（L1/L2 自动验证结果）
+  created_at    DateTime @default(now())
+  created_by    String?  // 触发人（super_admin username）或 'system'
+
+  @@index([created_at])
+  @@index([school_code])
+  @@index([status])
 }
 
 // ========== 会话管理（TD-Session）==========

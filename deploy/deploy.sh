@@ -162,6 +162,9 @@ REPO_ROOT="${REPO_ROOT:-/opt/${SYSTEM_NAME}}"
 DATA_DIR="${DATA_DIR:-/var/lib/${SYSTEM_NAME}}"
 LOG_DIR="${LOG_DIR:-/var/log/${SYSTEM_NAME}}"
 APP_NAME="${APP_NAME:-${SYSTEM_NAME}-api}"
+# P0 备份引擎：备份根目录放【系统盘】（与数据盘物理分离），保留天数默认 7
+BACKUP_DIR="${BACKUP_DIR:-/var/backups/${SYSTEM_NAME}}"
+BACKUP_KEEP_DAYS="${BACKUP_KEEP_DAYS:-7}"
 DB_TYPE="${DB_TYPE:-postgresql}"
 # PostgreSQL 连接参数（单实例，与后端 schema.prisma provider=postgresql 一致）
 PG_HOST="${PG_HOST:-127.0.0.1}"
@@ -421,6 +424,8 @@ CORS_ORIGIN=$CORS_ORIGIN
 SEED_ADMIN_PASSWORD=$SEED_ADMIN_PASSWORD
 SEED_OPERATOR_PASSWORD=$SEED_OPERATOR_PASSWORD
 SEED_VIEWER_PASSWORD=$SEED_VIEWER_PASSWORD
+BACKUP_DIR=$BACKUP_DIR
+BACKUP_KEEP_DAYS=$BACKUP_KEEP_DAYS
 EOF
 # DS-19：机密文件权限收紧到 600 并归属非 root 服务用户（系统用户已在 §3 创建），
 # 避免同机其它用户读到 DATABASE_URL / JWT_SECRET / SEED_* 等机密。
@@ -578,6 +583,45 @@ systemctl daemon-reload
 systemctl enable "$APP_NAME"
 systemctl restart "$APP_NAME" || fail "启动 $APP_NAME 失败，查看: journalctl -u $APP_NAME -n 50"
 ok "后端已启动: $APP_NAME"
+
+# ------------------------- 8.5 数据备份定时任务（P0 备份引擎）-------------------------
+# 每日 02:00 全库 pg_dump → AES-256-GCM 信封加密 → /var/backups/<name>（系统盘）
+# 密钥：生产必须配置 TENCENT_*（KMS 模式）或 BACKUP_MASTER_KEY，否则备份 fail-closed 拒绝执行
+log "写入数据备份 systemd timer: ${APP_NAME}-backup"
+mkdir -p "$BACKUP_DIR"
+chown "$SYSTEM_NAME:$SYSTEM_NAME" "$BACKUP_DIR"
+cat > "/etc/systemd/system/${APP_NAME}-backup.service" <<EOF
+[Unit]
+Description=$SYSTEM_NAME daily database backup (pg_dump + AES encryption)
+After=postgresql.service
+
+[Service]
+Type=oneshot
+User=$SYSTEM_NAME
+Group=$SYSTEM_NAME
+WorkingDirectory=$REPO_ROOT/backend
+EnvironmentFile=$BACKEND_ENV
+Environment=TZ=Asia/Shanghai
+ExecStart=/usr/local/bin/node scripts/003_backup-now.mjs --all
+StandardOutput=append:$LOG_DIR/backup.out.log
+StandardError=append:$LOG_DIR/backup.err.log
+EOF
+cat > "/etc/systemd/system/${APP_NAME}-backup.timer" <<EOF
+[Unit]
+Description=$SYSTEM_NAME daily database backup timer
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
+EOF
+systemctl daemon-reload
+systemctl enable "${APP_NAME}-backup.timer"
+systemctl start "${APP_NAME}-backup.timer" || true
+ok "备份定时任务已启用: ${APP_NAME}-backup.timer（每日 02:00，目录 $BACKUP_DIR）"
 
 # ------------------------- 9. Caddy 多用户站点（import 模式，互不覆盖）-------------------------
 log "写入 Caddy 站点（多用户隔离）"
