@@ -531,15 +531,32 @@ function updateFormStructure() {
             </div>
         `;
     }
-    
-    // 点位容器
+        // 点位容器
     const pointsContainer = document.getElementById('atpPointsContainer');
     if (pointsContainer) {
+        // 拍照自动识别入口卡片（在点位容器标题前插入）
+        const aiEntry = document.createElement('div');
+        aiEntry.id = 'aiDetectEntry';
+        aiEntry.className = 'mt-6 mb-3 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg flex items-center gap-4';
+        aiEntry.innerHTML = `
+            <div class="flex-1">
+                <h3 class="font-medium text-gray-800 flex items-center mb-1">
+                    <i class="fas fa-camera text-blue-600 mr-2"></i>洗涤剂残留 · 拍照自动识别
+                </h3>
+                <p class="text-xs text-gray-600">把比色卡与离心管并排一起拍照，自动判定阴离子洗涤剂浓度并添加为点位。</p>
+            </div>
+            <button type="button" id="btnOpenAiDetect" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-md shadow flex items-center gap-2 transition">
+                <i class="fas fa-camera"></i>
+                <span>开始拍照识别</span>
+            </button>
+        `;
         const pointsTitle = document.createElement('div');
-        pointsTitle.className = 'flex justify-between items-center mt-6 mb-3';
+        pointsTitle.className = 'flex justify-between items-center mt-4 mb-3';
         pointsTitle.innerHTML = `<h3 class="font-medium text-gray-800">检测点位信息</h3>`;
+        pointsContainer.parentNode.insertBefore(aiEntry, pointsContainer);
         pointsContainer.parentNode.insertBefore(pointsTitle, pointsContainer);
-        
+        aiEntry.querySelector('#btnOpenAiDetect')?.addEventListener('click', () => openAiDetectModal());
+
         pointsContainer.className = 'space-y-4';
         if (!pointsContainer.children.length || (pointsContainer.children.length === 1 && !pointsContainer.querySelector('.btn-remove-point'))) {
             const defaultPoint = document.createElement('div');
@@ -1292,11 +1309,11 @@ function bindPointEvents(pointDiv) {
         });
     }
 
-    // 拍照自动识别：打开内嵌 demo 弹窗，识别结果经 postMessage 回填
+    // 拍照自动识别：打开内嵌 demo 弹窗，识别结果会追加新点位（与表单顶部入口共用同一弹窗）
     const aiBtn = pointDiv.querySelector('.btn-ai-detect');
     if (aiBtn) {
         aiBtn.addEventListener('click', () => {
-            openAiDetectModal(pointDiv);
+            openAiDetectModal();
         });
     }
 }
@@ -1305,9 +1322,10 @@ function bindPointEvents(pointDiv) {
 // 洗涤剂残留·拍照自动识别（iframe 内嵌 demo 页）
 // ============================================================================
 
-let _aiDetectModalActive = null; // 当前绑定的点位元素
+// 弹窗引用：用于识别成功后主动关闭
+let _aiDetectModalElement = null;
 
-function openAiDetectModal(pointDiv) {
+function openAiDetectModal() {
     // 弹窗内容：内嵌 demo 页面（?embed=1）
     const demoUrl = new URL('detergent-image-demo.html', window.location.href);
     demoUrl.searchParams.set('embed', '1');
@@ -1322,7 +1340,7 @@ function openAiDetectModal(pointDiv) {
                     <i class="fas fa-camera text-blue-600 mr-2"></i>洗涤剂残留 · 拍照自动识别
                 </h3>
                 <div class="flex items-center gap-3">
-                    <span class="text-xs text-gray-500 hidden md:inline">识别结果会自动回填到当前检测点位</span>
+                    <span class="text-xs text-gray-500 hidden md:inline">识别完成后自动作为新点位追加到下方表单</span>
                     <button id="aiDetectClose" class="text-gray-500 hover:text-gray-700 text-xl"><i class="fas fa-times"></i></button>
                 </div>
             </div>
@@ -1334,31 +1352,50 @@ function openAiDetectModal(pointDiv) {
     document.body.appendChild(modal);
     modal.querySelector('#aiDetectClose').onclick = () => modal.remove();
     modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
-    _aiDetectModalActive = pointDiv;
+    _aiDetectModalElement = modal;
 }
 
-// 监听 demo 页回传的识别结果
+// 监听 demo 页回传的识别结果：自动追加一个新的 detergentImage 点位
 document.addEventListener('message', handleAiDetectMessage);
 window.addEventListener('message', handleAiDetectMessage);
 function handleAiDetectMessage(e) {
     const d = e.data;
     if (!d || d.type !== 'DETERGENT_RESULT') return;
-    const pointDiv = _aiDetectModalActive;
-    if (!pointDiv || !document.body.contains(pointDiv)) return;
 
-    const rluInput = pointDiv.querySelector('[name="rluValue"]');
-    const resultField = pointDiv.querySelector('[name="result"]');
-    if (rluInput) {
-        rluInput.value = d.value;
+    // 关闭弹窗
+    _aiDetectModalElement?.remove();
+    _aiDetectModalElement = null;
+
+    // 追加新点位
+    const container = document.getElementById('atpPointsContainer');
+    if (!container) {
+        UINotification.error('未找到点位容器，无法写入识别结果');
+        return;
     }
+    const newPoint = document.createElement('div');
+    newPoint.className = 'border border-blue-300 rounded-lg p-5 bg-blue-50 atp-point';
+    newPoint.innerHTML = getPointTemplate(true); // 可移除（因为是新增点位）
+    container.appendChild(newPoint);
+    bindPointEvents(newPoint);
+
+    // 填入识别结果：类型、点位、浓度值、判定
+    const testTypeSel = newPoint.querySelector('[name="testType"]');
+    const locSel = newPoint.querySelector('[name="location"]');
+    const rluInput = newPoint.querySelector('[name="rluValue"]');
+    const resultField = newPoint.querySelector('[name="result"]');
+    if (testTypeSel) testTypeSel.value = 'detergentImage';
+    if (locSel) locSel.value = '不锈钢餐具';
+    if (rluInput) rluInput.value = d.value;
     if (resultField) {
         resultField.value = getResultText('detergentImage', String(d.value));
         updateResultFieldStyle(resultField);
     }
-    // 关闭弹窗
-    document.getElementById('aiDetectModal')?.remove();
-    _aiDetectModalActive = null;
-    UINotification.success(`✅ 已回填识别结果：${d.valueText} mg/L（${d.judge}）`);
+    // 触发点位类型变更渲染（更新按钮、单位等）
+    if (testTypeSel) testTypeSel.dispatchEvent(new Event('change'));
+
+    // 滚动到新增点位
+    newPoint.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    UINotification.success(`✅ 已追加新点位：识别浓度 ${d.valueText} mg/L（${d.judge}），请确认检测点位后保存`);
 }
 
 function getPointTemplate(removable = false) {

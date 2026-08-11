@@ -521,8 +521,8 @@
           return `<tr><td>${b.blockIdx + 1}</td><td>${b.concentration} mg/L</td><td colspan="2" style="color:var(--c-muted);">推断位置（未取色）</td></tr>`;
         }
         const [R, G, Bl] = b.color.map(v => v | 0);
-        const { L, a, bb } = b.lab;
-        return `<tr><td>${b.blockIdx + 1}</td><td>${b.concentration} mg/L</td><td>rgb(${R},${G},${Bl})</td><td>${L.toFixed(1)}, ${a.toFixed(1)}, ${bb.toFixed(1)}</td></tr>`;
+        const { L, a, b: bStar } = b.lab;
+        return `<tr><td>${b.blockIdx + 1}</td><td>${b.concentration} mg/L</td><td>rgb(${R},${G},${Bl})</td><td>${L.toFixed(1)}, ${a.toFixed(1)}, ${bStar.toFixed(1)}</td></tr>`;
       }).join('');
 
       // 样品信息
