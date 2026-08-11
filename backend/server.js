@@ -1514,9 +1514,12 @@ app.post('/api/admin/schools/:code/users', authenticateUser, requirePlatformSupe
         }
         const hash = await bcryptjs.hash(String(password), 10)
         const id = crypto.randomUUID()
+        // M2: 新建用户的「初始密码」属于临时密码，必须置 must_change_password=true，
+        // 首登强制改密（前端登录后进入改密面板；服务端 authenticateUser 对非改密接口 403）。
+        // 与 tenantProvisioner 建校 manager、resetPassword 重置密码口径保持一致。
         await tenantPrisma.$executeRawUnsafe(
-            `INSERT INTO "${schema}"."User" ("id","username","password_hash","role","full_name","phone","status","school_code","created_at","updated_at")
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW(),NOW())`,
+            `INSERT INTO "${schema}"."User" ("id","username","password_hash","role","full_name","phone","status","school_code","must_change_password","created_at","updated_at")
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true,NOW(),NOW())`,
             id, username, hash, role, full_name || null, phone || null, 'active', code
         )
         res.status(201).json({

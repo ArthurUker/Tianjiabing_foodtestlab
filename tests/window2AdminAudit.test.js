@@ -359,4 +359,15 @@ describe('M2 · 临时密码账号强制改密标记', () => {
         expect(src).toMatch(/must_change_password/);
         expect(src).not.toMatch(/adminPassword \|\| 'changeme'/);
     });
+
+    test('POST /api/admin/schools/:code/users 新增用户 SQL 含 must_change_password=true（静态回归）', () => {
+        const src = fs.readFileSync(
+            path.resolve(__dirname, '../backend/server.js'), 'utf8'
+        );
+        // 新增用户端点 INSERT 必须显式置 must_change_password（初始密码=临时密码，首登强制改密）
+        const createUserInsert = src.match(/INSERT INTO "\$\{schema\}"\."User"[\s\S]*?VALUES[^\n]*/);
+        expect(createUserInsert).toBeTruthy();
+        expect(createUserInsert[0]).toContain('must_change_password');
+        expect(createUserInsert[0]).toContain('true,NOW(),NOW()');
+    });
 });
