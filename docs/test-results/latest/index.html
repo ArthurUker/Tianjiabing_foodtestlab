@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>浏览器测试结果汇总</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif; background: #f3f4f6; color: #1f2937; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 24px 16px 60px; }
+  header h1 { font-size: 22px; }
+  header .meta { color: #6b7280; font-size: 12px; margin-top: 6px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin: 18px 0; }
+  .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px; }
+  .card .gname { font-size: 13px; font-weight: 600; color: #374151; }
+  .card .num { font-size: 26px; font-weight: 700; margin: 6px 0 4px; }
+  .card .sub { font-size: 12px; color: #6b7280; }
+  .card .chips { margin-top: 8px; font-size: 12px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .filters { display: flex; gap: 10px; flex-wrap: wrap; margin: 14px 0; }
+  .filters select, .filters input { border: 1px solid #d1d5db; border-radius: 8px; padding: 7px 10px; font-size: 13px; background: #fff; }
+  .filters input { flex: 1; min-width: 200px; }
+  .item { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; display: flex; gap: 12px; }
+  .badge { flex-shrink: 0; width: 56px; text-align: center; border-radius: 6px; color: #fff; font-size: 12px; padding: 4px 0; height: fit-content; }
+  .item .body { flex: 1; min-width: 0; }
+  .item .id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; font-weight: 700; }
+  .item .title { font-size: 13px; color: #374151; margin-top: 2px; }
+  .item .meta { font-size: 11px; color: #9ca3af; margin-top: 4px; }
+  .item .detail { font-size: 12px; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 6px 8px; margin-top: 8px; white-space: pre-wrap; }
+  .evid { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .evid img.thumb { width: 92px; height: 68px; object-fit: cover; border-radius: 6px; border: 1px solid #e5e7eb; cursor: zoom-in; }
+  .evid a.ext { font-size: 12px; color: #2563eb; text-decoration: none; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 6px 10px; }
+  .count-line { font-size: 12px; color: #6b7280; margin: 8px 0; }
+  .empty { text-align: center; color: #9ca3af; padding: 40px 0; }
+  #lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.82); display: none; align-items: center; justify-content: center; z-index: 99; cursor: zoom-out; }
+  #lightbox img { max-width: 92vw; max-height: 90vh; border-radius: 6px; }
+  @media (max-width: 640px) { .item { flex-direction: column; } .badge { width: fit-content; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🧪 浏览器测试结果汇总</h1>
+    <div class="meta">生成时间：<span id="genTime"></span> · 数据源：数据库 <code>public."TestResult"</code> · 证据图片见本目录 <code>evidence/</code></div>
+  </header>
+
+  <div class="cards" id="cards"></div>
+
+  <div class="filters">
+    <select id="fGroup"><option value="">全部分组</option><option value="wcn_业务">吴翠楠 · 业务功能复测（第一部分~第三部分 + 回归）</option><option value="zsp_备份">曾水平 · 备份与恢复模块（第四部分 B1-B9）</option></select>
+    <select id="fResult"><option value="">全部结果</option><option value="passed">✅ 通过</option><option value="failed">❌ 失败</option><option value="skipped">⏭️ 跳过</option><option value="pending">⏳ 待测</option></select>
+    <select id="fUser"><option value="">全部提交人</option></select>
+    <input id="fKeyword" type="search" placeholder="搜索用例编号 / 标题 / 实际表现…">
+  </div>
+  <div class="count-line" id="countLine"></div>
+  <div id="list"></div>
+  <div class="empty" id="empty" style="display:none">没有符合条件的用例</div>
+</div>
+<div id="lightbox"><img id="lbImg" src="" alt=""></div>
+
+<script>
+const SNAPSHOT = {"generated_at":"2026-08-11T06:53:34.484Z","overall":{"passed":0,"failed":0,"skipped":0,"pending":28,"total":28,"done":0},"groups":[{"group":"wcn_业务","groupName":"吴翠楠 · 业务功能复测（第一部分~第三部分 + 回归）","total":17,"counts":{"passed":0,"failed":0,"skipped":0,"pending":17},"done":0,"items":[{"case_id":"Q1-果蔬阶段A","case_title":"Q1 复检显示·果蔬农残（阶段A 不刷新）","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"Q1-果蔬阶段B","case_title":"Q1 复检显示·果蔬农残（阶段B 刷新）","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"Q1-果蔬阶段C","case_title":"Q1 复检显示·果蔬农残（阶段C 切菜单）","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"Q1-肉蛋","case_title":"Q1 复检显示·肉蛋农残（三阶段）","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"Q1-油","case_title":"Q1 复检显示·食品油品质（三阶段）","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"V8-基本信息","case_title":"V8 基本信息「保存修改」无反应排查","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"V8-界面定制","case_title":"V8 界面定制「保存定制」无反应排查","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"V1-肉蛋","case_title":"V1 界面定制·肉蛋新增检测项目显示","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"V1-果蔬","case_title":"V1 界面定制·果蔬新增检测项目显示","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"V6-帮助跳转","case_title":"V6 登录页帮助中心跳转（子路径矛盾复现）","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"V7-负向","case_title":"V7 超管登录·学校代码非法输入负向","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"回归V2","case_title":"回归·停用/启用用户","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"回归V3","case_title":"回归·检测频率与月报页","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"回归V4","case_title":"回归·阈值/日历设置保存","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"回归V5","case_title":"回归·每日登录提示","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"回归V6地址","case_title":"回归·帮助链接子路径地址核对","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"回归V7正向","case_title":"回归·学校登录跳转正向","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null}]},{"group":"zsp_备份","groupName":"曾水平 · 备份与恢复模块（第四部分 B1-B9）","total":11,"counts":{"passed":0,"failed":0,"skipped":0,"pending":11},"done":0,"items":[{"case_id":"B1","case_title":"B1 运维备份 Tab 可见性（超管可见/非超管不可见）","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"B2","case_title":"B2 备份列表显示","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"B3","case_title":"B3 立即备份全部","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"B4","case_title":"B4 单校备份（独立测试学校）","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"B5","case_title":"B5 离线验证（表数一致）","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"B6","case_title":"B6 下载（密文 .aes / 明文 403）","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"B7-负向","case_title":"B7 影子恢复·确认词错误不执行","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"B7-正向","case_title":"B7 影子恢复·正向执行 + 数据回滚核对","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"B7-旧schema","case_title":"B7 旧 schema 保留与清理（SSH psql）","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"B8","case_title":"B8 维护模式写阻断（可选）","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"B9","case_title":"B9 SSH 侧检查（定时任务/文件权限/失败告警）","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null}]}]};
+const LABELS = {"passed":{"label":"通过","emoji":"✅","color":"#16a34a"},"failed":{"label":"失败","emoji":"❌","color":"#dc2626"},"skipped":{"label":"跳过","emoji":"⏭️","color":"#d97706"},"pending":{"label":"待测","emoji":"⏳","color":"#9ca3af"}};
+const $ = (id) => document.getElementById(id);
+
+function fmt(t) { if (!t) return '—'; const d = new Date(t); if (isNaN(d)) return '—'; const p = n => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()); }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function renderCards() {
+  $('cards').innerHTML = SNAPSHOT.groups.map(g => {
+    const pct = g.total ? Math.round(g.done / g.total * 100) : 0;
+    const chips = ['passed','failed','skipped','pending'].map(k =>
+      '<span style="color:' + LABELS[k].color + '">' + LABELS[k].emoji + ' ' + LABELS[k].label + ' ' + g.counts[k] + '</span>'
+    ).join('');
+    return '<div class="card"><div class="gname">' + esc(g.groupName) + '</div>' +
+      '<div class="num">' + g.done + '<span style="font-size:13px;color:#9ca3af">/' + g.total + ' 已测</span></div>' +
+      '<div class="sub">完成度 ' + pct + '%</div><div class="chips">' + chips + '</div></div>';
+  }).join('');
+  const u = new Set();
+  SNAPSHOT.groups.forEach(g => g.items.forEach(it => { if (it.submitted_by) u.add(it.submitted_by); }));
+  $('fUser').innerHTML = '<option value="">全部提交人</option>' + [...u].map(x => '<option>' + esc(x) + '</option>').join('');
+}
+
+function allItems() { const a = []; SNAPSHOT.groups.forEach(g => g.items.forEach(it => a.push(it))); return a; }
+
+function renderList() {
+  const fg = $('fGroup').value, fr = $('fResult').value, fu = $('fUser').value, kw = $('fKeyword').value.trim().toLowerCase();
+  const items = allItems().filter(it =>
+    (!fg || it.group === fg) &&
+    (!fr || it.result === fr) &&
+    (!fu || it.submitted_by === fu) &&
+    (!kw || (it.case_id + ' ' + it.case_title + ' ' + it.detail).toLowerCase().includes(kw))
+  );
+  $('empty').style.display = items.length ? 'none' : 'block';
+  $('list').innerHTML = items.map(it => {
+    const b = LABELS[it.result] || { label: it.result, emoji: '?', color: '#9ca3af' };
+    const evid = (it.evidence_list || []).map(e => {
+      if (e.type === 'local') return '<img class="thumb" src="' + esc(e.relPath) + '" alt="' + esc(it.case_title) + '" onclick="openLb(this.src)">';
+      return '<a class="ext" href="' + esc(e.url) + '" target="_blank" rel="noopener">🔗 证据链接</a>';
+    }).join('');
+    return '<div class="item">' +
+      '<div class="badge" style="background:' + b.color + '">' + b.emoji + ' ' + b.label + '</div>' +
+      '<div class="body"><div class="id">' + esc(it.case_id) + '</div>' +
+      '<div class="title">' + esc(it.case_title) + '</div>' +
+      '<div class="meta">提交人：' + esc(it.submitted_by || '—') + ' · 更新：' + fmt(it.updated_at) + '</div>' +
+      (it.detail ? '<div class="detail">📝 ' + esc(it.detail) + '</div>' : '') +
+      (evid ? '<div class="evid">' + evid + '</div>' : '') +
+      '</div></div>';
+  }).join('');
+  const done = items.filter(it => it.result !== 'pending').length;
+  $('countLine').textContent = '共 ' + items.length + ' 项（已测 ' + done + '）';
+}
+
+function openLb(src) { $('lbImg').src = src; $('lightbox').style.display = 'flex'; }
+$('lightbox').addEventListener('click', () => $('lightbox').style.display = 'none');
+['fGroup','fResult','fUser'].forEach(id => $(id).addEventListener('change', renderList));
+$('fKeyword').addEventListener('input', renderList);
+
+$('genTime').textContent = fmt(SNAPSHOT.generated_at);
+renderCards();
+renderList();
+</script>
+</body>
+</html>

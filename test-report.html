@@ -75,42 +75,8 @@
 
         const $ = (id) => document.getElementById(id);
 
-        // ═══ 用例清单（与 docs/浏览器验证操作流程-20260807.md 一一对应）═══
-        // case_group: wcn_业务 = 吴翠楠；zsp_备份 = 曾水平
-        const CASE_DEFS = [
-            { group: 'wcn_业务', groupName: '吴翠楠 · 业务功能复测（第一部分~第三部分 + 回归）', cases: [
-                { id: 'Q1-果蔬阶段A', title: 'Q1 复检显示·果蔬农残（阶段A 不刷新）' },
-                { id: 'Q1-果蔬阶段B', title: 'Q1 复检显示·果蔬农残（阶段B 刷新）' },
-                { id: 'Q1-果蔬阶段C', title: 'Q1 复检显示·果蔬农残（阶段C 切菜单）' },
-                { id: 'Q1-肉蛋', title: 'Q1 复检显示·肉蛋农残（三阶段）' },
-                { id: 'Q1-油', title: 'Q1 复检显示·食品油品质（三阶段）' },
-                { id: 'V8-基本信息', title: 'V8 基本信息「保存修改」无反应排查' },
-                { id: 'V8-界面定制', title: 'V8 界面定制「保存定制」无反应排查' },
-                { id: 'V1-肉蛋', title: 'V1 界面定制·肉蛋新增检测项目显示' },
-                { id: 'V1-果蔬', title: 'V1 界面定制·果蔬新增检测项目显示' },
-                { id: 'V6-帮助跳转', title: 'V6 登录页帮助中心跳转（子路径矛盾复现）' },
-                { id: 'V7-负向', title: 'V7 超管登录·学校代码非法输入负向' },
-                { id: '回归V2', title: '回归·停用/启用用户' },
-                { id: '回归V3', title: '回归·检测频率与月报页' },
-                { id: '回归V4', title: '回归·阈值/日历设置保存' },
-                { id: '回归V5', title: '回归·每日登录提示' },
-                { id: '回归V6地址', title: '回归·帮助链接子路径地址核对' },
-                { id: '回归V7正向', title: '回归·学校登录跳转正向' },
-            ]},
-            { group: 'zsp_备份', groupName: '曾水平 · 备份与恢复模块（第四部分 B1-B9）', cases: [
-                { id: 'B1', title: 'B1 运维备份 Tab 可见性（超管可见/非超管不可见）' },
-                { id: 'B2', title: 'B2 备份列表显示' },
-                { id: 'B3', title: 'B3 立即备份全部' },
-                { id: 'B4', title: 'B4 单校备份（独立测试学校）' },
-                { id: 'B5', title: 'B5 离线验证（表数一致）' },
-                { id: 'B6', title: 'B6 下载（密文 .aes / 明文 403）' },
-                { id: 'B7-负向', title: 'B7 影子恢复·确认词错误不执行' },
-                { id: 'B7-正向', title: 'B7 影子恢复·正向执行 + 数据回滚核对' },
-                { id: 'B7-旧schema', title: 'B7 旧 schema 保留与清理（SSH psql）' },
-                { id: 'B8', title: 'B8 维护模式写阻断（可选）' },
-                { id: 'B9', title: 'B9 SSH 侧检查（定时任务/文件权限/失败告警）' },
-            ]},
-        ];
+        // ═══ 用例清单（权威副本在 backend/lib/testCaseDefs.js，此处启动时从 /api/test-results/defs 拉取）═══
+        let CASE_DEFS = []
 
         const RESULT_OPTIONS = [
             ['passed', '✅ 通过'],
@@ -153,7 +119,23 @@
             $('reportWrap').classList.remove('hidden')
             const u = authService.getCurrentUser && authService.getCurrentUser()
             $('curUser').textContent = (u && u.username) || authService.getToken() ? '已登录' : '已登录'
-            loadAll()
+            loadDefs().then(loadAll)
+        }
+
+        // ═══ 从后端拉取用例清单（唯一权威副本 backend/lib/testCaseDefs.js）═══
+        async function loadDefs() {
+            try {
+                const r = await fetch('/api/test-results/defs', { headers: apiHeaders() })
+                const j = await r.json()
+                if (j.success && Array.isArray(j.data) && j.data.length) {
+                    CASE_DEFS = j.data
+                    return
+                }
+                throw new Error(j.error || 'defs 为空')
+            } catch (err) {
+                console.error('加载用例清单失败:', err)
+                alert('加载用例清单失败：' + (err.message || '请刷新重试'))
+            }
         }
 
         // ═══ 加载已提交结果 + 汇总 ═══
@@ -182,8 +164,48 @@
             const st = $(`st_${caseId}`)
             if (sel) { sel.value = rec.result; sel.classList.add(`result-${rec.result}`) }
             if (det) det.value = rec.detail || ''
-            if (evi) evi.value = rec.evidence || ''
+            if (evi) { evi.value = rec.evidence || ''; updateEvidencePreview(caseId) }
             if (st) st.textContent = rec.updated_at ? `已保存 ${new Date(rec.updated_at).toLocaleString('zh-CN')}` : ''
+        }
+
+        // ═══ 证据解析 / 预览 / 上传 ═══
+        function evidenceTokens(value) {
+            return String(value || '').split(/[\n\r,;，；]+/).map((t) => t.trim()).filter(Boolean)
+        }
+
+        // 根据 evidence 文本框内容渲染缩略图预览
+        function updateEvidencePreview(caseId) {
+            const evi = $(`evi_${caseId}`)
+            const prev = $(`evp_${caseId}`)
+            if (!prev) return
+            prev.innerHTML = evidenceTokens(evi && evi.value).map((t) => {
+                if (/^\/api\/test-results\/evidence\/|^https?:\/\//i.test(t)) {
+                    return `<img src="${esc(t)}" alt="证据" class="h-12 w-16 object-cover rounded border border-gray-200 cursor-zoom-in" onclick="window.open(this.src,'_blank')" onerror="this.style.display='none'">`
+                }
+                return `<span class="text-[10px] text-gray-400 border border-gray-200 rounded px-1 py-0.5">${esc(t)}</span>`
+            }).join('')
+        }
+
+        // 上传证据图片（base64 JSON → 后端 /api/test-results/upload）
+        async function uploadEvidence(caseId, fileList) {
+            const files = []
+            for (const f of fileList) {
+                const data = await new Promise((resolve, reject) => {
+                    const r = new FileReader()
+                    r.onload = () => resolve(String(r.result).split(',')[1])
+                    r.onerror = reject
+                    r.readAsDataURL(f)
+                })
+                files.push({ name: f.name, type: f.type, data })
+            }
+            const r = await fetch('/api/test-results/upload', {
+                method: 'POST',
+                headers: apiHeaders(),
+                body: JSON.stringify({ case_id: caseId, files }),
+            })
+            const j = await r.json()
+            if (!j.success) throw new Error(j.error || '上传失败')
+            return j.urls || []
         }
 
         // ═══ 渲染分组表单 ═══
@@ -209,7 +231,12 @@
                                 </select>
                             </div>
                             <div class="col-span-6 md:col-span-3">
-                                <input id="evi_${esc(c.id)}" type="text" class="w-full border rounded px-2 py-1.5 text-xs" placeholder="证据（截图/Network 记录/URL）">
+                                <div class="flex gap-1 items-center">
+                                    <input id="evi_${esc(c.id)}" type="text" class="flex-1 min-w-0 border rounded px-2 py-1.5 text-xs" placeholder="上传图片或贴 URL（多张用换行/逗号分隔）">
+                                    <button type="button" data-case="${esc(c.id)}" title="上传证据图片" class="up-btn px-2 py-1 text-xs rounded bg-gray-600 text-white hover:bg-gray-700 shrink-0"><i class="fas fa-upload"></i></button>
+                                    <input type="file" id="file_${esc(c.id)}" accept="image/png,image/jpeg,image/webp,image/gif" multiple class="hidden">
+                                </div>
+                                <div id="evp_${esc(c.id)}" class="flex flex-wrap gap-1 mt-1"></div>
                             </div>
                             <div class="col-span-10 md:col-span-3">
                                 <textarea id="det_${esc(c.id)}" rows="1" class="w-full border rounded px-2 py-1.5 text-xs" placeholder="实际表现（失败必填，说明现象）"></textarea>
@@ -224,6 +251,42 @@
                 </div>`).join('')
 
             wrap.querySelectorAll('.save-btn').forEach((b) => b.addEventListener('click', () => saveCase(b.dataset)))
+
+            // 上传按钮 → 触发对应隐藏 file input
+            wrap.querySelectorAll('.up-btn').forEach((b) => {
+                b.addEventListener('click', () => {
+                    const fi = $(`file_${b.dataset.case}`)
+                    if (fi) fi.click()
+                })
+            })
+            // 选中图片后上传，并把返回 URL 追加到 evidence 文本框 + 预览
+            wrap.querySelectorAll('input[type=file]').forEach((fi) => {
+                fi.addEventListener('change', async () => {
+                    if (!fi.files || !fi.files.length) return
+                    const caseId = fi.dataset.case || fi.id.replace(/^file_/, '')
+                    const btn = fi.previousElementSibling
+                    if (btn) btn.disabled = true
+                    try {
+                        const urls = await uploadEvidence(caseId, [...fi.files])
+                        const evi = $(`evi_${caseId}`)
+                        const cur = evi.value.trim()
+                        evi.value = cur ? cur + '\n' + urls.join('\n') : urls.join('\n')
+                        updateEvidencePreview(caseId)
+                    } catch (err) {
+                        alert('上传失败：' + err.message)
+                    } finally {
+                        if (btn) btn.disabled = false
+                        fi.value = ''
+                    }
+                })
+            })
+
+            // 手动编辑 evidence 文本框时实时刷新预览（含直接粘贴 URL）
+            wrap.querySelectorAll('input').forEach((el) => {
+                if (el.id && el.id.startsWith('evi_')) {
+                    el.addEventListener('input', () => updateEvidencePreview(el.id.slice(4)))
+                }
+            })
         }
 
         // ═══ 保存单条 ═══

@@ -66,6 +66,9 @@ backend/prisma/prisma/*.db
 # 数据库备份目录（含加密备份 .aes / meta.json / 本地明文 / 表级 .sql，均不入库）
 backend/backups/
 backups/
+
+# 测试证据图片运行时存储（不入库；docs/test-results/latest/evidence/ 为整理后的副本，需 git 提交归档）
+backend/uploads/
 **/backups/*.sql
 **/backups/*.aes
 **/backups/*.json

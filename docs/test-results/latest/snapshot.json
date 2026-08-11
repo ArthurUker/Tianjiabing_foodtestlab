@@ -1,0 +1,377 @@
+{
+  "generated_at": "2026-08-11T06:53:34.484Z",
+  "overall": {
+    "passed": 0,
+    "failed": 0,
+    "skipped": 0,
+    "pending": 28,
+    "total": 28,
+    "done": 0
+  },
+  "groups": [
+    {
+      "group": "wcn_业务",
+      "groupName": "吴翠楠 · 业务功能复测（第一部分~第三部分 + 回归）",
+      "total": 17,
+      "counts": {
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "pending": 17
+      },
+      "done": 0,
+      "items": [
+        {
+          "case_id": "Q1-果蔬阶段A",
+          "case_title": "Q1 复检显示·果蔬农残（阶段A 不刷新）",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "Q1-果蔬阶段B",
+          "case_title": "Q1 复检显示·果蔬农残（阶段B 刷新）",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "Q1-果蔬阶段C",
+          "case_title": "Q1 复检显示·果蔬农残（阶段C 切菜单）",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "Q1-肉蛋",
+          "case_title": "Q1 复检显示·肉蛋农残（三阶段）",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "Q1-油",
+          "case_title": "Q1 复检显示·食品油品质（三阶段）",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "V8-基本信息",
+          "case_title": "V8 基本信息「保存修改」无反应排查",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "V8-界面定制",
+          "case_title": "V8 界面定制「保存定制」无反应排查",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "V1-肉蛋",
+          "case_title": "V1 界面定制·肉蛋新增检测项目显示",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "V1-果蔬",
+          "case_title": "V1 界面定制·果蔬新增检测项目显示",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "V6-帮助跳转",
+          "case_title": "V6 登录页帮助中心跳转（子路径矛盾复现）",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "V7-负向",
+          "case_title": "V7 超管登录·学校代码非法输入负向",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "回归V2",
+          "case_title": "回归·停用/启用用户",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "回归V3",
+          "case_title": "回归·检测频率与月报页",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "回归V4",
+          "case_title": "回归·阈值/日历设置保存",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "回归V5",
+          "case_title": "回归·每日登录提示",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "回归V6地址",
+          "case_title": "回归·帮助链接子路径地址核对",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "回归V7正向",
+          "case_title": "回归·学校登录跳转正向",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        }
+      ]
+    },
+    {
+      "group": "zsp_备份",
+      "groupName": "曾水平 · 备份与恢复模块（第四部分 B1-B9）",
+      "total": 11,
+      "counts": {
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "pending": 11
+      },
+      "done": 0,
+      "items": [
+        {
+          "case_id": "B1",
+          "case_title": "B1 运维备份 Tab 可见性（超管可见/非超管不可见）",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "B2",
+          "case_title": "B2 备份列表显示",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "B3",
+          "case_title": "B3 立即备份全部",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "B4",
+          "case_title": "B4 单校备份（独立测试学校）",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "B5",
+          "case_title": "B5 离线验证（表数一致）",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "B6",
+          "case_title": "B6 下载（密文 .aes / 明文 403）",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "B7-负向",
+          "case_title": "B7 影子恢复·确认词错误不执行",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "B7-正向",
+          "case_title": "B7 影子恢复·正向执行 + 数据回滚核对",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "B7-旧schema",
+          "case_title": "B7 旧 schema 保留与清理（SSH psql）",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "B8",
+          "case_title": "B8 维护模式写阻断（可选）",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "B9",
+          "case_title": "B9 SSH 侧检查（定时任务/文件权限/失败告警）",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        }
+      ]
+    }
+  ]
+}
