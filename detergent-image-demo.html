@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>阴离子洗涤剂残留 · 图像自动判定 Demo</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧪</text></svg>">
+  <link rel="stylesheet" href="/css/vendor/fa/all.min.css">
+  <style>
+    :root {
+      --c-bg: #f1f5f9;
+      --c-panel: #ffffff;
+      --c-border: #e2e8f0;
+      --c-text: #0f172a;
+      --c-muted: #64748b;
+      --c-brand: #2563eb;
+      --c-warn: #ca8a04;
+      --c-danger: #dc2626;
+      --c-ok: #16a34a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 0;
+      font-family: -apple-system, "Segoe UI", "PingFang SC", sans-serif;
+      background: var(--c-bg); color: var(--c-text);
+    }
+    header {
+      padding: 16px 24px; background: #0f172a; color: #fff;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    header h1 { margin: 0; font-size: 18px; }
+    header .badge {
+      background: #f59e0b; color: #1e293b; font-size: 12px; padding: 2px 8px;
+      border-radius: 4px; font-weight: bold;
+    }
+    main {
+      max-width: 1200px; margin: 24px auto; padding: 0 16px;
+      display: grid; grid-template-columns: 360px 1fr; gap: 24px;
+    }
+    @media (max-width: 900px) {
+      main { grid-template-columns: 1fr; }
+    }
+    .panel {
+      background: var(--c-panel); border: 1px solid var(--c-border);
+      border-radius: 8px; padding: 16px; margin-bottom: 16px;
+    }
+    .panel h2 {
+      margin: 0 0 12px; font-size: 16px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .panel h2 i { color: var(--c-brand); }
+    .upload-zone {
+      border: 2px dashed var(--c-border); border-radius: 6px;
+      padding: 24px; text-align: center; cursor: pointer;
+      transition: 0.2s;
+    }
+    .upload-zone:hover { border-color: var(--c-brand); background: #f8fafc; }
+    .upload-zone.dragover { border-color: var(--c-brand); background: #eff6ff; }
+    .upload-zone input { display: none; }
+    .upload-zone i { font-size: 32px; color: var(--c-muted); margin-bottom: 8px; }
+    .upload-zone p { margin: 0; font-size: 13px; color: var(--c-muted); }
+
+    button.btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 14px; border: 1px solid var(--c-border);
+      border-radius: 4px; background: #fff; cursor: pointer;
+      font-size: 13px; color: var(--c-text); transition: 0.15s;
+    }
+    button.btn:hover { border-color: var(--c-brand); color: var(--c-brand); }
+    button.btn.primary {
+      background: var(--c-brand); color: #fff; border-color: var(--c-brand);
+    }
+    button.btn.primary:hover { background: #1d4ed8; border-color: #1d4ed8; }
+    button.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    .sop { font-size: 12px; line-height: 1.6; }
+    .sop ol { margin: 0; padding-left: 18px; }
+    .sop li { margin-bottom: 4px; }
+    .sop li strong { color: var(--c-brand); }
+
+    .threshold-list { font-size: 12px; }
+    .threshold-list td { padding: 4px 8px; border-bottom: 1px solid var(--c-border); }
+    .threshold-list tr.pass { color: var(--c-ok); }
+    .threshold-list tr.warn { color: var(--c-warn); }
+    .threshold-list tr.fail { color: var(--c-danger); }
+
+    .canvas-wrap {
+      position: relative; background: #0f172a; border-radius: 6px;
+      overflow: hidden; min-height: 320px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .canvas-wrap canvas {
+      max-width: 100%; max-height: 600px; display: block;
+    }
+    .canvas-wrap.placeholder i {
+      color: #475569; font-size: 64px;
+    }
+
+    .result-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+      margin-top: 12px;
+    }
+    .result-card {
+      background: #f8fafc; border: 1px solid var(--c-border);
+      border-radius: 4px; padding: 8px 12px;
+    }
+    .result-card .label { font-size: 11px; color: var(--c-muted); }
+    .result-card .value {
+      font-size: 18px; font-weight: bold; color: var(--c-text);
+      font-family: "SF Mono", monospace;
+    }
+    .result-card.main .value { color: var(--c-brand); font-size: 24px; }
+    .result-card.pass .value { color: var(--c-ok); }
+    .result-card.warn .value { color: var(--c-warn); }
+    .result-card.fail .value { color: var(--c-danger); }
+
+    .qc-notes {
+      margin-top: 8px;
+    }
+    .qc-note {
+      padding: 8px 10px; border-radius: 4px; margin-bottom: 6px;
+      font-size: 12px; border-left: 4px solid;
+    }
+    .qc-note.warn { background: #fef9c3; color: #854d0e; border-color: var(--c-warn); }
+    .qc-note.error { background: #fee2e2; color: #7f1d1d; border-color: var(--c-danger); }
+    .qc-note.info { background: #dbeafe; color: #1e3a8a; border-color: var(--c-brand); }
+
+    .distance-table {
+      width: 100%; font-size: 12px; margin-top: 8px;
+    }
+    .distance-table td, .distance-table th {
+      padding: 4px 8px; text-align: left; border-bottom: 1px solid var(--c-border);
+    }
+    .distance-table tr.best { background: #dbeafe; font-weight: bold; }
+
+    details { font-size: 12px; margin-top: 8px; }
+    details summary { cursor: pointer; color: var(--c-muted); padding: 4px 0; }
+
+    .legend {
+      display: flex; gap: 12px; flex-wrap: wrap;
+      font-size: 12px; margin-top: 8px;
+    }
+    .legend span { display: inline-flex; align-items: center; gap: 4px; }
+    .legend .swatch {
+      display: inline-block; width: 14px; height: 14px; border-radius: 2px;
+      border: 1px solid var(--c-border);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1><i class="fas fa-flask"></i> 阴离子洗涤剂残留 · 图像自动判定 Demo</h1>
+    <span class="badge"><i class="fas fa-flask"></i> 仅供内部算法验证 · 未接入正式系统</span>
+  </header>
+
+  <main>
+    <!-- 左侧：控制区 -->
+    <aside>
+      <div class="panel">
+        <h2><i class="fas fa-camera"></i> 1. 上传照片</h2>
+        <label class="upload-zone" id="uploadZone" for="fileInput">
+          <i class="fas fa-cloud-upload-alt"></i>
+          <p><strong>点击上传</strong> 或 <strong>拖拽图片</strong> 到这里</p>
+          <p>支持 JPG / PNG · 建议宽度 ≥ 800px</p>
+          <input type="file" id="fileInput" accept="image/*" capture="environment">
+        </label>
+        <div class="toolbar" style="margin-top: 12px;">
+          <button class="btn" id="btnSample"><i class="fas fa-magic"></i> 用合成测试图试一下</button>
+          <button class="btn" id="btnClear" disabled><i class="fas fa-trash"></i> 清空</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2><i class="fas fa-clipboard-list"></i> 拍摄 SOP（务必遵守）</h2>
+        <div class="sop">
+          <ol>
+            <li><strong>比色卡左侧、离心管右侧</strong>（或上下），紧贴同框</li>
+            <li><strong>两者高度基本一致</strong>，避免视差色差</li>
+            <li>手机<strong>俯拍 90°</strong>，不要斜拍/侧光</li>
+            <li><strong>均匀漫射光</strong>（关掉闪光灯、避开直射阳光）</li>
+            <li>画面里<strong>不要出现手指、标签遮挡</strong>液层</li>
+          </ol>
+        </div>
+        <details style="margin-top:8px;">
+          <summary>判定阈值（依试剂盒标准）</summary>
+          <table class="threshold-list">
+            <tr><td>≤ 0.05 mg/L</td><td class="pass">→ 合格</td></tr>
+            <tr><td>0.05 ~ 0.1 mg/L</td><td class="warn">→ 警戒</td></tr>
+            <tr><td>≥ 0.1 mg/L</td><td class="fail">→ 不合格</td></tr>
+          </table>
+          <p style="font-size: 11px; color: var(--c-muted); margin: 8px 0 0;">
+            （这是按色卡档位给的演示阈值。生产请按试剂盒说明书 & GB 标准换算成 mg/100cm²。）
+          </p>
+        </details>
+      </div>
+
+      <div class="panel" style="display:none" id="resultLegend">
+        <h2><i class="fas fa-info-circle"></i> 图例</h2>
+        <div class="legend">
+          <span><span class="swatch" style="background:#16a34a"></span>0 mg/L 基准</span>
+          <span><span class="swatch" style="background:#65a30d"></span>≤0.05 绿</span>
+          <span><span class="swatch" style="background:#ca8a04"></span>0.05~0.1 黄</span>
+          <span><span class="swatch" style="background:#dc2626"></span>≥0.1 红</span>
+          <span><span class="swatch" style="background:#2563eb"></span>离心管</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 右侧：画布和结果 -->
+    <section>
+      <div class="panel">
+        <h2><i class="fas fa-image"></i> 画布</h2>
+        <div class="canvas-wrap placeholder" id="canvasWrap">
+          <i class="fas fa-image"></i>
+        </div>
+        <canvas id="canvas" style="display:none"></canvas>
+      </div>
+
+      <div class="panel" id="resultPanel" style="display:none">
+        <h2><i class="fas fa-chart-bar"></i> 识别结果</h2>
+        <div class="result-grid" id="resultGrid"></div>
+        <div id="qcSection" class="qc-notes"></div>
+        <details>
+          <summary>色块距离明细</summary>
+          <table class="distance-table" id="distanceTable">
+            <thead><tr><th>色块浓度</th><th>样品→色块 ΔE</th><th>排名</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </details>
+        <details>
+          <summary>原始色块颜色</summary>
+          <table class="distance-table" id="blocksTable">
+            <thead><tr><th>#</th><th>浓度</th><th>实测 RGB</th><th>实测 Lab (L*a*b*)</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </details>
+        <details>
+          <summary>样品离心管</summary>
+          <div id="sampleInfo" style="padding: 4px 8px;"></div>
+        </details>
+      </div>
+    </section>
+  </main>
+
+  <script type="module">
+    import { analyzeDetergentImage, drawOverlay, formatConcentrationList } from './js/utils/detergentColorimetry.js';
+
+    const concentrations = [0, 0.01, 0.05, 0.1, 0.5, 1.0, 2.0];
+
+    // DOM
+    const fileInput = document.getElementById('fileInput');
+    const uploadZone = document.getElementById('uploadZone');
+    const canvas = document.getElementById('canvas');
+    const canvasWrap = document.getElementById('canvasWrap');
+    const resultPanel = document.getElementById('resultPanel');
+    const resultGrid = document.getElementById('resultGrid');
+    const qcSection = document.getElementById('qcSection');
+    const distanceTable = document.querySelector('#distanceTable tbody');
+    const blocksTable = document.querySelector('#blocksTable tbody');
+    const sampleInfo = document.getElementById('sampleInfo');
+    const btnSample = document.getElementById('btnSample');
+    const btnClear = document.getElementById('btnClear');
+    const resultLegend = document.getElementById('resultLegend');
+
+    let lastImg = null; // 上次图片（HTMLImageElement）
+    let lastResult = null;
+
+    // 页面打开自动跑一次合成测试图，省去冷启动步骤
+    window.addEventListener('DOMContentLoaded', () => {
+      setTimeout(() => btnSample.click(), 200);
+    });
+
+    // ============= 上传 =============
+    fileInput.addEventListener('change', e => {
+      const f = e.target.files[0];
+      if (f) loadFile(f);
+    });
+    uploadZone.addEventListener('dragover', e => {
+      e.preventDefault(); uploadZone.classList.add('dragover');
+    });
+    uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+    uploadZone.addEventListener('drop', e => {
+      e.preventDefault(); uploadZone.classList.remove('dragover');
+      const f = e.dataTransfer.files[0];
+      if (f) loadFile(f);
+    });
+
+    function loadFile(f) {
+      const reader = new FileReader();
+      reader.onload = ev => {
+        const img = new Image();
+        img.onload = () => { lastImg = img; runOnce(); };
+        img.onerror = () => alert('图片加载失败');
+        img.src = ev.target.result;
+      };
+      reader.readAsDataURL(f);
+    }
+
+    btnClear.addEventListener('click', () => {
+      lastImg = null; lastResult = null;
+      canvas.style.display = 'none';
+      canvasWrap.classList.add('placeholder');
+      canvasWrap.innerHTML = '<i class="fas fa-image"></i>';
+      resultPanel.style.display = 'none';
+      resultLegend.style.display = 'none';
+      btnClear.disabled = true;
+    });
+
+    // ============= 合成测试图 =============
+    btnSample.addEventListener('click', () => {
+      // 画一张"合格版"的合成图：水平 7 色块 + 右侧一根含 0.05 色液体的样品管
+      const W = 800, H = 480;
+      const tmp = document.createElement('canvas');
+      tmp.width = W; tmp.height = H;
+      const ctx = tmp.getContext('2d');
+
+      // 背景：略偏黄的纸
+      ctx.fillStyle = '#f5f1e3';
+      ctx.fillRect(0, 0, W, H);
+
+      // 比色卡矩形底
+      const cardX = 80, cardY = 220, cardW = 560, cardH = 90;
+      ctx.fillStyle = '#fdfdf8';
+      ctx.fillRect(cardX - 8, cardY - 8, cardW + 16, cardH + 36);
+
+      // 7 个色块
+      const blockColors = [
+        [220, 220, 210],   // 0
+        [200, 220, 215],   // 0.01
+        [180, 215, 200],   // 0.05
+        [150, 200, 200],   // 0.1
+        [85, 145, 200],    // 0.5
+        [50, 110, 200],    // 1.0
+        [30, 80, 180],     // 2.0
+      ];
+      const bW = cardW / 7;
+      for (let i = 0; i < 7; i++) {
+        const [r, g, b] = blockColors[i];
+        ctx.fillStyle = `rgb(${r},${g},${b})`;
+        ctx.fillRect(cardX + i * bW, cardY, bW - 2, cardH);
+        // 浓度数字
+        ctx.fillStyle = '#475569';
+        ctx.font = 'bold 16px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(concentrations[i].toString(), cardX + i * bW + bW / 2, cardY + cardH + 22);
+      }
+
+      // 离心管（右侧上方）
+      const tubeX = cardX + cardW + 40;
+      const tubeY = cardY - 130;
+      const tubeW = 38, tubeH = 180;
+      // 管身
+      ctx.fillStyle = 'rgba(220, 230, 235, 0.85)';
+      ctx.beginPath();
+      ctx.ellipse(tubeX + tubeW / 2, tubeY + tubeH, tubeW / 2, 12, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillRect(tubeX, tubeY, tubeW, tubeH);
+      ctx.fillStyle = 'rgba(180, 195, 205, 0.95)';
+      ctx.fillRect(tubeX, tubeY, tubeW, 18);
+      // 液体（在 0.05 色附近）
+      const liqY0 = tubeY + 30;
+      const liqY1 = tubeY + tubeH - 10;
+      ctx.fillStyle = 'rgb(180, 215, 200)';
+      ctx.fillRect(tubeX + 4, liqY0, tubeW - 8, liqY1 - liqY0);
+      // 圆头
+      ctx.fillStyle = 'rgba(220, 230, 235, 0.85)';
+      ctx.beginPath();
+      ctx.ellipse(tubeX + tubeW / 2, tubeY, tubeW / 2, 14, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // 管壁高光
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(tubeX + 6, tubeY + 8);
+      ctx.lineTo(tubeX + 6, tubeY + tubeH - 6);
+      ctx.stroke();
+
+      // 转 Image 加载回调
+      const dataURL = tmp.toDataURL('image/png');
+      const img = new Image();
+      img.onload = () => { lastImg = img; runOnce(); };
+      img.src = dataURL;
+    });
+
+    // ============= 主流程 =============
+    function runOnce() {
+      if (!lastImg) return;
+      btnClear.disabled = false;
+      resultLegend.style.display = 'block';
+
+      // 等比例放入 canvas
+      const MAX_W = 1200;
+      let w = lastImg.naturalWidth, h = lastImg.naturalHeight;
+      if (w > MAX_W) { h = Math.round(h * MAX_W / w); w = MAX_W; }
+      canvas.width = w; canvas.height = h;
+      canvasWrap.classList.remove('placeholder');
+      canvasWrap.innerHTML = '';
+      canvasWrap.appendChild(canvas);
+      canvas.style.display = 'block';
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(lastImg, 0, 0, w, h);
+
+      // 调用算法
+      const result = analyzeDetergentImage(canvas, { concentrations });
+      lastResult = result;
+
+      // 叠加绘制
+      drawOverlay(canvas, result);
+
+      // 渲染结果
+      renderResult(result);
+    }
+
+    function renderResult(result) {
+      resultPanel.style.display = 'block';
+
+      if (!result.ok) {
+        resultGrid.innerHTML = `
+          <div class="result-card fail" style="grid-column: span 4;">
+            <div class="label">识别失败 · 阶段 [${result.stage}]</div>
+            <div class="value" style="font-size:14px;">${result.humanMessage}</div>
+          </div>
+        `;
+        qcSection.innerHTML = result.hint
+          ? `<div class="qc-note info"><i class="fas fa-info-circle"></i> 调试信息: ${result.hint}</div>` +
+            (result.debug ? `<details><summary>详细调试数据</summary><pre style="font-size:11px;background:#f8fafc;padding:8px;border-radius:4px;overflow:auto;max-height:200px;">${JSON.stringify(result.debug, null, 2)}</pre></details>` : '')
+          : '';
+        distanceTable.innerHTML = `<tr><td colspan="3" style="color:var(--c-muted)">无（识别未成功）</td></tr>`;
+        blocksTable.innerHTML = `<tr><td colspan="4" style="color:var(--c-muted)">无</td></tr>`;
+        sampleInfo.innerHTML = `<p style="color:var(--c-muted);">无</p>`;
+        return;
+      }
+
+      // 主判值
+      const mainV = result.mainValue;
+      const judgeClass = mainV === 0 ? 'pass'
+        : mainV <= 0.05 ? 'pass'
+        : mainV <= 0.1 ? 'warn'
+        : 'fail';
+      const judgeText = judgeClass === 'pass' ? '合格'
+        : judgeClass === 'warn' ? '警戒' : '不合格';
+
+      resultGrid.innerHTML = `
+        <div class="result-card main">
+          <div class="label">主判定</div>
+          <div class="value">${result.mainValueText} mg/L</div>
+        </div>
+        <div class="result-card ${judgeClass}">
+          <div class="label">判定等级</div>
+          <div class="value" style="font-size:18px;">${judgeText}</div>
+        </div>
+        <div class="result-card">
+          <div class="label">参考值（插值）</div>
+          <div class="value">${result.refinedValue} mg/L</div>
+        </div>
+        <div class="result-card">
+          <div class="label">置信度</div>
+          <div class="value">${(result.confidence * 100) | 0}%</div>
+        </div>
+        <div class="result-card">
+          <div class="label">ΔE（主判）</div>
+          <div class="value">${result.deltaE}</div>
+        </div>
+        <div class="result-card">
+          <div class="label">色卡 7 色块</div>
+          <div class="value">已识别</div>
+        </div>
+        <div class="result-card">
+          <div class="label">离心管方向</div>
+          <div class="value" style="font-size:14px;">${result.tubeZone}</div>
+        </div>
+        <div class="result-card">
+          <div class="label">样品 RGB</div>
+          <div class="value" style="font-size:12px;">${result.sampleColor.map(v => v | 0).join(', ')}</div>
+        </div>
+      `;
+
+      // 质控
+      let qcHtml = '';
+      if (result.qc.ok && result.qc.notes.length === 0) {
+        qcHtml = `<div class="qc-note info"><i class="fas fa-check-circle"></i> 质控通过 · 亮度 ${result.qc.brightness}</div>`;
+      } else {
+        result.qc.notes.forEach(n => {
+          const icon = n.level === 'error' ? 'fa-times-circle'
+            : n.level === 'warn' ? 'fa-exclamation-triangle' : 'fa-info-circle';
+          qcHtml += `<div class="qc-note ${n.level}"><i class="fas ${icon}"></i> ${n.text}</div>`;
+        });
+      }
+      qcSection.innerHTML = qcHtml;
+
+      // 距离明细
+      distanceTable.innerHTML = result.sortedDistances.map((d, i) => {
+        const cls = i === 0 ? 'best' : '';
+        return `<tr class="${cls}"><td>${d.concentration} mg/L</td><td>${d.deltaE}</td><td>#${i + 1}</td></tr>`;
+      }).join('');
+
+      // 色块颜色
+      blocksTable.innerHTML = result.blocks.map(b => {
+        const [R, G, Bl] = b.color.map(v => v | 0);
+        const { L, a, bb } = b.lab;
+        return `<tr><td>${b.blockIdx + 1}</td><td>${b.concentration} mg/L</td><td>rgb(${R},${G},${Bl})</td><td>${L.toFixed(1)}, ${a.toFixed(1)}, ${bb.toFixed(1)}</td></tr>`;
+      }).join('');
+
+      // 样品信息
+      sampleInfo.innerHTML = `
+        <p style="margin: 4px 0;">区域: ${result.tubeZone} · 像素: ${result.tube.w}×${result.tube.h}</p>
+        <p style="margin: 4px 0;">实测 RGB: ${result.sampleColor.map(v => v | 0).join(', ')}</p>
+        <p style="margin: 4px 0;">实测 Lab: L*${result.sampleLab.L.toFixed(1)}, a*${result.sampleLab.a.toFixed(1)}, b*${result.sampleLab.b.toFixed(1)}</p>
+        <p style="margin: 4px 0;">插值可用: ${result.refinementAvailable ? '是' : '否'}</p>
+      `;
+    }
+  </script>
+</body>
+</html>
