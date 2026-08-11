@@ -1,12 +1,12 @@
 {
-  "generated_at": "2026-08-11T06:53:34.484Z",
+  "generated_at": "2026-08-11T07:48:15.932Z",
   "overall": {
-    "passed": 0,
-    "failed": 0,
-    "skipped": 0,
-    "pending": 28,
+    "passed": 1,
+    "failed": 7,
+    "skipped": 1,
+    "pending": 19,
     "total": 28,
-    "done": 0
+    "done": 9
   },
   "groups": [
     {
@@ -15,23 +15,33 @@
       "total": 17,
       "counts": {
         "passed": 0,
-        "failed": 0,
+        "failed": 4,
         "skipped": 0,
-        "pending": 17
+        "pending": 13
       },
-      "done": 0,
+      "done": 4,
       "items": [
         {
           "case_id": "Q1-果蔬阶段A",
           "case_title": "Q1 复检显示·果蔬农残（阶段A 不刷新）",
-          "result": "pending",
-          "detail": "",
-          "evidence": "",
-          "evidence_list": [],
-          "submitted_by": "",
-          "submitted_by_role": "",
-          "created_at": null,
-          "updated_at": null
+          "result": "failed",
+          "detail": "选择合格但是显示不合格",
+          "evidence": "/api/test-results/evidence/Q1-%E6%9E%9C%E8%94%AC%E9%98%B6%E6%AE%B5A/1786433577110_f7b500a1.png",
+          "evidence_list": [
+            {
+              "raw": "/api/test-results/evidence/Q1-%E6%9E%9C%E8%94%AC%E9%98%B6%E6%AE%B5A/1786433577110_f7b500a1.png",
+              "type": "local",
+              "encCaseId": "Q1-%E6%9E%9C%E8%94%AC%E9%98%B6%E6%AE%B5A",
+              "decCaseId": "Q1-果蔬阶段A",
+              "file": "1786433577110_f7b500a1.png",
+              "caseTitle": "Q1 复检显示·果蔬农残（阶段A 不刷新）",
+              "relPath": "evidence/Q1-%E6%9E%9C%E8%94%AC%E9%98%B6%E6%AE%B5A/1786433577110_f7b500a1.png"
+            }
+          ],
+          "submitted_by": "123",
+          "submitted_by_role": "operator",
+          "created_at": "2026-08-11T07:33:32.243Z",
+          "updated_at": "2026-08-11T07:33:32.243Z"
         },
         {
           "case_id": "Q1-果蔬阶段B",
@@ -48,38 +58,68 @@
         {
           "case_id": "Q1-果蔬阶段C",
           "case_title": "Q1 复检显示·果蔬农残（阶段C 切菜单）",
-          "result": "pending",
-          "detail": "",
-          "evidence": "",
-          "evidence_list": [],
-          "submitted_by": "",
-          "submitted_by_role": "",
-          "created_at": null,
-          "updated_at": null
+          "result": "failed",
+          "detail": "没有显示复检合格",
+          "evidence": "/api/test-results/evidence/Q1-%E6%9E%9C%E8%94%AC%E9%98%B6%E6%AE%B5C/1786433761711_93396199.png",
+          "evidence_list": [
+            {
+              "raw": "/api/test-results/evidence/Q1-%E6%9E%9C%E8%94%AC%E9%98%B6%E6%AE%B5C/1786433761711_93396199.png",
+              "type": "local",
+              "encCaseId": "Q1-%E6%9E%9C%E8%94%AC%E9%98%B6%E6%AE%B5C",
+              "decCaseId": "Q1-果蔬阶段C",
+              "file": "1786433761711_93396199.png",
+              "caseTitle": "Q1 复检显示·果蔬农残（阶段C 切菜单）",
+              "relPath": "evidence/Q1-%E6%9E%9C%E8%94%AC%E9%98%B6%E6%AE%B5C/1786433761711_93396199.png"
+            }
+          ],
+          "submitted_by": "123",
+          "submitted_by_role": "operator",
+          "created_at": "2026-08-11T07:36:14.191Z",
+          "updated_at": "2026-08-11T07:36:14.191Z"
         },
         {
           "case_id": "Q1-肉蛋",
           "case_title": "Q1 复检显示·肉蛋农残（三阶段）",
-          "result": "pending",
-          "detail": "",
-          "evidence": "",
-          "evidence_list": [],
-          "submitted_by": "",
-          "submitted_by_role": "",
-          "created_at": null,
-          "updated_at": null
+          "result": "failed",
+          "detail": "复检结果选择合格后自动跳去不合格",
+          "evidence": "/api/test-results/evidence/Q1-%E8%82%89%E8%9B%8B/1786434223683_f50e20ff.png",
+          "evidence_list": [
+            {
+              "raw": "/api/test-results/evidence/Q1-%E8%82%89%E8%9B%8B/1786434223683_f50e20ff.png",
+              "type": "local",
+              "encCaseId": "Q1-%E8%82%89%E8%9B%8B",
+              "decCaseId": "Q1-肉蛋",
+              "file": "1786434223683_f50e20ff.png",
+              "caseTitle": "Q1 复检显示·肉蛋农残（三阶段）",
+              "relPath": "evidence/Q1-%E8%82%89%E8%9B%8B/1786434223683_f50e20ff.png"
+            }
+          ],
+          "submitted_by": "123",
+          "submitted_by_role": "operator",
+          "created_at": "2026-08-11T07:44:14.146Z",
+          "updated_at": "2026-08-11T07:44:14.146Z"
         },
         {
           "case_id": "Q1-油",
           "case_title": "Q1 复检显示·食品油品质（三阶段）",
-          "result": "pending",
-          "detail": "",
-          "evidence": "",
-          "evidence_list": [],
-          "submitted_by": "",
-          "submitted_by_role": "",
-          "created_at": null,
-          "updated_at": null
+          "result": "failed",
+          "detail": "没有错误弹窗",
+          "evidence": "/api/test-results/evidence/Q1-%E6%B2%B9/1786434471560_31bd2a27.png",
+          "evidence_list": [
+            {
+              "raw": "/api/test-results/evidence/Q1-%E6%B2%B9/1786434471560_31bd2a27.png",
+              "type": "local",
+              "encCaseId": "Q1-%E6%B2%B9",
+              "decCaseId": "Q1-油",
+              "file": "1786434471560_31bd2a27.png",
+              "caseTitle": "Q1 复检显示·食品油品质（三阶段）",
+              "relPath": "evidence/Q1-%E6%B2%B9/1786434471560_31bd2a27.png"
+            }
+          ],
+          "submitted_by": "123",
+          "submitted_by_role": "operator",
+          "created_at": "2026-08-11T07:44:38.156Z",
+          "updated_at": "2026-08-11T07:48:15.926Z"
         },
         {
           "case_id": "V8-基本信息",
@@ -232,72 +272,92 @@
       "groupName": "曾水平 · 备份与恢复模块（第四部分 B1-B9）",
       "total": 11,
       "counts": {
-        "passed": 0,
-        "failed": 0,
-        "skipped": 0,
-        "pending": 11
+        "passed": 1,
+        "failed": 3,
+        "skipped": 1,
+        "pending": 6
       },
-      "done": 0,
+      "done": 5,
       "items": [
         {
           "case_id": "B1",
           "case_title": "B1 运维备份 Tab 可见性（超管可见/非超管不可见）",
-          "result": "pending",
+          "result": "skipped",
           "detail": "",
           "evidence": "",
           "evidence_list": [],
-          "submitted_by": "",
-          "submitted_by_role": "",
-          "created_at": null,
-          "updated_at": null
+          "submitted_by": "wuxiangjun",
+          "submitted_by_role": "admin",
+          "created_at": "2026-08-11T07:38:45.792Z",
+          "updated_at": "2026-08-11T07:45:25.764Z"
         },
         {
           "case_id": "B2",
           "case_title": "B2 备份列表显示",
-          "result": "pending",
+          "result": "failed",
           "detail": "",
-          "evidence": "",
-          "evidence_list": [],
-          "submitted_by": "",
-          "submitted_by_role": "",
-          "created_at": null,
-          "updated_at": null
+          "evidence": "/api/test-results/evidence/B2/1786433967439_4fdd59d0.png",
+          "evidence_list": [
+            {
+              "raw": "/api/test-results/evidence/B2/1786433967439_4fdd59d0.png",
+              "type": "local",
+              "encCaseId": "B2",
+              "decCaseId": "B2",
+              "file": "1786433967439_4fdd59d0.png",
+              "caseTitle": "B2 备份列表显示",
+              "relPath": "evidence/B2/1786433967439_4fdd59d0.png"
+            }
+          ],
+          "submitted_by": "wuxiangjun",
+          "submitted_by_role": "admin",
+          "created_at": "2026-08-11T07:39:32.348Z",
+          "updated_at": "2026-08-11T07:39:32.348Z"
         },
         {
           "case_id": "B3",
           "case_title": "B3 立即备份全部",
-          "result": "pending",
-          "detail": "",
+          "result": "passed",
+          "detail": "无备份",
           "evidence": "",
           "evidence_list": [],
-          "submitted_by": "",
-          "submitted_by_role": "",
-          "created_at": null,
-          "updated_at": null
+          "submitted_by": "wuxiangjun",
+          "submitted_by_role": "admin",
+          "created_at": "2026-08-11T07:42:07.096Z",
+          "updated_at": "2026-08-11T07:47:37.327Z"
         },
         {
           "case_id": "B4",
           "case_title": "B4 单校备份（独立测试学校）",
-          "result": "pending",
+          "result": "failed",
           "detail": "",
-          "evidence": "",
-          "evidence_list": [],
-          "submitted_by": "",
-          "submitted_by_role": "",
-          "created_at": null,
-          "updated_at": null
+          "evidence": "/api/test-results/evidence/B4/1786434310035_85a3c55b.png",
+          "evidence_list": [
+            {
+              "raw": "/api/test-results/evidence/B4/1786434310035_85a3c55b.png",
+              "type": "local",
+              "encCaseId": "B4",
+              "decCaseId": "B4",
+              "file": "1786434310035_85a3c55b.png",
+              "caseTitle": "B4 单校备份（独立测试学校）",
+              "relPath": "evidence/B4/1786434310035_85a3c55b.png"
+            }
+          ],
+          "submitted_by": "wuxiangjun",
+          "submitted_by_role": "admin",
+          "created_at": "2026-08-11T07:45:15.115Z",
+          "updated_at": "2026-08-11T07:45:15.115Z"
         },
         {
           "case_id": "B5",
           "case_title": "B5 离线验证（表数一致）",
-          "result": "pending",
-          "detail": "",
+          "result": "failed",
+          "detail": "无备份",
           "evidence": "",
           "evidence_list": [],
-          "submitted_by": "",
-          "submitted_by_role": "",
-          "created_at": null,
-          "updated_at": null
+          "submitted_by": "wuxiangjun",
+          "submitted_by_role": "admin",
+          "created_at": "2026-08-11T07:47:16.364Z",
+          "updated_at": "2026-08-11T07:47:44.477Z"
         },
         {
           "case_id": "B6",
