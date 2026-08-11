@@ -909,7 +909,7 @@ app.put('/api/admin/schools/:code', authenticateUser, requirePlatformSuperAdmin,
                 else if (t.length <= 50 && !/[\u0000-\u001f\u007f\u2028\u2029]/.test(t)) tc.systemTitle = t
             }
             await prisma.$queryRawUnsafe(
-                `UPDATE public."SchoolCustomization" SET "theme_config" = $1, "updated_at" = now() WHERE "school_code" = $2`,
+                `UPDATE public."SchoolCustomization" SET "theme_config" = $1::jsonb, "updated_at" = now() WHERE "school_code" = $2`,
                 JSON.stringify(tc), code
             )
         }
@@ -927,7 +927,7 @@ app.put('/api/admin/schools/:code', authenticateUser, requirePlatformSuperAdmin,
                 crypto.randomUUID(), code
             )
             await prisma.$queryRawUnsafe(
-                `UPDATE public."SchoolCustomization" SET "canteens" = $1, "updated_at" = now() WHERE "school_code" = $2`,
+                `UPDATE public."SchoolCustomization" SET "canteens" = $1::jsonb, "updated_at" = now() WHERE "school_code" = $2`,
                 JSON.stringify(safeCanteens), code
             )
             // 同步 field_options.canteen（让录入表单下拉自动应用）
@@ -940,7 +940,7 @@ app.put('/api/admin/schools/:code', authenticateUser, requirePlatformSuperAdmin,
             if (safeCanteens.length) fo.canteen = safeCanteens
             else delete fo.canteen
             await prisma.$queryRawUnsafe(
-                `UPDATE public."SchoolCustomization" SET "field_options" = $1, "updated_at" = now() WHERE "school_code" = $2`,
+                `UPDATE public."SchoolCustomization" SET "field_options" = $1::jsonb, "updated_at" = now() WHERE "school_code" = $2`,
                 JSON.stringify(fo), code
             )
         }
@@ -1214,7 +1214,8 @@ app.put('/api/admin/schools/:code/customization', authenticateUser, requirePlatf
         for (const col of CUSTOMIZATION_COLUMNS) {
             if (!Object.prototype.hasOwnProperty.call(normalized, col)) continue
             params.push(normalized[col] === null ? null : JSON.stringify(normalized[col]))
-            sets.push(`"${col}" = $${params.length}`)
+            // CUSTOMIZATION_COLUMNS 全是 jsonb 列（CUSTOMIZATION_COLUMNS 注释已声明），需 ::jsonb cast；null 也安全（NULL 标量与 JSON null 不冲突）
+            sets.push(`"${col}" = $${params.length}::jsonb`)
         }
         if (sets.length === 0) {
             return res.status(400).json({ error: '未提供任何可更新的定制字段' })
