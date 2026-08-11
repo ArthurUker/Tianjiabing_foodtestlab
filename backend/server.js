@@ -23,6 +23,7 @@ import { createAuthMiddleware } from './middleware/authMiddleware.js'
 import { createTenantMiddleware } from './middleware/tenantMiddleware.js'
 import { createSyncRoutes } from './routes/syncRoutes.js'
 import { createAdminBackupRoutes } from './routes/adminBackupRoutes.js'
+import { createTestResultRoutes } from './routes/testResultRoutes.js'
 import frequencyRoutes from './routes/frequencyRoutes.js'
 import { provisionSchool, isValidSchoolCode } from './lib/tenantProvisioner.js'
 import { disconnectAllTenantClients, createTenantClient, schemaNameOf } from './lib/tenantClient.js'
@@ -1663,6 +1664,10 @@ app.use('/api/sync', syncRoutes)
 // ====== Backup Management Routes（P1：运维备份控制台，仅平台超管）======
 const adminBackupRoutes = createAdminBackupRoutes({ prisma, authenticateUser, requirePlatformSuperAdmin })
 app.use('/api/admin/backups', adminBackupRoutes)
+
+// ====== Test Result Routes（临时测试工具：测试结果上报，任意登录用户）======
+const testResultRoutes = createTestResultRoutes(userManager, prisma)
+app.use('/api/test-results', testResultRoutes)
 
 // N1/N2/N3: 检测频率阈值 / 检测日历 / 检测月报
 // 需 authenticateUser 注入 req.db/req.user(与 /api/test-records 等一致)

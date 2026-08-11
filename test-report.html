@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>浏览器测试报告上报（临时测试工具）</title>
+    <link rel="stylesheet" href="/css/tailwind.css">
+    <link rel="stylesheet" href="/css/vendor/fa/all.min.css" />
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f3f4f6; }
+        .case-row { transition: background .15s; }
+        .case-row:hover { background: #f9fafb; }
+        select.result-passed { border-color: #22c55e; }
+        select.result-failed { border-color: #ef4444; }
+        select.result-skipped { border-color: #f59e0b; }
+    </style>
+</head>
+<body class="min-h-screen">
+    <!-- ═══════ 登录卡片 ═══════ -->
+    <div id="loginWrap" class="max-w-md mx-auto mt-16 bg-white rounded-xl shadow-lg p-8 border border-gray-200">
+        <div class="text-center mb-6">
+            <i class="fas fa-vial text-3xl text-blue-600"></i>
+            <h1 class="text-xl font-bold text-gray-800 mt-2">浏览器测试报告上报</h1>
+            <p class="text-gray-400 text-xs mt-1">登录后按测试文档提交各用例执行结果（数据存入系统数据库，服务器可拉取汇总）</p>
+        </div>
+        <div id="loginError" class="hidden mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm"></div>
+        <form id="loginForm" class="space-y-4">
+            <div>
+                <label class="block text-xs text-gray-500 mb-1">学校代码</label>
+                <input id="loginSchool" type="text" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="如 tjb" required>
+            </div>
+            <div>
+                <label class="block text-xs text-gray-500 mb-1">用户名</label>
+                <input id="loginUser" type="text" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="测试账号用户名" required>
+            </div>
+            <div>
+                <label class="block text-xs text-gray-500 mb-1">密码</label>
+                <input id="loginPass" type="password" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="密码" required>
+            </div>
+            <button type="submit" id="loginBtn" class="w-full py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
+                登 录
+            </button>
+        </form>
+        <p class="text-center text-xs text-gray-400 mt-4">测试账号请联系平台超管分配（学校 manager / 超管均可）</p>
+    </div>
+
+    <!-- ═══════ 已登录：用例上报区 ═══════ -->
+    <div id="reportWrap" class="hidden max-w-5xl mx-auto my-8 px-4">
+        <!-- 顶部信息 + 汇总 -->
+        <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
+            <div class="flex items-center gap-3">
+                <i class="fas fa-clipboard-check text-2xl text-blue-600"></i>
+                <div>
+                    <h1 class="text-lg font-bold text-gray-800">浏览器测试报告上报</h1>
+                    <p class="text-xs text-gray-400">当前用户：<b id="curUser" class="text-gray-600"></b>（<span id="curRole" class="text-gray-500"></span>）</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-2">
+                <button id="refreshBtn" class="px-3 py-1.5 text-xs rounded border border-gray-300 text-gray-600 hover:bg-gray-100"><i class="fas fa-sync mr-1"></i>刷新</button>
+                <button id="logoutBtn" class="px-3 py-1.5 text-xs rounded border border-red-300 text-red-600 hover:bg-red-50"><i class="fas fa-sign-out-alt mr-1"></i>退出</button>
+            </div>
+        </div>
+
+        <!-- 汇总卡（服务器可拉取 summary 看整体效果） -->
+        <div id="summaryBar" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6"></div>
+
+        <!-- 分组用例表单 -->
+        <div id="groupsWrap" class="space-y-6"></div>
+
+        <p class="text-center text-xs text-gray-400 mt-8">提交的数据存于 public."TestResult"，测试结束后由开发从服务器拉取汇总。</p>
+    </div>
+
+    <script type="module">
+        import { authService } from '/js/services/AuthService.js';
+
+        const $ = (id) => document.getElementById(id);
+
+        // ═══ 用例清单（与 docs/浏览器验证操作流程-20260807.md 一一对应）═══
+        // case_group: wcn_业务 = 吴翠楠；zsp_备份 = 曾水平
+        const CASE_DEFS = [
+            { group: 'wcn_业务', groupName: '吴翠楠 · 业务功能复测（第一部分~第三部分 + 回归）', cases: [
+                { id: 'Q1-果蔬阶段A', title: 'Q1 复检显示·果蔬农残（阶段A 不刷新）' },
+                { id: 'Q1-果蔬阶段B', title: 'Q1 复检显示·果蔬农残（阶段B 刷新）' },
+                { id: 'Q1-果蔬阶段C', title: 'Q1 复检显示·果蔬农残（阶段C 切菜单）' },
+                { id: 'Q1-肉蛋', title: 'Q1 复检显示·肉蛋农残（三阶段）' },
+                { id: 'Q1-油', title: 'Q1 复检显示·食品油品质（三阶段）' },
+                { id: 'V8-基本信息', title: 'V8 基本信息「保存修改」无反应排查' },
+                { id: 'V8-界面定制', title: 'V8 界面定制「保存定制」无反应排查' },
+                { id: 'V1-肉蛋', title: 'V1 界面定制·肉蛋新增检测项目显示' },
+                { id: 'V1-果蔬', title: 'V1 界面定制·果蔬新增检测项目显示' },
+                { id: 'V6-帮助跳转', title: 'V6 登录页帮助中心跳转（子路径矛盾复现）' },
+                { id: 'V7-负向', title: 'V7 超管登录·学校代码非法输入负向' },
+                { id: '回归V2', title: '回归·停用/启用用户' },
+                { id: '回归V3', title: '回归·检测频率与月报页' },
+                { id: '回归V4', title: '回归·阈值/日历设置保存' },
+                { id: '回归V5', title: '回归·每日登录提示' },
+                { id: '回归V6地址', title: '回归·帮助链接子路径地址核对' },
+                { id: '回归V7正向', title: '回归·学校登录跳转正向' },
+            ]},
+            { group: 'zsp_备份', groupName: '曾水平 · 备份与恢复模块（第四部分 B1-B9）', cases: [
+                { id: 'B1', title: 'B1 运维备份 Tab 可见性（超管可见/非超管不可见）' },
+                { id: 'B2', title: 'B2 备份列表显示' },
+                { id: 'B3', title: 'B3 立即备份全部' },
+                { id: 'B4', title: 'B4 单校备份（独立测试学校）' },
+                { id: 'B5', title: 'B5 离线验证（表数一致）' },
+                { id: 'B6', title: 'B6 下载（密文 .aes / 明文 403）' },
+                { id: 'B7-负向', title: 'B7 影子恢复·确认词错误不执行' },
+                { id: 'B7-正向', title: 'B7 影子恢复·正向执行 + 数据回滚核对' },
+                { id: 'B7-旧schema', title: 'B7 旧 schema 保留与清理（SSH psql）' },
+                { id: 'B8', title: 'B8 维护模式写阻断（可选）' },
+                { id: 'B9', title: 'B9 SSH 侧检查（定时任务/文件权限/失败告警）' },
+            ]},
+        ];
+
+        const RESULT_OPTIONS = [
+            ['passed', '✅ 通过'],
+            ['failed', '❌ 失败'],
+            ['skipped', '⏭ 跳过'],
+            ['pending', '⏳ 待测'],
+        ];
+
+        function esc(s) {
+            if (s == null) return ''
+            return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+        }
+
+        function apiHeaders() { return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authService.getToken()}` } }
+
+        // ═══ 登录 ═══
+        $('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault()
+            const schoolCode = $('loginSchool').value.trim()
+            const username = $('loginUser').value.trim()
+            const password = $('loginPass').value
+            const btn = $('loginBtn')
+            btn.disabled = true; btn.textContent = '登录中…'
+            $('loginError').classList.add('hidden')
+            try {
+                const r = await authService.login(username, password, schoolCode, true)
+                if (!r.success) throw new Error(r.message || '登录失败')
+                enterApp()
+            } catch (err) {
+                const el = $('loginError')
+                el.textContent = '登录失败：' + (err.message || '请检查学校代码/用户名/密码')
+                el.classList.remove('hidden')
+            } finally {
+                btn.disabled = false; btn.textContent = '登 录'
+            }
+        })
+
+        function enterApp() {
+            $('loginWrap').classList.add('hidden')
+            $('reportWrap').classList.remove('hidden')
+            const u = authService.getCurrentUser && authService.getCurrentUser()
+            $('curUser').textContent = (u && u.username) || authService.getToken() ? '已登录' : '已登录'
+            loadAll()
+        }
+
+        // ═══ 加载已提交结果 + 汇总 ═══
+        async function loadAll() {
+            renderGroups()
+            loadSummary()
+            // 回填当前用户已提交的结果
+            try {
+                const r = await fetch(`/api/test-results?submitted_by=${encodeURIComponent($('curUser').textContent)}`, { headers: apiHeaders() })
+                const j = await r.json()
+                const map = {}
+                for (const it of (j.data || [])) map[it.case_id] = it
+                for (const g of CASE_DEFS) {
+                    for (const c of g.cases) {
+                        const rec = map[c.id]
+                        if (rec) fillRow(c.id, rec)
+                    }
+                }
+            } catch { /* 回填失败不阻断 */ }
+        }
+
+        function fillRow(caseId, rec) {
+            const sel = $(`sel_${caseId}`)
+            const det = $(`det_${caseId}`)
+            const evi = $(`evi_${caseId}`)
+            const st = $(`st_${caseId}`)
+            if (sel) { sel.value = rec.result; sel.classList.add(`result-${rec.result}`) }
+            if (det) det.value = rec.detail || ''
+            if (evi) evi.value = rec.evidence || ''
+            if (st) st.textContent = rec.updated_at ? `已保存 ${new Date(rec.updated_at).toLocaleString('zh-CN')}` : ''
+        }
+
+        // ═══ 渲染分组表单 ═══
+        function renderGroups() {
+            const wrap = $('groupsWrap')
+            wrap.innerHTML = CASE_DEFS.map((g) => `
+                <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                    <div class="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center gap-2">
+                        <i class="fas fa-user text-blue-500"></i>
+                        <h2 class="text-sm font-semibold text-gray-700">${esc(g.groupName)}</h2>
+                        <span class="text-xs text-gray-400 ml-1">（${g.cases.length} 项）</span>
+                    </div>
+                    <div class="divide-y divide-gray-100">
+                        ${g.cases.map((c) => `
+                        <div class="case-row px-4 py-3 grid grid-cols-12 gap-3 items-start">
+                            <div class="col-span-12 md:col-span-3">
+                                <div class="text-xs font-mono text-blue-600">${esc(c.id)}</div>
+                                <div class="text-xs text-gray-500 mt-0.5">${esc(c.title)}</div>
+                            </div>
+                            <div class="col-span-6 md:col-span-2">
+                                <select id="sel_${esc(c.id)}" class="w-full border rounded px-2 py-1.5 text-sm bg-white" onchange="this.classList.remove('result-passed','result-failed','result-skipped'); this.classList.add('result-'+this.value)">
+                                    ${RESULT_OPTIONS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}
+                                </select>
+                            </div>
+                            <div class="col-span-6 md:col-span-3">
+                                <input id="evi_${esc(c.id)}" type="text" class="w-full border rounded px-2 py-1.5 text-xs" placeholder="证据（截图/Network 记录/URL）">
+                            </div>
+                            <div class="col-span-10 md:col-span-3">
+                                <textarea id="det_${esc(c.id)}" rows="1" class="w-full border rounded px-2 py-1.5 text-xs" placeholder="实际表现（失败必填，说明现象）"></textarea>
+                            </div>
+                            <div class="col-span-2 md:col-span-1 flex flex-col items-end gap-1">
+                                <button type="button" data-case="${esc(c.id)}" data-title="${esc(c.title)}" data-group="${esc(g.group)}"
+                                    class="save-btn px-2 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700"><i class="fas fa-save mr-1"></i>保存</button>
+                                <span id="st_${esc(c.id)}" class="text-[10px] text-gray-400"></span>
+                            </div>
+                        </div>`).join('')}
+                    </div>
+                </div>`).join('')
+
+            wrap.querySelectorAll('.save-btn').forEach((b) => b.addEventListener('click', () => saveCase(b.dataset)))
+        }
+
+        // ═══ 保存单条 ═══
+        async function saveCase({ group, title, case: caseId }) {
+            const sel = $(`sel_${caseId}`)
+            const det = $(`det_${caseId}`)
+            const evi = $(`evi_${caseId}`)
+            const st = $(`st_${caseId}`)
+            const btn = event.target.closest('.save-btn')
+            btn.disabled = true
+            try {
+                const r = await fetch('/api/test-results', {
+                    method: 'POST',
+                    headers: apiHeaders(),
+                    body: JSON.stringify({ case_id: caseId, case_group: group, case_title: title, result: sel.value, detail: det.value, evidence: evi.value }),
+                })
+                const j = await r.json()
+                if (!j.success) throw new Error(j.error || '保存失败')
+                sel.classList.remove('result-passed', 'result-failed', 'result-skipped'); sel.classList.add(`result-${sel.value}`)
+                st.textContent = `已保存 ${new Date().toLocaleString('zh-CN')}`
+                loadSummary()
+            } catch (e) {
+                st.textContent = '保存失败'
+                alert('保存失败：' + e.message)
+            } finally { btn.disabled = false }
+        }
+
+        // ═══ 汇总 ═══
+        async function loadSummary() {
+            try {
+                const r = await fetch('/api/test-results/summary', { headers: apiHeaders() })
+                const j = await r.json()
+                const s = j.data || {}
+                const icons = { passed: 'text-green-600', failed: 'text-red-600', skipped: 'text-amber-500', pending: 'text-gray-400' }
+                const labels = { passed: '通过', failed: '失败', skipped: '跳过', pending: '待测' }
+                const bar = $('summaryBar')
+                bar.innerHTML = CASE_DEFS.map((g) => {
+                    const gs = s[g.group] || {}
+                    const total = g.cases.length
+                    const done = (gs.passed || 0) + (gs.failed || 0) + (gs.skipped || 0)
+                    return `<div class="bg-white rounded-lg border border-gray-200 p-3">
+                        <div class="text-xs font-semibold text-gray-600 mb-2">${esc(g.groupName.split(' · ')[0])}</div>
+                        <div class="text-2xl font-bold text-gray-800">${done}<span class="text-sm text-gray-400">/${total} 已测</span></div>
+                        <div class="text-xs mt-1 space-x-2">
+                            ${Object.keys(labels).map((k) => `<span class="${icons[k]}">${labels[k]} ${gs[k] || 0}</span>`).join('')}
+                        </div>
+                    </div>`
+                }).join('')
+            } catch { /* 汇总失败忽略 */ }
+        }
+
+        // ═══ 刷新 / 退出 ═══
+        $('refreshBtn').addEventListener('click', loadAll)
+        $('logoutBtn').addEventListener('click', async () => {
+            await authService.logout().catch(() => {})
+            location.reload()
+        })
+
+        // 若已登录直接进入
+        if (authService.getToken()) {
+            enterApp()
+        }
+    </script>
+</body>
+</html>

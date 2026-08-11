@@ -165,6 +165,10 @@
             <div class="flex items-center shrink-0">
                 <!-- P6 临时止损:移除"返回主界面"链接(原指向根 ./index.html,会触发根页面认证拦截踢人循环)。
                      本控制台即平台超管最高层入口,不存在更"主"的界面;若后续确认需"回到列表首屏"语义,另行实现。 -->
+                <!-- 临时测试工具:浏览器测试报告上报页（测试人员入口，超管可见） -->
+                <a href="/test-report.html" class="ml-3 text-sm px-3 py-1.5 bg-emerald-400 text-white font-semibold hover:bg-emerald-300 rounded-lg transition shadow">
+                    <i class="fas fa-clipboard-check mr-1"></i>测试报告
+                </a>
                 <button id="btnAccountMgmt" type="button" class="ml-3 text-sm px-3 py-1.5 bg-yellow-400 text-gray-900 font-semibold hover:bg-yellow-300 rounded-lg transition shadow">
                     <i class="fas fa-user-shield mr-1"></i>账号管理
                 </button>

@@ -219,6 +219,31 @@ model BackupRun {
   @@index([status])
 }
 
+// ========== 浏览器测试结果上报（临时测试工具）==========
+// 记录测试人员对「浏览器验证操作流程」中各用例的执行结果（通过/失败/跳过 + 证据描述）。
+// 权威副本位于 public schema（与 BackupRun 同模式：provisionSchool 全量 db push 会产生
+// 租户侧冗余空表，忽略即可）。用例编号对应文档：Q1/V1/V2...V8（业务）与 B1-B9（备份）。
+// 供服务器/开发拉取汇总，判断测试效果；测试人员用任意登录账号提交（authenticateUser）。
+
+model TestResult {
+  id           String   @id @default(cuid())
+  case_id      String   // 用例编号（Q1-果蔬阶段A / V8-基本信息 / B1 / B7 等，与测试文档一一对应）
+  case_group   String   // 分组：wcn_业务 / zsp_备份（对应吴翠楠 / 曾水平）
+  case_title   String   // 用例名称（冗余存中文标题，便于展示）
+  result       String   // passed / failed / skipped / pending
+  detail       String?  // 实际表现描述
+  evidence     String?  // 证据（截图/Network 记录等，可文本或 URL）
+  submitted_by String   // 提交人（登录 username）
+  submitted_by_role String? // 提交人角色
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  @@index([case_id])
+  @@index([case_group])
+  @@index([submitted_by])
+  @@index([created_at])
+}
+
 // ========== 会话管理（TD-Session）==========
 // 每校业务数据，落在租户 schema（与 User / AuditLog 同级）。记录活跃登录会话，
 // 支撑「强制登出其它设备」「并发会话限制」等能力。由前端 SessionManager 在登录/
