@@ -63,5 +63,9 @@ backend/prisma/prisma/*.db
 # npm cache (local build cache, not for repo)
 .npm/
 
-# 数据库备份目录（含加密备份 .aes / meta.json / 本地明文，均不入库）
+# 数据库备份目录（含加密备份 .aes / meta.json / 本地明文 / 表级 .sql，均不入库）
 backend/backups/
+backups/
+**/backups/*.sql
+**/backups/*.aes
+**/backups/*.json
