@@ -22,6 +22,7 @@ import idempotencyMiddleware from './middleware/idempotencyMiddleware.js'
 import { createAuthMiddleware } from './middleware/authMiddleware.js'
 import { createTenantMiddleware } from './middleware/tenantMiddleware.js'
 import { createSyncRoutes } from './routes/syncRoutes.js'
+import { createAdminBackupRoutes } from './routes/adminBackupRoutes.js'
 import frequencyRoutes from './routes/frequencyRoutes.js'
 import { provisionSchool, isValidSchoolCode } from './lib/tenantProvisioner.js'
 import { disconnectAllTenantClients, createTenantClient, schemaNameOf } from './lib/tenantClient.js'
@@ -595,6 +596,11 @@ app.use(cors({
     credentials: true
 }))
 app.use(express.json({ limit: process.env.BODY_LIMIT || '8mb' }))
+
+// P1 维护模式写阻断：READONLY_MODE=true 时所有写请求返回 503（配合 Caddy 网关层双保险，
+// 用于影子恢复 SWITCHING 窗口避免业务写入落到错误目标；审计写入豁免见 auditLog 内部直连）
+import { createReadOnlyGuard } from './middleware/readOnlyMiddleware.js'
+app.use(createReadOnlyGuard())
 
 // DS-10: 应用层安全响应头兜底（反向代理 deploy/ 亦应设置）
 app.use((_req, res, next) => {
@@ -1653,6 +1659,10 @@ app.use('/api/guest-export-request', guestExportRequestRoutes)
 // ====== Sync Routes ======
 const syncRoutes = createSyncRoutes(userManager, prisma)
 app.use('/api/sync', syncRoutes)
+
+// ====== Backup Management Routes（P1：运维备份控制台，仅平台超管）======
+const adminBackupRoutes = createAdminBackupRoutes({ prisma, authenticateUser, requirePlatformSuperAdmin })
+app.use('/api/admin/backups', adminBackupRoutes)
 
 // N1/N2/N3: 检测频率阈值 / 检测日历 / 检测月报
 // 需 authenticateUser 注入 req.db/req.user(与 /api/test-records 等一致)

@@ -188,11 +188,29 @@ psql -U <user> -d <db> -c 'BEGIN; ALTER SCHEMA "school_<code>" RENAME TO "school
 **PG 14 的 psql 不识别会报错**。生产链路（PG14 的 pg_dump → PG14 的 psql）不受影响；
 但任何跨机器/跨版本搬运备份时，必须保证**恢复端 psql 版本 ≥ 备份端 pg_dump 版本**。
 
-## 9. 阶段路线
+## 9. P1 使用说明（控制台「运维备份」Tab）
+
+管理控制台（admin-schools.html，平台超管）新增「运维备份」Tab：
+
+- **备份列表**：BackupRun 记录（时间/类型/学校/大小/校验状态），分页。
+- **立即备份全部 / 单校备份**：同步触发 pg_dump 备份（中小库秒级）。
+- **验证**：离线验证（解密 + sha256 + gunzip + 表数对比），结果回写 `verify_status`。
+- **下载**：`format=encrypted`（.aes + meta.json 配对保管）或 `plain`（明文，需 `BACKUP_PLAIN_DOWNLOAD_ALLOWED=true` 且建议 HTTPS/内网）。
+- **恢复（影子恢复）**：仅单校备份可恢复；恢复模态选目标学校 + 输入 `RESTORE` 确认词。
+  流程：解密 → 恢复至临时 schema `school_<code>_restore` → 行数校验（对照 meta.tableCounts）
+  → **单事务原子切换**（`ALTER SCHEMA` 双 rename，零窗口）→ 旧数据保留于 `school_<code>_old_<ts>`
+  → 确认无误后人工 `DROP SCHEMA "school_<code>_old_<ts>" CASCADE` 清理。
+  失败路径：自动 DROP 临时 schema，**原数据零影响**。
+
+后端 API：`/api/admin/backups`（列表 / run / download / verify / restore），全部要求平台超管。
+维护模式：`READONLY_MODE=true` 时应用层所有写请求返回 503（配合 Caddy `respond 503` 双保险），
+用于恢复 SWITCHING 窗口避免业务写入错目标；审计写入豁免（auditLog 内部直连 DB）。
+
+## 10. 阶段路线
 
 | 阶段 | 内容 | 状态 |
 |---|---|---|
-| P0 | 备份引擎 + timer + 加密 + L1 校验 + BackupRun | ✅ 本模块（已实现） |
-| P1 | 控制台 UI + 恢复 API + 影子恢复 + 维护模式 | 待排期 |
+| P0 | 备份引擎 + timer + 加密 + L1 校验 + BackupRun | ✅ 已实现 |
+| P1 | 控制台 UI + 恢复 API + 影子恢复 + 维护模式 | ✅ 已实现 |
 | P2 | WAL 归档（RPO 15min）+ 业务快照 + 跨校克隆 | 待排期 |
 | P3 | COS 归档 + HTTPS 化 + 演练报告 | 待排期 |

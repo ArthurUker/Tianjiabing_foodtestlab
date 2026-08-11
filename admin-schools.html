@@ -256,6 +256,9 @@
                 <button class="tab-btn px-4 py-2 font-medium text-gray-500 hover:text-blue-500 border-b-2 border-transparent" data-tab="users">
                     <i class="fas fa-users mr-1"></i>用户管理
                 </button>
+                <button class="tab-btn px-4 py-2 font-medium text-gray-500 hover:text-blue-500 border-b-2 border-transparent" data-tab="backup">
+                    <i class="fas fa-database mr-1"></i>运维备份
+                </button>
             </div>
 
             <!-- Tab: 基本信息 -->
@@ -675,6 +678,9 @@
                 </div>
             </div>
 
+            <!-- Tab: 运维备份（P1：仅平台超管，模块渲染面板） -->
+            <div id="tab-backup" class="tab-content hidden"></div>
+
             <!-- Tab: 用户管理 -->
             <div id="tab-users" class="tab-content hidden">
                 <div class="flex items-center justify-between mb-3">
@@ -924,6 +930,7 @@
         // 登录页样式设计器（独立模块）
         import { initLoginStyleDesigner } from '/js/modules/loginStyleDesigner.js';
         import { initSuperAdminAccount } from '/js/modules/SuperAdminAccount.js';
+        import { initBackupManager } from '/js/modules/backupManager.js';
 
         const API_BASE = getApiBaseUrl();
 
@@ -998,6 +1005,7 @@
         // 登录页样式设计器（独立模块实例，与「界面定制」解耦，单独加载/保存）
         const loginStyleDesigner = initLoginStyleDesigner({ API_BASE, authHeaders, notify: showNotice });
         const superAdminAccount = initSuperAdminAccount({ notify: showNotice });
+        const backupManager = initBackupManager({ API_BASE, authHeaders, notify: showNotice });
 
         // ====== 主题预设 ======
         // 预设主题（定义见 js/utils/themePresets.js）
@@ -2218,6 +2226,7 @@
             }
             if (tab === 'users') loadUsers();
             if (tab === 'login') loginStyleDesigner.load(currentSchoolCode);
+            if (tab === 'backup') backupManager.load();
         }
 
         document.getElementById('closeDetail').addEventListener('click', () => {
