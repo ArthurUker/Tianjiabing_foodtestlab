@@ -161,8 +161,10 @@ export function createTestResultRoutes(userManager, prisma) {
         if (buf.length > MAX_FILE_BYTES) {
           return res.status(400).json({ success: false, error: `单张图片不能超过 ${MAX_FILE_BYTES / 1024 / 1024}MB` })
         }
+        // 磁盘目录统一用【原始中文 case_id】（与 relPath / GET 读取解码路径一致，避免 Caddy/Express 解码后找不到）；
+        // URL 中仍用 encodeURIComponent 编码形式（浏览器请求时自动编码，服务端解码回中文匹配磁盘目录）。
         const encCaseId = encodeURIComponent(case_id)
-        const dir = path.join(EVIDENCE_STORE_DIR, encCaseId)
+        const dir = path.join(EVIDENCE_STORE_DIR, case_id)
         fs.mkdirSync(dir, { recursive: true })
         const filename = `${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`
         fs.writeFileSync(path.join(dir, filename), buf)

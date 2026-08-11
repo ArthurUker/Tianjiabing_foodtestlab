@@ -75,7 +75,9 @@ function parseEvidenceList(evidence) {
         decCaseId,
         file,
         caseTitle: def ? def.title : decCaseId,
-        relPath: `evidence/${encCaseId}/${encodeURIComponent(file)}`, // 相对 docs/test-results/latest/
+        // relPath 用【解码中文名】做目录：浏览器请求时自动 URL 编码，Caddy 解码后匹配磁盘中文目录。
+        // 若用编码名做目录，Caddy 收到解码后的路径找不到文件，会 SPA fallback 返回 HTML 导致图片碎裂。
+        relPath: `evidence/${decCaseId}/${encodeURIComponent(file)}`, // 相对 docs/test-results/latest/
       })
     } else if (/^https?:\/\//i.test(t)) {
       list.push({ raw: t, type: 'url', url: t })
@@ -354,10 +356,10 @@ export async function syncTestResultDocs({ prisma, outDir = DOCS_OUT_DIR, eviden
     for (const it of g.items) {
       for (const ev of it.evidence_list) {
         if (ev.type !== 'local') continue
-        // 上传时目录名 = encodeURIComponent(case_id)（见 testResultRoutes.js /upload），源用 encCaseId
-        const src = path.join(evidenceDir, ev.encCaseId, ev.file)
+        // 源目录与输出目录统一用【解码中文名】（上传路由已改为中文目录，见 testResultRoutes.js /upload）
+        const src = path.join(evidenceDir, ev.decCaseId, ev.file)
         if (!fs.existsSync(src)) continue
-        const dstDir = path.join(evOutDir, ev.encCaseId)
+        const dstDir = path.join(evOutDir, ev.decCaseId)
         fs.mkdirSync(dstDir, { recursive: true })
         fs.copyFileSync(src, path.join(dstDir, ev.file))
         evidenceCopied += 1
