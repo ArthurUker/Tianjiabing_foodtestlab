@@ -95,14 +95,14 @@ export function downscaleImageData(srcCanvas, maxLongEdge = 800) {
   const tw = Math.round(sw * scale), th = Math.round(sh * scale);
   const tmp = document.createElement('canvas');
   tmp.width = tw; tmp.height = th;
-  tmp.getContext('2d').drawImage(srcCanvas, 0, 0, tw, th);
+  tmp.getContext('2d', { willReadFrequently: true }).drawImage(srcCanvas, 0, 0, tw, th);
   return tmp;
 }
 
 // 取 ROI 平均 RGB（0-255）
 // 自动忽略极亮/极暗像素（防手指反光 / 全黑边缘干扰）
 export function avgRGB(canvas, x, y, w, h) {
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
   const data = ctx.getImageData(x, y, w, h).data;
   let R = 0, G = 0, B = 0, n = 0;
   for (let i = 0; i < data.length; i += 4) {
@@ -144,7 +144,7 @@ function computeSaliencyMap(imageData) {
 //   阶段A: 行投影找色卡的纵向 y 范围（横向大段高饱和度 = 色卡带）
 //   阶段B: 在该 y 范围内做列投影，定位 7 个色块的 x 中心
 function locateColorBlocks(canvas) {
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
   const W = canvas.width, H = canvas.height;
   const imageData = ctx.getImageData(0, 0, W, H);
   const sal = computeSaliencyMap(imageData).map;
@@ -220,19 +220,19 @@ function locateColorBlocks(canvas) {
       debug: { yCardTop, yCardBottom, peaks, colBase },
     };
   }
-  const gaps = [];
-  for (let i = 1; i < peaks.length; i++) gaps.push(peaks[i] - peaks[i - 1]);
-  const gapMean = gaps.reduce((a, b) => a + b, 0) / gaps.length;
-  const gapVar = gaps.reduce((a, b) => a + (b - gapMean) ** 2, 0) / gaps.length;
-  const gapCV = Math.sqrt(gapVar) / (gapMean || 1);
-  if (peaks.length === 7 && gapCV > 0.5) {
-    return {
-      ok: false, error: 'CARD_SHAPE_MISMATCH',
-      hint: `列间距变异系数 ${gapCV.toFixed(2)} > 0.5（gaps=${gaps.join(',')}）`,
-      debug: { peaks, gaps, gapMean, gapCV, yCardTop, yCardBottom },
-    };
-  }
+  // 7 个峰值时也放宽容（CV>0.5 视为相邻色块挤在一起，让等距补全自动兜底）
+  // 这样聚焦在可见色块的位置，不再因几何严格而拒识。
 
+  // 单个峰值时无法估算 step，用色卡宽度粗估（约像素宽 600 时每色块约 85px 间距）
+  let gapMean;
+  if (peaks.length >= 2) {
+    let gapSum = 0;
+    for (let i = 1; i < peaks.length; i++) gapSum += (peaks[i] - peaks[i - 1]);
+    gapMean = gapSum / (peaks.length - 1);
+  } else {
+    // 兜底：用色卡右侧位置减去左侧位置除以 6（7 等分）
+    gapMean = (peaks[peaks.length - 1] - peaks[0]) / 6;
+  }
   const blockHalfW = Math.max(8, Math.round(gapMean / 2.7));
   const blocks = [];
   for (const x of peaks) {
@@ -250,7 +250,7 @@ function locateColorBlocks(canvas) {
       x: Math.round(r.x), y: Math.round(r.y),
       w: Math.round(r.w), h: Math.round(r.h),
     })),
-    debug: { yCardTop, yCardBottom, peaks, gapMean, gapCV },
+    debug: { yCardTop, yCardBottom, peaks, gapMean },
   };
 }
 
@@ -339,7 +339,7 @@ function findBlockVerticalBounds(sal, W, H, cx, halfW, SAT_THRESH, y0 = 0, y1 = 
 // 在色卡 4 个方向（上、下、左、右）的扩展范围内找"垂直长条形高饱和度区域"
 // 返回矩形（液层中心区域）
 function locateCentrifugeTube(canvas, colorBlocks) {
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
   const W = canvas.width, H = canvas.height;
   const card = colorBlocks;
   const cardLeft = Math.min(...card.map(b => b.x));
@@ -606,7 +606,9 @@ export function analyzeDetergentImage(srcCanvas, options = {}) {
     const xCenter = trialLeftX + i * step;
     if (i >= firstIdx && i < firstIdx + sortedBlocks.length) {
       const b = sortedBlocks[i - firstIdx];
-      fullBlocks.push({ ...b, blockIdx: i, inferred: false });
+      // 重要：locateColorBlocks 返回的 block 只有 {x,y,w,h}，必须显式注入 concentration，
+      // 否则 matchColorByLab 里 main.concentration 会变 undefined → formatConcentration(v) 报错
+      fullBlocks.push({ ...b, blockIdx: i, concentration: concentrations[i], inferred: false });
     } else {
       // 缺失色块：根据相邻色块位置推算（用整个色卡的 y 范围 + 估算 x 范围）
       const halfW = (sortedBlocks[0].w || 20) / 2;
@@ -652,7 +654,7 @@ export function analyzeDetergentImage(srcCanvas, options = {}) {
 
   return {
     ok: true,
-    blocks: calibratedBlocks,
+    blocks: fullBlocks,
     tube,
     tubeZone: tubeResult.zone,
     sampleColor,
@@ -676,7 +678,7 @@ function humanMessageForError(code) {
 function runQualityControl({ blocks, tube, match, canvas }) {
   const notes = [];
   // 1. 检查亮度和曝光
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
   const id = ctx.getImageData(0, 0, canvas.width, canvas.height);
   let brightSum = 0, brightN = 0;
   for (let i = 0; i < id.data.length; i += 4) {
@@ -721,7 +723,7 @@ function runQualityControl({ blocks, tube, match, canvas }) {
  * 把识别结果叠加绘制到 canvas 上，用可视化方式展示每一步的中间产物
  */
 export function drawOverlay(canvas, result, options = {}) {
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
   const scaleX = canvas.width / (result.canvasSize?.width || canvas.width);
   const scaleY = canvas.height / (result.canvasSize?.height || canvas.height);
   const sx = options.scaleX || scaleX;

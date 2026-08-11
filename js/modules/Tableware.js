@@ -417,12 +417,13 @@ function showEditModal(record, currentUser) {
 // P2-洗涤剂残留复检修复：复检点位需区分检测类型（atp=表面清洁度 RLU / detergent=洗涤剂残留浓度），
 // 洗涤剂残留按 GB 判定标准「≤0.005 mg/100cm² 合格」，不再与表面清洁度共用 RLU 判定。
 function getSimplePointTemplate(defaultLoc, testType) {
-    const isDetergent = testType === 'detergent';
+    const isDetergent = testType === 'detergent' || testType === 'detergentImage';
+    const isDetImg = testType === 'detergentImage';
     return `
         <div class="grid grid-cols-3 gap-2">
-            <input type="hidden" name="recheckType" value="${testType === 'detergent' ? 'detergent' : 'atp'}">
+            <input type="hidden" name="recheckType" value="${isDetergent ? 'detergent' : 'atp'}">
             <input type="text" name="loc" value="${defaultLoc}" placeholder="点位名称" class="border p-2 rounded text-sm w-full">
-            <input type="number" name="rlu" placeholder="${isDetergent ? '洗涤剂浓度值' : 'RLU值'}" step="${isDetergent ? '0.001' : '1'}" min="0" class="border p-2 rounded text-sm w-full">
+            <input type="number" name="rlu" placeholder="${isDetImg ? '识别浓度(mg/L)' : isDetergent ? '洗涤剂浓度值' : 'RLU值'}" step="${isDetergent ? '0.001' : '1'}" min="0" class="border p-2 rounded text-sm w-full">
             <input type="text" name="res" readonly placeholder="结果" class="border p-2 rounded text-sm bg-gray-100 w-full">
         </div>
     `;
@@ -433,18 +434,8 @@ function bindRluCalc(container, testType) {
     const input = container.querySelector('[name="rlu"]');
     const output = container.querySelector('[name="res"]');
     input.addEventListener('input', () => {
-        if (testType === 'detergent') {
-            // 洗涤剂残留判定标准（GB）：浓度 ≤0.005 mg/100cm² 合格
-            const v = parseFloat(input.value);
-            if (input.value === '' || isNaN(v)) {
-                output.value = '';
-            } else {
-                output.value = v <= 0.005 ? '合格 (≤0.005)' : '不合格 (>0.005)';
-            }
-        } else {
-            const val = parseInt(input.value) || 0;
-            output.value = determineResult(val);
-        }
+        // 复用模块级判定逻辑（含图检 mg/L 判定）
+        output.value = getResultText(testType, input.value);
         // 优先判断不合格
         if(output.value.includes('不合格')) output.className = "border p-2 rounded text-sm bg-red-100 text-red-800 w-full";
         else if(output.value.includes('警戒')) output.className = "border p-2 rounded text-sm bg-yellow-100 text-yellow-800 w-full";
@@ -459,6 +450,23 @@ function determineResult(rluValue) {
     if (rluValue < 200) return '合格 (<200)';
     if (rluValue <= 500) return '警戒 (200-500)';
     return '不合格 (>500)';
+}
+
+// 模块级判定文本（供点位闭包与图检回填共用）
+function getResultText(type, val) {
+    if (type === 'detergent') {
+        const v = parseFloat(val);
+        if (isNaN(v) || val === '') return '';
+        return v <= 0.005 ? '合格 (≤0.005)' : '不合格 (>0.005)';
+    }
+    if (type === 'detergentImage') {
+        const v = parseFloat(val);
+        if (isNaN(v) || val === '') return '';
+        if (v <= 0.05) return '合格 (≤0.05)';
+        if (v <= 0.1) return '警戒 (0.05~0.1)';
+        return '不合格 (>0.1)';
+    }
+    return determineResult(parseInt(val) || 0);
 }
 
 // 修复：调整判断顺序，先判断"不合格"
@@ -731,12 +739,7 @@ function handleFormSubmit(e) {
             if (locationEl?.value && rluEl?.value) {
                 let res = div.querySelector('[name="result"]').value;
                 if (!res) {
-                    if (testType === 'detergent') {
-                        const v = parseFloat(rluEl.value);
-                        res = isNaN(v) ? '' : (v <= 0.005 ? '合格 (≤0.005)' : '不合格 (>0.005)');
-                    } else {
-                        res = determineResult(parseInt(rluEl.value) || 0);
-                    }
+                    res = getResultText(testType, rluEl.value);
                 }
                 points.push({
                     loc: locationEl.value,
@@ -909,10 +912,13 @@ function renderTable() {
 
         points.forEach((p, idx) => {
             const isDetergent = p.testType === 'detergent';
+            const isDetImg = p.testType === 'detergentImage';
             const typeLabel = getTablewareTestTypeLabel(p.testType);
             const valueDisplay = isDetergent
                 ? `${p.rlu} <span class="text-xs text-gray-500">mg/100cm<sup>2</sup></span>`
-                : p.rlu;
+                : isDetImg
+                    ? `${p.rlu} <span class="text-xs text-gray-500">mg/L</span>`
+                    : p.rlu;
             const resultText = p.res || '-';
             // P2-24: 与 GenericTest 统一——结果徽标用三元色、无图标、圆角胶囊
             const resultColorClass = (resultText.includes('合格') && !resultText.includes('不合格'))
@@ -1139,7 +1145,7 @@ function getLocationOptionsByType(type) {
         }
     } catch (_) { /* 忽略，使用硬编码默认 */ }
 
-    if (type === 'detergent') {
+    if (type === 'detergent' || type === 'detergentImage') {
         return [
             { value: '', label: '请选择点位' },
             { value: '不锈钢餐具', label: '不锈钢餐具' },
@@ -1171,7 +1177,8 @@ function getTablewareTestTypeOptions() {
     } catch (_) { /* ignore */ }
     return [
         { value: 'atp', label: '表面清洁度' },
-        { value: 'detergent', label: '洗涤剂残留' }
+        { value: 'detergent', label: '洗涤剂残留' },
+        { value: 'detergentImage', label: '洗涤剂残留·自动识别' }
     ];
 }
 
@@ -1183,7 +1190,9 @@ function getTablewareTestTypeLabel(value) {
         const found = opts.find(o => o.value === value);
         if (found) return found.label;
     } catch (_) { /* ignore */ }
-    return value === 'detergent' ? '洗涤剂残留' : '表面清洁度';
+    if (value === 'detergent') return '洗涤剂残留';
+    if (value === 'detergentImage') return '洗涤剂残留(图检)';
+    return '表面清洁度';
 }
 
 function escAttr(s) {
@@ -1211,6 +1220,9 @@ function bindPointEvents(pointDiv) {
             locationSelect.value = hasCurrentOption ? currentValue : '';
         }
 
+        const aiBtn = pointDiv.querySelector('.btn-ai-detect');
+        const aiHint = pointDiv.querySelector('.ai-hint');
+
         if (type === 'detergent') {
             if (valueLabel) valueLabel.innerHTML = '洗涤剂浓度值 <span class="text-red-500">*</span>';
             if (rluInput) {
@@ -1222,6 +1234,21 @@ function bindPointEvents(pointDiv) {
                 unitLabel.textContent = 'mg/100cm²';
                 unitLabel.classList.remove('hidden');
             }
+            if (aiBtn) aiBtn.classList.add('hidden');
+            if (aiHint) aiHint.classList.add('hidden');
+        } else if (type === 'detergentImage') {
+            if (valueLabel) valueLabel.innerHTML = '识别浓度值 (mg/L) <span class="text-red-500">*</span>';
+            if (rluInput) {
+                rluInput.placeholder = '点击按钮拍照自动识别';
+                rluInput.step = '0.001';
+                rluInput.min = '0';
+            }
+            if (unitLabel) {
+                unitLabel.textContent = 'mg/L';
+                unitLabel.classList.remove('hidden');
+            }
+            if (aiBtn) aiBtn.classList.remove('hidden');
+            if (aiHint) aiHint.classList.remove('hidden');
         } else {
             if (valueLabel) valueLabel.innerHTML = 'RLU读数 <span class="text-red-500">*</span>';
             if (rluInput) {
@@ -1233,6 +1260,8 @@ function bindPointEvents(pointDiv) {
                 unitLabel.textContent = '';
                 unitLabel.classList.add('hidden');
             }
+            if (aiBtn) aiBtn.classList.add('hidden');
+            if (aiHint) aiHint.classList.add('hidden');
         }
         if (rluInput && rluInput.value) {
             recalcResult(type, rluInput.value, resultField);
@@ -1244,16 +1273,7 @@ function bindPointEvents(pointDiv) {
 
     function recalcResult(type, val, field) {
         if (!field) return;
-        if (type === 'detergent') {
-            const v = parseFloat(val);
-            if (isNaN(v) || val === '') {
-                field.value = '';
-            } else {
-                field.value = v <= 0.005 ? '合格 (≤0.005)' : '不合格 (>0.005)';
-            }
-        } else {
-            field.value = determineResult(parseInt(val) || 0);
-        }
+        field.value = getResultText(type, val);
         updateResultFieldStyle(field);
     }
 
@@ -1271,6 +1291,74 @@ function bindPointEvents(pointDiv) {
             recalcResult(type, rluInput.value, resultField);
         });
     }
+
+    // 拍照自动识别：打开内嵌 demo 弹窗，识别结果经 postMessage 回填
+    const aiBtn = pointDiv.querySelector('.btn-ai-detect');
+    if (aiBtn) {
+        aiBtn.addEventListener('click', () => {
+            openAiDetectModal(pointDiv);
+        });
+    }
+}
+
+// ============================================================================
+// 洗涤剂残留·拍照自动识别（iframe 内嵌 demo 页）
+// ============================================================================
+
+let _aiDetectModalActive = null; // 当前绑定的点位元素
+
+function openAiDetectModal(pointDiv) {
+    // 弹窗内容：内嵌 demo 页面（?embed=1）
+    const demoUrl = new URL('detergent-image-demo.html', window.location.href);
+    demoUrl.searchParams.set('embed', '1');
+
+    const modal = document.createElement('div');
+    modal.id = 'aiDetectModal';
+    modal.className = 'fixed inset-0 bg-black bg-opacity-50 z-[100] flex items-center justify-center p-4';
+    modal.innerHTML = `
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden">
+            <div class="p-4 border-b flex justify-between items-center bg-gray-50">
+                <h3 class="font-bold text-gray-800 flex items-center">
+                    <i class="fas fa-camera text-blue-600 mr-2"></i>洗涤剂残留 · 拍照自动识别
+                </h3>
+                <div class="flex items-center gap-3">
+                    <span class="text-xs text-gray-500 hidden md:inline">识别结果会自动回填到当前检测点位</span>
+                    <button id="aiDetectClose" class="text-gray-500 hover:text-gray-700 text-xl"><i class="fas fa-times"></i></button>
+                </div>
+            </div>
+            <div class="flex-1 overflow-auto bg-gray-100">
+                <iframe id="aiDetectFrame" src="${demoUrl.href}" class="w-full h-full" style="min-height: 65vh; border: 0;" title="洗涤剂残留图像识别"></iframe>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    modal.querySelector('#aiDetectClose').onclick = () => modal.remove();
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    _aiDetectModalActive = pointDiv;
+}
+
+// 监听 demo 页回传的识别结果
+document.addEventListener('message', handleAiDetectMessage);
+window.addEventListener('message', handleAiDetectMessage);
+function handleAiDetectMessage(e) {
+    const d = e.data;
+    if (!d || d.type !== 'DETERGENT_RESULT') return;
+    const pointDiv = _aiDetectModalActive;
+    if (!pointDiv || !document.body.contains(pointDiv)) return;
+
+    const rluInput = pointDiv.querySelector('[name="rluValue"]');
+    const resultField = pointDiv.querySelector('[name="result"]');
+    if (rluInput) {
+        rluInput.value = d.value;
+    }
+    if (resultField) {
+        resultField.value = getResultText('detergentImage', String(d.value));
+        updateResultFieldStyle(resultField);
+    }
+    // 关闭弹窗
+    document.getElementById('aiDetectModal')?.remove();
+    _aiDetectModalActive = null;
+    UINotification.success(`✅ 已回填识别结果：${d.valueText} mg/L（${d.judge}）`);
 }
 
 function getPointTemplate(removable = false) {
@@ -1298,6 +1386,12 @@ function getPointTemplate(removable = false) {
                 <div class="flex items-center gap-1">
                     <input type="number" name="rluValue" class="w-full border border-gray-300 p-2 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500" required placeholder="输入RLU读数">
                     <span class="unit-label text-xs text-gray-500 whitespace-nowrap hidden"></span>
+                </div>
+                <div class="mt-2">
+                    <button type="button" class="btn-ai-detect hidden w-full bg-blue-600 text-white px-3 py-2 rounded-md shadow-sm hover:bg-blue-700 transition flex items-center justify-center text-sm gap-2">
+                        <i class="fas fa-camera"></i>拍照自动识别
+                    </button>
+                    <p class="text-xs text-gray-500 mt-1 ai-hint hidden">上传"比色卡+离心管"照片，自动识别洗涤剂浓度</p>
                 </div>
             </div>
             <div>

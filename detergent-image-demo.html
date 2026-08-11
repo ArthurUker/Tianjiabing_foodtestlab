@@ -219,6 +219,14 @@
 
       <div class="panel" id="resultPanel" style="display:none">
         <h2><i class="fas fa-chart-bar"></i> 识别结果</h2>
+        <div id="embedActions" style="display:none; margin-bottom: 12px;">
+          <button class="btn primary" id="btnConfirmResult" style="width:100%; justify-content:center; padding:12px; font-size:15px;">
+            <i class="fas fa-check-circle"></i> 确认此结果，并回填到检测表单
+          </button>
+          <p style="font-size:11px; color:var(--c-muted); margin:6px 0 0; text-align:center;">
+            回填后请回到原页面检查数值是否合理（主判值将写入「洗涤剂浓度值」）
+          </p>
+        </div>
         <div class="result-grid" id="resultGrid"></div>
         <div id="qcSection" class="qc-notes"></div>
         <details>
@@ -244,7 +252,7 @@
   </main>
 
   <script type="module">
-    import { analyzeDetergentImage, drawOverlay, formatConcentrationList } from './js/utils/detergentColorimetry.js';
+    import { analyzeDetergentImage, drawOverlay, formatConcentrationList } from '/js/utils/detergentColorimetry.js';
 
     const concentrations = [0, 0.01, 0.05, 0.1, 0.5, 1.0, 2.0];
 
@@ -266,9 +274,21 @@
     let lastImg = null; // 上次图片（HTMLImageElement）
     let lastResult = null;
 
-    // 页面打开自动跑一次合成测试图，省去冷启动步骤
+    // 嵌入模式（被主系统 iframe 打开时 ?embed=1）：隐藏独立页面元素、识别后显示"回填"按钮
+    const isEmbed = new URLSearchParams(location.search).get('embed') === '1';
+    if (isEmbed) {
+      document.querySelector('header').style.display = 'none';
+      document.querySelector('.panel:nth-of-type(2)').style.display = 'none'; // 拍摄SOP隐藏（主系统点位表单里已有提示）
+      document.querySelector('.panel:nth-of-type(3)').style.display = 'none'; // 图例
+      const uploadZoneEl = document.getElementById('uploadZone');
+      if (uploadZoneEl) uploadZoneEl.querySelector('p:nth-of-type(2)').textContent = '识别完成后点击下方「确认并回填」返回检测表单';
+      const sampleBtn = document.getElementById('btnSample');
+      if (sampleBtn) sampleBtn.style.display = 'none'; // 嵌入模式不展示合成测试图
+    }
+
+    // 页面打开自动跑一次合成测试图，省去冷启动步骤（嵌入模式跳过，等用户传图）
     window.addEventListener('DOMContentLoaded', () => {
-      setTimeout(() => btnSample.click(), 200);
+      if (!isEmbed) setTimeout(() => btnSample.click(), 200);
     });
 
     // ============= 上传 =============
@@ -495,8 +515,11 @@
         return `<tr class="${cls}"><td>${d.concentration} mg/L</td><td>${d.deltaE}</td><td>#${i + 1}</td></tr>`;
       }).join('');
 
-      // 色块颜色
+      // 色块颜色（推断色块无实测色，显示占位）
       blocksTable.innerHTML = result.blocks.map(b => {
+        if (b.inferred || !b.color || !b.lab) {
+          return `<tr><td>${b.blockIdx + 1}</td><td>${b.concentration} mg/L</td><td colspan="2" style="color:var(--c-muted);">推断位置（未取色）</td></tr>`;
+        }
         const [R, G, Bl] = b.color.map(v => v | 0);
         const { L, a, bb } = b.lab;
         return `<tr><td>${b.blockIdx + 1}</td><td>${b.concentration} mg/L</td><td>rgb(${R},${G},${Bl})</td><td>${L.toFixed(1)}, ${a.toFixed(1)}, ${bb.toFixed(1)}</td></tr>`;
@@ -509,6 +532,31 @@
         <p style="margin: 4px 0;">实测 Lab: L*${result.sampleLab.L.toFixed(1)}, a*${result.sampleLab.a.toFixed(1)}, b*${result.sampleLab.b.toFixed(1)}</p>
         <p style="margin: 4px 0;">插值可用: ${result.refinementAvailable ? '是' : '否'}</p>
       `;
+
+      // 嵌入模式：显示"确认并回填"按钮，记录结果供回填
+      const embedActions = document.getElementById('embedActions');
+      if (isEmbed && embedActions) {
+        embedActions.style.display = 'block';
+        const btn = document.getElementById('btnConfirmResult');
+        // 解除旧监听（每次渲染重建）
+        btn.onclick = null;
+        btn.onclick = () => {
+          const payload = {
+            type: 'DETERGENT_RESULT',
+            value: result.mainValue,
+            valueText: result.mainValueText,
+            judge: judgeText,
+            deltaE: result.deltaE,
+            confidence: result.confidence,
+            refinedValue: result.refinedValue,
+          };
+          window.parent.postMessage(payload, '*');
+          // 提示已发送
+          btn.innerHTML = '<i class="fas fa-check"></i> 已回填，请回到原页面';
+          btn.disabled = true;
+          setTimeout(() => { if (btn && btn.parentElement) btn.parentElement.parentElement.style.display = 'none'; }, 800);
+        };
+      }
     }
   </script>
 </body>
