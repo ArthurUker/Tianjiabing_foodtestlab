@@ -135,6 +135,12 @@ export function initDashboard() {
         
         // 加载初始数据
         console.log('🔧 加载初始数据...');
+        // TD-DashboardZero: 首次进入看板前强制 force-sync 各 StorageService，绕过 30s cooldown，
+        // 否则冷却期内 getAll() 永远返回上次的 localStorage 缓存，新会话登录会看到一片 0
+        Promise.allSettled(Object.values(services).map((s) => s._syncFromApi(true))).then(() => {
+            loadDashboardData()
+        })
+        // 即便 Promise.allSettled 触发延迟，也立即同步渲染一次（使用本地缓存）
         loadDashboardData();
         
         // ✨ 快速访问模式：添加后备数据加载
