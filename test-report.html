@@ -55,15 +55,15 @@
                     <p class="text-xs text-gray-400">当前用户：<b id="curUser" class="text-gray-600"></b>（<span id="curRole" class="text-gray-500"></span>）</p>
                     <div class="mt-1 flex items-center gap-2">
                         <label for="testerName" class="text-[10px] text-amber-600 font-medium shrink-0">测试人员姓名</label>
-                        <input id="testerName" type="text" maxlength="50" placeholder="填姓名，便于同账号多人区分（保存后自动记住）" class="w-64 border rounded px-2 py-1 text-xs border-amber-300">
+                        <input id="testerName" type="text" maxlength="50" placeholder="填姓名，便于同账号多人区分（保存后自动记住）" class="flex-1 min-w-0 border rounded px-2 py-1.5 text-sm sm:text-xs border-amber-300">
                     </div>
                 </div>
             </div>
-            <div class="flex items-center gap-2">
-                <button id="saveAllBtn" title="把当前页所有已填写的测试结果一次性保存" class="px-4 py-2 text-sm rounded-lg bg-emerald-600 text-white font-semibold shadow hover:bg-emerald-700"><i class="fas fa-save mr-1"></i>保存全部</button>
-                <button id="syncBtn" title="保存后点这里：重新生成汇总报告并同步给所有测试人员" class="px-4 py-2 text-sm rounded-lg bg-indigo-600 text-white font-semibold shadow hover:bg-indigo-700"><i class="fas fa-cloud-upload-alt mr-1"></i>同步</button>
-                <button id="refreshBtn" class="px-3 py-1.5 text-xs rounded border border-gray-300 text-gray-600 hover:bg-gray-100"><i class="fas fa-sync mr-1"></i>刷新</button>
-                <button id="logoutBtn" class="px-3 py-1.5 text-xs rounded border border-red-300 text-red-600 hover:bg-red-50"><i class="fas fa-sign-out-alt mr-1"></i>退出</button>
+            <div class="flex flex-wrap items-center gap-2">
+                <button id="saveAllBtn" title="把当前页所有已填写的测试结果一次性保存" class="px-4 py-2 text-sm rounded-lg bg-emerald-600 text-white font-semibold shadow hover:bg-emerald-700 flex-1 sm:flex-none"><i class="fas fa-save mr-1"></i>保存全部</button>
+                <button id="syncBtn" title="保存后点这里：重新生成汇总报告并同步给所有测试人员" class="px-4 py-2 text-sm rounded-lg bg-indigo-600 text-white font-semibold shadow hover:bg-indigo-700 flex-1 sm:flex-none"><i class="fas fa-cloud-upload-alt mr-1"></i>同步</button>
+                <button id="refreshBtn" class="px-3 py-2 text-xs rounded border border-gray-300 text-gray-600 hover:bg-gray-100"><i class="fas fa-sync mr-1"></i>刷新</button>
+                <button id="logoutBtn" class="px-3 py-2 text-xs rounded border border-red-300 text-red-600 hover:bg-red-50"><i class="fas fa-sign-out-alt mr-1"></i>退出</button>
             </div>
         </div>
 
@@ -91,8 +91,8 @@
                 </div>
                 <div>
                     <div class="flex items-center justify-between mb-1">
-                        <span class="text-[10px] text-gray-400">分步截图（按问题出现顺序一步一步加）</span>
-                        <button type="button" id="issueStepAdd" class="px-2 py-0.5 text-[10px] rounded bg-emerald-600 text-white hover:bg-emerald-700"><i class="fas fa-plus mr-0.5"></i>添加一步</button>
+                        <span class="text-xs font-semibold text-gray-600"><i class="fas fa-images text-emerald-500 mr-1"></i>分步截图（按问题出现顺序一步一步加）</span>
+                        <button type="button" id="issueStepAdd" class="px-3 py-1 text-xs font-medium rounded bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm"><i class="fas fa-plus mr-1"></i>添加一步</button>
                     </div>
                     <div id="issueStepWrap" class="space-y-1.5">
                         <div class="text-[10px] text-gray-300 py-0.5">点击"添加一步"，按复现顺序逐步骤传截图</div>
@@ -263,23 +263,23 @@
             if (!wrap) return
             const arr = Array.isArray(steps) ? steps : []
             wrap.innerHTML = arr.map((s, i) => `
-                <div data-step="${i}" class="border border-gray-200 rounded p-1.5 bg-white space-y-1">
-                    <div class="flex items-center gap-1">
+                <div data-step="${i}" class="border border-gray-200 rounded p-2 sm:p-1.5 bg-white space-y-1.5">
+                    <div class="flex items-center gap-1 flex-wrap">
                         <span class="text-[10px] font-bold text-gray-500 shrink-0">第 ${i + 1} 步</span>
-                        <input class="step-cap flex-1 min-w-0 border rounded px-1.5 py-0.5 text-[10px]" placeholder="本步说明，如：输入账号密码点登录" value="${esc(s.caption || '')}">
+                        <input class="step-cap flex-1 min-w-0 border rounded px-2 py-1.5 sm:px-1.5 sm:py-0.5 text-sm sm:text-[10px]" placeholder="本步说明，如：输入账号密码点登录" value="${esc(s.caption || '')}">
                         <div class="flex gap-0.5 shrink-0">
-                            <button type="button" data-move="up" title="上移" class="step-move px-1.5 text-[10px] rounded border border-gray-300 text-gray-500 hover:bg-gray-100"><i class="fas fa-arrow-up"></i></button>
-                            <button type="button" data-move="down" title="下移" class="step-move px-1.5 text-[10px] rounded border border-gray-300 text-gray-500 hover:bg-gray-100"><i class="fas fa-arrow-down"></i></button>
-                            <button type="button" data-del title="删除本步" class="step-del px-1.5 text-[10px] rounded border border-red-200 text-red-500 hover:bg-red-50"><i class="fas fa-trash-alt"></i></button>
+                            <button type="button" data-move="up" title="上移" class="step-move px-2 py-1 sm:px-1.5 sm:py-0.5 text-sm sm:text-[10px] rounded border border-gray-300 text-gray-500 hover:bg-gray-100"><i class="fas fa-arrow-up"></i></button>
+                            <button type="button" data-move="down" title="下移" class="step-move px-2 py-1 sm:px-1.5 sm:py-0.5 text-sm sm:text-[10px] rounded border border-gray-300 text-gray-500 hover:bg-gray-100"><i class="fas fa-arrow-down"></i></button>
+                            <button type="button" data-del title="删除本步" class="step-del px-2 py-1 sm:px-1.5 sm:py-0.5 text-sm sm:text-[10px] rounded border border-red-200 text-red-500 hover:bg-red-50"><i class="fas fa-trash-alt"></i></button>
                         </div>
                     </div>
                     <div class="flex gap-1 items-center">
                         <input type="file" class="step-file" accept="image/png,image/jpeg,image/webp,image/gif" multiple class="hidden">
-                        <input class="step-evi flex-1 min-w-0 border rounded px-1.5 py-0.5 text-[10px] font-mono" placeholder="截图 URL 或上传" value="${esc((s.urls || []).join('\n'))}">
-                        <button type="button" data-upload title="上传本步截图" class="step-up px-1.5 text-[10px] rounded bg-gray-600 text-white hover:bg-gray-700 shrink-0"><i class="fas fa-upload"></i></button>
+                        <input class="step-evi flex-1 min-w-0 border rounded px-2 py-1.5 sm:px-1.5 sm:py-0.5 text-sm sm:text-[10px] font-mono" placeholder="截图 URL 或上传" value="${esc((s.urls || []).join('\n'))}">
+                        <button type="button" data-upload title="上传本步截图" class="step-up px-2 py-1.5 sm:px-1.5 sm:py-0.5 text-sm sm:text-[10px] rounded bg-gray-600 text-white hover:bg-gray-700 shrink-0"><i class="fas fa-upload"></i></button>
                     </div>
                     <div class="step-preview flex flex-wrap gap-1"></div>
-                </div>`).join('') || `<button type="button" data-case="${esc(caseId)}" class="step-add-empty w-full border-2 border-dashed border-emerald-300 rounded py-2 text-xs text-emerald-700 hover:bg-emerald-50 hover:border-emerald-500"><i class="fas fa-plus-circle mr-1"></i>点此处添加第 1 步（上传本步骤截图 + 写步骤说明）</button>`
+                </div>`).join('') || `<button type="button" data-case="${esc(caseId)}" class="step-add-empty w-full border-2 border-dashed border-emerald-300 rounded py-3 sm:py-2 text-sm sm:text-xs text-emerald-700 hover:bg-emerald-50 hover:border-emerald-500"><i class="fas fa-plus-circle mr-1"></i>点此处添加第 1 步（上传本步骤截图 + 写步骤说明）</button>`
 
             // 空状态按钮的点击委托
             const emptyBtn = wrap.querySelector('.step-add-empty')
@@ -391,8 +391,8 @@
                                 <div class="text-xs font-mono text-blue-600">${esc(c.id)}</div>
                                 <div class="text-xs text-gray-500 mt-0.5">${esc(c.title)}</div>
                             </div>
-                            <div class="col-span-6 md:col-span-2">
-                                <select id="sel_${esc(c.id)}" class="w-full border rounded px-2 py-1.5 text-sm bg-white" onchange="this.classList.remove('result-passed','result-failed','result-skipped'); this.classList.add('result-'+this.value)">
+                            <div class="col-span-12 sm:col-span-6 md:col-span-2">
+                                <select id="sel_${esc(c.id)}" class="w-full border rounded px-2 py-2 text-base sm:text-sm bg-white" onchange="this.classList.remove('result-passed','result-failed','result-skipped'); this.classList.add('result-'+this.value)">
                                     ${RESULT_OPTIONS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}
                                 </select>
                             </div>
@@ -408,12 +408,13 @@
                                 <input type="hidden" id="evi_${esc(c.id)}" value="">
                                 <input type="file" id="file_${esc(c.id)}" accept="image/png,image/jpeg,image/webp,image/gif" multiple class="hidden">
                             </div>
-                            <div class="col-span-10 md:col-span-3">
-                                <textarea id="det_${esc(c.id)}" rows="1" class="w-full border rounded px-2 py-1.5 text-xs" placeholder="实际表现（失败必填，说明现象）"></textarea>
+                            <div class="col-span-12 md:col-span-3">
+                                <div class="md:hidden text-[10px] text-gray-400 mb-0.5">实际表现（失败必填）</div>
+                                <textarea id="det_${esc(c.id)}" rows="1" class="w-full border rounded px-2 py-2 text-sm sm:text-xs" placeholder="实际表现（失败必填，说明现象）"></textarea>
                             </div>
-                            <div class="col-span-2 md:col-span-1 flex flex-col items-end gap-1">
+                            <div class="col-span-12 md:col-span-1 flex flex-row md:flex-col items-center md:items-end gap-2">
                                 <button type="button" data-case="${esc(c.id)}" data-title="${esc(c.title)}" data-group="${esc(g.group)}"
-                                    class="save-btn px-2 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700"><i class="fas fa-save mr-1"></i>保存</button>
+                                    class="save-btn px-4 py-2 md:px-2 md:py-1 text-sm md:text-xs rounded-lg md:rounded bg-blue-600 text-white hover:bg-blue-700 w-full md:w-auto"><i class="fas fa-save mr-1"></i>保存</button>
                                 <span id="st_${esc(c.id)}" class="text-[10px] text-gray-400"></span>
                             </div>
                         </div>`).join('')}
@@ -651,23 +652,23 @@
             if (!wrap) return
             const steps = Array.isArray(arr) ? arr : []
             wrap.innerHTML = steps.map((s, i) => `
-                <div data-step="${i}" class="border border-gray-200 rounded p-1.5 bg-white space-y-1">
-                    <div class="flex items-center gap-1">
+                <div data-step="${i}" class="border border-gray-200 rounded p-2 sm:p-1.5 bg-white space-y-1.5">
+                    <div class="flex items-center gap-1 flex-wrap">
                         <span class="text-[10px] font-bold text-gray-500 shrink-0">第 ${i + 1} 步</span>
-                        <input class="step-cap flex-1 min-w-0 border rounded px-1.5 py-0.5 text-[10px]" placeholder="本步说明，如：输入错误密码点登录" value="${esc(s.caption || '')}">
+                        <input class="step-cap flex-1 min-w-0 border rounded px-2 py-1.5 sm:px-1.5 sm:py-0.5 text-sm sm:text-[10px]" placeholder="本步说明，如：输入错误密码点登录" value="${esc(s.caption || '')}">
                         <div class="flex gap-0.5 shrink-0">
-                            <button type="button" data-move="up" class="step-move px-1.5 text-[10px] rounded border border-gray-300 text-gray-500 hover:bg-gray-100"><i class="fas fa-arrow-up"></i></button>
-                            <button type="button" data-move="down" class="step-move px-1.5 text-[10px] rounded border border-gray-300 text-gray-500 hover:bg-gray-100"><i class="fas fa-arrow-down"></i></button>
-                            <button type="button" data-del class="step-del px-1.5 text-[10px] rounded border border-red-200 text-red-500 hover:bg-red-50"><i class="fas fa-trash-alt"></i></button>
+                            <button type="button" data-move="up" class="step-move px-2 py-1 sm:px-1.5 sm:py-0.5 text-sm sm:text-[10px] rounded border border-gray-300 text-gray-500 hover:bg-gray-100"><i class="fas fa-arrow-up"></i></button>
+                            <button type="button" data-move="down" class="step-move px-2 py-1 sm:px-1.5 sm:py-0.5 text-sm sm:text-[10px] rounded border border-gray-300 text-gray-500 hover:bg-gray-100"><i class="fas fa-arrow-down"></i></button>
+                            <button type="button" data-del class="step-del px-2 py-1 sm:px-1.5 sm:py-0.5 text-sm sm:text-[10px] rounded border border-red-200 text-red-500 hover:bg-red-50"><i class="fas fa-trash-alt"></i></button>
                         </div>
                     </div>
                     <div class="flex gap-1 items-center">
                         <input type="file" class="step-file" accept="image/png,image/jpeg,image/webp,image/gif" multiple class="hidden">
-                        <input class="step-evi flex-1 min-w-0 border rounded px-1.5 py-0.5 text-[10px] font-mono" placeholder="截图 URL 或上传" value="${esc((s.urls || []).join('\n'))}">
-                        <button type="button" data-upload class="step-up px-1.5 text-[10px] rounded bg-gray-600 text-white hover:bg-gray-700 shrink-0"><i class="fas fa-upload"></i></button>
+                        <input class="step-evi flex-1 min-w-0 border rounded px-2 py-1.5 sm:px-1.5 sm:py-0.5 text-sm sm:text-[10px] font-mono" placeholder="截图 URL 或上传" value="${esc((s.urls || []).join('\n'))}">
+                        <button type="button" data-upload class="step-up px-2 py-1.5 sm:px-1.5 sm:py-0.5 text-sm sm:text-[10px] rounded bg-gray-600 text-white hover:bg-gray-700 shrink-0"><i class="fas fa-upload"></i></button>
                     </div>
                     <div class="step-preview flex flex-wrap gap-1"></div>
-                </div>`).join('') || `<div class="text-[10px] text-gray-300 py-0.5">点击"添加一步"，按复现顺序逐步骤传截图</div>`
+                </div>`).join('') || `<button type="button" id="issueStepAddEmpty" class="w-full border-2 border-dashed border-emerald-300 rounded py-3 sm:py-2 text-sm sm:text-xs text-emerald-700 hover:bg-emerald-50 hover:border-emerald-500"><i class="fas fa-plus-circle mr-1"></i>点此处添加第 1 步（上传本步骤截图 + 写步骤说明）</button>`
 
             wrap.querySelectorAll('[data-step]').forEach((card) => {
                 card.querySelector('.step-cap').addEventListener('input', () => { issueReindex(); $('issueEvidence').value = issueSerialize() })
@@ -767,11 +768,16 @@
             issueRenderSteps([])
             $('issueCur').textContent = ''
         })
-        $('issueStepAdd').addEventListener('click', () => {
+        const addIssueStep = () => {
             ensureIssueId()
             const arr = evidenceSteps(issueSerialize())
             arr.push({ seq: arr.length + 1, caption: '', urls: [] })
             issueRenderSteps(arr)
+        }
+        $('issueStepAdd').addEventListener('click', addIssueStep)
+        // 空状态虚线大按钮（issueRenderSteps 动态生成）→ 事件委托
+        $('issueStepWrap').addEventListener('click', (e) => {
+            if (e.target.closest('#issueStepAddEmpty')) addIssueStep()
         })
 
         // 若已登录直接进入
