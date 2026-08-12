@@ -67,6 +67,40 @@
         <!-- 分组用例表单 -->
         <div id="groupsWrap" class="space-y-6"></div>
 
+        <!-- ═══════ 新问题反馈（清单外问题/缺陷上报，可补充更新） ═══════ -->
+        <div class="bg-white rounded-xl border border-red-200 overflow-hidden">
+            <div class="px-4 py-3 bg-red-50 border-b border-red-200 flex items-center gap-2">
+                <i class="fas fa-bug text-red-500"></i>
+                <h2 class="text-sm font-semibold text-gray-700">发现新问题？提交反馈</h2>
+                <span class="text-xs text-gray-400 ml-1">（清单外的问题/缺陷；点下方列表里的"编辑"可补充更新已提交的反馈）</span>
+            </div>
+            <div class="px-4 py-3 space-y-3">
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">问题标题 *</label>
+                    <input id="issueTitle" type="text" class="w-full border rounded px-2 py-1.5 text-sm" placeholder="一句话描述问题，如：新增记录时某字段校验失败">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">详细描述（复现步骤 / 期望 vs 实际）</label>
+                    <textarea id="issueDetail" rows="2" class="w-full border rounded px-2 py-1.5 text-xs" placeholder="选填，写清复现步骤、期望表现和实际表现"></textarea>
+                </div>
+                <div class="flex gap-1 items-center">
+                    <input id="issueEvidence" type="text" class="flex-1 min-w-0 border rounded px-2 py-1.5 text-xs" placeholder="上传截图或贴 URL（多张用换行/逗号分隔）">
+                    <button type="button" id="issueUpBtn" class="px-2 py-1 text-xs rounded bg-gray-600 text-white hover:bg-gray-700 shrink-0"><i class="fas fa-upload"></i></button>
+                    <input type="file" id="issueFile" accept="image/png,image/jpeg,image/webp,image/gif" multiple class="hidden">
+                </div>
+                <div id="issueEvp" class="flex flex-wrap gap-1"></div>
+                <div class="flex items-center gap-2 flex-wrap">
+                    <button type="button" id="issueSubmitBtn" class="px-4 py-1.5 text-xs rounded bg-red-600 text-white hover:bg-red-700"><i class="fas fa-paper-plane mr-1"></i>提交 / 更新问题</button>
+                    <button type="button" id="issueResetBtn" class="px-3 py-1.5 text-xs rounded border border-gray-300 text-gray-600 hover:bg-gray-100">清空</button>
+                    <span id="issueCur" class="text-[10px] text-gray-400"></span>
+                </div>
+            </div>
+            <div class="px-4 pb-3">
+                <div class="text-xs font-semibold text-gray-500 mb-2">我已反馈的问题</div>
+                <div id="issueList" class="space-y-2"></div>
+            </div>
+        </div>
+
         <p class="text-center text-xs text-gray-400 mt-8">提交的数据存于 public."TestResult"，测试结束后由开发从服务器拉取汇总。</p>
     </div>
 
@@ -117,8 +151,9 @@
         function enterApp() {
             $('loginWrap').classList.add('hidden')
             $('reportWrap').classList.remove('hidden')
-            const u = authService.getCurrentUser && authService.getCurrentUser()
-            $('curUser').textContent = (u && u.username) || authService.getToken() ? '已登录' : '已登录'
+            const u = authService.getUser ? authService.getUser() : null
+            $('curUser').textContent = (u && u.username) || 'unknown'
+            $('curRole').textContent = (u && u.role) || ''
             loadDefs().then(loadAll)
         }
 
@@ -142,9 +177,11 @@
         async function loadAll() {
             renderGroups()
             loadSummary()
-            // 回填当前用户已提交的结果
+            loadMyIssues()
+            // 回填当前用户已提交的结果（用真实用户名查询，见 enterApp）
             try {
-                const r = await fetch(`/api/test-results?submitted_by=${encodeURIComponent($('curUser').textContent)}`, { headers: apiHeaders() })
+                const me = (authService.getUser ? authService.getUser() : null) || {}
+                const r = await fetch(`/api/test-results?submitted_by=${encodeURIComponent(me.username || $('curUser').textContent)}`, { headers: apiHeaders() })
                 const j = await r.json()
                 const map = {}
                 for (const it of (j.data || [])) map[it.case_id] = it
@@ -344,6 +381,124 @@
             await authService.logout().catch(() => {})
             location.reload()
         })
+
+        // ═══════ 新问题反馈（清单外问题上报 / 更新） ═══════
+        let issueEditingId = null // 正在编辑的 new_问题 case_id；null = 新增
+        const NEW_ISSUE_GROUP = 'new_问题'
+
+        function currentUsername() {
+            const u = authService.getUser ? authService.getUser() : null
+            return (u && u.username) || $('curUser').textContent || 'unknown'
+        }
+
+        // 生成新问题的 case_id（NEW- + 时间戳），避免与正式用例冲突
+        function newIssueId() {
+            const d = new Date()
+            const pad = (n) => String(n).padStart(2, '0')
+            return `NEW-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
+        }
+
+        async function loadMyIssues() {
+            try {
+                const r = await fetch(`/api/test-results?case_group=${encodeURIComponent(NEW_ISSUE_GROUP)}&submitted_by=${encodeURIComponent(currentUsername())}`, { headers: apiHeaders() })
+                const j = await r.json()
+                const items = j.data || []
+                const list = $('issueList')
+                list.innerHTML = items.length
+                    ? items.map((it) => `
+                        <div class="flex items-start gap-2 border border-gray-100 rounded p-2 bg-gray-50">
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-gray-700">${esc(it.case_title || '（未填标题）')}</div>
+                                <div class="text-[10px] text-gray-400 truncate">${esc(it.detail || '')}</div>
+                                <div class="text-[10px] text-gray-300">${esc(it.case_id)} · ${new Date(it.updated_at).toLocaleString('zh-CN')}</div>
+                            </div>
+                            <button type="button" data-edit="${esc(it.case_id)}" class="issue-edit shrink-0 text-[10px] px-2 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-100">编辑</button>
+                        </div>`).join('')
+                    : '<div class="text-[10px] text-gray-400">暂无反馈</div>'
+                list.querySelectorAll('.issue-edit').forEach((b) => b.addEventListener('click', () => editIssue(b.dataset.edit)))
+            } catch { /* 加载失败不阻断 */ }
+        }
+
+        async function editIssue(caseId) {
+            try {
+                const r = await fetch(`/api/test-results?case_group=${encodeURIComponent(NEW_ISSUE_GROUP)}&submitted_by=${encodeURIComponent(currentUsername())}`, { headers: apiHeaders() })
+                const j = await r.json()
+                const rec = (j.data || []).find((it) => it.case_id === caseId)
+                if (!rec) return alert('未找到该反馈')
+                issueEditingId = caseId
+                $('issueTitle').value = rec.case_title || ''
+                $('issueDetail').value = rec.detail || ''
+                $('issueEvidence').value = rec.evidence || ''
+                $('issueCur').textContent = `编辑中：${rec.case_id}（保存将覆盖原反馈）`
+                updateIssuePreview()
+                $('issueTitle').focus()
+            } catch { alert('加载反馈失败') }
+        }
+
+        function updateIssuePreview() {
+            const prev = $('issueEvp')
+            if (!prev) return
+            prev.innerHTML = evidenceTokens($('issueEvidence').value).map((t) => {
+                if (/^\/api\/test-results\/evidence\/|^https?:\/\//i.test(t)) {
+                    return `<img src="${esc(t)}" alt="证据" class="h-12 w-16 object-cover rounded border border-gray-200 cursor-zoom-in" onclick="window.open(this.src,'_blank')" onerror="this.style.display='none'">`
+                }
+                return `<span class="text-[10px] text-gray-400 border border-gray-200 rounded px-1 py-0.5">${esc(t)}</span>`
+            }).join('')
+        }
+
+        async function submitIssue() {
+            const title = $('issueTitle').value.trim()
+            if (!title) return alert('请填写问题标题')
+            const btn = $('issueSubmitBtn')
+            btn.disabled = true
+            try {
+                const caseId = issueEditingId || newIssueId()
+                const r = await fetch('/api/test-results', {
+                    method: 'POST',
+                    headers: apiHeaders(),
+                    body: JSON.stringify({
+                        case_id: caseId,
+                        case_group: NEW_ISSUE_GROUP,
+                        case_title: title,
+                        result: 'failed',
+                        detail: $('issueDetail').value.trim(),
+                        evidence: $('issueEvidence').value.trim(),
+                    }),
+                })
+                const j = await r.json()
+                if (!j.success) throw new Error(j.error || '保存失败')
+                issueEditingId = null
+                $('issueCur').textContent = `已保存（${caseId}）`
+                $('issueTitle').value = ''; $('issueDetail').value = ''; $('issueEvidence').value = ''
+                updateIssuePreview()
+                loadMyIssues()
+            } catch (e) {
+                alert('保存失败：' + e.message)
+            } finally { btn.disabled = false }
+        }
+
+        $('issueSubmitBtn').addEventListener('click', submitIssue)
+        $('issueResetBtn').addEventListener('click', () => {
+            issueEditingId = null
+            $('issueTitle').value = ''; $('issueDetail').value = ''; $('issueEvidence').value = ''
+            $('issueCur').textContent = ''
+            updateIssuePreview()
+        })
+        $('issueUpBtn').addEventListener('click', () => $('issueFile').click())
+        $('issueFile').addEventListener('change', async () => {
+            const fi = $('issueFile')
+            if (!fi.files || !fi.files.length) return
+            try {
+                const urls = await uploadEvidence(issueEditingId || 'new_issue', [...fi.files])
+                const evi = $('issueEvidence')
+                const cur = evi.value.trim()
+                evi.value = cur ? cur + '\n' + urls.join('\n') : urls.join('\n')
+                updateIssuePreview()
+            } catch (err) {
+                alert('上传失败：' + err.message)
+            } finally { fi.value = '' }
+        })
+        $('issueEvidence').addEventListener('input', updateIssuePreview)
 
         // 若已登录直接进入
         if (authService.getToken()) {

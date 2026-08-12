@@ -23,7 +23,8 @@ import { CASE_DEFS, RESULT_OPTIONS } from '../lib/testCaseDefs.js'
 import { syncTestResultDocs, EVIDENCE_STORE_DIR } from '../lib/testReportSync.js'
 
 const VALID_RESULTS = new Set(['passed', 'failed', 'skipped', 'pending'])
-const VALID_GROUPS = new Set(CASE_DEFS.map((g) => g.group))
+// 合法用例组：CASE_DEFS 定义的分组 + 前端"新问题反馈"专用组（清单外新问题/缺陷上报）
+const VALID_GROUPS = new Set([...CASE_DEFS.map((g) => g.group), 'new_问题'])
 
 // 图片上传白名单：mime → 扩展名
 const ALLOWED_IMAGE_MIME = {
