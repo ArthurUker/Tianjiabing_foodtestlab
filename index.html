@@ -339,6 +339,9 @@
             /* 主检测表横向滚动 */
             .glass-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
             .glass-table { min-width: 720px; }
+            /* 餐具表不能用 wrap（Tableware.js 依赖 table 是 form.parentNode 直接子节点），
+               改为让 section 容器本身可横向滚动，避免手机端溢出 */
+            #tableware-test > .glass { overflow-x: auto; -webkit-overflow-scrolling: touch; }
             /* 顶部导航手机端压缩 */
             .nav-user-info { display: none; }
             .nav-title { font-size: 1rem; }
@@ -578,7 +581,7 @@
                             <button type="submit" class="px-6 py-2 bg-blue-600 text-white rounded">保存</button>
                         </div>
                     </form>
-                    <div class="glass-table-wrap"><table class="glass-table"><thead><tr><th>日期</th><th>食堂</th><th>检测点位</th><th>检测项目</th><th>数值</th><th>结果</th><th>检测员</th><th>操作</th></tr></thead><tbody id="tablewareRecords"></tbody></table></div>
+                    <table class="glass-table"><thead><tr><th>日期</th><th>食堂</th><th>检测点位</th><th>检测项目</th><th>数值</th><th>结果</th><th>检测员</th><th>操作</th></tr></thead><tbody id="tablewareRecords"></tbody></table>
                 </div>
             </div>
             <!-- 3. 果蔬农残检测 -->
