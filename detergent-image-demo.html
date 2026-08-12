@@ -40,6 +40,18 @@
     @media (max-width: 900px) {
       main { grid-template-columns: 1fr; }
     }
+    @media (max-width: 768px) {
+      header { padding: 12px 16px; gap: 8px; flex-wrap: wrap; }
+      header h1 { font-size: 15px; }
+      .result-grid { grid-template-columns: repeat(2, 1fr); }
+      .result-card { padding: 6px 8px; }
+      .result-card .value { font-size: 15px; }
+      .result-card.main .value { font-size: 20px; }
+      .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      .table-scroll table { min-width: 480px; }
+      button.btn { padding: 10px 16px; font-size: 14px; }
+      .upload-zone { padding: 18px 12px; }
+    }
     .panel {
       background: var(--c-panel); border: 1px solid var(--c-border);
       border-radius: 8px; padding: 16px; margin-bottom: 16px;
@@ -231,17 +243,17 @@
         <div id="qcSection" class="qc-notes"></div>
         <details>
           <summary>色块距离明细</summary>
-          <table class="distance-table" id="distanceTable">
+          <div class="table-scroll"><table class="distance-table" id="distanceTable">
             <thead><tr><th>色块浓度</th><th>样品→色块 ΔE</th><th>排名</th></tr></thead>
             <tbody></tbody>
-          </table>
+          </table></div>
         </details>
         <details>
           <summary>原始色块颜色</summary>
-          <table class="distance-table" id="blocksTable">
+          <div class="table-scroll"><table class="distance-table" id="blocksTable">
             <thead><tr><th>#</th><th>浓度</th><th>实测 RGB</th><th>实测 Lab (L*a*b*)</th></tr></thead>
             <tbody></tbody>
-          </table>
+          </table></div>
         </details>
         <details>
           <summary>样品离心管</summary>

@@ -92,9 +92,37 @@ const navEl = document.querySelector('nav.space-y-1');
 if (navEl) {
     navEl.addEventListener('click', (e) => {
         const btn = e.target.closest('[data-target]');
-        if (btn) handleNavigation(btn.dataset.target);
+        if (btn) {
+            handleNavigation(btn.dataset.target);
+            closeSidebar(); // 手机端：点击菜单项后收起侧边栏
+        }
     });
 }
+
+// ═══ 手机端侧边栏抽屉 ═══
+function initSidebar() {
+    const sb = document.querySelector('.sidebar-menu');
+    const ov = document.getElementById('sbOverlay');
+    const tg = document.getElementById('sbToggle');
+    if (!sb || !ov || !tg) return;
+    window.closeSidebar = function closeSidebar() {
+        sb.classList.remove('sb-open');
+        ov.classList.remove('sb-show');
+        ov.style.display = 'none';
+    };
+    tg.addEventListener('click', () => {
+        const isOpen = sb.classList.contains('sb-open');
+        if (isOpen) { window.closeSidebar(); }
+        else {
+            sb.classList.add('sb-open');
+            ov.style.display = 'block';
+            requestAnimationFrame(() => ov.classList.add('sb-show'));
+        }
+    });
+    ov.addEventListener('click', window.closeSidebar);
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initSidebar);
+else initSidebar();
 
 // P2-10 阶段B：接收模块内动态生成 HTML 发出的导航请求（替代 window.handleNavigation 内联调用）
 document.addEventListener('app:navigate', (e) => {

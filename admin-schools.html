@@ -162,18 +162,18 @@
                 <h1 class="text-xl font-bold truncate min-w-0">学校管理控制台</h1>
                 <span class="text-xs px-2 py-0.5 bg-white/20 rounded-full shrink-0">平台超管</span>
             </div>
-            <div class="flex items-center shrink-0">
+            <div class="flex items-center gap-1 sm:gap-2 shrink-0 flex-wrap justify-end">
                 <!-- P6 临时止损:移除"返回主界面"链接(原指向根 ./index.html,会触发根页面认证拦截踢人循环)。
                      本控制台即平台超管最高层入口,不存在更"主"的界面;若后续确认需"回到列表首屏"语义,另行实现。 -->
                 <!-- 临时测试工具:浏览器测试报告上报页（测试人员入口，超管可见） -->
-                <a href="/test-report.html" class="ml-3 text-sm px-3 py-1.5 bg-emerald-400 text-white font-semibold hover:bg-emerald-300 rounded-lg transition shadow">
+                <a href="/test-report.html" class="text-xs sm:text-sm px-2.5 sm:px-3 py-2 sm:py-1.5 bg-emerald-400 text-white font-semibold hover:bg-emerald-300 rounded-lg transition shadow">
                     <i class="fas fa-clipboard-check mr-1"></i>测试报告
                 </a>
                 <!-- 临时测试工具:测试结果汇总报告页（docs/test-results/latest/index.html，由生成脚本产出，超管可查看汇总） -->
-                <a href="/docs/test-results/latest/index.html" target="_blank" class="ml-3 text-sm px-3 py-1.5 bg-indigo-400 text-white font-semibold hover:bg-indigo-300 rounded-lg transition shadow" title="查看测试结果汇总报告（docs/test-results/latest/）">
+                <a href="/docs/test-results/latest/index.html" target="_blank" class="text-xs sm:text-sm px-2.5 sm:px-3 py-2 sm:py-1.5 bg-indigo-400 text-white font-semibold hover:bg-indigo-300 rounded-lg transition shadow" title="查看测试结果汇总报告（docs/test-results/latest/）">
                     <i class="fas fa-chart-bar mr-1"></i>汇总报告
                 </a>
-                <button id="btnAccountMgmt" type="button" class="ml-3 text-sm px-3 py-1.5 bg-yellow-400 text-gray-900 font-semibold hover:bg-yellow-300 rounded-lg transition shadow">
+                <button id="btnAccountMgmt" type="button" class="text-xs sm:text-sm px-2.5 sm:px-3 py-2 sm:py-1.5 bg-yellow-400 text-gray-900 font-semibold hover:bg-yellow-300 rounded-lg transition shadow">
                     <i class="fas fa-user-shield mr-1"></i>账号管理
                 </button>
             </div>
@@ -197,8 +197,8 @@
                     <i class="fas fa-trash-restore mr-1"></i>回收站
                 </button>
             </div>
-            <div class="flex items-center gap-2">
-                <input id="searchInput" type="text" placeholder="搜索学校代码或名称..." class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-64">
+            <div class="flex items-center gap-2 w-full sm:w-auto">
+                <input id="searchInput" type="text" placeholder="搜索学校代码或名称..." class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-full sm:w-64">
             </div>
         </div>
 
@@ -250,21 +250,21 @@
                 </div>
             </div>
 
-            <!-- Tab 导航 -->
-            <div class="flex border-b border-gray-200 mb-4 gap-1">
-                <button class="tab-btn active px-4 py-2 font-medium text-blue-600 border-b-2 border-blue-500" data-tab="basic">
+            <!-- Tab 导航（手机端可横向滑动，避免 Tab 被挤出屏外无法点击） -->
+            <div class="flex border-b border-gray-200 mb-4 gap-1 overflow-x-auto -mx-1 px-1" style="-webkit-overflow-scrolling:touch;scrollbar-width:none">
+                <button class="tab-btn active px-4 py-2 font-medium text-blue-600 border-b-2 border-blue-500 whitespace-nowrap" data-tab="basic">
                     <i class="fas fa-info-circle mr-1"></i>基本信息
                 </button>
-                <button class="tab-btn px-4 py-2 font-medium text-gray-500 hover:text-blue-500 border-b-2 border-transparent" data-tab="custom">
+                <button class="tab-btn px-4 py-2 font-medium text-gray-500 hover:text-blue-500 border-b-2 border-transparent whitespace-nowrap" data-tab="custom">
                     <i class="fas fa-palette mr-1"></i>界面定制
                 </button>
-                <button class="tab-btn px-4 py-2 font-medium text-gray-500 hover:text-blue-500 border-b-2 border-transparent" data-tab="login">
+                <button class="tab-btn px-4 py-2 font-medium text-gray-500 hover:text-blue-500 border-b-2 border-transparent whitespace-nowrap" data-tab="login">
                     <i class="fas fa-sign-in-alt mr-1"></i>登录样式
                 </button>
-                <button class="tab-btn px-4 py-2 font-medium text-gray-500 hover:text-blue-500 border-b-2 border-transparent" data-tab="users">
+                <button class="tab-btn px-4 py-2 font-medium text-gray-500 hover:text-blue-500 border-b-2 border-transparent whitespace-nowrap" data-tab="users">
                     <i class="fas fa-users mr-1"></i>用户管理
                 </button>
-                <button class="tab-btn px-4 py-2 font-medium text-gray-500 hover:text-blue-500 border-b-2 border-transparent" data-tab="backup">
+                <button class="tab-btn px-4 py-2 font-medium text-gray-500 hover:text-blue-500 border-b-2 border-transparent whitespace-nowrap" data-tab="backup">
                     <i class="fas fa-database mr-1"></i>运维备份
                 </button>
             </div>
@@ -403,11 +403,11 @@
                         <div id="fieldModuleTabs" class="flex flex-wrap gap-1 mb-3 border-b border-gray-200 pb-2"></div>
                         <!-- 字段列表 -->
                         <div id="fieldListContainer" class="space-y-2"></div>
-                        <!-- 新增字段 -->
-                        <div class="mt-3 pt-3 border-t border-gray-200 flex gap-2 items-center">
-                            <input id="newFieldLabel" type="text" placeholder="显示名称（如：抽样地点）" class="flex-1 px-2 py-1 border border-gray-300 rounded text-sm">
-                            <input id="newFieldName" type="text" placeholder="留空自动生成" class="w-32 px-2 py-1 border border-gray-300 rounded text-sm text-gray-400">
-                            <button id="addFieldBtn" class="px-3 py-1 text-sm bg-blue-50 text-blue-700 rounded hover:bg-blue-100 transition shrink-0">+ 新增</button>
+                        <!-- 新增字段（手机端换行堆叠） -->
+                        <div class="mt-3 pt-3 border-t border-gray-200 flex flex-wrap gap-2 items-center">
+                            <input id="newFieldLabel" type="text" placeholder="显示名称（如：抽样地点）" class="flex-1 min-w-[160px] px-2 py-2 sm:py-1 border border-gray-300 rounded text-sm">
+                            <input id="newFieldName" type="text" placeholder="留空自动生成" class="w-full sm:w-32 px-2 py-2 sm:py-1 border border-gray-300 rounded text-sm text-gray-400">
+                            <button id="addFieldBtn" class="px-3 py-2 sm:py-1 text-sm bg-blue-50 text-blue-700 rounded hover:bg-blue-100 transition shrink-0">+ 新增</button>
                         </div>
                     </div>
 
@@ -522,13 +522,13 @@
                 </div>
 
                 <!-- 底部操作栏：吸底，随时可保存/放弃 -->
-                <div class="sticky bottom-0 z-40 mt-4 -mx-5 -mb-5 px-5 py-3 bg-white/90 backdrop-blur border-t border-gray-200 flex items-center justify-between rounded-b-2xl">
-                    <span id="customDirtyHint" class="text-xs text-gray-400">修改会实时反映到预览，点「保存定制」后对该校生效</span>
-                    <div class="flex items-center gap-2">
-                        <button id="discardCustomBtn" class="hidden px-4 py-2 border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 transition text-sm">
+                <div class="sticky bottom-0 z-40 mt-4 -mx-5 -mb-5 px-5 py-3 bg-white/90 backdrop-blur border-t border-gray-200 flex flex-wrap items-center justify-between gap-2 rounded-b-2xl">
+                    <span id="customDirtyHint" class="text-xs text-gray-400 w-full sm:w-auto">修改会实时反映到预览，点「保存定制」后对该校生效</span>
+                    <div class="flex items-center gap-2 w-full sm:w-auto">
+                        <button id="discardCustomBtn" class="hidden flex-1 sm:flex-none px-4 py-2 border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 transition text-sm">
                             <i class="fas fa-undo mr-1"></i>放弃修改
                         </button>
-                        <button id="saveCustomBtn" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium flex items-center">
+                        <button id="saveCustomBtn" class="flex-1 sm:flex-none px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium flex items-center justify-center">
                             <i class="fas fa-save mr-2"></i>保存定制
                         </button>
                     </div>
@@ -734,7 +734,7 @@
                     <label class="block text-sm text-gray-600 mb-1">学校全称</label>
                     <input id="cf_name" type="text" placeholder="如 田家炳中学" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                 </div>
-                <div class="grid grid-cols-2 gap-4">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                         <label class="block text-sm text-gray-600 mb-1">学校简称</label>
                         <input id="cf_shortName" type="text" placeholder="如 田家炳" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
@@ -748,7 +748,7 @@
                     <label class="block text-sm text-gray-600 mb-1">校徽 URL</label>
                     <input id="cf_logoUrl" type="url" placeholder="https://..." class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
                 </div>
-                <div class="grid grid-cols-2 gap-4">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                         <label class="block text-sm text-gray-600 mb-1">初始管理员用户名 <span class="text-red-500">*</span></label>
                         <input id="cf_adminUsername" type="text" required pattern="[A-Za-z0-9_]{3,50}" title="3~50 位字母、数字或下划线" value="manager" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">

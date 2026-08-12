@@ -184,7 +184,7 @@
                         type="text" 
                         id="username" 
                         name="username"
-                        class="input-focus w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        class="input-focus w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                         placeholder="请输入用户名"
                         required
                         autocomplete="username"
@@ -201,7 +201,7 @@
                             type="password" 
                             id="password" 
                             name="password"
-                            class="input-focus w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            class="input-focus w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                             placeholder="请输入密码"
                             required
                             autocomplete="current-password"
@@ -413,8 +413,10 @@
                     const w = card.width || 420
                     // 容器本身也需放宽（默认 max-w-md 会限制卡片宽度）
                     if (container) {
-                        container.style.width = w + 'px'
-                        container.style.maxWidth = w + 'px'
+                        // 手机端防溢出：宽度最多占满视口（含两侧 24px 安全边距）
+                        const vwSafe = Math.min(w, (window.innerWidth || 375) - 24)
+                        container.style.width = vwSafe + 'px'
+                        container.style.maxWidth = vwSafe + 'px'
                         container.style.marginLeft = card.align === 'left' ? '24px'
                             : card.align === 'right' ? 'auto' : 'auto'
                         container.style.marginRight = card.align === 'right' ? '24px'
