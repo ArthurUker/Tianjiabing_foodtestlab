@@ -279,7 +279,15 @@
                         <button type="button" data-upload title="上传本步截图" class="step-up px-1.5 text-[10px] rounded bg-gray-600 text-white hover:bg-gray-700 shrink-0"><i class="fas fa-upload"></i></button>
                     </div>
                     <div class="step-preview flex flex-wrap gap-1"></div>
-                </div>`).join('') || `<div class="text-[10px] text-gray-300 py-0.5">点击"添加一步"，分别上传每一步的截图并写步骤说明</div>`
+                </div>`).join('') || `<button type="button" data-case="${esc(caseId)}" class="step-add-empty w-full border-2 border-dashed border-emerald-300 rounded py-2 text-xs text-emerald-700 hover:bg-emerald-50 hover:border-emerald-500"><i class="fas fa-plus-circle mr-1"></i>点此处添加第 1 步（上传本步骤截图 + 写步骤说明）</button>`
+
+            // 空状态按钮的点击委托
+            const emptyBtn = wrap.querySelector('.step-add-empty')
+            if (emptyBtn) emptyBtn.addEventListener('click', () => {
+                const arr = evidenceSteps(serializeSteps(caseId))
+                arr.push({ seq: arr.length + 1, caption: '', urls: [] })
+                renderSteps(caseId, arr)
+            })
 
             // 绑定各按钮
             wrap.querySelectorAll('[data-step]').forEach((card) => {
@@ -390,11 +398,12 @@
                             </div>
                             <div class="col-span-12 md:col-span-5">
                                 <div class="flex items-center justify-between mb-1">
-                                    <span class="text-[10px] text-gray-400">分步截图（按 bug 出现的先后顺序，一步一步添加）</span>
-                                    <button type="button" data-case="${esc(c.id)}" title="新增一步" class="step-add px-2 py-0.5 text-[10px] rounded bg-emerald-600 text-white hover:bg-emerald-700"><i class="fas fa-plus mr-0.5"></i>添加一步</button>
+                                    <span class="text-xs font-semibold text-gray-600"><i class="fas fa-images text-emerald-500 mr-1"></i>分步截图</span>
+                                    <button type="button" data-case="${esc(c.id)}" title="按顺序新增一步（先做第1步再测的，就按顺序加）" class="step-add px-3 py-1 text-xs font-medium rounded bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm"><i class="fas fa-plus mr-1"></i>添加一步</button>
                                 </div>
+                                <div class="text-[10px] text-gray-400 mb-1">按 bug 出现的先后顺序，一步一步添加（复测/复现步骤）</div>
                                 <div id="stepWrap_${esc(c.id)}" class="space-y-1.5">
-                                    <div class="text-[10px] text-gray-300 py-0.5">点击"添加一步"，分别上传每一步的截图并写步骤说明</div>
+                                    <button type="button" data-case="${esc(c.id)}" class="step-add-empty w-full border-2 border-dashed border-emerald-300 rounded py-2 text-xs text-emerald-700 hover:bg-emerald-50 hover:border-emerald-500"><i class="fas fa-plus-circle mr-1"></i>点此处添加第 1 步（上传本步骤截图 + 写步骤说明）</button>
                                 </div>
                                 <input type="hidden" id="evi_${esc(c.id)}" value="">
                                 <input type="file" id="file_${esc(c.id)}" accept="image/png,image/jpeg,image/webp,image/gif" multiple class="hidden">
@@ -413,17 +422,16 @@
 
             wrap.querySelectorAll('.save-btn').forEach((b) => b.addEventListener('click', () => saveCase(b.dataset)))
 
-            // "添加一步" → 在当前用例的分步列表末尾新增一步
-            wrap.querySelectorAll('.step-add').forEach((b) => {
-                b.addEventListener('click', () => {
-                    const caseId = b.dataset.case
-                    const wrap2 = $(`stepWrap_${caseId}`)
-                    if (!wrap2) return
-                    const arr = evidenceSteps(serializeSteps(caseId))
-                    arr.push({ seq: arr.length + 1, caption: '', urls: [] })
-                    renderSteps(caseId, arr)
-                })
-            })
+            // "添加一步" → 两种入口都支持：顶部小按钮 + 空状态虚线大按钮
+            const addStepHandler = (b) => {
+                const caseId = b.dataset.case
+                const wrap2 = $(`stepWrap_${caseId}`)
+                if (!wrap2) return
+                const arr = evidenceSteps(serializeSteps(caseId))
+                arr.push({ seq: arr.length + 1, caption: '', urls: [] })
+                renderSteps(caseId, arr)
+            }
+            wrap.querySelectorAll('.step-add, .step-add-empty').forEach((b) => b.addEventListener('click', () => addStepHandler(b)))
 
             // 初始化：为已回填的用例渲染分步（renderGroups 会先于 loadAll 调用，此处主要处理无数据时留空）
             wrap.querySelectorAll('[id^=stepWrap_]').forEach((w) => {
