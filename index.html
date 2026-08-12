@@ -494,66 +494,7 @@
                 </div>
             </div>
 
-            <!-- TD-DashboardZero: 轻量备份渲染
-                 兜底逻辑：当 Dashboard.js 初始化失败时（h2 仍是"实时数据概览"），直接拉 API 填这 4 卡片，
-                 避免用户看到永远 0。同时不影响 Dashboard.js 正常流程。
-            -->
-            <script>
-                (function(){
-                    const TYPES = [
-                        { code: 'tableware', countId: 'card_tableware_count', passId: 'card_tableware_pass', color: 'blue' },
-                        { code: 'pesticide', countId: 'card_pesticide_count', passId: 'card_pesticide_pass', color: 'green' },
-                        { code: 'oil',        countId: 'card_oil_count',        passId: 'card_oil_pass',        color: 'yellow' },
-                        { code: 'leanMeat',   countId: 'card_lean_count',       passId: 'card_lean_pass',       color: 'red' },
-                    ];
-                    const TOKEN_KEYS = ['auth_token', 'authToken', 'token'];
-                    function getToken() {
-                        for (const k of TOKEN_KEYS) {
-                            const t = localStorage.getItem(k);
-                            if (t) return t;
-                        }
-                        return '';
-                    }
-                    function fill(type, records) {
-                        const ids = TYPES.find((t) => t.code === type);
-                        if (!ids) return;
-                        const countEl = document.getElementById(ids.countId);
-                        const passEl = document.getElementById(ids.passId);
-                        if (!countEl || !passEl) return;
-                        const total = records.length;
-                        const pass = records.filter((r) => {
-                            const v = (r.result || r.colorLevel || r.outcome || '').toString();
-                            return v === '合格' || v === 'passed' || v === 'true' || r.isPassed === true;
-                        }).length;
-                        const rate = total > 0 ? Math.round((pass / total) * 100) : 0;
-                        countEl.textContent = String(total);
-                        passEl.textContent = total > 0 ? `${rate}%` : '0%';
-                    }
-                    async function tryFill() {
-                        const token = getToken();
-                        if (!token) return;
-                        let totalAll = 0;
-                        for (const t of TYPES) {
-                            try {
-                                const r = await fetch(`/api/records/${t.code}?limit=200&offset=0`, { headers: { 'Authorization': `Bearer ${token}` } });
-                                if (!r.ok) continue;
-                                const j = await r.json();
-                                const data = Array.isArray(j.data) ? j.data : (Array.isArray(j) ? j : []);
-                                fill(t.code, data);
-                                totalAll += data.length;
-                            } catch (e) { /* 网络错误静默：Dashboard.js 仍在跑会接管 */ }
-                        }
-                        const totalEl = document.getElementById('card_total_count');
-                        if (totalEl) totalEl.textContent = String(totalAll);
-                    }
-                    // 等待 DOMContentLoaded 后再启动，并给 Dashboard.js 一些时间先跑（避免重复拉取）
-                    if (document.readyState === 'loading') {
-                        document.addEventListener('DOMContentLoaded', () => setTimeout(tryFill, 1500));
-                    } else {
-                        setTimeout(tryFill, 1500);
-                    }
-                })();
-            </script>
+
 
 
             <!-- 2. 餐具检测 -->
