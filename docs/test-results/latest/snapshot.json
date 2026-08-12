@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-12T01:08:33.009Z",
+  "generated_at": "2026-08-12T02:02:05.094Z",
   "overall": {
     "passed": 6,
     "failed": 14,
@@ -35,7 +35,8 @@
               "decCaseId": "Q1-果蔬阶段A",
               "file": "1786433577110_f7b500a1.png",
               "caseTitle": "Q1 复检显示·果蔬农残（阶段A 不刷新）",
-              "relPath": "evidence/Q1-果蔬阶段A/1786433577110_f7b500a1.png"
+              "relPath": "evidence/Q1-果蔬阶段A/1786433577110_f7b500a1.png",
+              "stepCaption": ""
             }
           ],
           "submitted_by": "123",
@@ -69,7 +70,8 @@
               "decCaseId": "Q1-果蔬阶段C",
               "file": "1786433761711_93396199.png",
               "caseTitle": "Q1 复检显示·果蔬农残（阶段C 切菜单）",
-              "relPath": "evidence/Q1-果蔬阶段C/1786433761711_93396199.png"
+              "relPath": "evidence/Q1-果蔬阶段C/1786433761711_93396199.png",
+              "stepCaption": ""
             }
           ],
           "submitted_by": "123",
@@ -91,7 +93,8 @@
               "decCaseId": "Q1-肉蛋",
               "file": "1786434223683_f50e20ff.png",
               "caseTitle": "Q1 复检显示·肉蛋农残（三阶段）",
-              "relPath": "evidence/Q1-肉蛋/1786434223683_f50e20ff.png"
+              "relPath": "evidence/Q1-肉蛋/1786434223683_f50e20ff.png",
+              "stepCaption": ""
             }
           ],
           "submitted_by": "123",
@@ -113,7 +116,8 @@
               "decCaseId": "Q1-油",
               "file": "1786434471560_31bd2a27.png",
               "caseTitle": "Q1 复检显示·食品油品质（三阶段）",
-              "relPath": "evidence/Q1-油/1786434471560_31bd2a27.png"
+              "relPath": "evidence/Q1-油/1786434471560_31bd2a27.png",
+              "stepCaption": ""
             }
           ],
           "submitted_by": "123",
@@ -135,7 +139,8 @@
               "decCaseId": "V8-基本信息",
               "file": "1786435251100_17f0195f.png",
               "caseTitle": "V8 基本信息「保存修改」无反应排查",
-              "relPath": "evidence/V8-基本信息/1786435251100_17f0195f.png"
+              "relPath": "evidence/V8-基本信息/1786435251100_17f0195f.png",
+              "stepCaption": ""
             }
           ],
           "submitted_by": "123",
@@ -157,7 +162,8 @@
               "decCaseId": "V8-界面定制",
               "file": "1786435382254_a98712c3.png",
               "caseTitle": "V8 界面定制「保存定制」无反应排查",
-              "relPath": "evidence/V8-界面定制/1786435382254_a98712c3.png"
+              "relPath": "evidence/V8-界面定制/1786435382254_a98712c3.png",
+              "stepCaption": ""
             }
           ],
           "submitted_by": "123",
@@ -179,7 +185,8 @@
               "decCaseId": "V1-肉蛋",
               "file": "1786436392302_b17e5eb7.png",
               "caseTitle": "V1 界面定制·肉蛋新增检测项目显示",
-              "relPath": "evidence/V1-肉蛋/1786436392302_b17e5eb7.png"
+              "relPath": "evidence/V1-肉蛋/1786436392302_b17e5eb7.png",
+              "stepCaption": ""
             }
           ],
           "submitted_by": "123",
@@ -201,7 +208,8 @@
               "decCaseId": "V1-果蔬",
               "file": "1786436594628_94ceba45.png",
               "caseTitle": "V1 界面定制·果蔬新增检测项目显示",
-              "relPath": "evidence/V1-果蔬/1786436594628_94ceba45.png"
+              "relPath": "evidence/V1-果蔬/1786436594628_94ceba45.png",
+              "stepCaption": ""
             }
           ],
           "submitted_by": "123",
@@ -235,7 +243,8 @@
               "decCaseId": "V7-负向",
               "file": "1786440005092_96f2ff64.png",
               "caseTitle": "V7 超管登录·学校代码非法输入负向",
-              "relPath": "evidence/V7-负向/1786440005092_96f2ff64.png"
+              "relPath": "evidence/V7-负向/1786440005092_96f2ff64.png",
+              "stepCaption": ""
             }
           ],
           "submitted_by": "wuxiangjun",
@@ -403,7 +412,8 @@
               "decCaseId": "B6",
               "file": "1786496849836_d3b29140.png",
               "caseTitle": "B6 下载（密文 .aes / 明文 403）",
-              "relPath": "evidence/B6/1786496849836_d3b29140.png"
+              "relPath": "evidence/B6/1786496849836_d3b29140.png",
+              "stepCaption": ""
             }
           ],
           "submitted_by": "wuxiangjun",
