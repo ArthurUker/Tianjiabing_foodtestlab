@@ -180,20 +180,40 @@ function countCreateTablesInGz(gzPath) {
   return new Promise((resolve, reject) => {
     const gunzip = zlib.createGunzip()
     let createTableCount = 0
-    let tail = ''
+    let buffer = ''
     gunzip.on('data', (chunk) => {
-      // 处理跨 chunk 边界：保留尾部 24 字节参与下一次匹配
-      const text = tail + chunk.toString('utf8')
-      const total = (text.match(/CREATE TABLE/g) || []).length
-      // 显式排除 _prisma_migrations：PG 各版本对「--schema 是否携带该表」行为不同
-      // （本地 PG18 实测不 dump，生产 PG14 可能 dump），必须与 tableCounts（业务表）严格对齐
-      const mig = (text.match(/CREATE TABLE\s+(?:"[^"]+"\.)?"_prisma_migrations"/g) || []).length
-      createTableCount += total - mig
-      tail = text.slice(-24)
+      buffer += chunk.toString('utf8')
+      // 按行统计（pg_dump plain 格式中每个 CREATE TABLE 语句独占一行行首）：
+      // 跨 chunk 边界用"保留未终止行"而非固定字节 tail，杜绝重复计数
+      // （实测：语句恰好落在 chunk 边界时，固定 tail 会把完整语句带到下一 chunk 再计一次）。
+      const lines = buffer.split('\n')
+      buffer = lines.pop() // 最后一行可能不完整，留到下个 chunk
+      for (const line of lines) {
+        countCreateTableLine(line)
+      }
     })
     gunzip.on('error', reject) // gzip 损坏 → L1 失败
-    gunzip.on('end', () => resolve({ createTableCount }))
+    gunzip.on('end', () => {
+      if (buffer) countCreateTableLine(buffer)
+      resolve({ createTableCount })
+    })
     fs.createReadStream(gzPath).pipe(gunzip)
+
+    // 只统计【真正的建表语句】且排除 _prisma_migrations：
+    //   pg_dump 的 CREATE TABLE 语句：CREATE TABLE [schema.]"表名" (（行首唯一）。
+    //   - 避免误计数据中的字样——SystemLog 的 BACKUP_FAILED 记录 message 含
+    //     "CREATE TABLE=xx"，若按 /CREATE TABLE/g 统计，每次失败写一条日志，
+    //     pg_dump 把该数据行也 dump 出来，下次计数 +1 → 失败 → 再写一条…
+    //     形成「自增失败」死循环（80→81→82→83→84 实测复现）。
+    //   - 排除 _prisma_migrations：PG 各版本对「--schema 是否携带该表」行为不同
+    //     （本地 PG18 实测不 dump，生产 PG14 可能 dump），必须与 tableCounts（业务表）严格对齐。
+    //     兼容 pg_dump 全部输出形态：带引号 "public"."_prisma_migrations" /
+    //     无引号 public._prisma_migrations（PG14+ 实测）/ 无 schema 前缀等。
+    function countCreateTableLine(line) {
+      if (!/^\s*CREATE TABLE\b/i.test(line)) return
+      if (/^\s*CREATE TABLE\s+(?:(?:"[^"]+"|[\w]+)\.)?"?_prisma_migrations"?\s*\(/i.test(line)) return
+      createTableCount++
+    }
   })
 }
 

@@ -60,6 +60,8 @@
                 </div>
             </div>
             <div class="flex items-center gap-2">
+                <button id="saveAllBtn" title="把当前页所有已填写的测试结果一次性保存" class="px-4 py-2 text-sm rounded-lg bg-emerald-600 text-white font-semibold shadow hover:bg-emerald-700"><i class="fas fa-save mr-1"></i>保存全部</button>
+                <button id="syncBtn" title="保存后点这里：重新生成汇总报告并同步给所有测试人员" class="px-4 py-2 text-sm rounded-lg bg-indigo-600 text-white font-semibold shadow hover:bg-indigo-700"><i class="fas fa-cloud-upload-alt mr-1"></i>同步</button>
                 <button id="refreshBtn" class="px-3 py-1.5 text-xs rounded border border-gray-300 text-gray-600 hover:bg-gray-100"><i class="fas fa-sync mr-1"></i>刷新</button>
                 <button id="logoutBtn" class="px-3 py-1.5 text-xs rounded border border-red-300 text-red-600 hover:bg-red-50"><i class="fas fa-sign-out-alt mr-1"></i>退出</button>
             </div>
@@ -429,6 +431,91 @@
                 if (!w.querySelector('[data-step]')) renderSteps(caseId, [])
             })
         }
+
+        // ═══ 保存全部（当前页所有已填写的用例 + 新问题反馈）═══
+        async function saveAll() {
+            const btn = $('saveAllBtn')
+            btn.disabled = true
+            let saved = 0, failed = 0, firstErr = ''
+            try {
+                // 1) 正式用例：遍历所有结果下拉框，已选择的（含 pending）才保存；若仅填了详情/证据也算
+                const promises = []
+                for (const g of CASE_DEFS) {
+                    for (const c of g.cases) {
+                        const sel = $(`sel_${c.id}`)
+                        const det = $(`det_${c.id}`)
+                        const evi = $(`evi_${c.id}`)
+                        if (!sel) continue
+                        syncEvi(c.id) // 确保分步证据写回隐藏字段
+                        const hasResult = !!sel.value
+                        const hasDetail = (det && det.value.trim())
+                        const hasEvidence = (evi && evi.value.trim())
+                        if (!hasResult && !hasDetail && !hasEvidence) continue // 全空跳过
+                        const payload = {
+                            case_id: c.id, case_group: g.group, case_title: c.title,
+                            result: hasResult ? sel.value : 'pending',
+                            detail: det ? det.value : '', evidence: evi ? evi.value : '',
+                            tester_name: testerName(),
+                        }
+                        promises.push(fetch('/api/test-results', {
+                            method: 'POST', headers: apiHeaders(),
+                            body: JSON.stringify(payload),
+                        }).then((r) => r.json()).then((j) => {
+                            if (!j.success) { failed++; if (!firstErr) firstErr = j.error || '保存失败' }
+                            else { saved++; const st = $(`st_${c.id}`); if (st) st.textContent = `已保存 ${new Date().toLocaleString('zh-CN')}` }
+                        }).catch((e) => { failed++; if (!firstErr) firstErr = e.message }))
+                    }
+                }
+                // 2) 新问题反馈（若填写了标题）
+                const ititle = $('issueTitle')
+                if (ititle && ititle.value.trim()) {
+                    const caseId = issueEditingId || newIssueId()
+                    if (!issueEditingId) issueEditingId = caseId
+                    $('issueEvidence').value = issueSerialize()
+                    promises.push(fetch('/api/test-results', {
+                        method: 'POST', headers: apiHeaders(),
+                        body: JSON.stringify({
+                            case_id: caseId, case_group: NEW_ISSUE_GROUP, case_title: ititle.value.trim(),
+                            result: 'failed', detail: $('issueDetail').value.trim(),
+                            evidence: $('issueEvidence').value, tester_name: testerName(),
+                        }),
+                    }).then((r) => r.json()).then((j) => {
+                        if (!j.success) { failed++; if (!firstErr) firstErr = j.error || '保存失败' }
+                        else { saved++; }
+                    }).catch((e) => { failed++; if (!firstErr) firstErr = e.message }))
+                }
+                await Promise.all(promises)
+                if (failed === 0) {
+                    alert(`已保存 ${saved} 项测试结果。如需让所有测试人员看到最新汇总报告，请再点「同步」按钮。`)
+                } else {
+                    alert(`保存完成：成功 ${saved} 项，失败 ${failed} 项。${firstErr ? '错误：' + firstErr : ''}`)
+                }
+                loadSummary(); loadMyIssues()
+            } finally { btn.disabled = false }
+        }
+
+        // ═══ 同步（重新生成汇总报告 + 重建 dist 部署目录）═══
+        async function syncNow() {
+            const btn = $('syncBtn')
+            if (btn.disabled) return
+            btn.disabled = true
+            const orig = btn.innerHTML
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>同步中...'
+            try {
+                const r = await fetch('/api/test-results/sync', { method: 'POST', headers: apiHeaders() })
+                const j = await r.json()
+                if (!j.success) throw new Error(j.error || '同步失败')
+                alert(j.message || '同步完成')
+            } catch (e) {
+                alert('同步失败：' + e.message)
+            } finally {
+                btn.innerHTML = orig
+                btn.disabled = false
+            }
+        }
+
+        $('saveAllBtn').addEventListener('click', saveAll)
+        $('syncBtn').addEventListener('click', syncNow)
 
         // ═══ 保存单条 ═══
         async function saveCase({ group, title, case: caseId }) {

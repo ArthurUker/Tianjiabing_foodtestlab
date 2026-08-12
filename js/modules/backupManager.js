@@ -94,17 +94,42 @@ export function initBackupManager({ API_BASE, authHeaders, notify }) {
       const j = await api(`/?page=${page}&pageSize=${PAGE_SIZE}`)
       renderRows(j.data || [])
       renderPager(j.total || 0)
+      console.log('[backupManager] 已加载备份', (j.data||[]).length, '/', j.total || 0)
     } catch (e) {
+      console.error('[backupManager] 加载备份列表失败:', e)
       notify(`加载备份列表失败：${e.message}`)
+      // 即使失败也显示空表格
+      renderRows([])
+      renderPager(0)
     }
   }
 
   async function loadSchools() {
     try {
       const r = await fetch(`${API_BASE}/api/admin/schools`, { headers: authHeaders() })
-      const j = await r.json()
-      schoolOptions = (j.data || []).map((s) => ({ code: s.code, name: s.name }))
-    } catch { schoolOptions = [] }
+      const text = await r.text()
+      let j = null
+      try { j = text ? JSON.parse(text) : null } catch (e) { /* ignore */ }
+      if (!r.ok) {
+        const msg = (j && j.error) || `HTTP ${r.status}`
+        console.error('[backupManager] /api/admin/schools 失败:', r.status, text)
+        notify(`加载学校列表失败：${msg}`)
+        schoolOptions = []
+        return
+      }
+      schoolOptions = (j && j.data) || []
+      console.log('[backupManager] 已加载学校', schoolOptions.length, '所')
+      // 重新渲染已有下拉（bindRun 注入）
+      const sel = document.getElementById('bm_schoolSelect')
+      if (sel) {
+        sel.innerHTML = '<option value="">— 选择学校 —</option>' +
+          schoolOptions.map((s) => `<option value="${escapeHtml(s.code)}">${escapeHtml(s.name || s.code)}</option>`).join('')
+      }
+    } catch (e) {
+      console.error('[backupManager] loadSchools 异常:', e)
+      notify(`加载学校列表异常：${e.message}`)
+      schoolOptions = []
+    }
   }
 
   function schoolSelectHtml(selectId, selected) {
@@ -249,7 +274,14 @@ export function initBackupManager({ API_BASE, authHeaders, notify }) {
 
   /** 进入 Tab 时加载。 */
   function load() {
-    if (!schoolOptions.length) loadSchools()
+    // 诊断入口：每次进入 tab 都打印 token 来源 & 当前 API_BASE，便于排错
+    try {
+      const t = authHeaders().Authorization || '(no token)'
+      console.log('[backupManager] load() 被调用 | API_BASE=', API_BASE, '| Authorization=', t.slice(0, 32) + '...')
+    } catch (e) {
+      console.warn('[backupManager] 无法打印诊断信息:', e.message)
+    }
+    if (!schoolOptions.length) loadSchools() // 不再 else，否则修复失败后无法再拉
     loadBackups(1)
   }
 

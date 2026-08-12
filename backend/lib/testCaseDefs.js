@@ -30,7 +30,7 @@ export const CASE_DEFS = [
     { id: '回归V7正向', title: '回归·学校登录跳转正向' },
   ]},
   { group: 'zsp_备份', groupName: '曾水平 · 备份与恢复模块（第四部分 B1-B9）', cases: [
-    { id: 'B1', title: 'B1 运维备份 Tab 可见性（超管可见/非超管不可见）' },
+    { id: 'B1', title: 'B1 入口权限（超管可入+运维备份 Tab 可见 / 非超管整页拦截）' },
     { id: 'B2', title: 'B2 备份列表显示' },
     { id: 'B3', title: 'B3 立即备份全部' },
     { id: 'B4', title: 'B4 单校备份（独立测试学校）' },

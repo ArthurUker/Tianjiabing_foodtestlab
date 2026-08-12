@@ -52,8 +52,10 @@ export async function verifyBackupFile(aesPath, metaPath) {
   checks.push(['gzip', `解压成功（${plain.length} bytes → ${Buffer.byteLength(text)} bytes）`])
 
   // ④ CREATE TABLE 数量 vs tableCounts 表数
-  const createTables = (text.match(/CREATE TABLE/g) || []).length -
-    (text.match(/CREATE TABLE\s+(?:"[^"]+"\.)?"_prisma_migrations"/g) || []).length
+  // 只统计行首的建表语句（避免误计 SystemLog 数据中的 "CREATE TABLE=xx" 字样），
+  // 并排除 _prisma_migrations（兼容 pg_dump 带引号/无引号两种输出形态）
+  const createTables = text.split('\n').filter((l) => /^\s*CREATE TABLE\b/i.test(l) &&
+    !/^\s*CREATE TABLE\s+(?:(?:"[^"]+"|[\w]+)\.)?"?_prisma_migrations"?\s*\(/i.test(l)).length
   const tc = meta.tableCounts
   const expectedTables = tc ? Object.keys(typeof tc === 'string' ? JSON.parse(tc) : tc).length : null
   if (expectedTables == null) {
