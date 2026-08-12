@@ -52,38 +52,63 @@ function fmtDateTime(iso) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
-/** 从 evidence 文本中解析出证据条目列表（支持本地上传 URL 与外链） */
+/** 从 evidence 文本中解析出证据条目列表（支持本地上传 URL 与外链）
+ * 兼容两种格式：
+ *  - 旧格式：URL/文本按换行逗号分隔的纯文本
+ *  - 新格式（有序分步）：JSON 数组 [{"seq":1,"caption":"步骤1","urls":["/api/.../a.png"]}, ...]
+ */
 function parseEvidenceList(evidence) {
   if (!evidence) return []
-  const tokens = String(evidence)
-    .split(/[\n\r,;，；]+/)
-    .map((t) => t.trim())
-    .filter(Boolean)
+  const raw = String(evidence)
+  // 新格式：JSON 有序步骤数组 → 展平为带步骤说明的证据条目
+  const trimmed = raw.trim()
+  if (trimmed.startsWith('[')) {
+    try {
+      const arr = JSON.parse(raw)
+      if (Array.isArray(arr)) {
+        const list = []
+        for (const s of arr) {
+          if (!s || typeof s !== 'object') continue
+          const urls = Array.isArray(s.urls) ? s.urls : []
+          for (const u of urls) {
+            list.push({ stepSeq: s.seq, stepCaption: (s.caption || '').trim(), ...tokenizeEvidence(String(u)) })
+          }
+        }
+        if (list.length) return list
+      }
+    } catch { /* 不是合法 JSON，回退旧格式 */ }
+  }
   const list = []
+  const tokens = raw.split(/[\n\r,;，；]+/).map((t) => t.trim()).filter(Boolean)
   for (const t of tokens) {
-    // 本地上传：/api/test-results/evidence/<encCaseId>/<file>
-    const m = t.match(/^\/api\/test-results\/evidence\/([^/]+)\/([^/?#]+)$/)
-    if (m) {
-      const encCaseId = m[1]
-      const file = decodeURIComponent(m[2])
-      const decCaseId = decodeURIComponent(encCaseId)
-      const def = CASE_INDEX.get(decCaseId)
-      list.push({
-        raw: t,
-        type: 'local',
-        encCaseId,
-        decCaseId,
-        file,
-        caseTitle: def ? def.title : decCaseId,
-        // relPath 用【解码中文名】做目录：浏览器请求时自动 URL 编码，Caddy 解码后匹配磁盘中文目录。
-        // 若用编码名做目录，Caddy 收到解码后的路径找不到文件，会 SPA fallback 返回 HTML 导致图片碎裂。
-        relPath: `evidence/${decCaseId}/${encodeURIComponent(file)}`, // 相对 docs/test-results/latest/
-      })
-    } else if (/^https?:\/\//i.test(t)) {
-      list.push({ raw: t, type: 'url', url: t })
-    }
+    const item = tokenizeEvidence(t)
+    if (item) list.push({ ...item, stepSeq: undefined, stepCaption: '' })
   }
   return list
+}
+
+/** 单条证据 token → {type, url|relPath 等}；无法识别则返回 null */
+function tokenizeEvidence(t) {
+  const m = t.match(/^\/api\/test-results\/evidence\/([^/]+)\/([^/?#]+)$/)
+  if (m) {
+    const encCaseId = m[1]
+    const file = decodeURIComponent(m[2])
+    const decCaseId = decodeURIComponent(encCaseId)
+    const def = CASE_INDEX.get(decCaseId)
+    return {
+      raw: t,
+      type: 'local',
+      encCaseId,
+      decCaseId,
+      file,
+      caseTitle: def ? def.title : decCaseId,
+      // relPath 用【解码中文名】做目录：浏览器请求时自动 URL 编码，Caddy 解码后匹配磁盘中文目录。
+      // 若用编码名做目录，Caddy 收到解码后的路径找不到文件，会 SPA fallback 返回 HTML 导致图片碎裂。
+      relPath: `evidence/${decCaseId}/${encodeURIComponent(file)}`, // 相对 docs/test-results/latest/
+    }
+  }
+  if (/^https?:\/\//i.test(t)) return { raw: t, type: 'url', url: t }
+  return null
 }
 
 /** 解析全部结果 → 按组组织的结构化快照 */

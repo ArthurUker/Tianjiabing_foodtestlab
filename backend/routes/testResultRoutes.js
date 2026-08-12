@@ -185,7 +185,8 @@ export function createTestResultRoutes(userManager, prisma) {
       // 只取 basename + 白名单字符，杜绝 ../ 穿越
       const file = path.basename(String(req.params.file || ''))
       if (!/^[A-Za-z0-9._-]+$/.test(file)) return res.status(400).json({ success: false, error: '非法文件名' })
-      if (!/^[A-Za-z0-9_\-.]{1,80}$/.test(decCaseId)) return res.status(400).json({ success: false, error: '非法用例标识' })
+      // case_id 目录允许中文（Q1-果蔬阶段A / new_问题 等），只拦截空/超长/含路径分隔符的穿越路径
+      if (!decCaseId || decCaseId.length > 80 || /[\/\\]/.test(decCaseId)) return res.status(400).json({ success: false, error: '非法用例标识' })
       const abs = path.join(EVIDENCE_STORE_DIR, decCaseId, file)
       if (!abs.startsWith(path.join(EVIDENCE_STORE_DIR, decCaseId))) {
         return res.status(400).json({ success: false, error: '非法路径' })

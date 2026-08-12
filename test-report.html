@@ -83,12 +83,16 @@
                     <label class="block text-xs text-gray-500 mb-1">详细描述（复现步骤 / 期望 vs 实际）</label>
                     <textarea id="issueDetail" rows="2" class="w-full border rounded px-2 py-1.5 text-xs" placeholder="选填，写清复现步骤、期望表现和实际表现"></textarea>
                 </div>
-                <div class="flex gap-1 items-center">
-                    <input id="issueEvidence" type="text" class="flex-1 min-w-0 border rounded px-2 py-1.5 text-xs" placeholder="上传截图或贴 URL（多张用换行/逗号分隔）">
-                    <button type="button" id="issueUpBtn" class="px-2 py-1 text-xs rounded bg-gray-600 text-white hover:bg-gray-700 shrink-0"><i class="fas fa-upload"></i></button>
-                    <input type="file" id="issueFile" accept="image/png,image/jpeg,image/webp,image/gif" multiple class="hidden">
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-[10px] text-gray-400">分步截图（按问题出现顺序一步一步加）</span>
+                        <button type="button" id="issueStepAdd" class="px-2 py-0.5 text-[10px] rounded bg-emerald-600 text-white hover:bg-emerald-700"><i class="fas fa-plus mr-0.5"></i>添加一步</button>
+                    </div>
+                    <div id="issueStepWrap" class="space-y-1.5">
+                        <div class="text-[10px] text-gray-300 py-0.5">点击"添加一步"，按复现顺序逐步骤传截图</div>
+                    </div>
+                    <input type="hidden" id="issueEvidence" value="">
                 </div>
-                <div id="issueEvp" class="flex flex-wrap gap-1"></div>
                 <div class="flex items-center gap-2 flex-wrap">
                     <button type="button" id="issueSubmitBtn" class="px-4 py-1.5 text-xs rounded bg-red-600 text-white hover:bg-red-700"><i class="fas fa-paper-plane mr-1"></i>提交 / 更新问题</button>
                     <button type="button" id="issueResetBtn" class="px-3 py-1.5 text-xs rounded border border-gray-300 text-gray-600 hover:bg-gray-100">清空</button>
@@ -201,26 +205,135 @@
             const st = $(`st_${caseId}`)
             if (sel) { sel.value = rec.result; sel.classList.add(`result-${rec.result}`) }
             if (det) det.value = rec.detail || ''
-            if (evi) { evi.value = rec.evidence || ''; updateEvidencePreview(caseId) }
+            if (evi) { evi.value = rec.evidence || '' }
+            // 用有序分步渲染回填证据
+            renderSteps(caseId, evidenceSteps(rec.evidence || ''))
             if (st) st.textContent = rec.updated_at ? `已保存 ${new Date(rec.updated_at).toLocaleString('zh-CN')}` : ''
         }
 
-        // ═══ 证据解析 / 预览 / 上传 ═══
-        function evidenceTokens(value) {
-            return String(value || '').split(/[\n\r,;，；]+/).map((t) => t.trim()).filter(Boolean)
+        // ═══ 证据（有序分步）解析 / 渲染 / 上传 ═══
+        // evidence 存储格式：JSON 字符串（有序步骤数组）
+        //   [{"seq":1,"caption":"步骤1：打开登录页","urls":["/api/.../a.png"]}, ...]
+        // 兼容旧数据：纯文本/URL 列表 → 归入一个"未分步"步骤
+
+        function evidenceSteps(value) {
+            if (value == null || value === '') return []
+            if (typeof value === 'string' && value.trim().startsWith('[')) {
+                try {
+                    const arr = JSON.parse(value)
+                    if (Array.isArray(arr)) return arr.filter((s) => s && typeof s === 'object')
+                } catch { /* 回退到文本解析 */ }
+            }
+            // 旧格式：把非 JSON 文本按 URL 拆成一个步骤
+            const urls = String(value).split(/[\n\r,;，；]+/).map((t) => t.trim()).filter(Boolean)
+            return urls.length ? [{ seq: 1, caption: '', urls }] : []
         }
 
-        // 根据 evidence 文本框内容渲染缩略图预览
-        function updateEvidencePreview(caseId) {
+        // 从有序步骤序列化回 evidence 存储串（无步骤则存空串）
+        function serializeSteps(caseId) {
+            const wrap = $(`stepWrap_${caseId}`)
+            if (!wrap) return ''
+            const steps = []
+            wrap.querySelectorAll('[data-step]').forEach((el) => {
+                const idx = el.dataset.step
+                const caption = (el.querySelector('.step-cap')?.value || '').trim()
+                const urls = (el.querySelector('.step-evi')?.value || '').split(/[\n\r]+/).map((t) => t.trim()).filter(Boolean)
+                if (caption || urls.length) steps.push({ seq: steps.length + 1, caption, urls })
+            })
+            return steps.length ? JSON.stringify(steps) : ''
+        }
+
+        // 把当前分步编辑器内容写回隐藏字段（保存时读取）
+        function syncEvi(caseId) {
             const evi = $(`evi_${caseId}`)
-            const prev = $(`evp_${caseId}`)
-            if (!prev) return
-            prev.innerHTML = evidenceTokens(evi && evi.value).map((t) => {
+            if (evi) evi.value = serializeSteps(caseId)
+        }
+
+        // 渲染某个用例的分步编辑器（steps: 有序步骤数组）
+        function renderSteps(caseId, steps) {
+            const wrap = $(`stepWrap_${caseId}`)
+            if (!wrap) return
+            const arr = Array.isArray(steps) ? steps : []
+            wrap.innerHTML = arr.map((s, i) => `
+                <div data-step="${i}" class="border border-gray-200 rounded p-1.5 bg-white space-y-1">
+                    <div class="flex items-center gap-1">
+                        <span class="text-[10px] font-bold text-gray-500 shrink-0">第 ${i + 1} 步</span>
+                        <input class="step-cap flex-1 min-w-0 border rounded px-1.5 py-0.5 text-[10px]" placeholder="本步说明，如：输入账号密码点登录" value="${esc(s.caption || '')}">
+                        <div class="flex gap-0.5 shrink-0">
+                            <button type="button" data-move="up" title="上移" class="step-move px-1.5 text-[10px] rounded border border-gray-300 text-gray-500 hover:bg-gray-100"><i class="fas fa-arrow-up"></i></button>
+                            <button type="button" data-move="down" title="下移" class="step-move px-1.5 text-[10px] rounded border border-gray-300 text-gray-500 hover:bg-gray-100"><i class="fas fa-arrow-down"></i></button>
+                            <button type="button" data-del title="删除本步" class="step-del px-1.5 text-[10px] rounded border border-red-200 text-red-500 hover:bg-red-50"><i class="fas fa-trash-alt"></i></button>
+                        </div>
+                    </div>
+                    <div class="flex gap-1 items-center">
+                        <input type="file" class="step-file" accept="image/png,image/jpeg,image/webp,image/gif" multiple class="hidden">
+                        <input class="step-evi flex-1 min-w-0 border rounded px-1.5 py-0.5 text-[10px] font-mono" placeholder="截图 URL 或上传" value="${esc((s.urls || []).join('\n'))}">
+                        <button type="button" data-upload title="上传本步截图" class="step-up px-1.5 text-[10px] rounded bg-gray-600 text-white hover:bg-gray-700 shrink-0"><i class="fas fa-upload"></i></button>
+                    </div>
+                    <div class="step-preview flex flex-wrap gap-1"></div>
+                </div>`).join('') || `<div class="text-[10px] text-gray-300 py-0.5">点击"添加一步"，分别上传每一步的截图并写步骤说明</div>`
+
+            // 绑定各按钮
+            wrap.querySelectorAll('[data-step]').forEach((card) => {
+                const idx = Number(card.dataset.step)
+                card.querySelector('.step-cap').addEventListener('input', () => { reindex(caseId); syncEvi(caseId) })
+                card.querySelector('.step-evi').addEventListener('input', () => { renderStepPreview(card); syncEvi(caseId) })
+                card.querySelector('.step-file').addEventListener('change', async (ev) => {
+                    const fi = ev.target
+                    if (!fi.files || !fi.files.length) return
+                    const btn = card.querySelector('.step-up')
+                    if (btn) btn.disabled = true
+                    try {
+                        const urls = await uploadEvidence(caseId, [...fi.files])
+                        const evi = card.querySelector('.step-evi')
+                        const cur = evi.value.trim()
+                        evi.value = cur ? cur + '\n' + urls.join('\n') : urls.join('\n')
+                        renderStepPreview(card); syncEvi(caseId)
+                    } catch (err) { alert('上传失败：' + err.message) }
+                    finally { if (btn) btn.disabled = false; fi.value = '' }
+                })
+                card.querySelector('.step-up').addEventListener('click', () => card.querySelector('.step-file').click())
+                card.querySelector('.step-del').addEventListener('click', () => { card.remove(); reindex(caseId); syncEvi(caseId) })
+                card.querySelectorAll('.step-move').forEach((m) => m.addEventListener('click', () => {
+                    const dir = m.dataset.move
+                    const par = card.parentNode
+                    const cards = [...par.querySelectorAll('[data-step]')]
+                    const from = cards.indexOf(card)
+                    const to = dir === 'up' ? from - 1 : from + 1
+                    if (to >= 0 && to < cards.length) {
+                        if (dir === 'up') par.insertBefore(card, cards[to])
+                        else par.insertBefore(cards[to], card)
+                        reindex(caseId); syncEvi(caseId)
+                    }
+                }))
+            })
+            renderAllStepPreviews(wrap)
+            syncEvi(caseId)
+        }
+
+        function reindex(caseId) {
+            const wrap = $(`stepWrap_${caseId}`)
+            if (!wrap) return
+            wrap.querySelectorAll('[data-step]').forEach((el, i) => {
+                el.dataset.step = i
+                const n = el.querySelector('.step-cap').parentNode.querySelector('span')
+                if (n) n.textContent = `第 ${i + 1} 步`
+            })
+        }
+
+        function renderStepPreview(card) {
+            const evi = card.querySelector('.step-evi')
+            const prev = card.querySelector('.step-preview')
+            prev.innerHTML = String(evi?.value || '').split(/[\n\r]+/).map((t) => t.trim()).filter(Boolean).map((t) => {
                 if (/^\/api\/test-results\/evidence\/|^https?:\/\//i.test(t)) {
-                    return `<img src="${esc(t)}" alt="证据" class="h-12 w-16 object-cover rounded border border-gray-200 cursor-zoom-in" onclick="window.open(this.src,'_blank')" onerror="this.style.display='none'">`
+                    return `<img src="${esc(t)}" alt="截图" class="h-12 w-16 object-cover rounded border border-gray-200 cursor-zoom-in" onclick="window.open(this.src,'_blank')" onerror="this.style.display='none'">`
                 }
                 return `<span class="text-[10px] text-gray-400 border border-gray-200 rounded px-1 py-0.5">${esc(t)}</span>`
             }).join('')
+        }
+
+        function renderAllStepPreviews(wrap) {
+            wrap.querySelectorAll('[data-step]').forEach((card) => renderStepPreview(card))
         }
 
         // 上传证据图片（base64 JSON → 后端 /api/test-results/upload）
@@ -267,13 +380,16 @@
                                     ${RESULT_OPTIONS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}
                                 </select>
                             </div>
-                            <div class="col-span-6 md:col-span-3">
-                                <div class="flex gap-1 items-center">
-                                    <input id="evi_${esc(c.id)}" type="text" class="flex-1 min-w-0 border rounded px-2 py-1.5 text-xs" placeholder="上传图片或贴 URL（多张用换行/逗号分隔）">
-                                    <button type="button" data-case="${esc(c.id)}" title="上传证据图片" class="up-btn px-2 py-1 text-xs rounded bg-gray-600 text-white hover:bg-gray-700 shrink-0"><i class="fas fa-upload"></i></button>
-                                    <input type="file" id="file_${esc(c.id)}" accept="image/png,image/jpeg,image/webp,image/gif" multiple class="hidden">
+                            <div class="col-span-12 md:col-span-5">
+                                <div class="flex items-center justify-between mb-1">
+                                    <span class="text-[10px] text-gray-400">分步截图（按 bug 出现的先后顺序，一步一步添加）</span>
+                                    <button type="button" data-case="${esc(c.id)}" title="新增一步" class="step-add px-2 py-0.5 text-[10px] rounded bg-emerald-600 text-white hover:bg-emerald-700"><i class="fas fa-plus mr-0.5"></i>添加一步</button>
                                 </div>
-                                <div id="evp_${esc(c.id)}" class="flex flex-wrap gap-1 mt-1"></div>
+                                <div id="stepWrap_${esc(c.id)}" class="space-y-1.5">
+                                    <div class="text-[10px] text-gray-300 py-0.5">点击"添加一步"，分别上传每一步的截图并写步骤说明</div>
+                                </div>
+                                <input type="hidden" id="evi_${esc(c.id)}" value="">
+                                <input type="file" id="file_${esc(c.id)}" accept="image/png,image/jpeg,image/webp,image/gif" multiple class="hidden">
                             </div>
                             <div class="col-span-10 md:col-span-3">
                                 <textarea id="det_${esc(c.id)}" rows="1" class="w-full border rounded px-2 py-1.5 text-xs" placeholder="实际表现（失败必填，说明现象）"></textarea>
@@ -289,40 +405,22 @@
 
             wrap.querySelectorAll('.save-btn').forEach((b) => b.addEventListener('click', () => saveCase(b.dataset)))
 
-            // 上传按钮 → 触发对应隐藏 file input
-            wrap.querySelectorAll('.up-btn').forEach((b) => {
+            // "添加一步" → 在当前用例的分步列表末尾新增一步
+            wrap.querySelectorAll('.step-add').forEach((b) => {
                 b.addEventListener('click', () => {
-                    const fi = $(`file_${b.dataset.case}`)
-                    if (fi) fi.click()
-                })
-            })
-            // 选中图片后上传，并把返回 URL 追加到 evidence 文本框 + 预览
-            wrap.querySelectorAll('input[type=file]').forEach((fi) => {
-                fi.addEventListener('change', async () => {
-                    if (!fi.files || !fi.files.length) return
-                    const caseId = fi.dataset.case || fi.id.replace(/^file_/, '')
-                    const btn = fi.previousElementSibling
-                    if (btn) btn.disabled = true
-                    try {
-                        const urls = await uploadEvidence(caseId, [...fi.files])
-                        const evi = $(`evi_${caseId}`)
-                        const cur = evi.value.trim()
-                        evi.value = cur ? cur + '\n' + urls.join('\n') : urls.join('\n')
-                        updateEvidencePreview(caseId)
-                    } catch (err) {
-                        alert('上传失败：' + err.message)
-                    } finally {
-                        if (btn) btn.disabled = false
-                        fi.value = ''
-                    }
+                    const caseId = b.dataset.case
+                    const wrap2 = $(`stepWrap_${caseId}`)
+                    if (!wrap2) return
+                    const arr = evidenceSteps(serializeSteps(caseId))
+                    arr.push({ seq: arr.length + 1, caption: '', urls: [] })
+                    renderSteps(caseId, arr)
                 })
             })
 
-            // 手动编辑 evidence 文本框时实时刷新预览（含直接粘贴 URL）
-            wrap.querySelectorAll('input').forEach((el) => {
-                if (el.id && el.id.startsWith('evi_')) {
-                    el.addEventListener('input', () => updateEvidencePreview(el.id.slice(4)))
-                }
+            // 初始化：为已回填的用例渲染分步（renderGroups 会先于 loadAll 调用，此处主要处理无数据时留空）
+            wrap.querySelectorAll('[id^=stepWrap_]').forEach((w) => {
+                const caseId = w.id.slice('stepWrap_'.length)
+                if (!w.querySelector('[data-step]')) renderSteps(caseId, [])
             })
         }
 
@@ -383,8 +481,13 @@
         })
 
         // ═══════ 新问题反馈（清单外问题上报 / 更新） ═══════
-        let issueEditingId = null // 正在编辑的 new_问题 case_id；null = 新增
+        let issueEditingId = null // 正在编辑/草稿的 new_问题 case_id；null = 未开始
         const NEW_ISSUE_GROUP = 'new_问题'
+        // 新增 issue 在首次"添加一步/上传"时即分配草稿 case_id，保证传图目录与提交 case_id 一致（避免图片 404）
+        function ensureIssueId() {
+            if (!issueEditingId) issueEditingId = newIssueId()
+            return issueEditingId
+        }
 
         function currentUsername() {
             const u = authService.getUser ? authService.getUser() : null
@@ -419,6 +522,82 @@
             } catch { /* 加载失败不阻断 */ }
         }
 
+        // —— issue 专用分步证据（复用渲染逻辑，但绑定到 issueStepWrap） ——
+        function issueSerialize() {
+            const wrap = $('issueStepWrap')
+            if (!wrap) return ''
+            const steps = []
+            wrap.querySelectorAll('[data-step]').forEach((el) => {
+                const caption = (el.querySelector('.step-cap')?.value || '').trim()
+                const urls = (el.querySelector('.step-evi')?.value || '').split(/[\n\r]+/).map((t) => t.trim()).filter(Boolean)
+                if (caption || urls.length) steps.push({ seq: steps.length + 1, caption, urls })
+            })
+            return steps.length ? JSON.stringify(steps) : ''
+        }
+        function issueRenderSteps(arr) {
+            const wrap = $('issueStepWrap')
+            if (!wrap) return
+            const steps = Array.isArray(arr) ? arr : []
+            wrap.innerHTML = steps.map((s, i) => `
+                <div data-step="${i}" class="border border-gray-200 rounded p-1.5 bg-white space-y-1">
+                    <div class="flex items-center gap-1">
+                        <span class="text-[10px] font-bold text-gray-500 shrink-0">第 ${i + 1} 步</span>
+                        <input class="step-cap flex-1 min-w-0 border rounded px-1.5 py-0.5 text-[10px]" placeholder="本步说明，如：输入错误密码点登录" value="${esc(s.caption || '')}">
+                        <div class="flex gap-0.5 shrink-0">
+                            <button type="button" data-move="up" class="step-move px-1.5 text-[10px] rounded border border-gray-300 text-gray-500 hover:bg-gray-100"><i class="fas fa-arrow-up"></i></button>
+                            <button type="button" data-move="down" class="step-move px-1.5 text-[10px] rounded border border-gray-300 text-gray-500 hover:bg-gray-100"><i class="fas fa-arrow-down"></i></button>
+                            <button type="button" data-del class="step-del px-1.5 text-[10px] rounded border border-red-200 text-red-500 hover:bg-red-50"><i class="fas fa-trash-alt"></i></button>
+                        </div>
+                    </div>
+                    <div class="flex gap-1 items-center">
+                        <input type="file" class="step-file" accept="image/png,image/jpeg,image/webp,image/gif" multiple class="hidden">
+                        <input class="step-evi flex-1 min-w-0 border rounded px-1.5 py-0.5 text-[10px] font-mono" placeholder="截图 URL 或上传" value="${esc((s.urls || []).join('\n'))}">
+                        <button type="button" data-upload class="step-up px-1.5 text-[10px] rounded bg-gray-600 text-white hover:bg-gray-700 shrink-0"><i class="fas fa-upload"></i></button>
+                    </div>
+                    <div class="step-preview flex flex-wrap gap-1"></div>
+                </div>`).join('') || `<div class="text-[10px] text-gray-300 py-0.5">点击"添加一步"，按复现顺序逐步骤传截图</div>`
+
+            wrap.querySelectorAll('[data-step]').forEach((card) => {
+                card.querySelector('.step-cap').addEventListener('input', () => { issueReindex(); $('issueEvidence').value = issueSerialize() })
+                card.querySelector('.step-evi').addEventListener('input', () => { renderStepPreview(card); $('issueEvidence').value = issueSerialize() })
+                card.querySelector('.step-file').addEventListener('change', async (ev) => {
+                    const fi = ev.target
+                    if (!fi.files || !fi.files.length) return
+                    const btn = card.querySelector('.step-up'); if (btn) btn.disabled = true
+                    try {
+                        const urls = await uploadEvidence(ensureIssueId(), [...fi.files])
+                        const evi = card.querySelector('.step-evi')
+                        const cur = evi.value.trim()
+                        evi.value = cur ? cur + '\n' + urls.join('\n') : urls.join('\n')
+                        renderStepPreview(card); $('issueEvidence').value = issueSerialize()
+                    } catch (err) { alert('上传失败：' + err.message) }
+                    finally { if (btn) btn.disabled = false; fi.value = '' }
+                })
+                card.querySelector('.step-up').addEventListener('click', () => card.querySelector('.step-file').click())
+                card.querySelector('.step-del').addEventListener('click', () => { card.remove(); issueReindex(); $('issueEvidence').value = issueSerialize() })
+                card.querySelectorAll('.step-move').forEach((m) => m.addEventListener('click', () => {
+                    const par = card.parentNode
+                    const cards = [...par.querySelectorAll('[data-step]')]
+                    const from = cards.indexOf(card)
+                    const to = m.dataset.move === 'up' ? from - 1 : from + 1
+                    if (to >= 0 && to < cards.length) {
+                        if (m.dataset.move === 'up') par.insertBefore(card, cards[to]); else par.insertBefore(cards[to], card)
+                        issueReindex(); $('issueEvidence').value = issueSerialize()
+                    }
+                }))
+            })
+            wrap.querySelectorAll('[data-step]').forEach((card) => renderStepPreview(card))
+        }
+        function issueReindex() {
+            const wrap = $('issueStepWrap')
+            if (!wrap) return
+            wrap.querySelectorAll('[data-step]').forEach((el, i) => {
+                el.dataset.step = i
+                const n = el.querySelector('.step-cap').parentNode.querySelector('span')
+                if (n) n.textContent = `第 ${i + 1} 步`
+            })
+        }
+
         async function editIssue(caseId) {
             try {
                 const r = await fetch(`/api/test-results?case_group=${encodeURIComponent(NEW_ISSUE_GROUP)}&submitted_by=${encodeURIComponent(currentUsername())}`, { headers: apiHeaders() })
@@ -429,21 +608,10 @@
                 $('issueTitle').value = rec.case_title || ''
                 $('issueDetail').value = rec.detail || ''
                 $('issueEvidence').value = rec.evidence || ''
+                issueRenderSteps(evidenceSteps(rec.evidence || ''))
                 $('issueCur').textContent = `编辑中：${rec.case_id}（保存将覆盖原反馈）`
-                updateIssuePreview()
                 $('issueTitle').focus()
             } catch { alert('加载反馈失败') }
-        }
-
-        function updateIssuePreview() {
-            const prev = $('issueEvp')
-            if (!prev) return
-            prev.innerHTML = evidenceTokens($('issueEvidence').value).map((t) => {
-                if (/^\/api\/test-results\/evidence\/|^https?:\/\//i.test(t)) {
-                    return `<img src="${esc(t)}" alt="证据" class="h-12 w-16 object-cover rounded border border-gray-200 cursor-zoom-in" onclick="window.open(this.src,'_blank')" onerror="this.style.display='none'">`
-                }
-                return `<span class="text-[10px] text-gray-400 border border-gray-200 rounded px-1 py-0.5">${esc(t)}</span>`
-            }).join('')
         }
 
         async function submitIssue() {
@@ -453,6 +621,8 @@
             btn.disabled = true
             try {
                 const caseId = issueEditingId || newIssueId()
+                $('issueEvidence').value = issueSerialize()
+                if (!issueEditingId) issueEditingId = caseId
                 const r = await fetch('/api/test-results', {
                     method: 'POST',
                     headers: apiHeaders(),
@@ -462,15 +632,15 @@
                         case_title: title,
                         result: 'failed',
                         detail: $('issueDetail').value.trim(),
-                        evidence: $('issueEvidence').value.trim(),
+                        evidence: $('issueEvidence').value,
                     }),
                 })
                 const j = await r.json()
                 if (!j.success) throw new Error(j.error || '保存失败')
                 issueEditingId = null
                 $('issueCur').textContent = `已保存（${caseId}）`
-                $('issueTitle').value = ''; $('issueDetail').value = ''; $('issueEvidence').value = ''
-                updateIssuePreview()
+                $('issueTitle').value = ''; $('issueDetail').value = ''
+                issueRenderSteps([])
                 loadMyIssues()
             } catch (e) {
                 alert('保存失败：' + e.message)
@@ -480,25 +650,16 @@
         $('issueSubmitBtn').addEventListener('click', submitIssue)
         $('issueResetBtn').addEventListener('click', () => {
             issueEditingId = null
-            $('issueTitle').value = ''; $('issueDetail').value = ''; $('issueEvidence').value = ''
+            $('issueTitle').value = ''; $('issueDetail').value = ''
+            issueRenderSteps([])
             $('issueCur').textContent = ''
-            updateIssuePreview()
         })
-        $('issueUpBtn').addEventListener('click', () => $('issueFile').click())
-        $('issueFile').addEventListener('change', async () => {
-            const fi = $('issueFile')
-            if (!fi.files || !fi.files.length) return
-            try {
-                const urls = await uploadEvidence(issueEditingId || 'new_issue', [...fi.files])
-                const evi = $('issueEvidence')
-                const cur = evi.value.trim()
-                evi.value = cur ? cur + '\n' + urls.join('\n') : urls.join('\n')
-                updateIssuePreview()
-            } catch (err) {
-                alert('上传失败：' + err.message)
-            } finally { fi.value = '' }
+        $('issueStepAdd').addEventListener('click', () => {
+            ensureIssueId()
+            const arr = evidenceSteps(issueSerialize())
+            arr.push({ seq: arr.length + 1, caption: '', urls: [] })
+            issueRenderSteps(arr)
         })
-        $('issueEvidence').addEventListener('input', updateIssuePreview)
 
         // 若已登录直接进入
         if (authService.getToken()) {
