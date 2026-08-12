@@ -164,10 +164,16 @@ export class AdaptiveUploadQueue {
         this._scheduleNext(pauseDuration);
       } else if (error.status === 409) {
         try {
-          const latest = await this._fetchLatest(item.collection, item.recordId);
-          const latestRow = latest?.data || latest || {};
-          if (typeof latestRow.version !== 'undefined') {
-            item.payload = { ...item.payload, version: latestRow.version };
+          // 优先使用 409 响应体携带的 serverVersion（_doRequest 已解析），省一次 GET；
+          // 缺失/异常（如 'stale'）时才回退 _fetchLatest 拉取。
+          let latestVersion = error.serverVersion;
+          if (latestVersion === undefined || latestVersion === null || latestVersion === 'stale') {
+            const latest = await this._fetchLatest(item.collection, item.recordId);
+            const latestRow = latest?.data || latest || {};
+            latestVersion = latestRow.version;
+          }
+          if (typeof latestVersion !== 'undefined' && latestVersion !== null && latestVersion !== 'stale') {
+            item.payload = { ...item.payload, version: latestVersion };
           }
           item.fingerprint = this._makeFingerprint(item.collection, item.recordId, item.payload);
           item.attempt++;
@@ -239,6 +245,14 @@ export class AdaptiveUploadQueue {
       const err = new Error(`HTTP ${response.status}`);
       err.status = response.status;
       err.retryAfter = response.headers.get('Retry-After');
+      // 409 响应体携带 serverVersion：直接解析携带，重试时无需再发 GET 即可拿到最新版本
+      // （避免 _fetchLatest 依赖 GET 端点，GET 限流/网络抖动时重试链仍可自愈）
+      if (response.status === 409) {
+        try {
+          const body = await response.json();
+          if (body && typeof body.serverVersion !== 'undefined') err.serverVersion = body.serverVersion;
+        } catch (_) { /* 响应体非 JSON 时忽略，回退 _fetchLatest */ }
+      }
       throw err;
     }
     return response.json();
@@ -246,7 +260,10 @@ export class AdaptiveUploadQueue {
 
   async _fetchLatest(collection, recordId) {
     const headers = this._getHeaders() || {};
-    const response = await fetch(`/api/records/${collection}/${recordId}`, { headers });
+    // 与 _doRequest 保持一致：使用 getBaseUrl 回调，避免自定义 baseUrl 场景下
+    // 相对路径 /api/records 拉取失败导致 409 重试永远拿不到最新 version。
+    const baseUrl = this._getBaseUrl();
+    const response = await fetch(`${baseUrl}/${collection}/${recordId}`, { headers });
     if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
     return response.json();
   }

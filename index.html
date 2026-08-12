@@ -502,11 +502,30 @@
                 <div class="glass p-6">
                     <h2 class="text-2xl font-bold mb-4 border-b pb-2" data-title-key="section_tableware">餐具洁净度检测</h2>
                     <form id="tablewareTestForm" class="space-y-4 mb-6">
-                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                            <input type="date" name="testDate" required class="border p-2 rounded">
-                            <select name="canteen" class="border p-2 rounded"><option>一食堂</option><option>二食堂</option></select>
-                            <input type="text" name="inspector" placeholder="检测员" required class="border p-2 rounded">
+                        <!-- 顶部蓝色提示条由 Tableware.js 模块初始化时动态注入，
+                             不要在此处再写一条 HTML，否则会出现两条重复提示。
+                             第一行：基本信息字段（与果蔬农残/食用油品质对齐：白底 glass-panel + label + 红色星号 + 三列布局） -->
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 p-5 glass-panel">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">检测日期 <span class="text-red-500">*</span></label>
+                                <input type="date" name="testDate" required class="w-full border border-gray-300 p-2 rounded-md shadow-sm">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">食堂 <span class="text-red-500">*</span></label>
+                                <select name="canteen" class="w-full border border-gray-300 p-2 rounded-md shadow-sm" required>
+                                    <option value="一食堂">一食堂</option>
+                                    <option value="二食堂">二食堂</option>
+                                    <option value="三食堂">三食堂</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">检测员 <span class="text-red-500">*</span></label>
+                                <input type="text" name="inspector" placeholder="输入姓名" required class="w-full border border-gray-300 p-2 rounded-md shadow-sm">
+                            </div>
                         </div>
+
+                        <!-- 「检测点位信息」标题由 Tableware.js 模块初始化时动态注入，
+                             不要在此处再写一条 HTML，否则会出现两条重复标题。 -->
                         <div id="atpPointsContainer">
                             <div class="glass-panel p-4 atp-point mb-2">
                                 <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">

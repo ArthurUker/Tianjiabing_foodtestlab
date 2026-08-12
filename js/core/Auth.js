@@ -34,9 +34,11 @@ export class OperationGuard {
      */
     getCurrentUser() {
         try {
-            // TD-TenantIsolation：按当前学校命名空间读取用户信息
+            // TD-TenantIsolation：按当前学校命名空间读取用户信息；
+            // 兼容旧版未命名空间的 'current_user' 键（升级期间两键并存）
             const code = extractSchoolCode() || '';
-            const raw = localStorage.getItem(code ? `current_user__${code}` : 'current_user');
+            const scopedKey = code ? `current_user__${code}` : 'current_user';
+            const raw = localStorage.getItem(scopedKey) || localStorage.getItem('current_user');
             if (!raw) return '未知用户';
             const user = JSON.parse(raw);
             return user.fullName || user.username || '未知用户';

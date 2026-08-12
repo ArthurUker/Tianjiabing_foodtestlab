@@ -279,6 +279,10 @@
                         <button type="button" data-upload title="上传本步截图" class="step-up px-2 py-1.5 sm:px-1.5 sm:py-0.5 text-sm sm:text-[10px] rounded bg-gray-600 text-white hover:bg-gray-700 shrink-0"><i class="fas fa-upload"></i></button>
                     </div>
                     <div class="step-preview flex flex-wrap gap-1"></div>
+                    ${i === arr.length - 1 ? `
+                    <button type="button" data-step-add-next class="w-full border border-dashed border-emerald-300 rounded py-1.5 text-xs text-emerald-700 hover:bg-emerald-50 hover:border-emerald-500">
+                        <i class="fas fa-plus-circle mr-1"></i>添加下一步（第 ${arr.length + 1} 步）
+                    </button>` : ''}
                 </div>`).join('') || `<button type="button" data-case="${esc(caseId)}" class="step-add-empty w-full border-2 border-dashed border-emerald-300 rounded py-3 sm:py-2 text-sm sm:text-xs text-emerald-700 hover:bg-emerald-50 hover:border-emerald-500"><i class="fas fa-plus-circle mr-1"></i>点此处添加第 1 步（上传本步骤截图 + 写步骤说明）</button>`
 
             // 空状态按钮的点击委托
@@ -310,6 +314,13 @@
                 })
                 card.querySelector('.step-up').addEventListener('click', () => card.querySelector('.step-file').click())
                 card.querySelector('.step-del').addEventListener('click', () => { card.remove(); reindex(caseId); syncEvi(caseId) })
+                // 「+ 添加下一步」次要按钮（仅最后一步卡片有）—— 让"第 2 步在哪加"自解释,无需反复滚到顶部
+                const nextBtn = card.querySelector('[data-step-add-next]')
+                if (nextBtn) nextBtn.addEventListener('click', () => {
+                    const arr = evidenceSteps(serializeSteps(caseId))
+                    arr.push({ seq: arr.length + 1, caption: '', urls: [] })
+                    renderSteps(caseId, arr)
+                })
                 card.querySelectorAll('.step-move').forEach((m) => m.addEventListener('click', () => {
                     const dir = m.dataset.move
                     const par = card.parentNode
@@ -668,6 +679,10 @@
                         <button type="button" data-upload class="step-up px-2 py-1.5 sm:px-1.5 sm:py-0.5 text-sm sm:text-[10px] rounded bg-gray-600 text-white hover:bg-gray-700 shrink-0"><i class="fas fa-upload"></i></button>
                     </div>
                     <div class="step-preview flex flex-wrap gap-1"></div>
+                    ${i === steps.length - 1 ? `
+                    <button type="button" data-step-add-next class="w-full border border-dashed border-emerald-300 rounded py-1.5 text-xs text-emerald-700 hover:bg-emerald-50 hover:border-emerald-500">
+                        <i class="fas fa-plus-circle mr-1"></i>添加下一步（第 ${steps.length + 1} 步）
+                    </button>` : ''}
                 </div>`).join('') || `<button type="button" id="issueStepAddEmpty" class="w-full border-2 border-dashed border-emerald-300 rounded py-3 sm:py-2 text-sm sm:text-xs text-emerald-700 hover:bg-emerald-50 hover:border-emerald-500"><i class="fas fa-plus-circle mr-1"></i>点此处添加第 1 步（上传本步骤截图 + 写步骤说明）</button>`
 
             wrap.querySelectorAll('[data-step]').forEach((card) => {
@@ -688,6 +703,9 @@
                 })
                 card.querySelector('.step-up').addEventListener('click', () => card.querySelector('.step-file').click())
                 card.querySelector('.step-del').addEventListener('click', () => { card.remove(); issueReindex(); $('issueEvidence').value = issueSerialize() })
+                // 「+ 添加下一步」次要按钮（issue 块）—— 与顶部 issueStepAdd 共用同一逻辑
+                const issueNextBtn = card.querySelector('[data-step-add-next]')
+                if (issueNextBtn) issueNextBtn.addEventListener('click', () => addIssueStep())
                 card.querySelectorAll('.step-move').forEach((m) => m.addEventListener('click', () => {
                     const par = card.parentNode
                     const cards = [...par.querySelectorAll('[data-step]')]

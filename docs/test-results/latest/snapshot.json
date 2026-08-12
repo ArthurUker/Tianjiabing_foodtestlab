@@ -1,12 +1,12 @@
 {
-  "generated_at": "2026-08-12T02:02:05.094Z",
+  "generated_at": "2026-08-12T09:22:49.494Z",
   "overall": {
-    "passed": 6,
+    "passed": 14,
     "failed": 14,
     "skipped": 0,
-    "pending": 8,
+    "pending": 0,
     "total": 28,
-    "done": 20
+    "done": 28
   },
   "groups": [
     {
@@ -14,12 +14,12 @@
       "groupName": "吴翠楠 · 业务功能复测（第一部分~第三部分 + 回归）",
       "total": 17,
       "counts": {
-        "passed": 1,
-        "failed": 8,
+        "passed": 8,
+        "failed": 9,
         "skipped": 0,
-        "pending": 8
+        "pending": 0
       },
-      "done": 9,
+      "done": 17,
       "items": [
         {
           "case_id": "Q1-果蔬阶段A",
@@ -47,14 +47,26 @@
         {
           "case_id": "Q1-果蔬阶段B",
           "case_title": "Q1 复检显示·果蔬农残（阶段B 刷新）",
-          "result": "pending",
-          "detail": "",
-          "evidence": "",
-          "evidence_list": [],
-          "submitted_by": "",
-          "submitted_by_role": "",
-          "created_at": null,
-          "updated_at": null
+          "result": "failed",
+          "detail": "按F5刷新，没有报错，页面直接退出去复检页面",
+          "evidence": "[{\"seq\":1,\"caption\":\"\",\"urls\":[\"/api/test-results/evidence/Q1-%E6%9E%9C%E8%94%AC%E9%98%B6%E6%AE%B5B/1786522022893_8d6e0942.png\"]}]",
+          "evidence_list": [
+            {
+              "stepSeq": 1,
+              "stepCaption": "",
+              "raw": "/api/test-results/evidence/Q1-%E6%9E%9C%E8%94%AC%E9%98%B6%E6%AE%B5B/1786522022893_8d6e0942.png",
+              "type": "local",
+              "encCaseId": "Q1-%E6%9E%9C%E8%94%AC%E9%98%B6%E6%AE%B5B",
+              "decCaseId": "Q1-果蔬阶段B",
+              "file": "1786522022893_8d6e0942.png",
+              "caseTitle": "Q1 复检显示·果蔬农残（阶段B 刷新）",
+              "relPath": "evidence/Q1-果蔬阶段B/1786522022893_8d6e0942.png"
+            }
+          ],
+          "submitted_by": "吴翠楠",
+          "submitted_by_role": "admin@wuxiangjun",
+          "created_at": "2026-08-12T08:07:03.955Z",
+          "updated_at": "2026-08-12T08:07:03.955Z"
         },
         {
           "case_id": "Q1-果蔬阶段C",
@@ -220,109 +232,122 @@
         {
           "case_id": "V6-帮助跳转",
           "case_title": "V6 登录页帮助中心跳转（子路径矛盾复现）",
-          "result": "pending",
+          "result": "passed",
           "detail": "",
           "evidence": "",
           "evidence_list": [],
-          "submitted_by": "",
-          "submitted_by_role": "",
-          "created_at": null,
-          "updated_at": null
+          "submitted_by": "wuxiangjun",
+          "submitted_by_role": "admin@wuxiangjun",
+          "created_at": "2026-08-12T09:21:58.523Z",
+          "updated_at": "2026-08-12T09:21:58.523Z"
         },
         {
           "case_id": "V7-负向",
           "case_title": "V7 超管登录·学校代码非法输入负向",
           "result": "passed",
           "detail": "IP地址后面修改别的识别不出来学校",
-          "evidence": "/api/test-results/evidence/V7-%E8%B4%9F%E5%90%91/1786440005092_96f2ff64.png",
+          "evidence": "[{\"seq\":1,\"caption\":\"\",\"urls\":[\"/api/test-results/evidence/V7-%E8%B4%9F%E5%90%91/1786440005092_96f2ff64.png\"]}]",
           "evidence_list": [
             {
+              "stepSeq": 1,
+              "stepCaption": "",
               "raw": "/api/test-results/evidence/V7-%E8%B4%9F%E5%90%91/1786440005092_96f2ff64.png",
               "type": "local",
               "encCaseId": "V7-%E8%B4%9F%E5%90%91",
               "decCaseId": "V7-负向",
               "file": "1786440005092_96f2ff64.png",
               "caseTitle": "V7 超管登录·学校代码非法输入负向",
-              "relPath": "evidence/V7-负向/1786440005092_96f2ff64.png",
-              "stepCaption": ""
+              "relPath": "evidence/V7-负向/1786440005092_96f2ff64.png"
             }
           ],
           "submitted_by": "wuxiangjun",
-          "submitted_by_role": "admin",
+          "submitted_by_role": "admin@wuxiangjun",
           "created_at": "2026-08-11T09:20:35.575Z",
-          "updated_at": "2026-08-11T09:21:01.175Z"
+          "updated_at": "2026-08-12T09:21:58.588Z"
         },
         {
           "case_id": "回归V2",
           "case_title": "回归·停用/启用用户",
-          "result": "pending",
-          "detail": "",
-          "evidence": "",
-          "evidence_list": [],
-          "submitted_by": "",
-          "submitted_by_role": "",
-          "created_at": null,
-          "updated_at": null
+          "result": "passed",
+          "detail": "停用和启用都没有出现异常，停用登录不了账号",
+          "evidence": "[{\"seq\":1,\"caption\":\"\",\"urls\":[\"/api/test-results/evidence/%E5%9B%9E%E5%BD%92V2/1786519020236_bfea6e42.png\"]}]",
+          "evidence_list": [
+            {
+              "stepSeq": 1,
+              "stepCaption": "",
+              "raw": "/api/test-results/evidence/%E5%9B%9E%E5%BD%92V2/1786519020236_bfea6e42.png",
+              "type": "local",
+              "encCaseId": "%E5%9B%9E%E5%BD%92V2",
+              "decCaseId": "回归V2",
+              "file": "1786519020236_bfea6e42.png",
+              "caseTitle": "回归·停用/启用用户",
+              "relPath": "evidence/回归V2/1786519020236_bfea6e42.png"
+            }
+          ],
+          "submitted_by": "wuxiangjun",
+          "submitted_by_role": "admin@wuxiangjun",
+          "created_at": "2026-08-12T07:19:22.580Z",
+          "updated_at": "2026-08-12T09:21:58.589Z"
         },
         {
           "case_id": "回归V3",
           "case_title": "回归·检测频率与月报页",
-          "result": "pending",
+          "result": "passed",
           "detail": "",
           "evidence": "",
           "evidence_list": [],
-          "submitted_by": "",
-          "submitted_by_role": "",
-          "created_at": null,
-          "updated_at": null
+          "submitted_by": "wuxiangjun",
+          "submitted_by_role": "admin@wuxiangjun",
+          "created_at": "2026-08-12T09:21:58.593Z",
+          "updated_at": "2026-08-12T09:21:58.593Z"
         },
         {
           "case_id": "回归V4",
           "case_title": "回归·阈值/日历设置保存",
-          "result": "pending",
+          "result": "passed",
           "detail": "",
           "evidence": "",
           "evidence_list": [],
-          "submitted_by": "",
-          "submitted_by_role": "",
-          "created_at": null,
-          "updated_at": null
+          "submitted_by": "wuxiangjun",
+          "submitted_by_role": "admin@wuxiangjun",
+          "created_at": "2026-08-12T09:21:58.590Z",
+          "updated_at": "2026-08-12T09:21:58.590Z"
         },
         {
           "case_id": "回归V5",
           "case_title": "回归·每日登录提示",
-          "result": "pending",
+          "result": "passed",
           "detail": "",
           "evidence": "",
           "evidence_list": [],
-          "submitted_by": "",
-          "submitted_by_role": "",
-          "created_at": null,
-          "updated_at": null
+          "submitted_by": "wuxiangjun",
+          "submitted_by_role": "admin@wuxiangjun",
+          "created_at": "2026-08-12T09:21:58.615Z",
+          "updated_at": "2026-08-12T09:21:58.615Z"
         },
         {
           "case_id": "回归V6地址",
           "case_title": "回归·帮助链接子路径地址核对",
-          "result": "pending",
+          "result": "passed",
           "detail": "",
           "evidence": "",
           "evidence_list": [],
-          "submitted_by": "",
-          "submitted_by_role": "",
-          "created_at": null,
-          "updated_at": null
+          "submitted_by": "wuxiangjun",
+          "submitted_by_role": "admin@wuxiangjun",
+          "created_at": "2026-08-12T09:21:58.615Z",
+          "updated_at": "2026-08-12T09:21:58.615Z"
         },
         {
           "case_id": "回归V7正向",
           "case_title": "回归·学校登录跳转正向",
-          "result": "pending",
+          "result": "passed",
           "detail": "",
           "evidence": "",
           "evidence_list": [],
-          "submitted_by": "",
-          "submitted_by_role": "",
-          "created_at": null,
-          "updated_at": null
+          "submitted_by": "wuxiangjun",
+          "submitted_by_role": "admin@wuxiangjun",
+          "created_at": "2026-08-12T09:21:58.702Z",
+          "updated_at": "2026-08-12T09:21:58.702Z"
         }
       ]
     },
@@ -331,8 +356,8 @@
       "groupName": "曾水平 · 备份与恢复模块（第四部分 B1-B9）",
       "total": 11,
       "counts": {
-        "passed": 5,
-        "failed": 6,
+        "passed": 6,
+        "failed": 5,
         "skipped": 0,
         "pending": 0
       },
@@ -346,9 +371,9 @@
           "evidence": "",
           "evidence_list": [],
           "submitted_by": "wuxiangjun",
-          "submitted_by_role": "admin",
+          "submitted_by_role": "admin@wuxiangjun",
           "created_at": "2026-08-11T07:38:45.792Z",
-          "updated_at": "2026-08-11T08:05:41.695Z"
+          "updated_at": "2026-08-12T09:21:58.702Z"
         },
         {
           "case_id": "B2",
@@ -358,9 +383,9 @@
           "evidence": "",
           "evidence_list": [],
           "submitted_by": "wuxiangjun",
-          "submitted_by_role": "admin",
+          "submitted_by_role": "admin@wuxiangjun",
           "created_at": "2026-08-11T07:39:32.348Z",
-          "updated_at": "2026-08-11T08:17:41.480Z"
+          "updated_at": "2026-08-12T09:21:58.702Z"
         },
         {
           "case_id": "B3",
@@ -370,9 +395,9 @@
           "evidence": "",
           "evidence_list": [],
           "submitted_by": "wuxiangjun",
-          "submitted_by_role": "admin",
+          "submitted_by_role": "admin@wuxiangjun",
           "created_at": "2026-08-11T07:42:07.096Z",
-          "updated_at": "2026-08-11T09:14:09.887Z"
+          "updated_at": "2026-08-12T09:21:58.707Z"
         },
         {
           "case_id": "B4",
@@ -382,9 +407,9 @@
           "evidence": "",
           "evidence_list": [],
           "submitted_by": "wuxiangjun",
-          "submitted_by_role": "admin",
+          "submitted_by_role": "admin@wuxiangjun",
           "created_at": "2026-08-11T07:45:15.115Z",
-          "updated_at": "2026-08-11T09:14:05.721Z"
+          "updated_at": "2026-08-12T09:21:58.749Z"
         },
         {
           "case_id": "B5",
@@ -394,44 +419,57 @@
           "evidence": "",
           "evidence_list": [],
           "submitted_by": "wuxiangjun",
-          "submitted_by_role": "admin",
+          "submitted_by_role": "admin@wuxiangjun",
           "created_at": "2026-08-11T07:47:16.364Z",
-          "updated_at": "2026-08-11T09:14:26.392Z"
+          "updated_at": "2026-08-12T09:21:58.770Z"
         },
         {
           "case_id": "B6",
           "case_title": "B6 下载（密文 .aes / 明文 403）",
-          "result": "failed",
-          "detail": "再点「下载」→ 弹窗选\"取消\" → 提示\"明文下载默认禁止…\"(403)——预期行为,非缺陷，取消的时候无提示",
-          "evidence": "/api/test-results/evidence/B6/1786496849836_d3b29140.png",
+          "result": "passed",
+          "detail": "",
+          "evidence": "[{\"seq\":1,\"caption\":\"\",\"urls\":[\"/api/test-results/evidence/B6/1786496849836_d3b29140.png\"]}]",
           "evidence_list": [
             {
+              "stepSeq": 1,
+              "stepCaption": "",
               "raw": "/api/test-results/evidence/B6/1786496849836_d3b29140.png",
               "type": "local",
               "encCaseId": "B6",
               "decCaseId": "B6",
               "file": "1786496849836_d3b29140.png",
               "caseTitle": "B6 下载（密文 .aes / 明文 403）",
-              "relPath": "evidence/B6/1786496849836_d3b29140.png",
-              "stepCaption": ""
+              "relPath": "evidence/B6/1786496849836_d3b29140.png"
             }
           ],
           "submitted_by": "wuxiangjun",
-          "submitted_by_role": "admin",
+          "submitted_by_role": "admin@wuxiangjun",
           "created_at": "2026-08-11T08:20:43.038Z",
-          "updated_at": "2026-08-12T01:07:32.172Z"
+          "updated_at": "2026-08-12T09:21:58.790Z"
         },
         {
           "case_id": "B7-负向",
           "case_title": "B7 影子恢复·确认词错误不执行",
           "result": "failed",
-          "detail": "确认词输入错误值(如 restore)→ 执行 → 无提示\"确认词必须为 RESTORE\",不执行(负向)",
-          "evidence": "/api/test-results/evidence/B7-%E8%B4%9F%E5%90%91/1786440034088_f86ae577.png/api/test-results/evidence/B7-%E8%B4%9F%E5%90%91/1786496884719_5a03ac8d.png",
-          "evidence_list": [],
+          "detail": "前面4步可以通过，目前停留至第5步还没执行。",
+          "evidence": "[{\"seq\":1,\"caption\":\"\",\"urls\":[\"/api/test-results/evidence/B7-%E8%B4%9F%E5%90%91/1786516240516_fe21ea09.png\"]}]",
+          "evidence_list": [
+            {
+              "stepSeq": 1,
+              "stepCaption": "",
+              "raw": "/api/test-results/evidence/B7-%E8%B4%9F%E5%90%91/1786516240516_fe21ea09.png",
+              "type": "local",
+              "encCaseId": "B7-%E8%B4%9F%E5%90%91",
+              "decCaseId": "B7-负向",
+              "file": "1786516240516_fe21ea09.png",
+              "caseTitle": "B7 影子恢复·确认词错误不执行",
+              "relPath": "evidence/B7-负向/1786516240516_fe21ea09.png"
+            }
+          ],
           "submitted_by": "wuxiangjun",
-          "submitted_by_role": "admin",
+          "submitted_by_role": "admin@wuxiangjun",
           "created_at": "2026-08-11T08:20:46.797Z",
-          "updated_at": "2026-08-12T01:08:33.006Z"
+          "updated_at": "2026-08-12T09:21:58.790Z"
         },
         {
           "case_id": "B7-正向",
@@ -441,9 +479,9 @@
           "evidence": "",
           "evidence_list": [],
           "submitted_by": "wuxiangjun",
-          "submitted_by_role": "admin",
+          "submitted_by_role": "admin@wuxiangjun",
           "created_at": "2026-08-11T08:20:49.586Z",
-          "updated_at": "2026-08-11T08:20:49.586Z"
+          "updated_at": "2026-08-12T09:21:58.790Z"
         },
         {
           "case_id": "B7-旧schema",
@@ -453,9 +491,9 @@
           "evidence": "",
           "evidence_list": [],
           "submitted_by": "wuxiangjun",
-          "submitted_by_role": "admin",
+          "submitted_by_role": "admin@wuxiangjun",
           "created_at": "2026-08-11T08:20:52.278Z",
-          "updated_at": "2026-08-11T09:18:25.102Z"
+          "updated_at": "2026-08-12T09:21:58.851Z"
         },
         {
           "case_id": "B8",
@@ -465,9 +503,9 @@
           "evidence": "",
           "evidence_list": [],
           "submitted_by": "wuxiangjun",
-          "submitted_by_role": "admin",
+          "submitted_by_role": "admin@wuxiangjun",
           "created_at": "2026-08-11T08:20:55.420Z",
-          "updated_at": "2026-08-11T09:18:18.546Z"
+          "updated_at": "2026-08-12T09:21:58.852Z"
         },
         {
           "case_id": "B9",
@@ -477,9 +515,9 @@
           "evidence": "",
           "evidence_list": [],
           "submitted_by": "wuxiangjun",
-          "submitted_by_role": "admin",
+          "submitted_by_role": "admin@wuxiangjun",
           "created_at": "2026-08-11T08:20:57.827Z",
-          "updated_at": "2026-08-11T09:18:21.964Z"
+          "updated_at": "2026-08-12T09:21:58.853Z"
         }
       ]
     }

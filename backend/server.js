@@ -399,7 +399,13 @@ function buildRecordPayload(record) {
     const sampleInfo = sanitizeObjectKeys(safeParseJson(record.sample_info, {}))
     const resultData = sanitizeObjectKeys(safeParseJson(record.result_data, {}))
 
+    // 服务端元字段必须最后展开（最高优先级）：result_data/sample_info 中可能残留
+    // 用户提交或历史脏数据写入的 version/status/record_code 等键（见 buildRecordWriteData
+    // 的剥离与 FIX-409 记录），若由 ...resultData 覆盖会返回错误 version，
+    // 前端乐观锁重试时永远 409。
     return {
+        ...sampleInfo,
+        ...resultData,
         id: record.id,
         record_code: record.record_code,
         test_type: record.test_type,
@@ -407,9 +413,7 @@ function buildRecordPayload(record) {
         status: record.status,
         version: record.version || 0,
         created_at: record.created_at,
-        updated_at: record.updated_at,
-        ...sampleInfo,
-        ...resultData
+        updated_at: record.updated_at
     }
 }
 
@@ -418,6 +422,16 @@ function buildRecordWriteData(tableName, payload) {
     const baseData = sanitizeObjectKeys({ ...payload })
     delete baseData.id
     delete baseData._status
+    // 服务端管理字段不落入 result_data：若写入，经 buildRecordPayload 的
+    // ...resultData 展开会覆盖真实服务端值，前端拿到旧 version 后乐观锁
+    // 重试永远 409（历史脏数据已存在，由 buildRecordPayload 兜底修正）。
+    delete baseData.version
+    delete baseData.record_code
+    delete baseData.test_type
+    delete baseData.test_name
+    delete baseData.created_at
+    delete baseData.updated_at
+    delete baseData.completed_at
 
     const testDate = baseData.testDate || null
     const canteen = baseData.canteen || null
@@ -2066,6 +2080,44 @@ app.put('/api/records/:tableName/:id', authenticateUser, requireEditorOrAbove, a
         }
 
         const writeData = buildRecordWriteData(testType, req.body || {})
+
+        // TD-Q1-Recheck-SelfHeal: 兜底自愈——若 recheckRecords 最新一条 isPassed=true
+        // 而 result 仍为"不合格"（前端 select.value 被扩展/旧 JS 污染导致 isPassed 错传），
+        // 自动将 result 修正为"合格"，避免"填合格反馈不合格"的陈年 bug。
+        try {
+            const incoming = safeParseJson(writeData.result_data, {}) || {}
+            const recs = Array.isArray(incoming.recheckRecords) ? incoming.recheckRecords : []
+            if (recs.length > 0) {
+                const latest = recs[0]
+                if (latest && latest.isPassed === true && incoming.result === '不合格') {
+                    incoming.result = '合格'
+                    writeData.result_data = JSON.stringify(incoming)
+                }
+            }
+        } catch (_) { /* 自愈失败不影响主流程 */ }
+
+        // TD-Q1-Recheck-FieldGuard: 复检/编辑时保护原始业务字段。
+        // 客户端 PUT 经常只传少量字段（仅 testDate/canteen/inspector/result/recheckRecords），
+        // 直接覆盖 result_data 会导致 vegetableType/batchNo/sampleNo 等原始字段被清空。
+        // 规则：若 payload 缺失这些字段且数据库已有值，从旧 result_data 合并回去。
+        const PROTECTED_FIELDS = ['vegetableType', 'batchNo', 'sampleNo', 'remarks', 'remark',
+                                  'result_unit', 'limitValue', 'unit', 'detectionLimit', 'sampleSource']
+        try {
+            const incoming = safeParseJson(writeData.result_data, {}) || {}
+            const existingData = safeParseJson(existing?.result_data, {}) || {}
+            let restoredCount = 0
+            for (const k of PROTECTED_FIELDS) {
+                if ((incoming[k] === undefined || incoming[k] === null || incoming[k] === '') &&
+                    existingData[k] !== undefined && existingData[k] !== null && existingData[k] !== '') {
+                    incoming[k] = existingData[k]
+                    restoredCount++
+                }
+            }
+            if (restoredCount > 0) {
+                process.stderr.write(`[FieldGuard] restored ${restoredCount} protected fields (e.g. vegetableType=${incoming.vegetableType})\n`)
+            }
+            writeData.result_data = JSON.stringify(incoming)
+        } catch (e) { process.stderr.write(`[FieldGuard] error: ${e.message}\n`) }
 
         // 版本号乐观锁（如果客户端传了 version 字段）
         if (req.body && typeof req.body.version !== 'undefined' && req.body.version !== existing.version) {

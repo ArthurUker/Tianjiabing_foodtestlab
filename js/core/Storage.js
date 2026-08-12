@@ -358,10 +358,15 @@ export class StorageService {
                     if (shouldRetry) {
                         const retryDelay = this._computeRetryDelay(currentRetry, e?.retryAfterMs);
                         if (isRateLimited) this._setGlobalBackoff(retryDelay);
-                        // TD-409-Retry: 版本冲突重试前先拉取服务端最新 version，避免用旧 version 永久 409
+                        // TD-409-Retry: 版本冲突重试前先获取服务端最新 version，避免用旧 version 永久 409。
+                        // 优先用 409 响应体携带的 serverVersion（AdaptiveUploadQueue 已解析），省一次 GET；
+                        // 缺失时才回退 _fetchLatestVersion。
                         if (isVersionConflict && req.type === 'update' && req.recordId) {
                             try {
-                                const latestVersion = await this._fetchLatestVersion(req.recordId);
+                                const sv = e.serverVersion;
+                                const latestVersion = (sv !== undefined && sv !== null && sv !== 'stale')
+                                    ? sv
+                                    : await this._fetchLatestVersion(req.recordId);
                                 if (latestVersion != null) req.data = { ...req.data, version: latestVersion };
                             } catch (_) { /* 拉取失败则沿用原 payload，交给下层失败处理 */ }
                         }

@@ -165,17 +165,30 @@ export class BackupRestoreService {
             return;
         }
 
+        // 设计语言与其他模块(餐具/果蔬/食用油/肉蛋/病原体/检测频率)完全一致:
+        //   glass 主容器(毛玻璃) + glass-panel 子面板 + text-2xl font-bold border-b pb-2 标题
+        //   + bg-blue-50 border border-blue-200 提示框 + 标准蓝色按钮
         content.innerHTML = `
-            <div class="bg-white rounded-lg shadow-md p-6">
-                <h2 class="text-2xl font-bold mb-6 border-b pb-2 text-gray-800">
-                    <i class="fas fa-history mr-2 text-blue-600"></i>系统数据备份与恢复
-                </h2>
+            <div class="space-y-4">
+                <!-- 主容器：标题 + 操作说明 -->
+                <div class="glass p-6">
+                    <div class="flex items-center justify-between mb-4 border-b pb-2">
+                        <h2 class="text-2xl font-bold flex items-center">
+                            <i class="fas fa-history text-blue-600 mr-2"></i>系统数据备份与恢复
+                        </h2>
+                        <button id="btn-check-sync" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm flex items-center">
+                            <i class="fas fa-server mr-1"></i> 检查同步状态
+                        </button>
+                    </div>
+                    <div class="bg-blue-50 border border-blue-200 p-4 rounded text-sm text-blue-800">
+                        本地导出/导入与云端同步。恢复前请确认数据来源，避免覆盖现有数据。
+                    </div>
+                </div>
 
-                <!-- 3列布局 -->
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-                    
-                    <!-- 1. 本地备份卡片 -->
-                    <div class="border border-gray-200 rounded-lg p-6 bg-gray-50 hover:shadow-md transition duration-200 flex flex-col">
+                <!-- 3列操作卡片 -->
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                    <!-- 1. 本地导出卡片 -->
+                    <div class="glass-panel p-6 flex flex-col hover:shadow-md transition duration-200">
                         <div class="flex items-center mb-4">
                             <div class="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center mr-3">
                                 <i class="fas fa-download"></i>
@@ -190,8 +203,8 @@ export class BackupRestoreService {
                         </button>
                     </div>
 
-                    <!-- 2. 本地恢复卡片 -->
-                    <div class="border border-gray-200 rounded-lg p-6 bg-gray-50 hover:shadow-md transition duration-200 flex flex-col">
+                    <!-- 2. 本地导入卡片 -->
+                    <div class="glass-panel p-6 flex flex-col hover:shadow-md transition duration-200">
                         <div class="flex items-center mb-4">
                             <div class="w-10 h-10 rounded-full bg-yellow-100 text-yellow-600 flex items-center justify-center mr-3">
                                 <i class="fas fa-folder-open"></i>
@@ -207,8 +220,8 @@ export class BackupRestoreService {
                         </div>
                     </div>
 
-                    <!-- 3. 云端恢复卡片 -->
-                    <div class="border border-purple-200 rounded-lg p-6 bg-purple-50 hover:shadow-md transition duration-200 flex flex-col">
+                    <!-- 3. 云端同步卡片 -->
+                    <div class="glass-panel p-6 flex flex-col hover:shadow-md transition duration-200">
                         <div class="flex items-center mb-4">
                             <div class="w-10 h-10 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center mr-3">
                                 <i class="fas fa-cloud-download-alt"></i>
@@ -225,17 +238,14 @@ export class BackupRestoreService {
                 </div>
 
                 <!-- 恢复状态提示 -->
-                <div id="restore-status" class="mb-6 hidden"></div>
+                <div id="restore-status" class="hidden"></div>
 
-                <!-- 3. 同步状态与控制 -->
-                <div class="mt-6 border border-blue-200 rounded-lg p-4 bg-blue-50">
-                    <h3 class="text-lg font-semibold text-blue-800 mb-2 flex items-center">
-                        <i class="fas fa-sync-alt mr-2"></i>同步状态控制
-                    </h3>
+                <!-- 同步状态控制 -->
+                <div class="glass p-5">
+                    <div class="text-base font-bold text-gray-700 mb-4 flex items-center border-b pb-3">
+                        <i class="fas fa-sync-alt text-blue-600 mr-2 text-lg"></i>同步状态控制
+                    </div>
                     <div class="flex flex-wrap items-center gap-4">
-                        <button id="btn-check-sync" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm transition">
-                            <i class="fas fa-server mr-1"></i> 检查同步状态
-                        </button>
                         <button id="btn-force-sync" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 text-sm transition">
                             <i class="fas fa-cloud-upload-alt mr-1"></i> 强制同步到服务器
                         </button>
@@ -249,18 +259,20 @@ export class BackupRestoreService {
                     </div>
                 </div>
 
-                <!-- 4. 危险区域 -->
-                <div class="mt-8 border border-red-200 rounded-lg p-4 bg-red-50 flex flex-col md:flex-row justify-between items-center gap-4">
-                    <div class="text-red-800 text-sm flex items-center">
-                        <i class="fas fa-skull-crossbones text-xl mr-3"></i>
-                        <div>
-                            <strong>危险区域：</strong>
-                            清空所有本地缓存数据。
+                <!-- 危险区域 -->
+                <div class="glass-panel p-5">
+                    <div class="flex flex-col md:flex-row justify-between items-center gap-4">
+                        <div class="text-red-800 text-sm flex items-center">
+                            <i class="fas fa-skull-crossbones text-xl mr-3 text-red-500"></i>
+                            <div>
+                                <strong>危险区域：</strong>
+                                清空所有本地缓存数据。
+                            </div>
                         </div>
+                        <button id="btn-clear-local" class="px-4 py-2 bg-white border border-red-300 text-red-600 rounded hover:bg-red-600 hover:text-white text-sm transition whitespace-nowrap">
+                            <i class="fas fa-trash-alt mr-1"></i> 清空本地缓存
+                        </button>
                     </div>
-                    <button id="btn-clear-local" class="px-4 py-2 bg-white border border-red-300 text-red-600 rounded hover:bg-red-600 hover:text-white text-sm transition whitespace-nowrap">
-                        <i class="fas fa-trash-alt mr-1"></i> 清空本地缓存
-                    </button>
                 </div>
             </div>
         `;

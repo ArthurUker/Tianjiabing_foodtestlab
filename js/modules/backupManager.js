@@ -211,8 +211,9 @@ export function initBackupManager({ API_BASE, authHeaders, notify }) {
         </div>
         <div class="flex items-center gap-2">
           <label class="text-xs text-gray-500">确认词</label>
-          <input id="bm_restoreConfirm" type="text" placeholder="输入 RESTORE" class="border rounded px-2 py-1.5 text-sm flex-1" />
+          <input id="bm_restoreConfirm" type="text" placeholder="输入 RESTORE" autocomplete="off" class="border rounded px-2 py-1.5 text-sm flex-1" />
         </div>
+        <p id="bm_restoreHint" class="text-xs text-gray-400 pl-1" data-state="empty">需输入 <code class="font-mono text-red-600">RESTORE</code>（区分大小写、首尾不能有空格）才能执行</p>
       </div>
     `
   }
@@ -221,12 +222,57 @@ export function initBackupManager({ API_BASE, authHeaders, notify }) {
     const close = document.getElementById('bm_restoreClose')
     const exec = document.getElementById('bm_restoreExec')
     if (close) close.addEventListener('click', () => document.getElementById('bm_restoreModal')?.classList.add('hidden'))
+
+    // ── 实时校验输入框：在用户输入瞬间给出合法性反馈，避免点完按钮才发现不对 ──
+    const refreshHint = () => {
+      const hint = document.getElementById('bm_restoreHint')
+      const input = document.getElementById('bm_restoreConfirm')
+      if (!hint || !input) return
+      const v = input.value
+      if (!v) {
+        hint.textContent = '需输入 RESTORE（区分大小写、首尾不能有空格）才能执行'
+        hint.className = 'text-xs text-gray-400 pl-1'
+        hint.dataset.state = 'empty'
+        return
+      }
+      // 严格校验：拒绝空格绕过、区分大小写、长度必须完全一致
+      if (v !== 'RESTORE') {
+        let reason = ''
+        if (v.trim() !== v) reason = '（首尾有空格）'
+        else if (v.trim().toUpperCase() === 'RESTORE' && v !== 'RESTORE') reason = '（需全大写）'
+        else if (v.length !== 7) reason = `（长度错误，应为 7 字符，当前 ${v.length}）`
+        hint.innerHTML = `✗ 确认词错误${reason}，正确值为 <code class="font-mono text-red-600">RESTORE</code>`
+        hint.className = 'text-xs text-red-600 pl-1 font-medium'
+        hint.dataset.state = 'invalid'
+        return
+      }
+      hint.innerHTML = '✓ 确认词正确'
+      hint.className = 'text-xs text-green-600 pl-1 font-medium'
+      hint.dataset.state = 'valid'
+    }
+    // 模态每次重新打开时（openRestoreModal 重写 body）才拿到新 input，需事件委托到 modal 容器
+    const modalEl = document.getElementById('bm_restoreModal')
+    if (modalEl) modalEl.addEventListener('input', (e) => {
+      if (e.target && e.target.id === 'bm_restoreConfirm') refreshHint()
+    })
+
     if (exec) exec.addEventListener('click', async () => {
       if (!restoreTarget) return
       const target = document.getElementById('bm_restoreTarget')?.value
       const confirmText = document.getElementById('bm_restoreConfirm')?.value
       if (!target) { notify('请选择目标学校'); return }
-      if (confirmText !== 'RESTORE') { notify('确认词必须为 RESTORE'); return }
+      // 加严校验：拒绝空值、首尾空格绕过；区分大小写严格 === 'RESTORE'
+      if (confirmText !== 'RESTORE') {
+        let detail = '确认词必须为 RESTORE'
+        if (!confirmText || !confirmText.trim()) detail = '确认词不能为空'
+        else if (confirmText.trim() !== confirmText) detail = '确认词首尾不能有空格'
+        else if (confirmText.trim().toUpperCase() === 'RESTORE') detail = '确认词必须为大写 RESTORE（区分大小写）'
+        // 强反馈：alert 是模态中心强提示，notify 是页面顶部提示，双保险
+        alert(`❌ ${detail}\n\n当前输入：「${confirmText}」`)
+        notify(`确认词错误：${detail}`, 'error')
+        refreshHint() // 同步把输入框旁的 hint 切到错误样式
+        return
+      }
       if (!confirm('警告：恢复将用备份数据替换目标学校的当前数据（原数据保留为 school_<code>_old_<ts>）。确认继续？')) return
       exec.disabled = true
       exec.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>恢复中…'
@@ -255,7 +301,12 @@ export function initBackupManager({ API_BASE, authHeaders, notify }) {
       const { act, id } = btn.dataset
       if (act === 'verify') doVerify(id)
       else if (act === 'download') {
-        const fmt = confirm('下载加密文件（.aes，需与 meta.json 配对保管）？\n确定则下载密文；取消则尝试明文下载（需服务端放行）')
+        const fmt = confirm('下载加密文件（.aes，需与 meta.json 配对保管）？\n确定则下载密文 .aes；取消则尝试明文下载（默认会被服务端以 403 拒绝）')
+        if (!fmt) {
+          // 用户主动取消：立即给可见提示，避免「点了取消却没反应」的体感问题；
+          // 仍发起明文请求以保留「明文下载默认禁止」的 403 校验路径。
+          notify('已选择取消 → 将尝试明文下载（默认会被服务端 403 拒绝，公网 HTTP 下属预期行为）', 'info')
+        }
         doDownload(id, fmt ? 'encrypted' : 'plain')
       } else if (act === 'restore') {
         // 从当前行数据找记录（简化：调列表接口取该条）

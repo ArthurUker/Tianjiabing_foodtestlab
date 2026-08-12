@@ -3,10 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>阴离子洗涤剂残留 · 图像自动判定 Demo</title>
+  <title>阴离子洗涤剂残留 · 拍照自动识别</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧪</text></svg>">
   <link rel="stylesheet" href="/css/vendor/fa/all.min.css">
   <style>
+    /* ============================================================
+       视觉系统对齐主站「食品安全检验管理系统」
+       （tailwind.input.css 中定义的 .glass / .glass-panel / 主背景渐变）：
+       - 主背景：暖色 aurora 渐变（黄 → 粉 → 紫 → 蓝），与主站一致
+       - glass / glass-panel：与主站完全相同的圆角、阴影、内发光、模糊
+       - 品牌色：蓝 #2563eb；语义色：红 #dc2626 / 黄 #ca8a04 / 绿 #16a34a
+       ============================================================ */
     :root {
       --c-bg: #f1f5f9;
       --c-panel: #ffffff;
@@ -14,156 +21,288 @@
       --c-text: #0f172a;
       --c-muted: #64748b;
       --c-brand: #2563eb;
+      --c-brand-strong: #1d4ed8;
       --c-warn: #ca8a04;
       --c-danger: #dc2626;
       --c-ok: #16a34a;
     }
+
     * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; min-height: 100vh; }
+
+    /* 主背景：与主站相同的暖色 aurora 渐变（黄→粉→紫→蓝），支持无障碍降级 */
     body {
-      margin: 0; padding: 0;
-      font-family: -apple-system, "Segoe UI", "PingFang SC", sans-serif;
-      background: var(--c-bg); color: var(--c-text);
+      font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: var(--c-text);
+      background-color: #fff7ed; /* 兜底色 */
+      background-image:
+        radial-gradient(at 12% 8%, rgba(253, 224, 71, 0.45) 0px, transparent 55%),
+        radial-gradient(at 88% 14%, rgba(244, 114, 182, 0.42) 0px, transparent 50%),
+        radial-gradient(at 78% 92%, rgba(168, 85, 247, 0.38) 0px, transparent 55%),
+        radial-gradient(at 14% 90%, rgba(96, 165, 250, 0.38) 0px, transparent 55%),
+        linear-gradient(180deg, #fff5f7 0%, #f3e8ff 50%, #e0f2fe 100%);
+      background-attachment: fixed;
+      min-height: 100vh;
     }
-    header {
-      padding: 16px 24px; background: #0f172a; color: #fff;
+
+    /* ============ 顶部 hero（玻璃感标题条，与主站 nav 一致） ============ */
+    header.hero {
+      position: sticky; top: 0; z-index: 50;
+      padding: 16px 24px;
+      color: #fff;
+      background: linear-gradient(90deg,
+        rgba(99, 102, 241, 0.92) 0%,
+        rgba(168, 85, 247, 0.92) 50%,
+        rgba(236, 72, 153, 0.92) 100%);
+      box-shadow: 0 6px 18px rgba(60, 30, 90, 0.18);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
       display: flex; align-items: center; justify-content: space-between;
+      gap: 12px;
     }
-    header h1 { margin: 0; font-size: 18px; }
-    header .badge {
-      background: #f59e0b; color: #1e293b; font-size: 12px; padding: 2px 8px;
-      border-radius: 4px; font-weight: bold;
+    header.hero h1 { margin: 0; font-size: 18px; display: flex; align-items: center; gap: 10px; }
+    header.hero .badge {
+      background: rgba(255, 255, 255, 0.22);
+      border: 1px solid rgba(255, 255, 255, 0.4);
+      color: #fff; font-size: 12px; padding: 4px 10px;
+      border-radius: 999px; font-weight: 500;
+      display: inline-flex; align-items: center; gap: 6px;
     }
+
+    /* ============ 主布局容器 ============ */
     main {
-      max-width: 1200px; margin: 24px auto; padding: 0 16px;
-      display: grid; grid-template-columns: 360px 1fr; gap: 24px;
+      max-width: 1200px; margin: 0 auto; padding: 24px 16px 64px;
+      display: grid; grid-template-columns: 380px 1fr; gap: 24px;
+      align-items: start;
     }
     @media (max-width: 900px) {
       main { grid-template-columns: 1fr; }
     }
-    @media (max-width: 768px) {
-      header { padding: 12px 16px; gap: 8px; flex-wrap: wrap; }
-      header h1 { font-size: 15px; }
-      .result-grid { grid-template-columns: repeat(2, 1fr); }
-      .result-card { padding: 6px 8px; }
-      .result-card .value { font-size: 15px; }
-      .result-card.main .value { font-size: 20px; }
-      .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-      .table-scroll table { min-width: 480px; }
-      button.btn { padding: 10px 16px; font-size: 14px; }
-      .upload-zone { padding: 18px 12px; }
-    }
+
+    /* ============ 玻璃面板（白底+圆角+阴影+内发光，与主站 .glass-panel 一致） ============ */
     .panel {
-      background: var(--c-panel); border: 1px solid var(--c-border);
-      border-radius: 8px; padding: 16px; margin-bottom: 16px;
+      background: rgba(255, 255, 255, 0.78);
+      border: 1px solid rgba(255, 255, 255, 0.7);
+      border-radius: 1rem;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.85),
+        0 8px 24px rgba(40, 60, 100, 0.10);
+      padding: 20px;
+      margin-bottom: 20px;
+      backdrop-filter: blur(8px) saturate(160%);
+      -webkit-backdrop-filter: blur(8px) saturate(160%);
     }
     .panel h2 {
-      margin: 0 0 12px; font-size: 16px;
+      margin: 0 0 14px; font-size: 16px; font-weight: 700;
       display: flex; align-items: center; gap: 8px;
+      color: #1e293b;
     }
-    .panel h2 i { color: var(--c-brand); }
+    .panel h2 i {
+      width: 28px; height: 28px;
+      display: inline-flex; align-items: center; justify-content: center;
+      background: linear-gradient(135deg, #6366f1 0%, #ec4899 100%);
+      color: #fff; border-radius: 8px; font-size: 14px;
+    }
+
+    /* ============ 上传区（玻璃感虚线框） ============ */
     .upload-zone {
-      border: 2px dashed var(--c-border); border-radius: 6px;
-      padding: 24px; text-align: center; cursor: pointer;
-      transition: 0.2s;
+      border: 2px dashed #cbd5e1;
+      border-radius: 0.9rem;
+      padding: 28px 16px;
+      text-align: center;
+      cursor: pointer;
+      background: rgba(255, 255, 255, 0.55);
+      transition: all 0.25s ease;
+      display: block;
     }
-    .upload-zone:hover { border-color: var(--c-brand); background: #f8fafc; }
-    .upload-zone.dragover { border-color: var(--c-brand); background: #eff6ff; }
+    .upload-zone:hover {
+      border-color: var(--c-brand);
+      background: rgba(219, 234, 254, 0.45);
+      transform: translateY(-1px);
+    }
+    .upload-zone.dragover {
+      border-color: var(--c-brand);
+      background: rgba(219, 234, 254, 0.65);
+      box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+    }
     .upload-zone input { display: none; }
-    .upload-zone i { font-size: 32px; color: var(--c-muted); margin-bottom: 8px; }
+    .upload-zone i { font-size: 36px; color: var(--c-brand); margin-bottom: 10px; }
     .upload-zone p { margin: 0; font-size: 13px; color: var(--c-muted); }
+    .upload-zone p strong { color: var(--c-text); }
 
+    /* ============ 按钮（主站风格：圆角、品牌色渐变、白底描边） ============ */
     button.btn {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 8px 14px; border: 1px solid var(--c-border);
-      border-radius: 4px; background: #fff; cursor: pointer;
-      font-size: 13px; color: var(--c-text); transition: 0.15s;
+      display: inline-flex; align-items: center; justify-content: center;
+      gap: 6px;
+      padding: 10px 18px;
+      border: 1px solid rgba(99, 102, 241, 0.25);
+      border-radius: 0.7rem;
+      background: rgba(255, 255, 255, 0.9);
+      cursor: pointer;
+      font-size: 13px; font-weight: 500;
+      color: var(--c-text);
+      transition: all 0.18s ease;
+      box-shadow: 0 1px 2px rgba(40, 60, 100, 0.05);
     }
-    button.btn:hover { border-color: var(--c-brand); color: var(--c-brand); }
+    button.btn:hover {
+      border-color: var(--c-brand);
+      color: var(--c-brand);
+      transform: translateY(-1px);
+      box-shadow: 0 3px 8px rgba(40, 60, 100, 0.10);
+    }
     button.btn.primary {
-      background: var(--c-brand); color: #fff; border-color: var(--c-brand);
+      background: linear-gradient(135deg, #6366f1 0%, #ec4899 100%);
+      color: #fff; border-color: transparent;
+      box-shadow: 0 4px 14px rgba(168, 85, 247, 0.35);
     }
-    button.btn.primary:hover { background: #1d4ed8; border-color: #1d4ed8; }
-    button.btn:disabled { opacity: 0.4; cursor: not-allowed; }
-    .toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
+    button.btn.primary:hover {
+      background: linear-gradient(135deg, #4f46e5 0%, #db2777 100%);
+      color: #fff;
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(168, 85, 247, 0.45);
+    }
+    button.btn:disabled {
+      opacity: 0.4; cursor: not-allowed;
+      transform: none !important;
+      box-shadow: none !important;
+    }
+    .toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
 
-    .sop { font-size: 12px; line-height: 1.6; }
-    .sop ol { margin: 0; padding-left: 18px; }
-    .sop li { margin-bottom: 4px; }
-    .sop li strong { color: var(--c-brand); }
+    /* ============ SOP 列表 ============ */
+    .sop { font-size: 13px; line-height: 1.7; color: #334155; }
+    .sop ol { margin: 0; padding-left: 20px; }
+    .sop li { margin-bottom: 6px; }
+    .sop li strong {
+      color: var(--c-brand);
+      font-weight: 600;
+    }
 
-    .threshold-list { font-size: 12px; }
-    .threshold-list td { padding: 4px 8px; border-bottom: 1px solid var(--c-border); }
-    .threshold-list tr.pass { color: var(--c-ok); }
-    .threshold-list tr.warn { color: var(--c-warn); }
-    .threshold-list tr.fail { color: var(--c-danger); }
+    /* ============ 阈值表 ============ */
+    .threshold-list {
+      font-size: 12px; width: 100%;
+      border-collapse: collapse; margin-top: 4px;
+    }
+    .threshold-list td {
+      padding: 6px 10px;
+      border-bottom: 1px solid var(--c-border);
+    }
+    .threshold-list td.pass { color: var(--c-ok); font-weight: 500; }
+    .threshold-list td.warn { color: var(--c-warn); font-weight: 500; }
+    .threshold-list td.fail { color: var(--c-danger); font-weight: 500; }
 
+    /* ============ 画布 ============ */
     .canvas-wrap {
-      position: relative; background: #0f172a; border-radius: 6px;
-      overflow: hidden; min-height: 320px;
+      position: relative;
+      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+      border-radius: 0.8rem;
+      overflow: hidden;
+      min-height: 360px;
       display: flex; align-items: center; justify-content: center;
+      box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.2);
     }
     .canvas-wrap canvas {
       max-width: 100%; max-height: 600px; display: block;
     }
     .canvas-wrap.placeholder i {
       color: #475569; font-size: 64px;
+      opacity: 0.6;
     }
 
+    /* ============ 结果卡 / 指标卡（玻璃感小卡） ============ */
     .result-grid {
-      display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
-      margin-top: 12px;
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+      margin-top: 14px;
     }
     .result-card {
-      background: #f8fafc; border: 1px solid var(--c-border);
-      border-radius: 4px; padding: 8px 12px;
+      background: rgba(255, 255, 255, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.7);
+      border-radius: 0.6rem;
+      padding: 10px 14px;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.85),
+        0 2px 6px rgba(40, 60, 100, 0.06);
     }
     .result-card .label { font-size: 11px; color: var(--c-muted); }
     .result-card .value {
-      font-size: 18px; font-weight: bold; color: var(--c-text);
-      font-family: "SF Mono", monospace;
+      font-size: 18px; font-weight: 700; color: var(--c-text);
+      font-family: "SF Mono", "JetBrains Mono", monospace;
+      line-height: 1.3; margin-top: 2px;
     }
-    .result-card.main .value { color: var(--c-brand); font-size: 24px; }
+    .result-card.main .value {
+      background: linear-gradient(135deg, #6366f1 0%, #ec4899 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      font-size: 26px;
+    }
     .result-card.pass .value { color: var(--c-ok); }
     .result-card.warn .value { color: var(--c-warn); }
     .result-card.fail .value { color: var(--c-danger); }
 
-    .qc-notes {
-      margin-top: 8px;
-    }
+    /* ============ QC 提示条 ============ */
+    .qc-notes { margin-top: 10px; }
     .qc-note {
-      padding: 8px 10px; border-radius: 4px; margin-bottom: 6px;
-      font-size: 12px; border-left: 4px solid;
+      padding: 10px 12px; border-radius: 0.5rem;
+      margin-bottom: 6px; font-size: 12px;
+      border-left: 4px solid;
+      line-height: 1.6;
     }
     .qc-note.warn { background: #fef9c3; color: #854d0e; border-color: var(--c-warn); }
     .qc-note.error { background: #fee2e2; color: #7f1d1d; border-color: var(--c-danger); }
     .qc-note.info { background: #dbeafe; color: #1e3a8a; border-color: var(--c-brand); }
 
+    /* ============ 明细表 ============ */
     .distance-table {
       width: 100%; font-size: 12px; margin-top: 8px;
+      border-collapse: collapse;
     }
     .distance-table td, .distance-table th {
-      padding: 4px 8px; text-align: left; border-bottom: 1px solid var(--c-border);
+      padding: 6px 10px; text-align: left;
+      border-bottom: 1px solid var(--c-border);
     }
-    .distance-table tr.best { background: #dbeafe; font-weight: bold; }
+    .distance-table tr.best {
+      background: linear-gradient(90deg, rgba(99, 102, 241, 0.12), rgba(236, 72, 153, 0.12));
+      font-weight: 600;
+    }
 
-    details { font-size: 12px; margin-top: 8px; }
-    details summary { cursor: pointer; color: var(--c-muted); padding: 4px 0; }
+    details { font-size: 12px; margin-top: 10px; }
+    details summary {
+      cursor: pointer; color: var(--c-muted);
+      padding: 6px 0; font-weight: 500;
+      list-style-position: inside;
+    }
+    details summary:hover { color: var(--c-brand); }
 
     .legend {
-      display: flex; gap: 12px; flex-wrap: wrap;
-      font-size: 12px; margin-top: 8px;
+      display: flex; gap: 14px; flex-wrap: wrap;
+      font-size: 12px; margin-top: 6px;
     }
-    .legend span { display: inline-flex; align-items: center; gap: 4px; }
+    .legend span { display: inline-flex; align-items: center; gap: 5px; }
     .legend .swatch {
-      display: inline-block; width: 14px; height: 14px; border-radius: 2px;
-      border: 1px solid var(--c-border);
+      display: inline-block; width: 14px; height: 14px;
+      border-radius: 3px;
+      border: 1px solid rgba(0, 0, 0, 0.08);
+    }
+
+    /* ============ 响应式 ============ */
+    @media (max-width: 768px) {
+      header.hero { padding: 12px 16px; gap: 8px; flex-wrap: wrap; }
+      header.hero h1 { font-size: 15px; }
+      .result-grid { grid-template-columns: repeat(2, 1fr); }
+      .result-card { padding: 8px 10px; }
+      .result-card .value { font-size: 15px; }
+      .result-card.main .value { font-size: 22px; }
+      .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      .table-scroll table { min-width: 480px; }
+      button.btn { padding: 10px 16px; font-size: 14px; }
+      .upload-zone { padding: 22px 14px; }
     }
   </style>
 </head>
 <body>
-  <header>
-    <h1><i class="fas fa-flask"></i> 阴离子洗涤剂残留 · 图像自动判定 Demo</h1>
-    <span class="badge"><i class="fas fa-flask"></i> 仅供内部算法验证 · 未接入正式系统</span>
+  <header class="hero">
+    <h1><i class="fas fa-flask"></i> 阴离子洗涤剂残留 · 拍照自动识别</h1>
+    <span class="badge"><i class="fas fa-shield-alt"></i> 仅供内部算法验证 · 未接入正式系统</span>
   </header>
 
   <main>
@@ -177,7 +316,7 @@
           <p>支持 JPG / PNG · 建议宽度 ≥ 800px</p>
           <input type="file" id="fileInput" accept="image/*" capture="environment">
         </label>
-        <div class="toolbar" style="margin-top: 12px;">
+        <div class="toolbar">
           <button class="btn" id="btnSample"><i class="fas fa-magic"></i> 用合成测试图试一下</button>
           <button class="btn" id="btnClear" disabled><i class="fas fa-trash"></i> 清空</button>
         </div>
@@ -194,7 +333,7 @@
             <li>画面里<strong>不要出现手指、标签遮挡</strong>液层</li>
           </ol>
         </div>
-        <details style="margin-top:8px;">
+        <details style="margin-top:10px;">
           <summary>判定阈值（依试剂盒标准）</summary>
           <table class="threshold-list">
             <tr><td>≤ 0.05 mg/L</td><td class="pass">→ 合格</td></tr>
@@ -231,11 +370,11 @@
 
       <div class="panel" id="resultPanel" style="display:none">
         <h2><i class="fas fa-chart-bar"></i> 识别结果</h2>
-        <div id="embedActions" style="display:none; margin-bottom: 12px;">
-          <button class="btn primary" id="btnConfirmResult" style="width:100%; justify-content:center; padding:12px; font-size:15px;">
+        <div id="embedActions" style="display:none; margin-bottom: 14px;">
+          <button class="btn primary" id="btnConfirmResult" style="width:100%; padding:14px; font-size:15px; border-radius:0.8rem;">
             <i class="fas fa-check-circle"></i> 确认此结果，并回填到检测表单
           </button>
-          <p style="font-size:11px; color:var(--c-muted); margin:6px 0 0; text-align:center;">
+          <p style="font-size:11px; color:var(--c-muted); margin:8px 0 0; text-align:center;">
             回填后请回到原页面检查数值是否合理（主判值将写入「洗涤剂浓度值」）
           </p>
         </div>
@@ -289,7 +428,7 @@
     // 嵌入模式（被主系统 iframe 打开时 ?embed=1）：隐藏独立页面元素、识别后显示"回填"按钮
     const isEmbed = new URLSearchParams(location.search).get('embed') === '1';
     if (isEmbed) {
-      document.querySelector('header').style.display = 'none';
+      document.querySelector('header.hero').style.display = 'none';
       document.querySelector('.panel:nth-of-type(2)').style.display = 'none'; // 拍摄SOP隐藏（主系统点位表单里已有提示）
       document.querySelector('.panel:nth-of-type(3)').style.display = 'none'; // 图例
       const uploadZoneEl = document.getElementById('uploadZone');

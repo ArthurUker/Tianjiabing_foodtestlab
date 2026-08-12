@@ -407,8 +407,8 @@ export class GenericTestModule {
                                 <div class="mb-4">
                                     <label class="block text-sm font-medium text-gray-700 mb-2">复检结果</label>
                                     <select id="recheckResult" class="w-full border border-gray-300 rounded p-2">
-                                        <option value="合格">合格</option>
-                                        <option value="不合格">不合格</option>
+                                        <option value="合格" data-is-passed="true">合格</option>
+                                        <option value="不合格" data-is-passed="false">不合格</option>
                                     </select>
                                 </div>
                                 <div class="mb-4">
@@ -488,8 +488,28 @@ export class GenericTestModule {
         };
 
         document.getElementById('btnSaveRecheck').onclick = () => {
-            const result = document.getElementById('recheckResult').value;
+            const selectEl = document.getElementById('recheckResult');
+            // TD-Q1-Recheck-Robust: 优先用 selectedIndex + dataset.isPassed 判定（不受扩展污染
+            // select.value 字符串的影响）；回退到 value 字符串。两者都失败时拒绝保存。
+            let isPassed = null;
+            let displayValue = '';
+            if (selectEl && selectEl.selectedIndex >= 0) {
+                const opt = selectEl.options[selectEl.selectedIndex];
+                if (opt && opt.dataset) {
+                    const flag = opt.dataset.isPassed;
+                    if (flag === 'true') isPassed = true;
+                    else if (flag === 'false') isPassed = false;
+                }
+                displayValue = selectEl.value || (opt && opt.textContent) || '';
+            }
+            if (isPassed === null) {
+                isPassed = displayValue === '合格';
+            }
+            const result = isPassed ? '合格' : '不合格';
             const description = document.getElementById('recheckDescription').value.trim();
+
+            console.log('[复检诊断] isPassed=', isPassed, '| value=', JSON.stringify(displayValue),
+                '| selectedIndex=', selectEl ? selectEl.selectedIndex : -1);
 
             if (!description) {
                 alert('请输入复检说明');
@@ -499,21 +519,26 @@ export class GenericTestModule {
             const newRecheck = {
                 time: new Date().toLocaleString(),
                 user: currentUser,
-                isPassed: result === '合格',
+                isPassed: isPassed,
                 description: description
             };
 
             record.recheckRecords = record.recheckRecords || [];
             record.recheckRecords.unshift(newRecheck);
 
-            if (newRecheck.isPassed) {
-                record.result = '合格';
-            }
+            // TD-Q1-Recheck: 复检"合格/不合格"双向都同步 result，避免后续操作依赖
+            // 列表/统计的 result 与最新一次复检结论不一致（"填合格反馈不合格"）。
+            // 失败时 result 仍按用户当前选择落库，确保 UI 与服务器最终一致。
+            record.result = newRecheck.isPassed ? '合格' : '不合格';
 
             const success = this.storage.update(record.id, record);
 
             if (success) {
-                document.getElementById('recheckHistoryList').innerHTML = renderRecheckHistory(record.recheckRecords);
+                // TD-Q1-Recheck-UI: 不再依赖闭包 record（可能是 getAll() 返回的副本，
+                // 更新期间引用可能变化导致 recheckRecords 看似为空）；统一从 storage
+                // 重新拉取最新缓存，确保弹窗与列表/服务端一致。
+                const fresh = this.storage.getAll().find(r => String(r.id) === String(record.id)) || record;
+                document.getElementById('recheckHistoryList').innerHTML = renderRecheckHistory(fresh.recheckRecords);
                 document.getElementById('recheckDescription').value = '';
                 this.render();
                 document.dispatchEvent(new Event('dataChanged'));
@@ -521,6 +546,32 @@ export class GenericTestModule {
             } else {
                 alert('保存失败，请检查存储空间');
             }
+        };
+
+        // TD-Q1-Recheck-PUT-Fail: 监听 Storage 错误事件，PUT 上传失败（如 409 永久耗尽）
+        // 时主动刷新弹窗历史并提示用户，让 UI 与服务器保持一致，避免"本地显示合格
+        // 刷新后变不合格"的乐观更新幻觉。
+        const onStorageError = (evt) => {
+            if (!evt || !evt.request) return;
+            if (evt.request.type !== 'update') return;
+            if (String(evt.request.recordId) !== String(record.id)) return;
+            const fresh = this.storage.getAll().find(r => String(r.id) === String(record.id));
+            if (!fresh) return;
+            // 同步弹窗历史与最新缓存
+            const historyEl = document.getElementById('recheckHistoryList');
+            if (historyEl) historyEl.innerHTML = renderRecheckHistory(fresh.recheckRecords);
+            this.render();
+            // 弹窗存在时提示用户（避免与正在显示的 alert 冲突）
+            if (document.getElementById('editModal')) {
+                UINotification.error('复检上传失败：' + (evt.error?.message || '版本冲突，请稍后重试') +
+                    '。已刷新至最新状态，请重试。');
+            }
+        };
+        this.storage.on('error', onStorageError);
+        // 关闭弹窗时移除监听，避免内存泄漏
+        document.getElementById('closeEditModal').onclick = () => {
+            this.storage.off('error', onStorageError);
+            modal.remove();
         };
     }
 
