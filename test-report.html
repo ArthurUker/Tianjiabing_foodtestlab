@@ -53,6 +53,10 @@
                 <div>
                     <h1 class="text-lg font-bold text-gray-800">浏览器测试报告上报</h1>
                     <p class="text-xs text-gray-400">当前用户：<b id="curUser" class="text-gray-600"></b>（<span id="curRole" class="text-gray-500"></span>）</p>
+                    <div class="mt-1 flex items-center gap-2">
+                        <label for="testerName" class="text-[10px] text-amber-600 font-medium shrink-0">测试人员姓名</label>
+                        <input id="testerName" type="text" maxlength="50" placeholder="填姓名，便于同账号多人区分（保存后自动记住）" class="w-64 border rounded px-2 py-1 text-xs border-amber-300">
+                    </div>
                 </div>
             </div>
             <div class="flex items-center gap-2">
@@ -158,6 +162,7 @@
             const u = authService.getUser ? authService.getUser() : null
             $('curUser').textContent = (u && u.username) || 'unknown'
             $('curRole').textContent = (u && u.role) || ''
+            initTesterName()
             loadDefs().then(loadAll)
         }
 
@@ -182,10 +187,11 @@
             renderGroups()
             loadSummary()
             loadMyIssues()
-            // 回填当前用户已提交的结果（用真实用户名查询，见 enterApp）
+            // 回填当前提交人已提交的结果（优先按测试人员姓名，无则按登录账号）
             try {
                 const me = (authService.getUser ? authService.getUser() : null) || {}
-                const r = await fetch(`/api/test-results?submitted_by=${encodeURIComponent(me.username || $('curUser').textContent)}`, { headers: apiHeaders() })
+                const who = testerName() || me.username || $('curUser').textContent || 'unknown'
+                const r = await fetch(`/api/test-results?submitted_by=${encodeURIComponent(who)}`, { headers: apiHeaders() })
                 const j = await r.json()
                 const map = {}
                 for (const it of (j.data || [])) map[it.case_id] = it
@@ -436,7 +442,7 @@
                 const r = await fetch('/api/test-results', {
                     method: 'POST',
                     headers: apiHeaders(),
-                    body: JSON.stringify({ case_id: caseId, case_group: group, case_title: title, result: sel.value, detail: det.value, evidence: evi.value }),
+                    body: JSON.stringify({ case_id: caseId, case_group: group, case_title: title, result: sel.value, detail: det.value, evidence: evi.value, tester_name: testerName() }),
                 })
                 const j = await r.json()
                 if (!j.success) throw new Error(j.error || '保存失败')
@@ -494,6 +500,17 @@
             return (u && u.username) || $('curUser').textContent || 'unknown'
         }
 
+        // ═══ 测试人员姓名（同账号多人区分，localStorage 记住） ═══
+        const TESTER_STORAGE_KEY = 'testreport.testerName'
+        function testerName() { return ($('testerName')?.value || '').trim() }
+        // 进入页面时回填上次填写的姓名；输入时自动保存
+        function initTesterName() {
+            const el = $('testerName')
+            if (!el) return
+            try { el.value = localStorage.getItem(TESTER_STORAGE_KEY) || '' } catch { /* ignore */ }
+            el.addEventListener('input', () => { try { localStorage.setItem(TESTER_STORAGE_KEY, el.value) } catch { /* ignore */ } })
+        }
+
         // 生成新问题的 case_id（NEW- + 时间戳），避免与正式用例冲突
         function newIssueId() {
             const d = new Date()
@@ -503,7 +520,7 @@
 
         async function loadMyIssues() {
             try {
-                const r = await fetch(`/api/test-results?case_group=${encodeURIComponent(NEW_ISSUE_GROUP)}&submitted_by=${encodeURIComponent(currentUsername())}`, { headers: apiHeaders() })
+                const r = await fetch(`/api/test-results?case_group=${encodeURIComponent(NEW_ISSUE_GROUP)}&submitted_by=${encodeURIComponent(testerName() || currentUsername())}`, { headers: apiHeaders() })
                 const j = await r.json()
                 const items = j.data || []
                 const list = $('issueList')
@@ -600,7 +617,7 @@
 
         async function editIssue(caseId) {
             try {
-                const r = await fetch(`/api/test-results?case_group=${encodeURIComponent(NEW_ISSUE_GROUP)}&submitted_by=${encodeURIComponent(currentUsername())}`, { headers: apiHeaders() })
+                const r = await fetch(`/api/test-results?case_group=${encodeURIComponent(NEW_ISSUE_GROUP)}&submitted_by=${encodeURIComponent(testerName() || currentUsername())}`, { headers: apiHeaders() })
                 const j = await r.json()
                 const rec = (j.data || []).find((it) => it.case_id === caseId)
                 if (!rec) return alert('未找到该反馈')
@@ -633,6 +650,7 @@
                         result: 'failed',
                         detail: $('issueDetail').value.trim(),
                         evidence: $('issueEvidence').value,
+                        tester_name: testerName(),
                     }),
                 })
                 const j = await r.json()

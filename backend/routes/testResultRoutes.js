@@ -43,7 +43,7 @@ export function createTestResultRoutes(userManager, prisma) {
 
   // 字段白名单校验（防脏数据）
   function sanitizeBody(body) {
-    const { case_id, case_group, case_title, result, detail, evidence } = body || {}
+    const { case_id, case_group, case_title, result, detail, evidence, tester_name } = body || {}
     if (!case_id || typeof case_id !== 'string' || case_id.length > 50) return { error: 'case_id 必填且不超过 50 字符' }
     if (!VALID_GROUPS.has(case_group)) return { error: `case_group 必须为 ${[...VALID_GROUPS].join(' / ')}` }
     if (!VALID_RESULTS.has(result)) return { error: 'result 必须为 passed/failed/skipped/pending' }
@@ -56,6 +56,8 @@ export function createTestResultRoutes(userManager, prisma) {
         result,
         detail: clean(detail, 2000),
         evidence: clean(evidence, 5000),
+        // 测试人员姓名（可选，供同账号多人区分）。无姓名时后端回退为登录账号。
+        tester_name: clean(tester_name, 50),
       },
     }
   }
@@ -121,17 +123,24 @@ export function createTestResultRoutes(userManager, prisma) {
       const { error, data } = sanitizeBody(req.body)
       if (error) return res.status(400).json({ success: false, error })
       const username = req.user?.username || 'unknown'
-      // 一个测试人员对一个用例只保留一条最新结果（复测更新）
+      // tester_name 仅用于区分提交人，不是 TestResult 表字段，写入前剥离
+      const testerName = (data.tester_name || '').trim()
+      delete data.tester_name
+      // 提交人标识 = 前端填的测试人员姓名（同账号多人区分）；未填则回退为登录账号
+      const submittedBy = testerName || username
+      // 真实账号追溯：submitted_by_role 记录「角色@账号」
+      const roleDesc = `${req.user?.role || ''}@${username}`.trim()
+      // 一个测试人员对一个用例只保留一条最新结果（复测更新）——按 姓名/账号 维度 upsert
       const existing = await prisma.testResult.findFirst({
-        where: { case_id: data.case_id, submitted_by: username },
+        where: { case_id: data.case_id, submitted_by: submittedBy },
       })
       const record = existing
         ? await prisma.testResult.update({
             where: { id: existing.id },
-            data: { ...data, updated_at: new Date() },
+            data: { ...data, submitted_by: submittedBy, submitted_by_role: roleDesc, updated_at: new Date() },
           })
         : await prisma.testResult.create({
-            data: { ...data, submitted_by: username, submitted_by_role: req.user?.role || null },
+            data: { ...data, submitted_by: submittedBy, submitted_by_role: roleDesc },
           })
       res.json({ success: true, data: record })
       scheduleDocsSync() // 提交成功 → 后台同步 docs 报告
