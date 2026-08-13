@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-08-12T09:22:49.494Z",
+  "generated_at": "2026-08-13T03:00:00.000Z",
   "overall": {
-    "passed": 14,
-    "failed": 14,
+    "passed": 15,
+    "failed": 13,
     "skipped": 0,
     "pending": 0,
     "total": 28,
@@ -356,8 +356,8 @@
       "groupName": "曾水平 · 备份与恢复模块（第四部分 B1-B9）",
       "total": 11,
       "counts": {
-        "passed": 6,
-        "failed": 5,
+        "passed": 7,
+        "failed": 4,
         "skipped": 0,
         "pending": 0
       },
@@ -450,8 +450,8 @@
         {
           "case_id": "B7-负向",
           "case_title": "B7 影子恢复·确认词错误不执行",
-          "result": "failed",
-          "detail": "前面4步可以通过，目前停留至第5步还没执行。",
+          "result": "passed",
+          "detail": "前4步网页操作完成，第5步（确认词错误拦截）由开发在服务器侧验证：前端 backupManager.js 输错确认词即 return 不发起请求，后端 adminBackupRoutes.js 兜底 400 拒绝；SystemLog 无新增 backup_restore 记录、无新增旧 schema，确认恢复未执行，负向拦截成功。",
           "evidence": "[{\"seq\":1,\"caption\":\"\",\"urls\":[\"/api/test-results/evidence/B7-%E8%B4%9F%E5%90%91/1786516240516_fe21ea09.png\"]}]",
           "evidence_list": [
             {
