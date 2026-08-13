@@ -82,15 +82,22 @@ export function createTestResultRoutes(userManager, prisma) {
   // ── GET /api/test-results/summary — 汇总 ──
   router.get('/summary', async (req, res) => {
     try {
-      const groups = await prisma.testResult.groupBy({
-        by: ['case_group', 'result'],
-        _count: { id: true },
-      })
-      // 按负责人分组组织
+      // TD-SummaryDedupe: 每个 case_id 按 case_group + case_id 分组时只算一次（取最新一次提交）。
+      // 修复前 bug：groupBy 直接累加所有 TestResult 行，同一 case 多次更新会让汇总数 > 用例总数
+      // （如吴翠楠 17 项却显示 37）。修复后：每个 case 只计 1 次，按其最新 result 判定。
+      const latestPerCase = await prisma.$queryRawUnsafe(`
+        SELECT case_group, result FROM (
+          SELECT case_group, case_id, result,
+            ROW_NUMBER() OVER (PARTITION BY case_group, case_id ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST) AS rn
+          FROM "TestResult"
+        ) t WHERE rn = 1
+      `)
       const summary = {}
-      for (const g of groups) {
-        if (!summary[g.case_group]) summary[g.case_group] = { passed: 0, failed: 0, skipped: 0, pending: 0 }
-        summary[g.case_group][g.result] = g._count.id
+      for (const row of latestPerCase) {
+        const g = row.case_group
+        const r = row.result
+        if (!summary[g]) summary[g] = { passed: 0, failed: 0, skipped: 0, pending: 0 }
+        if (summary[g][r] !== undefined) summary[g][r] += 1
       }
       res.json({ success: true, data: summary })
     } catch (e) {
