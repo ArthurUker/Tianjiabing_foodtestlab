@@ -1,6 +1,6 @@
 # 浏览器测试结果汇总
 
-> 生成时间：2026-08-13 10:00（数据源：数据库 `public."TestResult"`）
+> 生成时间：2026-08-13 10:08（数据源：数据库 `public."TestResult"`）
 > 报告目录：`docs/test-results/latest/`；证据图片：`docs/test-results/latest/evidence/`
 
 ## 一、总体统计
