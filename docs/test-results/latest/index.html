@@ -5,51 +5,182 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>浏览器测试结果汇总</title>
 <style>
+  /* TD-GlassReport: 测试结果汇总页——对齐系统玻璃态设计语言 */
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif; background: #f3f4f6; color: #1f2937; }
-  .wrap { max-width: 1100px; margin: 0 auto; padding: 24px 16px 60px; }
-  header h1 { font-size: 22px; }
-  header .meta { color: #6b7280; font-size: 12px; margin-top: 6px; }
-  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin: 18px 0; }
-  .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px; }
-  .card .gname { font-size: 13px; font-weight: 600; color: #374151; }
-  .card .num { font-size: 26px; font-weight: 700; margin: 6px 0 4px; }
-  .card .sub { font-size: 12px; color: #6b7280; }
-  .card .chips { margin-top: 8px; font-size: 12px; display: flex; gap: 10px; flex-wrap: wrap; }
-  .filters { display: flex; gap: 10px; flex-wrap: wrap; margin: 14px 0; }
-  .filters select, .filters input { border: 1px solid #d1d5db; border-radius: 8px; padding: 7px 10px; font-size: 13px; background: #fff; }
-  .filters input { flex: 1; min-width: 200px; }
-  .item { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; display: flex; gap: 12px; }
-  .badge { flex-shrink: 0; width: 56px; text-align: center; border-radius: 6px; color: #fff; font-size: 12px; padding: 4px 0; height: fit-content; }
-  .item .body { flex: 1; min-width: 0; }
-  .item .id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; font-weight: 700; }
-  .item .title { font-size: 13px; color: #374151; margin-top: 2px; }
-  .item .meta { font-size: 11px; color: #9ca3af; margin-top: 4px; }
-  .item .detail { font-size: 12px; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 6px 8px; margin-top: 8px; white-space: pre-wrap; }
-  .evid { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
-  .evid img.thumb { width: 92px; height: 68px; object-fit: cover; border-radius: 6px; border: 1px solid #e5e7eb; cursor: zoom-in; }
-  .evid a.ext { font-size: 12px; color: #2563eb; text-decoration: none; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 6px 10px; }
-  .count-line { font-size: 12px; color: #6b7280; margin: 8px 0; }
-  .empty { text-align: center; color: #9ca3af; padding: 40px 0; }
-  #lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.82); display: none; align-items: center; justify-content: center; z-index: 99; cursor: zoom-out; }
-  #lightbox img { max-width: 92vw; max-height: 90vh; border-radius: 6px; }
-  @media (max-width: 640px) { .item { flex-direction: column; } .badge { width: fit-content; } }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    color: #1f2937;
+    background: linear-gradient(135deg, #ffe6f0 0%, #fff5e6 30%, #e6f3ff 60%, #f0e6ff 100%);
+    min-height: 100vh;
+  }
+  .glass-card {
+    background: rgba(255,255,255,0.66);
+    border: 1px solid rgba(255,255,255,0.78);
+    border-radius: 1.7rem;
+    backdrop-filter: blur(14px) saturate(180%);
+    box-shadow: 0 16px 46px rgba(40,60,100,0.2),
+                inset 0 2px 0 rgba(255,255,255,0.95),
+                inset 0 0 0 1px rgba(255,255,255,0.55),
+                inset 0 0 34px rgba(255,255,255,0.3);
+  }
+  .glass-section {
+    background: rgba(255,255,255,0.72);
+    border: 1px solid rgba(255,255,255,0.6);
+    border-radius: 1.25rem;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.7),
+                0 4px 14px rgba(40,60,100,0.08);
+  }
+  .glass-tile {
+    background: linear-gradient(135deg, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.55) 100%);
+    border: 1px solid rgba(255,255,255,0.85);
+    border-radius: 1.25rem;
+    backdrop-filter: blur(10px) saturate(160%);
+    box-shadow: 0 8px 24px rgba(40,60,100,0.12),
+                inset 0 1px 0 rgba(255,255,255,0.95);
+  }
+  .glass-input {
+    background: rgba(255,255,255,0.72);
+    border: 1px solid rgba(255,255,255,0.6);
+    border-radius: 1rem;
+    backdrop-filter: blur(8px) saturate(160%);
+    padding: 9px 14px;
+    font-size: 14px;
+    color: #1f2937;
+    transition: all .15s ease;
+  }
+  .glass-input:focus {
+    background: rgba(255,255,255,0.92);
+    border-color: rgba(99,102,241,0.5);
+    box-shadow: 0 0 0 3px rgba(99,102,241,0.12);
+    outline: none;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 28px 20px 60px; }
+  header { padding: 28px 32px; margin-bottom: 22px; }
+  header .h-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  header .icon-box {
+    width: 52px; height: 52px; border-radius: 14px;
+    background: linear-gradient(135deg, #34d399 0%, #6366f1 100%);
+    color: white; display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 6px 20px rgba(99,102,241,0.3); font-size: 22px;
+  }
+  header h1 { font-size: 22px; font-weight: 700; color: #1f2937; }
+  header .meta { color: #6b7280; font-size: 13px; margin-top: 4px; }
+  header .meta code {
+    background: rgba(255,255,255,0.6); padding: 2px 8px; border-radius: 6px;
+    font-size: 12px; border: 1px solid rgba(255,255,255,0.7);
+  }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-bottom: 22px; }
+  .card { padding: 20px; }
+  .card .gname { font-size: 15px; font-weight: 600; color: #374151; }
+  .card .num-row { display: flex; align-items: baseline; gap: 6px; margin-top: 12px; }
+  .card .num { font-size: 36px; font-weight: 700; line-height: 1; background: linear-gradient(135deg, #10b981 0%, #6366f1 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .card .num-total { font-size: 15px; color: #6b7280; }
+  .card .pct {
+    margin-left: auto; font-size: 12px; color: #475569;
+    background: rgba(255,255,255,0.6); padding: 4px 10px; border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.7); backdrop-filter: blur(8px);
+  }
+  .progress { width: 100%; height: 6px; background: rgba(229,231,235,0.6); border-radius: 999px; margin-top: 12px; overflow: hidden; }
+  .progress > div { height: 100%; background: linear-gradient(90deg, #34d399 0%, #6366f1 100%); border-radius: 999px; transition: width .3s ease; }
+  .chips { margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; font-size: 13px; }
+  .chip { display: flex; align-items: center; gap: 8px; }
+  .chip .icon { width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+  .chip .lbl { color: #4b5563; flex: 1; }
+  .chip .v { font-weight: 700; color: #111827; }
+  .filters { display: flex; gap: 12px; flex-wrap: wrap; padding: 18px 22px; margin-bottom: 14px; }
+  .filters select { min-width: 130px; }
+  .filters input[type="search"] { flex: 1; min-width: 220px; }
+  .count-line { font-size: 13px; color: #6b7280; margin: 14px 4px 10px; }
+  .item {
+    padding: 18px 22px; margin-bottom: 12px;
+    display: flex; gap: 16px; align-items: stretch;
+    transition: all .2s ease;
+  }
+  .item:hover {
+    background: rgba(255,255,255,0.85);
+    transform: translateY(-1px);
+    box-shadow: 0 12px 36px rgba(40,60,100,0.15),
+                inset 0 2px 0 rgba(255,255,255,0.95),
+                inset 0 0 0 1px rgba(255,255,255,0.55);
+  }
+  .badge {
+    flex-shrink: 0; min-width: 72px; text-align: center;
+    border-radius: 14px; padding: 8px 10px; height: fit-content;
+    font-size: 13px; font-weight: 600; color: #fff;
+    align-self: flex-start; box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+  }
+  .body { flex: 1; min-width: 0; }
+  .id {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px; font-weight: 700;
+    background: linear-gradient(135deg, rgba(99,102,241,0.1) 0%, rgba(16,185,129,0.1) 100%);
+    color: #4f46e5; padding: 3px 10px; border-radius: 8px;
+    border: 1px solid rgba(99,102,241,0.15); display: inline-block;
+  }
+  .title { font-size: 14px; color: #1f2937; margin-top: 8px; font-weight: 500; line-height: 1.5; }
+  .meta { font-size: 12px; color: #6b7280; margin-top: 6px; }
+  .detail {
+    font-size: 13px; color: #92400e;
+    background: rgba(254,243,199,0.65); border: 1px solid rgba(252,211,77,0.5);
+    border-radius: 12px; padding: 10px 14px; margin-top: 10px;
+    white-space: pre-wrap; backdrop-filter: blur(6px);
+  }
+  .detail::before { content: '\0020📝 '; }
+  .evid { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+  .thumb {
+    width: 96px; height: 72px; object-fit: cover;
+    border-radius: 10px; border: 2px solid rgba(255,255,255,0.8);
+    cursor: zoom-in; transition: all .2s ease;
+    box-shadow: 0 4px 10px rgba(40,60,100,0.15);
+  }
+  .thumb:hover { transform: scale(1.05); border-color: #6366f1; }
+  .ext {
+    font-size: 13px; color: #4f46e5; text-decoration: none;
+    background: rgba(238,242,255,0.7); border: 1px solid rgba(99,102,241,0.25);
+    border-radius: 10px; padding: 8px 14px; align-self: center;
+  }
+  .empty {
+    text-align: center; color: #9ca3af; padding: 60px 0; font-size: 14px;
+  }
+  #lightbox {
+    position: fixed; inset: 0;
+    background: rgba(15,23,42,0.85);
+    backdrop-filter: blur(8px);
+    display: none; align-items: center; justify-content: center;
+    z-index: 99; cursor: zoom-out;
+  }
+  #lightbox img {
+    max-width: 92vw; max-height: 90vh;
+    border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  @media (max-width: 720px) {
+    header { padding: 20px; }
+    .item { flex-direction: column; padding: 16px; }
+    .badge { width: fit-content; }
+    .filters { padding: 14px; }
+  }
 </style>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
 </head>
 <body>
 <div class="wrap">
-  <header>
-    <h1>🧪 浏览器测试结果汇总</h1>
-    <div class="meta">生成时间：<span id="genTime"></span> · 数据源：数据库 <code>public."TestResult"</code> · 证据图片见本目录 <code>evidence/</code></div>
+  <header class="glass-card">
+    <div class="h-row">
+      <div class="icon-box">🧪</div>
+      <div>
+        <h1>浏览器测试结果汇总</h1>
+        <div class="meta">生成时间：<span id="genTime"></span> · 数据源：数据库 <code>public."TestResult"</code> · 证据图片见本目录 <code>evidence/</code></div>
+      </div>
+    </div>
   </header>
 
   <div class="cards" id="cards"></div>
 
-  <div class="filters">
-    <select id="fGroup"><option value="">全部分组</option><option value="wcn_业务">吴翠楠 · 业务功能复测（第一部分~第三部分 + 回归）</option><option value="zsp_备份">曾水平 · 备份与恢复模块（第四部分 B1-B9）</option><option value="retest_复测">历史测试问题</option></select>
-    <select id="fResult"><option value="">全部结果</option><option value="passed">✅ 通过</option><option value="failed">❌ 失败</option><option value="skipped">⏭️ 跳过</option><option value="pending">⏳ 待测</option></select>
-    <select id="fUser"><option value="">全部提交人</option></select>
-    <input id="fKeyword" type="search" placeholder="搜索用例编号 / 标题 / 实际表现…">
+  <div class="filters glass-section">
+    <select id="fGroup" class="glass-input"><option value="">全部分组</option><option value="wcn_业务">吴翠楠 · 业务功能复测（第一部分~第三部分 + 回归）</option><option value="zsp_备份">曾水平 · 备份与恢复模块（第四部分 B1-B9）</option><option value="retest_复测">历史测试问题</option></select>
+    <select id="fResult" class="glass-input"><option value="">全部结果</option><option value="passed">✓ 通过</option><option value="failed">✗ 失败</option><option value="skipped">› 跳过</option><option value="pending">⏳ 待测</option></select>
+    <select id="fUser" class="glass-input"><option value="">全部提交人</option></select>
+    <input id="fKeyword" type="search" class="glass-input" placeholder="🔍 搜索用例编号 / 标题 / 实际表现…">
   </div>
   <div class="count-line" id="countLine"></div>
   <div id="list"></div>
@@ -58,29 +189,36 @@
 <div id="lightbox"><img id="lbImg" src="" alt=""></div>
 
 <script>
-const SNAPSHOT = {"generated_at":"2026-08-13T02:17:51.853Z","overall":{"passed":15,"failed":13,"skipped":0,"pending":28,"total":56,"done":28},"groups":[{"group":"wcn_业务","groupName":"吴翠楠 · 业务功能复测（第一部分~第三部分 + 回归）","total":17,"counts":{"passed":9,"failed":8,"skipped":0,"pending":0},"done":17,"items":[{"case_id":"Q1-果蔬阶段A","case_title":"Q1 复检显示·果蔬农残（阶段A 不刷新）","result":"failed","detail":"选择合格但是显示不合格","evidence":"/api/test-results/evidence/Q1-%E6%9E%9C%E8%94%AC%E9%98%B6%E6%AE%B5A/1786433577110_f7b500a1.png","evidence_list":[{"raw":"/api/test-results/evidence/Q1-%E6%9E%9C%E8%94%AC%E9%98%B6%E6%AE%B5A/1786433577110_f7b500a1.png","type":"local","encCaseId":"Q1-%E6%9E%9C%E8%94%AC%E9%98%B6%E6%AE%B5A","decCaseId":"Q1-果蔬阶段A","file":"1786433577110_f7b500a1.png","caseTitle":"Q1 复检显示·果蔬农残（阶段A 不刷新）","relPath":"evidence/Q1-果蔬阶段A/1786433577110_f7b500a1.png","stepCaption":""}],"submitted_by":"123","submitted_by_role":"operator","created_at":"2026-08-11T07:33:32.243Z","updated_at":"2026-08-11T07:33:32.243Z"},{"case_id":"Q1-果蔬阶段B","case_title":"Q1 复检显示·果蔬农残（阶段B 刷新）","result":"passed","detail":"","evidence":"[{\"seq\":1,\"caption\":\"123\",\"urls\":[]}]","evidence_list":[],"submitted_by":"renkang","submitted_by_role":"admin@renkang","created_at":"2026-08-12T08:17:13.969Z","updated_at":"2026-08-12T08:17:13.969Z"},{"case_id":"Q1-果蔬阶段C","case_title":"Q1 复检显示·果蔬农残（阶段C 切菜单）","result":"failed","detail":"没有显示复检合格","evidence":"/api/test-results/evidence/Q1-%E6%9E%9C%E8%94%AC%E9%98%B6%E6%AE%B5C/1786433761711_93396199.png","evidence_list":[{"raw":"/api/test-results/evidence/Q1-%E6%9E%9C%E8%94%AC%E9%98%B6%E6%AE%B5C/1786433761711_93396199.png","type":"local","encCaseId":"Q1-%E6%9E%9C%E8%94%AC%E9%98%B6%E6%AE%B5C","decCaseId":"Q1-果蔬阶段C","file":"1786433761711_93396199.png","caseTitle":"Q1 复检显示·果蔬农残（阶段C 切菜单）","relPath":"evidence/Q1-果蔬阶段C/1786433761711_93396199.png","stepCaption":""}],"submitted_by":"123","submitted_by_role":"operator","created_at":"2026-08-11T07:36:14.191Z","updated_at":"2026-08-11T07:36:14.191Z"},{"case_id":"Q1-肉蛋","case_title":"Q1 复检显示·肉蛋农残（三阶段）","result":"failed","detail":"复检结果选择合格后自动跳去不合格","evidence":"/api/test-results/evidence/Q1-%E8%82%89%E8%9B%8B/1786434223683_f50e20ff.png","evidence_list":[{"raw":"/api/test-results/evidence/Q1-%E8%82%89%E8%9B%8B/1786434223683_f50e20ff.png","type":"local","encCaseId":"Q1-%E8%82%89%E8%9B%8B","decCaseId":"Q1-肉蛋","file":"1786434223683_f50e20ff.png","caseTitle":"Q1 复检显示·肉蛋农残（三阶段）","relPath":"evidence/Q1-肉蛋/1786434223683_f50e20ff.png","stepCaption":""}],"submitted_by":"123","submitted_by_role":"operator","created_at":"2026-08-11T07:44:14.146Z","updated_at":"2026-08-11T07:44:14.146Z"},{"case_id":"Q1-油","case_title":"Q1 复检显示·食品油品质（三阶段）","result":"failed","detail":"没有错误弹窗","evidence":"/api/test-results/evidence/Q1-%E6%B2%B9/1786434471560_31bd2a27.png","evidence_list":[{"raw":"/api/test-results/evidence/Q1-%E6%B2%B9/1786434471560_31bd2a27.png","type":"local","encCaseId":"Q1-%E6%B2%B9","decCaseId":"Q1-油","file":"1786434471560_31bd2a27.png","caseTitle":"Q1 复检显示·食品油品质（三阶段）","relPath":"evidence/Q1-油/1786434471560_31bd2a27.png","stepCaption":""}],"submitted_by":"123","submitted_by_role":"operator","created_at":"2026-08-11T07:44:38.156Z","updated_at":"2026-08-11T07:48:15.926Z"},{"case_id":"V8-基本信息","case_title":"V8 基本信息「保存修改」无反应排查","result":"failed","detail":"网页管理报错","evidence":"/api/test-results/evidence/V8-%E5%9F%BA%E6%9C%AC%E4%BF%A1%E6%81%AF/1786435251100_17f0195f.png","evidence_list":[{"raw":"/api/test-results/evidence/V8-%E5%9F%BA%E6%9C%AC%E4%BF%A1%E6%81%AF/1786435251100_17f0195f.png","type":"local","encCaseId":"V8-%E5%9F%BA%E6%9C%AC%E4%BF%A1%E6%81%AF","decCaseId":"V8-基本信息","file":"1786435251100_17f0195f.png","caseTitle":"V8 基本信息「保存修改」无反应排查","relPath":"evidence/V8-基本信息/1786435251100_17f0195f.png","stepCaption":""}],"submitted_by":"123","submitted_by_role":"operator","created_at":"2026-08-11T08:03:15.089Z","updated_at":"2026-08-11T08:03:15.089Z"},{"case_id":"V8-界面定制","case_title":"V8 界面定制「保存定制」无反应排查","result":"failed","detail":"第2个报错","evidence":"/api/test-results/evidence/V8-%E7%95%8C%E9%9D%A2%E5%AE%9A%E5%88%B6/1786435382254_a98712c3.png","evidence_list":[{"raw":"/api/test-results/evidence/V8-%E7%95%8C%E9%9D%A2%E5%AE%9A%E5%88%B6/1786435382254_a98712c3.png","type":"local","encCaseId":"V8-%E7%95%8C%E9%9D%A2%E5%AE%9A%E5%88%B6","decCaseId":"V8-界面定制","file":"1786435382254_a98712c3.png","caseTitle":"V8 界面定制「保存定制」无反应排查","relPath":"evidence/V8-界面定制/1786435382254_a98712c3.png","stepCaption":""}],"submitted_by":"123","submitted_by_role":"operator","created_at":"2026-08-11T08:03:13.969Z","updated_at":"2026-08-11T08:03:13.969Z"},{"case_id":"V1-肉蛋","case_title":"V1 界面定制·肉蛋新增检测项目显示","result":"failed","detail":"点击应用后弹窗报错，去到食安页面刷新项目还是没有新增","evidence":"/api/test-results/evidence/V1-%E8%82%89%E8%9B%8B/1786436392302_b17e5eb7.png","evidence_list":[{"raw":"/api/test-results/evidence/V1-%E8%82%89%E8%9B%8B/1786436392302_b17e5eb7.png","type":"local","encCaseId":"V1-%E8%82%89%E8%9B%8B","decCaseId":"V1-肉蛋","file":"1786436392302_b17e5eb7.png","caseTitle":"V1 界面定制·肉蛋新增检测项目显示","relPath":"evidence/V1-肉蛋/1786436392302_b17e5eb7.png","stepCaption":""}],"submitted_by":"123","submitted_by_role":"operator","created_at":"2026-08-11T08:20:29.335Z","updated_at":"2026-08-11T08:20:29.335Z"},{"case_id":"V1-果蔬","case_title":"V1 界面定制·果蔬新增检测项目显示","result":"failed","detail":"点击应用后弹窗报错，去到食安页面刷新项目还是没有新增","evidence":"/api/test-results/evidence/V1-%E6%9E%9C%E8%94%AC/1786436594628_94ceba45.png","evidence_list":[{"raw":"/api/test-results/evidence/V1-%E6%9E%9C%E8%94%AC/1786436594628_94ceba45.png","type":"local","encCaseId":"V1-%E6%9E%9C%E8%94%AC","decCaseId":"V1-果蔬","file":"1786436594628_94ceba45.png","caseTitle":"V1 界面定制·果蔬新增检测项目显示","relPath":"evidence/V1-果蔬/1786436594628_94ceba45.png","stepCaption":""}],"submitted_by":"123","submitted_by_role":"operator","created_at":"2026-08-11T08:23:43.160Z","updated_at":"2026-08-11T08:23:43.160Z"},{"case_id":"V6-帮助跳转","case_title":"V6 登录页帮助中心跳转（子路径矛盾复现）","result":"passed","detail":"","evidence":"","evidence_list":[],"submitted_by":"wuxiangjun","submitted_by_role":"admin@wuxiangjun","created_at":"2026-08-12T09:21:58.523Z","updated_at":"2026-08-12T09:21:58.523Z"},{"case_id":"V7-负向","case_title":"V7 超管登录·学校代码非法输入负向","result":"passed","detail":"IP地址后面修改别的识别不出来学校","evidence":"[{\"seq\":1,\"caption\":\"\",\"urls\":[\"/api/test-results/evidence/V7-%E8%B4%9F%E5%90%91/1786440005092_96f2ff64.png\"]}]","evidence_list":[{"stepSeq":1,"stepCaption":"","raw":"/api/test-results/evidence/V7-%E8%B4%9F%E5%90%91/1786440005092_96f2ff64.png","type":"local","encCaseId":"V7-%E8%B4%9F%E5%90%91","decCaseId":"V7-负向","file":"1786440005092_96f2ff64.png","caseTitle":"V7 超管登录·学校代码非法输入负向","relPath":"evidence/V7-负向/1786440005092_96f2ff64.png"}],"submitted_by":"wuxiangjun","submitted_by_role":"admin@wuxiangjun","created_at":"2026-08-11T09:20:35.575Z","updated_at":"2026-08-12T09:21:58.588Z"},{"case_id":"回归V2","case_title":"回归·停用/启用用户","result":"passed","detail":"停用和启用都没有出现异常，停用登录不了账号","evidence":"[{\"seq\":1,\"caption\":\"\",\"urls\":[\"/api/test-results/evidence/%E5%9B%9E%E5%BD%92V2/1786519020236_bfea6e42.png\"]}]","evidence_list":[{"stepSeq":1,"stepCaption":"","raw":"/api/test-results/evidence/%E5%9B%9E%E5%BD%92V2/1786519020236_bfea6e42.png","type":"local","encCaseId":"%E5%9B%9E%E5%BD%92V2","decCaseId":"回归V2","file":"1786519020236_bfea6e42.png","caseTitle":"回归·停用/启用用户","relPath":"evidence/回归V2/1786519020236_bfea6e42.png"}],"submitted_by":"wuxiangjun","submitted_by_role":"admin@wuxiangjun","created_at":"2026-08-12T07:19:22.580Z","updated_at":"2026-08-12T09:21:58.589Z"},{"case_id":"回归V3","case_title":"回归·检测频率与月报页","result":"passed","detail":"","evidence":"","evidence_list":[],"submitted_by":"wuxiangjun","submitted_by_role":"admin@wuxiangjun","created_at":"2026-08-12T09:21:58.593Z","updated_at":"2026-08-12T09:21:58.593Z"},{"case_id":"回归V4","case_title":"回归·阈值/日历设置保存","result":"passed","detail":"","evidence":"","evidence_list":[],"submitted_by":"wuxiangjun","submitted_by_role":"admin@wuxiangjun","created_at":"2026-08-12T09:21:58.590Z","updated_at":"2026-08-12T09:21:58.590Z"},{"case_id":"回归V5","case_title":"回归·每日登录提示","result":"passed","detail":"","evidence":"","evidence_list":[],"submitted_by":"wuxiangjun","submitted_by_role":"admin@wuxiangjun","created_at":"2026-08-12T09:21:58.615Z","updated_at":"2026-08-12T09:21:58.615Z"},{"case_id":"回归V6地址","case_title":"回归·帮助链接子路径地址核对","result":"passed","detail":"","evidence":"","evidence_list":[],"submitted_by":"wuxiangjun","submitted_by_role":"admin@wuxiangjun","created_at":"2026-08-12T09:21:58.615Z","updated_at":"2026-08-12T09:21:58.615Z"},{"case_id":"回归V7正向","case_title":"回归·学校登录跳转正向","result":"passed","detail":"","evidence":"","evidence_list":[],"submitted_by":"wuxiangjun","submitted_by_role":"admin@wuxiangjun","created_at":"2026-08-12T09:21:58.702Z","updated_at":"2026-08-12T09:21:58.702Z"}]},{"group":"zsp_备份","groupName":"曾水平 · 备份与恢复模块（第四部分 B1-B9）","total":11,"counts":{"passed":6,"failed":5,"skipped":0,"pending":0},"done":11,"items":[{"case_id":"B1","case_title":"B1 入口权限（超管可入+运维备份 Tab 可见 / 非超管整页拦截）","result":"passed","detail":"","evidence":"","evidence_list":[],"submitted_by":"wuxiangjun","submitted_by_role":"admin@wuxiangjun","created_at":"2026-08-11T07:38:45.792Z","updated_at":"2026-08-12T09:21:58.702Z"},{"case_id":"B2","case_title":"B2 备份列表显示","result":"passed","detail":"","evidence":"","evidence_list":[],"submitted_by":"wuxiangjun","submitted_by_role":"admin@wuxiangjun","created_at":"2026-08-11T07:39:32.348Z","updated_at":"2026-08-12T09:21:58.702Z"},{"case_id":"B3","case_title":"B3 立即备份全部","result":"passed","detail":"","evidence":"","evidence_list":[],"submitted_by":"wuxiangjun","submitted_by_role":"admin@wuxiangjun","created_at":"2026-08-11T07:42:07.096Z","updated_at":"2026-08-12T09:21:58.707Z"},{"case_id":"B4","case_title":"B4 单校备份（独立测试学校）","result":"passed","detail":"","evidence":"","evidence_list":[],"submitted_by":"wuxiangjun","submitted_by_role":"admin@wuxiangjun","created_at":"2026-08-11T07:45:15.115Z","updated_at":"2026-08-12T09:21:58.749Z"},{"case_id":"B5","case_title":"B5 离线验证（表数一致）","result":"passed","detail":"","evidence":"","evidence_list":[],"submitted_by":"wuxiangjun","submitted_by_role":"admin@wuxiangjun","created_at":"2026-08-11T07:47:16.364Z","updated_at":"2026-08-12T09:21:58.770Z"},{"case_id":"B6","case_title":"B6 下载（密文 .aes / 明文 403）","result":"passed","detail":"","evidence":"[{\"seq\":1,\"caption\":\"\",\"urls\":[\"/api/test-results/evidence/B6/1786496849836_d3b29140.png\"]}]","evidence_list":[{"stepSeq":1,"stepCaption":"","raw":"/api/test-results/evidence/B6/1786496849836_d3b29140.png","type":"local","encCaseId":"B6","decCaseId":"B6","file":"1786496849836_d3b29140.png","caseTitle":"B6 下载（密文 .aes / 明文 403）","relPath":"evidence/B6/1786496849836_d3b29140.png"}],"submitted_by":"wuxiangjun","submitted_by_role":"admin@wuxiangjun","created_at":"2026-08-11T08:20:43.038Z","updated_at":"2026-08-12T09:21:58.790Z"},{"case_id":"B7-负向","case_title":"B7 影子恢复·确认词错误不执行","result":"failed","detail":"前面4步可以通过，目前停留至第5步还没执行。","evidence":"[{\"seq\":1,\"caption\":\"\",\"urls\":[\"/api/test-results/evidence/B7-%E8%B4%9F%E5%90%91/1786516240516_fe21ea09.png\"]}]","evidence_list":[{"stepSeq":1,"stepCaption":"","raw":"/api/test-results/evidence/B7-%E8%B4%9F%E5%90%91/1786516240516_fe21ea09.png","type":"local","encCaseId":"B7-%E8%B4%9F%E5%90%91","decCaseId":"B7-负向","file":"1786516240516_fe21ea09.png","caseTitle":"B7 影子恢复·确认词错误不执行","relPath":"evidence/B7-负向/1786516240516_fe21ea09.png"}],"submitted_by":"wuxiangjun","submitted_by_role":"admin@wuxiangjun","created_at":"2026-08-11T08:20:46.797Z","updated_at":"2026-08-12T09:21:58.790Z"},{"case_id":"B7-正向","case_title":"B7 影子恢复·正向执行 + 数据回滚核对","result":"failed","detail":"","evidence":"","evidence_list":[],"submitted_by":"wuxiangjun","submitted_by_role":"admin@wuxiangjun","created_at":"2026-08-11T08:20:49.586Z","updated_at":"2026-08-12T09:21:58.790Z"},{"case_id":"B7-旧schema","case_title":"B7 旧 schema 保留与清理（SSH psql）","result":"failed","detail":"","evidence":"","evidence_list":[],"submitted_by":"wuxiangjun","submitted_by_role":"admin@wuxiangjun","created_at":"2026-08-11T08:20:52.278Z","updated_at":"2026-08-12T09:21:58.851Z"},{"case_id":"B8","case_title":"B8 维护模式写阻断（可选）","result":"failed","detail":"","evidence":"","evidence_list":[],"submitted_by":"wuxiangjun","submitted_by_role":"admin@wuxiangjun","created_at":"2026-08-11T08:20:55.420Z","updated_at":"2026-08-12T09:21:58.852Z"},{"case_id":"B9","case_title":"B9 SSH 侧检查（定时任务/文件权限/失败告警）","result":"failed","detail":"","evidence":"","evidence_list":[],"submitted_by":"wuxiangjun","submitted_by_role":"admin@wuxiangjun","created_at":"2026-08-11T08:20:57.827Z","updated_at":"2026-08-12T09:21:58.853Z"}]},{"group":"retest_复测","groupName":"历史测试问题","total":28,"counts":{"passed":0,"failed":0,"skipped":0,"pending":28},"done":0,"items":[{"case_id":"R-学校删除","case_title":"R1 学校列表：无法删除已新增的学校（备注：只能停用不能删除）","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"R-返回主界面","case_title":"R2 主界面：返回主界面后无法用任何管理员/学校账号登录","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"R-同步取消","case_title":"R3 数据同步：云端同步/暂停同步/清空本地缓存后无法点击取消","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"R-启用无效","case_title":"R4 用户管理：停用后「启用」无效（停用可以但启用不行）","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"R-恢复失败","case_title":"R5 备份恢复：用户管理→恢复失败","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"R-下载模板","case_title":"R6 病原体检测：下载模板打不开（考虑是否取消）","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"R-无可删除","case_title":"R7 界面定制：果蔬农残检测项目无可删除的项目","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"R-复检显示","case_title":"R8 复检显示：复检填合格仍显示不合格（果蔬/肉蛋/油）","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"R-新增项目","case_title":"R9 界面定制：肉蛋/果蔬新增检测项目后无显示","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"R-保存无反应","case_title":"R10 界面定制/基本信息：保存修改/保存定制无反应","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"R-复检存储","case_title":"R11 复检数据存储：提交复检后核对 localStorage 的 result 字段是否同步为合格","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"R-默认选项","case_title":"R12 界面定制：默认选项回归（新增项目后原有默认选项仍正常）","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"R-帮助跳转","case_title":"R13 登录页：帮助中心跳转无反应/子路径矛盾（V6 帮助中心跳转失败）","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"R-登录负向","case_title":"R14 学校登录：非法代码/非法输入负向拦截（V7 登录跳转负向失败）","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"R-回收站恢复","case_title":"R15 学校列表：回收站「恢复学校」报数据库错误（jsonb 类型不匹配，恢复失败）","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"R-创建用户","case_title":"R16 用户管理：创建新用户报「注册失败」（保存按钮被禁用/系统错误）","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"R-审计空白","case_title":"R17 审计日志：菜单选中但内容区空白无数据","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"R-定制500","case_title":"R18 界面定制：打开字段管理 customization 接口返回 500（Network 记录）","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"R-选项无法添加","case_title":"R19 界面定制：新增检测项目时「下拉选项」无法添加（暂无选项）","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"R-保存按钮文案","case_title":"R20 界面定制：「保存定制·未保存」按钮文案组合混乱","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"R-主登录提示","case_title":"R21 主登录页：未带 school 参数时报「未识别到有效的学校登录入口」提示不清晰","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"R-停用登录","case_title":"R22 学校登录：已停用学校的登录链接报「学校不存在或未激活」","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"R-登录Logo","case_title":"R23 登录页：学校 Logo 显示默认图标而非学校真实 Logo","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"R-复检缺日期","case_title":"R24 复检录入：弹窗无「复检日期」字段（只有结果/说明/复检人）","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"R-菜单重复","case_title":"R25 检测系统左侧菜单：「检测频率与月报」「检测频率与日历」重复出现","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"R-版本不一致","case_title":"R26 版本号：检测系统显示 Version 4.0，登录页显示 3.1.0（版本号不一致）","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"R-占位符","case_title":"R27 检测项目下拉：默认显示占位符「验证设」而非「请选择」","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null},{"case_id":"R-记录不存在","case_title":"R28 复检保存后：刷新列表时多个接口报 400 /「记录不存在」（复检记录未正确持久化）","result":"pending","detail":"","evidence":"","evidence_list":[],"submitted_by":"","submitted_by_role":"","created_at":null,"updated_at":null}]}]};
-const LABELS = {"passed":{"label":"通过","emoji":"✅","color":"#16a34a"},"failed":{"label":"失败","emoji":"❌","color":"#dc2626"},"skipped":{"label":"跳过","emoji":"⏭️","color":"#d97706"},"pending":{"label":"待测","emoji":"⏳","color":"#9ca3af"}};
+const SNAPSHOT = {"generated_at": "2026-08-13T02:27:59.077Z", "overall": {"passed": 15, "failed": 13, "skipped": 0, "pending": 28, "total": 56, "done": 28}, "groups": [{"group": "wcn_业务", "groupName": "吴翠楠 · 业务功能复测（第一部分~第三部分 + 回归）", "total": 17, "counts": {"passed": 9, "failed": 8, "skipped": 0, "pending": 0}, "done": 17, "items": [{"case_id": "Q1-果蔬阶段A", "case_title": "Q1 复检显示·果蔬农残（阶段A 不刷新）", "result": "failed", "detail": "选择合格但是显示不合格", "evidence": "/api/test-results/evidence/Q1-%E6%9E%9C%E8%94%AC%E9%98%B6%E6%AE%B5A/1786433577110_f7b500a1.png", "evidence_list": [{"raw": "/api/test-results/evidence/Q1-%E6%9E%9C%E8%94%AC%E9%98%B6%E6%AE%B5A/1786433577110_f7b500a1.png", "type": "local", "encCaseId": "Q1-%E6%9E%9C%E8%94%AC%E9%98%B6%E6%AE%B5A", "decCaseId": "Q1-果蔬阶段A", "file": "1786433577110_f7b500a1.png", "caseTitle": "Q1 复检显示·果蔬农残（阶段A 不刷新）", "relPath": "evidence/Q1-果蔬阶段A/1786433577110_f7b500a1.png", "stepCaption": ""}], "submitted_by": "123", "submitted_by_role": "operator", "created_at": "2026-08-11T07:33:32.243Z", "updated_at": "2026-08-11T07:33:32.243Z"}, {"case_id": "Q1-果蔬阶段B", "case_title": "Q1 复检显示·果蔬农残（阶段B 刷新）", "result": "passed", "detail": "", "evidence": "[{\"seq\":1,\"caption\":\"123\",\"urls\":[]}]", "evidence_list": [], "submitted_by": "renkang", "submitted_by_role": "admin@renkang", "created_at": "2026-08-12T08:17:13.969Z", "updated_at": "2026-08-12T08:17:13.969Z"}, {"case_id": "Q1-果蔬阶段C", "case_title": "Q1 复检显示·果蔬农残（阶段C 切菜单）", "result": "failed", "detail": "没有显示复检合格", "evidence": "/api/test-results/evidence/Q1-%E6%9E%9C%E8%94%AC%E9%98%B6%E6%AE%B5C/1786433761711_93396199.png", "evidence_list": [{"raw": "/api/test-results/evidence/Q1-%E6%9E%9C%E8%94%AC%E9%98%B6%E6%AE%B5C/1786433761711_93396199.png", "type": "local", "encCaseId": "Q1-%E6%9E%9C%E8%94%AC%E9%98%B6%E6%AE%B5C", "decCaseId": "Q1-果蔬阶段C", "file": "1786433761711_93396199.png", "caseTitle": "Q1 复检显示·果蔬农残（阶段C 切菜单）", "relPath": "evidence/Q1-果蔬阶段C/1786433761711_93396199.png", "stepCaption": ""}], "submitted_by": "123", "submitted_by_role": "operator", "created_at": "2026-08-11T07:36:14.191Z", "updated_at": "2026-08-11T07:36:14.191Z"}, {"case_id": "Q1-肉蛋", "case_title": "Q1 复检显示·肉蛋农残（三阶段）", "result": "failed", "detail": "复检结果选择合格后自动跳去不合格", "evidence": "/api/test-results/evidence/Q1-%E8%82%89%E8%9B%8B/1786434223683_f50e20ff.png", "evidence_list": [{"raw": "/api/test-results/evidence/Q1-%E8%82%89%E8%9B%8B/1786434223683_f50e20ff.png", "type": "local", "encCaseId": "Q1-%E8%82%89%E8%9B%8B", "decCaseId": "Q1-肉蛋", "file": "1786434223683_f50e20ff.png", "caseTitle": "Q1 复检显示·肉蛋农残（三阶段）", "relPath": "evidence/Q1-肉蛋/1786434223683_f50e20ff.png", "stepCaption": ""}], "submitted_by": "123", "submitted_by_role": "operator", "created_at": "2026-08-11T07:44:14.146Z", "updated_at": "2026-08-11T07:44:14.146Z"}, {"case_id": "Q1-油", "case_title": "Q1 复检显示·食品油品质（三阶段）", "result": "failed", "detail": "没有错误弹窗", "evidence": "/api/test-results/evidence/Q1-%E6%B2%B9/1786434471560_31bd2a27.png", "evidence_list": [{"raw": "/api/test-results/evidence/Q1-%E6%B2%B9/1786434471560_31bd2a27.png", "type": "local", "encCaseId": "Q1-%E6%B2%B9", "decCaseId": "Q1-油", "file": "1786434471560_31bd2a27.png", "caseTitle": "Q1 复检显示·食品油品质（三阶段）", "relPath": "evidence/Q1-油/1786434471560_31bd2a27.png", "stepCaption": ""}], "submitted_by": "123", "submitted_by_role": "operator", "created_at": "2026-08-11T07:44:38.156Z", "updated_at": "2026-08-11T07:48:15.926Z"}, {"case_id": "V8-基本信息", "case_title": "V8 基本信息「保存修改」无反应排查", "result": "failed", "detail": "网页管理报错", "evidence": "/api/test-results/evidence/V8-%E5%9F%BA%E6%9C%AC%E4%BF%A1%E6%81%AF/1786435251100_17f0195f.png", "evidence_list": [{"raw": "/api/test-results/evidence/V8-%E5%9F%BA%E6%9C%AC%E4%BF%A1%E6%81%AF/1786435251100_17f0195f.png", "type": "local", "encCaseId": "V8-%E5%9F%BA%E6%9C%AC%E4%BF%A1%E6%81%AF", "decCaseId": "V8-基本信息", "file": "1786435251100_17f0195f.png", "caseTitle": "V8 基本信息「保存修改」无反应排查", "relPath": "evidence/V8-基本信息/1786435251100_17f0195f.png", "stepCaption": ""}], "submitted_by": "123", "submitted_by_role": "operator", "created_at": "2026-08-11T08:03:15.089Z", "updated_at": "2026-08-11T08:03:15.089Z"}, {"case_id": "V8-界面定制", "case_title": "V8 界面定制「保存定制」无反应排查", "result": "failed", "detail": "第2个报错", "evidence": "/api/test-results/evidence/V8-%E7%95%8C%E9%9D%A2%E5%AE%9A%E5%88%B6/1786435382254_a98712c3.png", "evidence_list": [{"raw": "/api/test-results/evidence/V8-%E7%95%8C%E9%9D%A2%E5%AE%9A%E5%88%B6/1786435382254_a98712c3.png", "type": "local", "encCaseId": "V8-%E7%95%8C%E9%9D%A2%E5%AE%9A%E5%88%B6", "decCaseId": "V8-界面定制", "file": "1786435382254_a98712c3.png", "caseTitle": "V8 界面定制「保存定制」无反应排查", "relPath": "evidence/V8-界面定制/1786435382254_a98712c3.png", "stepCaption": ""}], "submitted_by": "123", "submitted_by_role": "operator", "created_at": "2026-08-11T08:03:13.969Z", "updated_at": "2026-08-11T08:03:13.969Z"}, {"case_id": "V1-肉蛋", "case_title": "V1 界面定制·肉蛋新增检测项目显示", "result": "failed", "detail": "点击应用后弹窗报错，去到食安页面刷新项目还是没有新增", "evidence": "/api/test-results/evidence/V1-%E8%82%89%E8%9B%8B/1786436392302_b17e5eb7.png", "evidence_list": [{"raw": "/api/test-results/evidence/V1-%E8%82%89%E8%9B%8B/1786436392302_b17e5eb7.png", "type": "local", "encCaseId": "V1-%E8%82%89%E8%9B%8B", "decCaseId": "V1-肉蛋", "file": "1786436392302_b17e5eb7.png", "caseTitle": "V1 界面定制·肉蛋新增检测项目显示", "relPath": "evidence/V1-肉蛋/1786436392302_b17e5eb7.png", "stepCaption": ""}], "submitted_by": "123", "submitted_by_role": "operator", "created_at": "2026-08-11T08:20:29.335Z", "updated_at": "2026-08-11T08:20:29.335Z"}, {"case_id": "V1-果蔬", "case_title": "V1 界面定制·果蔬新增检测项目显示", "result": "failed", "detail": "点击应用后弹窗报错，去到食安页面刷新项目还是没有新增", "evidence": "/api/test-results/evidence/V1-%E6%9E%9C%E8%94%AC/1786436594628_94ceba45.png", "evidence_list": [{"raw": "/api/test-results/evidence/V1-%E6%9E%9C%E8%94%AC/1786436594628_94ceba45.png", "type": "local", "encCaseId": "V1-%E6%9E%9C%E8%94%AC", "decCaseId": "V1-果蔬", "file": "1786436594628_94ceba45.png", "caseTitle": "V1 界面定制·果蔬新增检测项目显示", "relPath": "evidence/V1-果蔬/1786436594628_94ceba45.png", "stepCaption": ""}], "submitted_by": "123", "submitted_by_role": "operator", "created_at": "2026-08-11T08:23:43.160Z", "updated_at": "2026-08-11T08:23:43.160Z"}, {"case_id": "V6-帮助跳转", "case_title": "V6 登录页帮助中心跳转（子路径矛盾复现）", "result": "passed", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "wuxiangjun", "submitted_by_role": "admin@wuxiangjun", "created_at": "2026-08-12T09:21:58.523Z", "updated_at": "2026-08-12T09:21:58.523Z"}, {"case_id": "V7-负向", "case_title": "V7 超管登录·学校代码非法输入负向", "result": "passed", "detail": "IP地址后面修改别的识别不出来学校", "evidence": "[{\"seq\":1,\"caption\":\"\",\"urls\":[\"/api/test-results/evidence/V7-%E8%B4%9F%E5%90%91/1786440005092_96f2ff64.png\"]}]", "evidence_list": [{"stepSeq": 1, "stepCaption": "", "raw": "/api/test-results/evidence/V7-%E8%B4%9F%E5%90%91/1786440005092_96f2ff64.png", "type": "local", "encCaseId": "V7-%E8%B4%9F%E5%90%91", "decCaseId": "V7-负向", "file": "1786440005092_96f2ff64.png", "caseTitle": "V7 超管登录·学校代码非法输入负向", "relPath": "evidence/V7-负向/1786440005092_96f2ff64.png"}], "submitted_by": "wuxiangjun", "submitted_by_role": "admin@wuxiangjun", "created_at": "2026-08-11T09:20:35.575Z", "updated_at": "2026-08-12T09:21:58.588Z"}, {"case_id": "回归V2", "case_title": "回归·停用/启用用户", "result": "passed", "detail": "停用和启用都没有出现异常，停用登录不了账号", "evidence": "[{\"seq\":1,\"caption\":\"\",\"urls\":[\"/api/test-results/evidence/%E5%9B%9E%E5%BD%92V2/1786519020236_bfea6e42.png\"]}]", "evidence_list": [{"stepSeq": 1, "stepCaption": "", "raw": "/api/test-results/evidence/%E5%9B%9E%E5%BD%92V2/1786519020236_bfea6e42.png", "type": "local", "encCaseId": "%E5%9B%9E%E5%BD%92V2", "decCaseId": "回归V2", "file": "1786519020236_bfea6e42.png", "caseTitle": "回归·停用/启用用户", "relPath": "evidence/回归V2/1786519020236_bfea6e42.png"}], "submitted_by": "wuxiangjun", "submitted_by_role": "admin@wuxiangjun", "created_at": "2026-08-12T07:19:22.580Z", "updated_at": "2026-08-12T09:21:58.589Z"}, {"case_id": "回归V3", "case_title": "回归·检测频率与月报页", "result": "passed", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "wuxiangjun", "submitted_by_role": "admin@wuxiangjun", "created_at": "2026-08-12T09:21:58.593Z", "updated_at": "2026-08-12T09:21:58.593Z"}, {"case_id": "回归V4", "case_title": "回归·阈值/日历设置保存", "result": "passed", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "wuxiangjun", "submitted_by_role": "admin@wuxiangjun", "created_at": "2026-08-12T09:21:58.590Z", "updated_at": "2026-08-12T09:21:58.590Z"}, {"case_id": "回归V5", "case_title": "回归·每日登录提示", "result": "passed", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "wuxiangjun", "submitted_by_role": "admin@wuxiangjun", "created_at": "2026-08-12T09:21:58.615Z", "updated_at": "2026-08-12T09:21:58.615Z"}, {"case_id": "回归V6地址", "case_title": "回归·帮助链接子路径地址核对", "result": "passed", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "wuxiangjun", "submitted_by_role": "admin@wuxiangjun", "created_at": "2026-08-12T09:21:58.615Z", "updated_at": "2026-08-12T09:21:58.615Z"}, {"case_id": "回归V7正向", "case_title": "回归·学校登录跳转正向", "result": "passed", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "wuxiangjun", "submitted_by_role": "admin@wuxiangjun", "created_at": "2026-08-12T09:21:58.702Z", "updated_at": "2026-08-12T09:21:58.702Z"}]}, {"group": "zsp_备份", "groupName": "曾水平 · 备份与恢复模块（第四部分 B1-B9）", "total": 11, "counts": {"passed": 6, "failed": 5, "skipped": 0, "pending": 0}, "done": 11, "items": [{"case_id": "B1", "case_title": "B1 入口权限（超管可入+运维备份 Tab 可见 / 非超管整页拦截）", "result": "passed", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "wuxiangjun", "submitted_by_role": "admin@wuxiangjun", "created_at": "2026-08-11T07:38:45.792Z", "updated_at": "2026-08-12T09:21:58.702Z"}, {"case_id": "B2", "case_title": "B2 备份列表显示", "result": "passed", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "wuxiangjun", "submitted_by_role": "admin@wuxiangjun", "created_at": "2026-08-11T07:39:32.348Z", "updated_at": "2026-08-12T09:21:58.702Z"}, {"case_id": "B3", "case_title": "B3 立即备份全部", "result": "passed", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "wuxiangjun", "submitted_by_role": "admin@wuxiangjun", "created_at": "2026-08-11T07:42:07.096Z", "updated_at": "2026-08-12T09:21:58.707Z"}, {"case_id": "B4", "case_title": "B4 单校备份（独立测试学校）", "result": "passed", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "wuxiangjun", "submitted_by_role": "admin@wuxiangjun", "created_at": "2026-08-11T07:45:15.115Z", "updated_at": "2026-08-12T09:21:58.749Z"}, {"case_id": "B5", "case_title": "B5 离线验证（表数一致）", "result": "passed", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "wuxiangjun", "submitted_by_role": "admin@wuxiangjun", "created_at": "2026-08-11T07:47:16.364Z", "updated_at": "2026-08-12T09:21:58.770Z"}, {"case_id": "B6", "case_title": "B6 下载（密文 .aes / 明文 403）", "result": "passed", "detail": "", "evidence": "[{\"seq\":1,\"caption\":\"\",\"urls\":[\"/api/test-results/evidence/B6/1786496849836_d3b29140.png\"]}]", "evidence_list": [{"stepSeq": 1, "stepCaption": "", "raw": "/api/test-results/evidence/B6/1786496849836_d3b29140.png", "type": "local", "encCaseId": "B6", "decCaseId": "B6", "file": "1786496849836_d3b29140.png", "caseTitle": "B6 下载（密文 .aes / 明文 403）", "relPath": "evidence/B6/1786496849836_d3b29140.png"}], "submitted_by": "wuxiangjun", "submitted_by_role": "admin@wuxiangjun", "created_at": "2026-08-11T08:20:43.038Z", "updated_at": "2026-08-12T09:21:58.790Z"}, {"case_id": "B7-负向", "case_title": "B7 影子恢复·确认词错误不执行", "result": "failed", "detail": "前面4步可以通过，目前停留至第5步还没执行。", "evidence": "[{\"seq\":1,\"caption\":\"\",\"urls\":[\"/api/test-results/evidence/B7-%E8%B4%9F%E5%90%91/1786516240516_fe21ea09.png\"]}]", "evidence_list": [{"stepSeq": 1, "stepCaption": "", "raw": "/api/test-results/evidence/B7-%E8%B4%9F%E5%90%91/1786516240516_fe21ea09.png", "type": "local", "encCaseId": "B7-%E8%B4%9F%E5%90%91", "decCaseId": "B7-负向", "file": "1786516240516_fe21ea09.png", "caseTitle": "B7 影子恢复·确认词错误不执行", "relPath": "evidence/B7-负向/1786516240516_fe21ea09.png"}], "submitted_by": "wuxiangjun", "submitted_by_role": "admin@wuxiangjun", "created_at": "2026-08-11T08:20:46.797Z", "updated_at": "2026-08-12T09:21:58.790Z"}, {"case_id": "B7-正向", "case_title": "B7 影子恢复·正向执行 + 数据回滚核对", "result": "failed", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "wuxiangjun", "submitted_by_role": "admin@wuxiangjun", "created_at": "2026-08-11T08:20:49.586Z", "updated_at": "2026-08-12T09:21:58.790Z"}, {"case_id": "B7-旧schema", "case_title": "B7 旧 schema 保留与清理（SSH psql）", "result": "failed", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "wuxiangjun", "submitted_by_role": "admin@wuxiangjun", "created_at": "2026-08-11T08:20:52.278Z", "updated_at": "2026-08-12T09:21:58.851Z"}, {"case_id": "B8", "case_title": "B8 维护模式写阻断（可选）", "result": "failed", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "wuxiangjun", "submitted_by_role": "admin@wuxiangjun", "created_at": "2026-08-11T08:20:55.420Z", "updated_at": "2026-08-12T09:21:58.852Z"}, {"case_id": "B9", "case_title": "B9 SSH 侧检查（定时任务/文件权限/失败告警）", "result": "failed", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "wuxiangjun", "submitted_by_role": "admin@wuxiangjun", "created_at": "2026-08-11T08:20:57.827Z", "updated_at": "2026-08-12T09:21:58.853Z"}]}, {"group": "retest_复测", "groupName": "历史测试问题", "total": 28, "counts": {"passed": 0, "failed": 0, "skipped": 0, "pending": 28}, "done": 0, "items": [{"case_id": "R-学校删除", "case_title": "R1 学校列表：无法删除已新增的学校（备注：只能停用不能删除）", "result": "pending", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "", "submitted_by_role": "", "created_at": null, "updated_at": null}, {"case_id": "R-返回主界面", "case_title": "R2 主界面：返回主界面后无法用任何管理员/学校账号登录", "result": "pending", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "", "submitted_by_role": "", "created_at": null, "updated_at": null}, {"case_id": "R-同步取消", "case_title": "R3 数据同步：云端同步/暂停同步/清空本地缓存后无法点击取消", "result": "pending", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "", "submitted_by_role": "", "created_at": null, "updated_at": null}, {"case_id": "R-启用无效", "case_title": "R4 用户管理：停用后「启用」无效（停用可以但启用不行）", "result": "pending", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "", "submitted_by_role": "", "created_at": null, "updated_at": null}, {"case_id": "R-恢复失败", "case_title": "R5 备份恢复：用户管理→恢复失败", "result": "pending", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "", "submitted_by_role": "", "created_at": null, "updated_at": null}, {"case_id": "R-下载模板", "case_title": "R6 病原体检测：下载模板打不开（考虑是否取消）", "result": "pending", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "", "submitted_by_role": "", "created_at": null, "updated_at": null}, {"case_id": "R-无可删除", "case_title": "R7 界面定制：果蔬农残检测项目无可删除的项目", "result": "pending", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "", "submitted_by_role": "", "created_at": null, "updated_at": null}, {"case_id": "R-复检显示", "case_title": "R8 复检显示：复检填合格仍显示不合格（果蔬/肉蛋/油）", "result": "pending", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "", "submitted_by_role": "", "created_at": null, "updated_at": null}, {"case_id": "R-新增项目", "case_title": "R9 界面定制：肉蛋/果蔬新增检测项目后无显示", "result": "pending", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "", "submitted_by_role": "", "created_at": null, "updated_at": null}, {"case_id": "R-保存无反应", "case_title": "R10 界面定制/基本信息：保存修改/保存定制无反应", "result": "pending", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "", "submitted_by_role": "", "created_at": null, "updated_at": null}, {"case_id": "R-复检存储", "case_title": "R11 复检数据存储：提交复检后核对 localStorage 的 result 字段是否同步为合格", "result": "pending", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "", "submitted_by_role": "", "created_at": null, "updated_at": null}, {"case_id": "R-默认选项", "case_title": "R12 界面定制：默认选项回归（新增项目后原有默认选项仍正常）", "result": "pending", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "", "submitted_by_role": "", "created_at": null, "updated_at": null}, {"case_id": "R-帮助跳转", "case_title": "R13 登录页：帮助中心跳转无反应/子路径矛盾（V6 帮助中心跳转失败）", "result": "pending", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "", "submitted_by_role": "", "created_at": null, "updated_at": null}, {"case_id": "R-登录负向", "case_title": "R14 学校登录：非法代码/非法输入负向拦截（V7 登录跳转负向失败）", "result": "pending", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "", "submitted_by_role": "", "created_at": null, "updated_at": null}, {"case_id": "R-回收站恢复", "case_title": "R15 学校列表：回收站「恢复学校」报数据库错误（jsonb 类型不匹配，恢复失败）", "result": "pending", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "", "submitted_by_role": "", "created_at": null, "updated_at": null}, {"case_id": "R-创建用户", "case_title": "R16 用户管理：创建新用户报「注册失败」（保存按钮被禁用/系统错误）", "result": "pending", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "", "submitted_by_role": "", "created_at": null, "updated_at": null}, {"case_id": "R-审计空白", "case_title": "R17 审计日志：菜单选中但内容区空白无数据", "result": "pending", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "", "submitted_by_role": "", "created_at": null, "updated_at": null}, {"case_id": "R-定制500", "case_title": "R18 界面定制：打开字段管理 customization 接口返回 500（Network 记录）", "result": "pending", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "", "submitted_by_role": "", "created_at": null, "updated_at": null}, {"case_id": "R-选项无法添加", "case_title": "R19 界面定制：新增检测项目时「下拉选项」无法添加（暂无选项）", "result": "pending", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "", "submitted_by_role": "", "created_at": null, "updated_at": null}, {"case_id": "R-保存按钮文案", "case_title": "R20 界面定制：「保存定制·未保存」按钮文案组合混乱", "result": "pending", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "", "submitted_by_role": "", "created_at": null, "updated_at": null}, {"case_id": "R-主登录提示", "case_title": "R21 主登录页：未带 school 参数时报「未识别到有效的学校登录入口」提示不清晰", "result": "pending", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "", "submitted_by_role": "", "created_at": null, "updated_at": null}, {"case_id": "R-停用登录", "case_title": "R22 学校登录：已停用学校的登录链接报「学校不存在或未激活」", "result": "pending", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "", "submitted_by_role": "", "created_at": null, "updated_at": null}, {"case_id": "R-登录Logo", "case_title": "R23 登录页：学校 Logo 显示默认图标而非学校真实 Logo", "result": "pending", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "", "submitted_by_role": "", "created_at": null, "updated_at": null}, {"case_id": "R-复检缺日期", "case_title": "R24 复检录入：弹窗无「复检日期」字段（只有结果/说明/复检人）", "result": "pending", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "", "submitted_by_role": "", "created_at": null, "updated_at": null}, {"case_id": "R-菜单重复", "case_title": "R25 检测系统左侧菜单：「检测频率与月报」「检测频率与日历」重复出现", "result": "pending", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "", "submitted_by_role": "", "created_at": null, "updated_at": null}, {"case_id": "R-版本不一致", "case_title": "R26 版本号：检测系统显示 Version 4.0，登录页显示 3.1.0（版本号不一致）", "result": "pending", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "", "submitted_by_role": "", "created_at": null, "updated_at": null}, {"case_id": "R-占位符", "case_title": "R27 检测项目下拉：默认显示占位符「验证设」而非「请选择」", "result": "pending", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "", "submitted_by_role": "", "created_at": null, "updated_at": null}, {"case_id": "R-记录不存在", "case_title": "R28 复检保存后：刷新列表时多个接口报 400 /「记录不存在」（复检记录未正确持久化）", "result": "pending", "detail": "", "evidence": "", "evidence_list": [], "submitted_by": "", "submitted_by_role": "", "created_at": null, "updated_at": null}]}]};
+const LABELS = {"passed":{"label":"通过","emoji":"✓","color":"#16a34a","gradient":"linear-gradient(135deg,#34d399,#10b981)"},"failed":{"label":"失败","emoji":"✗","color":"#dc2626","gradient":"linear-gradient(135deg,#fb7185,#e11d48)"},"skipped":{"label":"跳过","emoji":"›","color":"#d97706","gradient":"linear-gradient(135deg,#fbbf24,#d97706)"},"pending":{"label":"待测","emoji":"⏳","color":"#6b7280","gradient":"linear-gradient(135deg,#cbd5e1,#94a3b8)"}};
+const ICONS = {"passed":"fa-check-circle","failed":"fa-times-circle","skipped":"fa-forward","pending":"far fa-clock"};
+const COLOR_CLASSES = {"passed":"text-emerald-600","failed":"text-rose-600","skipped":"text-amber-600","pending":"text-slate-500"};
 const $ = (id) => document.getElementById(id);
 
 function fmt(t) { if (!t) return '—'; const d = new Date(t); if (isNaN(d)) return '—'; const p = n => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()); }
-function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
 function renderCards() {
   $('cards').innerHTML = SNAPSHOT.groups.map(g => {
     const pct = g.total ? Math.round(g.done / g.total * 100) : 0;
-    const chips = ['passed','failed','skipped','pending'].map(k =>
-      '<span style="color:' + LABELS[k].color + '">' + LABELS[k].emoji + ' ' + LABELS[k].label + ' ' + g.counts[k] + '</span>'
-    ).join('');
-    return '<div class="card"><div class="gname">' + esc(g.groupName) + '</div>' +
-      '<div class="num">' + g.done + '<span style="font-size:13px;color:#9ca3af">/' + g.total + ' 已测</span></div>' +
-      '<div class="sub">完成度 ' + pct + '%</div><div class="chips">' + chips + '</div></div>';
+    const remain = g.total - g.done;
+    const chips = ['passed','failed','skipped'].map(k =>
+      '<div class="chip ' + COLOR_CLASSES[k] + '"><i class="icon fas ' + ICONS[k] + '"></i><span class="lbl">' + LABELS[k].label + '</span><span class="v">' + g.counts[k] + '</span></div>'
+    ).join('') +
+    '<div class="chip ' + COLOR_CLASSES.pending + '"><i class="icon far fa-clock"></i><span class="lbl">' + LABELS.pending.label + '</span><span class="v">' + remain + '</span></div>';
+    return '<div class="card glass-tile">' +
+      '<div class="gname">' + esc(g.groupName.split(' · ')[0]) + '</div>' +
+      '<div class="num-row"><span class="num">' + g.done + '</span><span class="num-total">/ ' + g.total + ' 项</span>' +
+      '<span class="pct">完成 ' + pct + '%</span></div>' +
+      '<div class="progress"><div style="width:' + pct + '%"></div></div>' +
+      '<div class="chips">' + chips + '</div></div>';
   }).join('');
   const u = new Set();
   SNAPSHOT.groups.forEach(g => g.items.forEach(it => { if (it.submitted_by) u.add(it.submitted_by); }));
   $('fUser').innerHTML = '<option value="">全部提交人</option>' + [...u].map(x => '<option>' + esc(x) + '</option>').join('');
 }
 
-function allItems() { const a = []; SNAPSHOT.groups.forEach(g => g.items.forEach(it => a.push(it))); return a; }
+function allItems() { const a = []; SNAPSHOT.groups.forEach(g => g.items.forEach(it => a.push({...it, group: g.group}))); return a; }
 
 function renderList() {
   const fg = $('fGroup').value, fr = $('fResult').value, fu = $('fUser').value, kw = $('fKeyword').value.trim().toLowerCase();
@@ -92,22 +230,23 @@ function renderList() {
   );
   $('empty').style.display = items.length ? 'none' : 'block';
   $('list').innerHTML = items.map(it => {
-    const b = LABELS[it.result] || { label: it.result, emoji: '?', color: '#9ca3af' };
+    const b = LABELS[it.result] || { label: it.result, emoji: '?', color: '#9ca3af', gradient: '#9ca3af' };
     const evid = (it.evidence_list || []).map(e => {
       if (e.type === 'local') return '<img class="thumb" src="' + esc(e.relPath) + '" alt="' + esc(it.case_title) + '" onclick="openLb(this.src)">';
       return '<a class="ext" href="' + esc(e.url) + '" target="_blank" rel="noopener">🔗 证据链接</a>';
     }).join('');
-    return '<div class="item">' +
-      '<div class="badge" style="background:' + b.color + '">' + b.emoji + ' ' + b.label + '</div>' +
-      '<div class="body"><div class="id">' + esc(it.case_id) + '</div>' +
+    return '<div class="item glass-section">' +
+      '<div class="badge" style="background:' + b.gradient + '">' + b.emoji + ' ' + b.label + '</div>' +
+      '<div class="body">' +
+      '<span class="id">' + esc(it.case_id) + '</span>' +
       '<div class="title">' + esc(it.case_title) + '</div>' +
-      '<div class="meta">提交人：' + esc(it.submitted_by || '—') + ' · 更新：' + fmt(it.updated_at) + '</div>' +
-      (it.detail ? '<div class="detail">📝 ' + esc(it.detail) + '</div>' : '') +
+      '<div class="meta">👤 提交人：' + esc(it.submitted_by || '—') + ' · 🕐 更新：' + fmt(it.updated_at) + '</div>' +
+      (it.detail ? '<div class="detail">' + esc(it.detail) + '</div>' : '') +
       (evid ? '<div class="evid">' + evid + '</div>' : '') +
       '</div></div>';
   }).join('');
   const done = items.filter(it => it.result !== 'pending').length;
-  $('countLine').textContent = '共 ' + items.length + ' 项（已测 ' + done + '）';
+  $('countLine').textContent = '共 ' + items.length + ' 项（已测 ' + done + ' / 待测 ' + (items.length - done) + '）';
 }
 
 function openLb(src) { $('lbImg').src = src; $('lightbox').style.display = 'flex'; }
