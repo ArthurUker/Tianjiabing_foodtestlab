@@ -511,7 +511,7 @@
     },
     {
       "group": "retest_复测",
-      "groupName": "历史问题复测（2026-08-13 5 份反馈汇总）",
+      "groupName": "历史测试问题",
       "total": 28,
       "counts": {
         "passed": 0,
