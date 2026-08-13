@@ -2113,11 +2113,8 @@ app.put('/api/records/:tableName/:id', authenticateUser, requireEditorOrAbove, a
                     restoredCount++
                 }
             }
-            if (restoredCount > 0) {
-                process.stderr.write(`[FieldGuard] restored ${restoredCount} protected fields (e.g. vegetableType=${incoming.vegetableType})\n`)
-            }
             writeData.result_data = JSON.stringify(incoming)
-        } catch (e) { process.stderr.write(`[FieldGuard] error: ${e.message}\n`) }
+        } catch (_) { /* 字段保护失败不影响主流程 */ }
 
         // 版本号乐观锁（如果客户端传了 version 字段）
         if (req.body && typeof req.body.version !== 'undefined' && req.body.version !== existing.version) {

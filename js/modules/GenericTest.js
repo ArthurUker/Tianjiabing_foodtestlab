@@ -11,6 +11,13 @@ import { collectCustomFieldValues, getSchoolCustomization, getSchoolCanteens } f
 // 隐藏规则失效，被管理端隐藏的字段会随提交再次落库。
 import { extractSchoolCode } from '../utils/schoolCode.js';
 
+// TD-RecheckInspector: HTML 转义，防止复检人员/复检说明等用户输入在详情/历史中产生 XSS
+function escapeHtml(str) {
+    return String(str == null ? '' : str).replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+}
+
 export class GenericTestModule {
     constructor(config) {
         this.moduleName = config.moduleName;
@@ -361,6 +368,7 @@ export class GenericTestModule {
                         </span>
                         <span class="text-gray-500">${rec.time}</span>
                     </div>
+                    ${rec.recheckInspector ? `<div class="text-gray-500 mb-1"><i class="fas fa-user mr-1"></i>复检人：${escapeHtml(rec.recheckInspector)}</div>` : ''}
                     <div class="text-gray-700">${rec.description || '无描述'}</div>
                 </div>
             `).join('');
@@ -404,6 +412,16 @@ export class GenericTestModule {
                                 <div class="bg-yellow-50 border border-yellow-200 p-3 rounded mb-4 text-sm text-yellow-800">
                                     <i class="fas fa-info-circle mr-1"></i> 新录入的复检数据
                                 </div>
+                                <!-- TD-RecheckInspector: 默认值=原检验员（record.inspector），允许用户改写为实际复检人 -->
+                                <div class="mb-4">
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        复检人员 <span class="text-gray-400 text-xs font-normal">(默认与首次录入一致)</span>
+                                    </label>
+                                    <input id="recheckInspector" type="text"
+                                        class="w-full border border-gray-300 rounded p-2"
+                                        value="${record.inspector || ''}"
+                                        placeholder="请输入复检人员姓名">
+                                </div>
                                 <div class="mb-4">
                                     <label class="block text-sm font-medium text-gray-700 mb-2">复检结果</label>
                                     <select id="recheckResult" class="w-full border border-gray-300 rounded p-2">
@@ -436,12 +454,17 @@ export class GenericTestModule {
 
         document.body.appendChild(modal);
 
-        document.getElementById('closeEditModal').onclick = () => modal.remove();
+        // TD-Q1-Recheck-IDConflict: 弹窗内所有元素查询限定在 modal 范围内，
+        // 避免 Tableware 主表单的 id="recheckResult" textarea 抢占 getElementById
+        // 导致复检 isPassed 永远为 false（"填合格反馈不合格"根因）。
+        const $el = (id) => modal.querySelector(`#${id}`);
 
-        const tabCorrective = document.getElementById('tabCorrective');
-        const tabRecheck = document.getElementById('tabRecheck');
-        const btnTabCorrective = document.getElementById('tabBtnCorrective');
-        const btnTabRecheck = document.getElementById('tabBtnRecheck');
+        $el('closeEditModal').onclick = () => modal.remove();
+
+        const tabCorrective = $el('tabCorrective');
+        const tabRecheck = $el('tabRecheck');
+        const btnTabCorrective = $el('tabBtnCorrective');
+        const btnTabRecheck = $el('tabBtnRecheck');
 
         btnTabCorrective.onclick = () => {
             tabCorrective.classList.remove('hidden');
@@ -457,8 +480,8 @@ export class GenericTestModule {
             btnTabRecheck.className = "px-4 py-2 border-b-2 border-blue-500 text-blue-600 font-medium";
         };
 
-        document.getElementById('btnSaveLog').onclick = () => {
-            const content = document.getElementById('newCorrectiveAction').value.trim();
+        $el('btnSaveLog').onclick = () => {
+            const content = $el('newCorrectiveAction').value.trim();
             if (!content) {
                 alert('请输入整改内容');
                 return;
@@ -478,7 +501,7 @@ export class GenericTestModule {
             const success = this.storage.update(record.id, record);
 
             if (success) {
-                document.getElementById('auditLogsList').innerHTML = renderLogs(record.modificationLogs);
+                $el('auditLogsList').innerHTML = renderLogs(record.modificationLogs);
                 this.render();
                 document.dispatchEvent(new Event('dataChanged'));
                 alert('日志已保存');
@@ -487,8 +510,8 @@ export class GenericTestModule {
             }
         };
 
-        document.getElementById('btnSaveRecheck').onclick = () => {
-            const selectEl = document.getElementById('recheckResult');
+        $el('btnSaveRecheck').onclick = () => {
+            const selectEl = $el('recheckResult');
             // TD-Q1-Recheck-Robust: 优先用 selectedIndex + dataset.isPassed 判定（不受扩展污染
             // select.value 字符串的影响）；回退到 value 字符串。两者都失败时拒绝保存。
             let isPassed = null;
@@ -505,11 +528,14 @@ export class GenericTestModule {
             if (isPassed === null) {
                 isPassed = displayValue === '合格';
             }
-            const result = isPassed ? '合格' : '不合格';
-            const description = document.getElementById('recheckDescription').value.trim();
+            const description = $el('recheckDescription').value.trim();
+
+            // TD-RecheckInspector: 用户未填时回退到原检验员（record.inspector），避免留空
+            const recheckInspector = ($el('recheckInspector').value || '').trim() || (record.inspector || '');
 
             console.log('[复检诊断] isPassed=', isPassed, '| value=', JSON.stringify(displayValue),
-                '| selectedIndex=', selectEl ? selectEl.selectedIndex : -1);
+                '| selectedIndex=', selectEl ? selectEl.selectedIndex : -1,
+                '| recheckInspector=', JSON.stringify(recheckInspector));
 
             if (!description) {
                 alert('请输入复检说明');
@@ -520,7 +546,8 @@ export class GenericTestModule {
                 time: new Date().toLocaleString(),
                 user: currentUser,
                 isPassed: isPassed,
-                description: description
+                description: description,
+                recheckInspector: recheckInspector
             };
 
             record.recheckRecords = record.recheckRecords || [];
@@ -538,8 +565,8 @@ export class GenericTestModule {
                 // 更新期间引用可能变化导致 recheckRecords 看似为空）；统一从 storage
                 // 重新拉取最新缓存，确保弹窗与列表/服务端一致。
                 const fresh = this.storage.getAll().find(r => String(r.id) === String(record.id)) || record;
-                document.getElementById('recheckHistoryList').innerHTML = renderRecheckHistory(fresh.recheckRecords);
-                document.getElementById('recheckDescription').value = '';
+                $el('recheckHistoryList').innerHTML = renderRecheckHistory(fresh.recheckRecords);
+                $el('recheckDescription').value = '';
                 this.render();
                 document.dispatchEvent(new Event('dataChanged'));
                 alert('复检结果已保存');
@@ -558,7 +585,7 @@ export class GenericTestModule {
             const fresh = this.storage.getAll().find(r => String(r.id) === String(record.id));
             if (!fresh) return;
             // 同步弹窗历史与最新缓存
-            const historyEl = document.getElementById('recheckHistoryList');
+            const historyEl = $el('recheckHistoryList');
             if (historyEl) historyEl.innerHTML = renderRecheckHistory(fresh.recheckRecords);
             this.render();
             // 弹窗存在时提示用户（避免与正在显示的 alert 冲突）
@@ -569,7 +596,7 @@ export class GenericTestModule {
         };
         this.storage.on('error', onStorageError);
         // 关闭弹窗时移除监听，避免内存泄漏
-        document.getElementById('closeEditModal').onclick = () => {
+        $el('closeEditModal').onclick = () => {
             this.storage.off('error', onStorageError);
             modal.remove();
         };
@@ -590,8 +617,24 @@ export class GenericTestModule {
         modal.id = 'detailModal';
         modal.className = 'fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center';
 
+        // TD-RecheckBadge: 检测详情弹窗中，最近一次复检为合格 → "复检合格"（蓝底描边）
+        const latestRecheck = Array.isArray(record.recheckRecords) && record.recheckRecords.length > 0 ? record.recheckRecords[0] : null;
+        const isRecheckPassed = !!(latestRecheck && latestRecheck.isPassed === true);
+        const recheckBadgeText = isRecheckPassed ? '复检合格' : null;
+        const recheckBadgeClass = isRecheckPassed
+            ? 'bg-blue-50 text-blue-700 border border-blue-300'
+            : null;
+        const resultBadge = (text, colorClass) =>
+            `<span class="px-2 py-1 rounded ${colorClass}">${escapeHtml(text)}</span>`;
+        const standardBadgeClass = (val, okVal, warnVal) =>
+            val === okVal ? 'bg-green-100 text-green-800'
+            : val === warnVal ? 'bg-yellow-100 text-yellow-800'
+            : 'bg-red-100 text-red-800';
+
         let detailContent = '';
         if (this.moduleName === 'pesticide') {
+            const displayResult = recheckBadgeText || record.result || '';
+            const badgeClass = recheckBadgeClass || standardBadgeClass(record.result, '合格');
             detailContent = `
                 <div class="grid grid-cols-2 gap-4">
                     <div><span class="font-medium">检测日期：</span>${record.testDate}</div>
@@ -599,8 +642,8 @@ export class GenericTestModule {
                     <div><span class="font-medium">检测员：</span>${record.inspector}</div>
                     <div><span class="font-medium">蔬菜品种：</span>${record.vegetableType}</div>
                     <div><span class="font-medium">检测项目：</span>${record.batchNo}</div>
-                    <div><span class="font-medium">检测结果：</span><span class="px-2 py-1 rounded ${record.result === '合格' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">${record.result}</span></div>
-                    ${record.remark ? `<div class="col-span-2"><span class="font-medium">备注：</span>${record.remark}</div>` : ''}
+                    <div><span class="font-medium">检测结果：</span>${resultBadge(displayResult, badgeClass)}</div>
+                    ${record.remark ? `<div class="col-span-2"><span class="font-medium">备注：</span>${escapeHtml(record.remark)}</div>` : ''}
                 </div>
             `;
         } else if (this.moduleName === 'oil') {
@@ -612,11 +655,13 @@ export class GenericTestModule {
                     <div><span class="font-medium">油温：</span>${record.oilTemp}℃</div>
                     <div><span class="font-medium">预估氧化值(TPM)：</span>${record.tpmValue} g/100g</div>
                     <div><span class="font-medium">预估酸价值：</span>${record.acidValue || '-'} mg/g</div>
-                    <div><span class="font-medium">食用油品质等级：</span><span class="px-2 py-1 rounded ${record.colorLevel === '合格' ? 'bg-green-100 text-green-800' : record.colorLevel === '警戒' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}">${record.colorLevel}</span></div>
-                    ${record.remark ? `<div class="col-span-2"><span class="font-medium">备注：</span>${record.remark}</div>` : ''}
+                    <div><span class="font-medium">食用油品质等级：</span><span class="px-2 py-1 rounded ${standardBadgeClass(record.colorLevel, '合格', '警戒')}">${record.colorLevel}</span></div>
+                    ${record.remark ? `<div class="col-span-2"><span class="font-medium">备注：</span>${escapeHtml(record.remark)}</div>` : ''}
                 </div>
             `;
         } else if (this.moduleName === 'leanMeat') {
+            const displayResult = recheckBadgeText || record.result || '';
+            const badgeClass = recheckBadgeClass || standardBadgeClass(record.result, '合格');
             detailContent = `
                 <div class="grid grid-cols-2 gap-4">
                     <div><span class="font-medium">检测日期：</span>${record.testDate}</div>
@@ -624,8 +669,8 @@ export class GenericTestModule {
                     <div><span class="font-medium">检测员：</span>${record.inspector}</div>
                     <div><span class="font-medium">肉类品种：</span>${record.meatType}</div>
                     <div><span class="font-medium">检测项目：</span>${record.batchNo}</div>
-                    <div><span class="font-medium">检测结果：</span><span class="px-2 py-1 rounded ${record.result === '合格' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">${record.result}</span></div>
-                    ${record.remark ? `<div class="col-span-2"><span class="font-medium">备注：</span>${record.remark}</div>` : ''}
+                    <div><span class="font-medium">检测结果：</span>${resultBadge(displayResult, badgeClass)}</div>
+                    ${record.remark ? `<div class="col-span-2"><span class="font-medium">备注：</span>${escapeHtml(record.remark)}</div>` : ''}
                 </div>
             `;
         }
@@ -650,7 +695,8 @@ export class GenericTestModule {
                             ${record.recheckRecords.map(rec => `
                                 <div class="text-sm mb-1">
                                     <span class="font-medium ${rec.isPassed ? 'text-green-600' : 'text-red-600'}">[${rec.isPassed ? '合格' : '不合格'}]</span>
-                                    ${rec.time} - ${rec.description}
+                                    ${rec.recheckInspector ? `复检人：${escapeHtml(rec.recheckInspector)} | ` : ''}
+                                    ${rec.time} - ${escapeHtml(rec.description || '')}
                                 </div>
                             `).join('')}
                         </div>
@@ -1250,8 +1296,14 @@ export class GenericTestModule {
 
         tbody.innerHTML = currentRecords.map(r => {
             const result = r.result || r.colorLevel || '未知';
+            // TD-RecheckBadge: 最近一次复检为合格 → "复检合格"（蓝底描边），区别于首次检验合格的纯绿
+            const latestRecheck = Array.isArray(r.recheckRecords) && r.recheckRecords.length > 0 ? r.recheckRecords[0] : null;
+            const isRecheckPassed = !!(latestRecheck && latestRecheck.isPassed === true);
+            const displayResult = isRecheckPassed ? '复检合格' : result;
             // P2-24: 列表颜色改为三元判定（合格绿/警戒黄/不合格红），与详情弹窗 showDetailModal 一致
-            const resultColorClass = result === '合格' ? 'bg-green-100 text-green-800'
+            const resultColorClass = isRecheckPassed
+                ? 'bg-blue-50 text-blue-700 border border-blue-300'
+                : result === '合格' ? 'bg-green-100 text-green-800'
                 : result === '警戒' ? 'bg-yellow-100 text-yellow-800'
                 : 'bg-red-100 text-red-800';
 
@@ -1285,7 +1337,7 @@ export class GenericTestModule {
                 ${dataColumns}
                 <td class="border px-4 py-2">
                     <span class="px-2 py-1 rounded-full text-xs cursor-pointer btn-detail ${resultColorClass}" data-id="${r.id}">
-                        ${result}
+                        ${displayResult}
                     </span>
                     ${remarkInfo}
                 </td>
