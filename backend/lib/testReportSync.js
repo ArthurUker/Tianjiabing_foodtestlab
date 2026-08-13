@@ -113,8 +113,15 @@ function tokenizeEvidence(t) {
 
 /** 解析全部结果 → 按组组织的结构化快照 */
 function buildSnapshot(results) {
+  // TD-SyncLatest: 每个 case_id 只保留【最新】一条提交记录。
+  // 修复前 bug：findMany 按 updated_at DESC 排序，但 Map.set 后写覆盖先写，
+  // 最终每个 case_id 留下的是数组最后一条（= 最旧记录），导致同一用例被多人
+  // 复测后，汇总页显示的却是旧结果（如 B6 显示 05:45 的旧记录而非 11:44 的新记录）。
   const byId = new Map()
-  for (const r of results) byId.set(r.case_id, r)
+  for (const r of results) {
+    const cur = byId.get(r.case_id)
+    if (!cur || (r.updated_at ?? 0) >= (cur.updated_at ?? 0)) byId.set(r.case_id, r)
+  }
 
   const groups = CASE_DEFS.map((g) => {
     const items = g.cases.map((c) => {
@@ -138,6 +145,32 @@ function buildSnapshot(results) {
     const done = counts.passed + counts.failed + counts.skipped
     return { group: g.group, groupName: g.groupName, total: items.length, counts, done, items }
   })
+
+  // TD-ExtraGroup: 清单外用例（如前端「新问题反馈」new_问题 组）也纳入报告。
+  // 修复前 bug：buildSnapshot 只遍历 CASE_DEFS，new_问题 组 3 条反馈在汇总页完全
+  // 不可见，造成「上报成功但汇总看不到」。
+  const extraRecs = [...byId.values()].filter((r) => !CASE_INDEX.has(r.case_id))
+  if (extraRecs.length) {
+    const items = extraRecs.map((rec) => {
+      const evidenceList = parseEvidenceList(rec.evidence)
+      return {
+        case_id: rec.case_id,
+        case_title: rec.case_title || rec.case_id,
+        result: rec.result || 'pending',
+        detail: rec?.detail || '',
+        evidence: rec?.evidence || '',
+        evidence_list: evidenceList,
+        submitted_by: rec?.submitted_by || '',
+        submitted_by_role: rec?.submitted_by_role || '',
+        created_at: rec?.created_at || null,
+        updated_at: rec?.updated_at || null,
+      }
+    })
+    const counts = { passed: 0, failed: 0, skipped: 0, pending: 0 }
+    for (const it of items) counts[it.result] += 1
+    const done = counts.passed + counts.failed + counts.skipped
+    groups.push({ group: 'new_问题', groupName: '新问题 / 缺陷反馈', total: items.length, counts, done, items })
+  }
 
   const overall = groups.reduce(
     (acc, g) => {
@@ -229,6 +262,9 @@ function renderHtml(snap) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>浏览器测试结果汇总</title>
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <style>
   /* TD-GlassReport: 玻璃态设计语言，与 admin-schools.html 的 .glass 风格一致 */
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -238,13 +274,32 @@ function renderHtml(snap) {
   .glass-tile { background: linear-gradient(135deg, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.55) 100%); border: 1px solid rgba(255,255,255,0.85); border-radius: 1.25rem; backdrop-filter: blur(10px) saturate(160%); box-shadow: 0 8px 24px rgba(40,60,100,0.12), inset 0 1px 0 rgba(255,255,255,0.95); }
   .glass-input { background: rgba(255,255,255,0.72); border: 1px solid rgba(255,255,255,0.6); border-radius: 1rem; backdrop-filter: blur(8px) saturate(160%); padding: 9px 14px; font-size: 14px; color: #1f2937; transition: all .15s ease; }
   .glass-input:focus { background: rgba(255,255,255,0.92); border-color: rgba(99,102,241,0.5); box-shadow: 0 0 0 3px rgba(99,102,241,0.12); outline: none; }
-  .wrap { max-width: 1180px; margin: 0 auto; padding: 28px 20px 60px; }
-  header { padding: 28px 32px; margin-bottom: 22px; }
-  header .h-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
-  header .icon-box { width: 52px; height: 52px; border-radius: 14px; background: linear-gradient(135deg, #34d399 0%, #6366f1 100%); color: white; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 20px rgba(99,102,241,0.3); font-size: 22px; }
-  header h1 { font-size: 22px; font-weight: 700; color: #1f2937; }
-  header .meta { color: #6b7280; font-size: 13px; margin-top: 4px; }
-  header .meta code { background: rgba(255,255,255,0.6); padding: 2px 8px; border-radius: 6px; font-size: 12px; border: 1px solid rgba(255,255,255,0.7); }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 16px 20px 60px; }
+  .topnav { position: sticky; top: 0; z-index: 50; background: rgba(20,28,48,0.86); border-bottom: 1px solid rgba(255,255,255,0.5); backdrop-filter: blur(14px) saturate(180%); color: #fff; }
+  .topnav .container { max-width: 1180px; margin: 0 auto; padding: 14px 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .topnav .brand { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }
+  .topnav .brand-logo { width: 36px; height: 36px; border-radius: 10px; background: rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .topnav .brand-logo i { color: #fde047; font-size: 18px; }
+  .topnav h1 { font-size: 20px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .topnav .brand-tag { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: rgba(255,255,255,0.2); white-space: nowrap; }
+  .topnav .actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+  .topnav-btn, .topnav-link { display: inline-flex; align-items: center; padding: 7px 14px; border-radius: 10px; font-size: 14px; font-weight: 600; text-decoration: none; cursor: pointer; transition: all .15s ease; box-shadow: 0 2px 6px rgba(0,0,0,0.15); border: none; color: #fff; }
+  .topnav-btn:hover, .topnav-link:hover { transform: translateY(-1px); box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
+  .topnav-emerald { background: #34d399; } .topnav-emerald:hover { background: #6ee7b7; }
+  .topnav-indigo { background: #818cf8; } .topnav-indigo:hover { background: #a5b4fc; }
+  .topnav-yellow { background: #facc15; color: #1f2937; } .topnav-yellow:hover { background: #fde047; }
+  .topnav-rose { background: #fb7185; } .topnav-rose:hover { background: #fda4af; }
+  .topnav-ghost { background: rgba(255,255,255,0.15); color: #fff; } .topnav-ghost:hover { background: rgba(255,255,255,0.25); }
+  .topnav-user { display: inline-flex; align-items: center; padding: 6px 12px; border-radius: 10px; background: rgba(255,255,255,0.15); font-size: 13px; }
+  .topnav-btn:disabled { opacity: .6; cursor: not-allowed; transform: none; box-shadow: none; }
+  .topnav-btn i { display: inline-block; transition: transform .4s ease; }
+  .topnav-btn.spin i { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .topnav .pulse { animation: pulse 1.5s infinite; box-shadow: 0 0 0 0 rgba(79,70,229,0.4); }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(79,70,229,0.4); } 70% { box-shadow: 0 0 0 10px rgba(79,70,229,0); } 100% { box-shadow: 0 0 0 0 rgba(79,70,229,0); } }
+  .meta-bar { padding: 12px 18px; margin-bottom: 18px; font-size: 13px; color: #4b5563; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .meta-bar code { background: rgba(255,255,255,0.6); padding: 2px 8px; border-radius: 6px; font-size: 12px; border: 1px solid rgba(255,255,255,0.7); }
+  .hidden { display: none !important; }
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-bottom: 22px; }
   .card { padding: 20px; }
   .card .gname { font-size: 15px; font-weight: 600; color: #374151; }
@@ -285,20 +340,32 @@ function renderHtml(snap) {
   #lightbox img { max-width: 92vw; max-height: 90vh; border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
   /* 窄屏（卡片最小宽度放不下两列并排）时，整页与卡片内部都改为上下堆叠 */
   @media (max-width: 460px) { #list { grid-template-columns: 1fr; } }
-  @media (max-width: 720px) { header { padding: 20px; } .item { grid-template-columns: 1fr; padding: 16px; } .badge { width: fit-content; } .filters { padding: 14px; } }
+  @media (max-width: 720px) { .topnav .container { padding: 12px 14px; } .item { grid-template-columns: 1fr; padding: 16px; } .badge { width: fit-content; } .filters { padding: 14px; } }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header class="glass-card">
-    <div class="h-row">
-      <div class="icon-box">🧪</div>
-      <div>
-        <h1>浏览器测试结果汇总</h1>
-        <div class="meta">生成时间：<span id="genTime"></span> · 数据源：数据库 <code>public."TestResult"</code> · 证据图片见本目录 <code>evidence/</code></div>
-      </div>
+<nav class="topnav">
+  <div class="container">
+    <div class="brand">
+      <div class="brand-logo"><i class="fas fa-flask"></i></div>
+      <h1>浏览器测试结果汇总</h1>
+      <span class="brand-tag">汇总报告</span>
     </div>
-  </header>
+    <div class="actions">
+      <a href="/test-report.html" class="topnav-link topnav-emerald"><i class="fas fa-clipboard-check mr-1.5"></i>测试报告</a>
+      <span class="topnav-btn topnav-yellow"><i class="fas fa-chart-bar mr-1.5"></i>汇总报告</span>
+      <span id="userInfo" class="topnav-user hidden"><i class="fas fa-user-circle mr-1.5"></i><span id="userName">—</span></span>
+      <button id="logoutBtn" type="button" class="topnav-btn topnav-rose hidden"><i class="fas fa-sign-out-alt mr-1.5"></i>退出</button>
+      <a id="loginLink" href="/login.html" class="topnav-link topnav-indigo hidden"><i class="fas fa-sign-in-alt mr-1.5"></i>登录</a>
+      <button id="refreshBtn" type="button" class="topnav-btn topnav-indigo"><i class="fas fa-sync-alt mr-1.5"></i>刷新</button>
+    </div>
+  </div>
+</nav>
+
+<div class="wrap">
+  <div class="meta-bar glass-section">
+    生成时间：<span id="genTime"></span> · 数据源：数据库 <code>public."TestResult"</code> · 证据图片见本目录 <code>evidence/</code>
+  </div>
 
   <div class="cards" id="cards"></div>
 
@@ -389,6 +456,117 @@ $('fKeyword').addEventListener('input', renderList);
 $('genTime').textContent = fmt(SNAPSHOT.generated_at);
 renderCards();
 renderList();
+
+// 从 localStorage/sessionStorage 探测 token（兼容命名空间 key）
+function findToken() {
+  try {
+    for (const store of [sessionStorage, localStorage]) {
+      for (let i = 0; i < store.length; i++) {
+        const k = store.key(i);
+        if (!k || (!k.startsWith('auth_token') && k !== 'token')) continue;
+        const v = store.getItem(k);
+        if (v && /^eyJ[\w-]*\.eyJ[\w-]*\.[\w-]*$/.test(v)) return v;
+      }
+    }
+  } catch (e) { /* 存储不可用时忽略 */ }
+  return null;
+}
+
+async function apiGet(path, token) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers.Authorization = 'Bearer ' + token;
+  const r = await fetch(path, { headers });
+  if (r.status === 401) throw new Error('UNAUTHORIZED');
+  if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+  return r.json();
+}
+
+function redirectToLogin() {
+  const here = encodeURIComponent(window.location.pathname + window.location.search);
+  window.location.href = '/login.html?redirect=' + here;
+}
+
+// 未登录/令牌失效时：高亮登录入口，并询问是否跳转到登录页
+function promptLogin(reason) {
+  const link = $('loginLink');
+  link.classList.remove('hidden');
+  link.classList.add('pulse');
+  link.title = reason || '请先登录';
+  if (confirm((reason || '当前操作需要登录') + '，是否前往登录页？')) {
+    redirectToLogin();
+  }
+}
+
+async function initUser() {
+  const token = findToken();
+  if (!token) { $('loginLink').classList.remove('hidden'); return; }
+  try {
+    const j = await apiGet('/api/test-results/me', token);
+    if (!j.success || !j.data.username) { $('loginLink').classList.remove('hidden'); return; }
+    $('userName').textContent = j.data.username + (j.data.role ? ' (' + j.data.role + ')' : '');
+    $('userInfo').classList.remove('hidden');
+    $('logoutBtn').classList.remove('hidden');
+  } catch (e) {
+    if (e.message === 'UNAUTHORIZED') $('loginLink').classList.remove('hidden');
+    else console.error('获取当前用户失败:', e.message);
+  }
+}
+
+$('logoutBtn').addEventListener('click', () => {
+  try {
+    ['auth_token', 'current_user', 'token_expiry', 'refresh_token',
+     'auth_token_updated_at', 'auth_refresh_rotated_at', 'auth_refresh_lock'].forEach((base) => {
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (k === base || k.startsWith(base + '__')) localStorage.removeItem(k);
+      }
+      for (let i = sessionStorage.length - 1; i >= 0; i--) {
+        const k = sessionStorage.key(i);
+        if (k === base || k.startsWith(base + '__')) sessionStorage.removeItem(k);
+      }
+    });
+  } catch (e) { /* 忽略 */ }
+  window.location.href = '/login.html';
+});
+
+// 刷新：重新从数据库生成报告并重建 dist，然后带时间戳重新加载页面（避免浏览器缓存）
+async function refreshReport() {
+  const btn = $('refreshBtn');
+  if (btn.disabled) return;
+
+  const token = findToken();
+  if (!token) {
+    promptLogin('刷新报告需要先登录');
+    return;
+  }
+
+  function resetBtn() {
+    btn.disabled = false;
+    btn.classList.remove('spin');
+    btn.innerHTML = '<i class="fas fa-sync-alt mr-1.5"></i>刷新';
+  }
+
+  btn.disabled = true;
+  btn.classList.add('spin');
+  btn.innerHTML = '<i class="fas fa-sync-alt mr-1.5"></i>刷新中...';
+  try {
+    const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token };
+    const r = await fetch('/api/test-results/sync', { method: 'POST', headers });
+    if (r.status === 401) {
+      resetBtn();
+      promptLogin('登录已过期，请重新登录后刷新');
+      return;
+    }
+    const j = await r.json();
+    if (!j.success) throw new Error(j.error || '刷新失败');
+    window.location.href = window.location.pathname + '?_=' + Date.now();
+  } catch (e) {
+    alert('刷新失败：' + e.message);
+    resetBtn();
+  }
+}
+$('refreshBtn').addEventListener('click', refreshReport);
+initUser();
 </script>
 </body>
 </html>

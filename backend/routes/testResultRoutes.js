@@ -118,6 +118,20 @@ export function createTestResultRoutes(userManager, prisma) {
     res.json({ success: true, data: CASE_DEFS, result_options: RESULT_OPTIONS })
   })
 
+  // ── GET /api/test-results/me — 当前登录用户信息（供汇总页等静态页面显示）──
+  router.get('/me', (req, res) => {
+    const user = req.user || {}
+    res.json({
+      success: true,
+      data: {
+        userId: user.userId || user.id || null,
+        username: user.username || null,
+        role: user.role || null,
+        schoolCode: user.schoolCode || null,
+      },
+    })
+  })
+
   // ── GET /api/test-results/summary — 汇总 ──
   router.get('/summary', async (req, res) => {
     try {

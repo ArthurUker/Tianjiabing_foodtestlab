@@ -18,6 +18,7 @@
         select.result-passed { border-color: #22c55e; background: rgba(34,197,94,0.08); }
         select.result-failed { border-color: #ef4444; background: rgba(239,68,68,0.08); }
         select.result-skipped { border-color: #f59e0b; background: rgba(245,158,11,0.08); }
+        select.result-empty { border-color: #d1d5db; color: #9ca3af; background: rgba(243,244,246,0.6); }
         /* glass-panel：轻量玻璃面板（用于输入框/分组卡内部元素） */
         .glass-input {
             background: rgba(255,255,255,0.72);
@@ -99,8 +100,43 @@
     </style>
 </head>
 <body class="min-h-screen">
+    <!-- 顶部状态栏 -->
+    <nav class="glass-dark text-white sticky top-0 z-50">
+        <div class="container mx-auto px-4 py-3 flex justify-between items-center gap-4 flex-wrap">
+            <div class="flex items-center space-x-3 flex-1 min-w-0">
+                <span class="shrink-0 w-9 h-9 rounded-lg bg-white/20 flex items-center justify-center">
+                    <i class="fas fa-vial text-emerald-300 text-lg"></i>
+                </span>
+                <h1 class="text-xl font-bold truncate min-w-0">浏览器测试报告上报</h1>
+                <span class="text-xs px-2 py-0.5 bg-white/20 rounded-full shrink-0 hidden sm:inline-block">临时测试工具</span>
+            </div>
+            <div class="flex items-center shrink-0 flex-wrap justify-end">
+                <a href="/docs/test-results/latest/index.html" target="_blank" class="ml-3 text-sm px-3 py-1.5 bg-indigo-400 text-white font-semibold hover:bg-indigo-300 rounded-lg transition shadow inline-flex items-center">
+                    <i class="fas fa-chart-bar mr-1.5"></i>汇总报告
+                </a>
+                <span id="navUserBadge" class="hidden ml-3 text-sm px-3 py-1.5 bg-white/20 text-white rounded-lg inline-flex items-center">
+                    <i class="fas fa-user-circle mr-1.5"></i>
+                    <span id="curUser">unknown</span>
+                    <span id="curRole" class="text-white/70 text-xs ml-1"></span>
+                </span>
+                <button id="saveAllBtn" type="button" class="hidden ml-3 text-sm px-3 py-1.5 bg-emerald-400 text-white font-semibold hover:bg-emerald-300 rounded-lg transition shadow inline-flex items-center">
+                    <i class="fas fa-save mr-1.5"></i>保存全部
+                </button>
+                <button id="syncBtn" type="button" class="hidden ml-3 text-sm px-3 py-1.5 bg-indigo-400 text-white font-semibold hover:bg-indigo-300 rounded-lg transition shadow inline-flex items-center">
+                    <i class="fas fa-cloud-upload-alt mr-1.5"></i>同步
+                </button>
+                <button id="refreshBtn" type="button" class="hidden ml-3 text-sm px-3 py-1.5 bg-indigo-400 text-white font-semibold hover:bg-indigo-300 rounded-lg transition shadow inline-flex items-center">
+                    <i class="fas fa-sync-alt mr-1.5"></i>刷新
+                </button>
+                <button id="logoutBtn" type="button" class="hidden ml-3 text-sm px-3 py-1.5 bg-rose-400 text-white font-semibold hover:bg-rose-300 rounded-lg transition shadow inline-flex items-center">
+                    <i class="fas fa-sign-out-alt mr-1.5"></i>退出
+                </button>
+            </div>
+        </div>
+    </nav>
+
     <!-- ═══════ 登录卡片 ═══════ -->
-    <div id="loginWrap" class="max-w-md mx-auto mt-16 glass-card p-8">
+    <div id="loginWrap" class="max-w-md mx-auto mt-12 glass-card p-8">
         <div class="text-center mb-6">
             <div class="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-400 to-indigo-500 text-white shadow-lg mb-3">
                 <i class="fas fa-vial text-2xl"></i>
@@ -131,32 +167,13 @@
 
     <!-- ═══════ 已登录：用例上报区 ═══════ -->
     <div id="reportWrap" class="hidden max-w-6xl mx-auto my-6 px-4 space-y-5">
-        <!-- 顶部信息：标题 + 操作按钮 一行；测试人员姓名 一行 -->
-        <div class="glass-card px-6 py-5">
-            <div class="flex items-center justify-between flex-wrap gap-3">
-                <div class="flex items-center gap-3 min-w-0">
-                    <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-400 to-indigo-500 flex items-center justify-center text-white shadow-md shrink-0">
-                        <i class="fas fa-clipboard-check text-lg"></i>
-                    </div>
-                    <div class="min-w-0">
-                        <h1 class="text-lg font-bold text-gray-800">浏览器测试报告上报</h1>
-                        <p class="text-xs text-gray-600 mt-0.5 truncate">当前用户：<b id="curUser" class="text-gray-800"></b>（<span id="curRole" class="text-gray-600"></span>）</p>
-                    </div>
-                </div>
-                <div class="flex items-center gap-2 shrink-0">
-                    <button id="saveAllBtn" title="把当前页所有已填写的测试结果一次性保存" class="px-4 py-2 text-sm btn-primary rounded-xl"><i class="fas fa-save mr-1.5"></i>保存全部</button>
-                    <button id="syncBtn" title="保存后点这里：重新生成汇总报告并同步给所有测试人员" class="px-4 py-2 text-sm btn-secondary rounded-xl"><i class="fas fa-cloud-upload-alt mr-1.5"></i>同步</button>
-                    <button id="refreshBtn" title="刷新页面" class="px-3 py-2 text-sm btn-ghost rounded-xl"><i class="fas fa-sync-alt mr-1"></i>刷新</button>
-                    <button id="logoutBtn" title="退出登录" class="px-3 py-2 text-sm btn-danger-ghost rounded-xl"><i class="fas fa-sign-out-alt mr-1"></i>退出</button>
-                </div>
-            </div>
-            <div class="mt-4 pt-4 border-t border-white/50 flex items-center gap-3 flex-wrap">
-                <label for="testerName" class="text-sm text-gray-700 font-medium shrink-0 flex items-center gap-1.5">
-                    <i class="fas fa-user-edit text-amber-500"></i>测试人员姓名
-                </label>
-                <input id="testerName" type="text" maxlength="50" placeholder="填姓名，便于同账号多人区分（保存后自动记住）" class="flex-1 min-w-[200px] glass-input rounded-xl px-3 py-2 text-sm">
-                <span class="text-xs text-gray-500 shrink-0">💡 此姓名会显示在所有提交的测试结果上</span>
-            </div>
+        <!-- 测试人员姓名 -->
+        <div class="glass-card px-6 py-4 flex items-center gap-3 flex-wrap">
+            <label for="testerName" class="text-sm text-gray-700 font-medium shrink-0 flex items-center gap-1.5">
+                <i class="fas fa-user-edit text-amber-500"></i>测试人员姓名
+            </label>
+            <input id="testerName" type="text" maxlength="50" placeholder="填姓名，便于同账号多人区分（保存后自动记住）" class="flex-1 min-w-[200px] glass-input rounded-xl px-3 py-2 text-sm">
+            <span class="text-xs text-gray-500 shrink-0">💡 此姓名会显示在所有提交的测试结果上</span>
         </div>
 
         <!-- 汇总卡（服务器可拉取 summary 看整体效果） -->
@@ -222,7 +239,9 @@
         // ═══ 用例清单（权威副本在 backend/lib/testCaseDefs.js，此处启动时从 /api/test-results/defs 拉取）═══
         let CASE_DEFS = []
 
+        // 注意：首位为占位项 value=""，默认不选中任何结果（避免未测试的用例被误存为「通过」）
         const RESULT_OPTIONS = [
+            ['', '— 请选择结果 —'],
             ['passed', '✅ 通过'],
             ['failed', '❌ 失败'],
             ['skipped', '⏭ 跳过'],
@@ -263,7 +282,9 @@
             $('reportWrap').classList.remove('hidden')
             const u = authService.getUser ? authService.getUser() : null
             $('curUser').textContent = (u && u.username) || 'unknown'
-            $('curRole').textContent = (u && u.role) || ''
+            $('curRole').textContent = (u && u.role) ? '(' + u.role + ')' : ''
+            $('navUserBadge').classList.remove('hidden')
+            ;['saveAllBtn','syncBtn','refreshBtn','logoutBtn'].forEach((id) => $(id).classList.remove('hidden'))
             initTesterName()
             loadDefs().then(loadAll)
         }
@@ -516,9 +537,9 @@
                                     ${c.guide ? `<div id="guide_${esc(c.id)}" class="guide-panel hidden mt-2 rounded-xl glass-section p-3 text-sm leading-relaxed text-gray-700 whitespace-pre-line">${esc(c.guide)}</div>` : ''}
                                 </div>
                                 <div class="w-full sm:w-auto sm:min-w-[140px]">
-                                    <select id="sel_${esc(c.id)}" class="w-full glass-input rounded-xl px-3 py-2.5 text-sm"
-                                        onchange="this.classList.remove('result-passed','result-failed','result-skipped'); this.classList.add('result-'+this.value)">
-                                        ${RESULT_OPTIONS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}
+                                    <select id="sel_${esc(c.id)}" class="w-full glass-input rounded-xl px-3 py-2.5 text-sm result-empty"
+                                        onchange="this.classList.remove('result-passed','result-failed','result-skipped','result-empty'); this.classList.add('result-'+(this.value||'empty'))">
+                                        ${RESULT_OPTIONS.map(([v, l]) => `<option value="${v}"${v === '' ? ' selected' : ''}>${l}</option>`).join('')}
                                     </select>
                                 </div>
                                 <button type="button" data-case="${esc(c.id)}" data-title="${esc(c.title)}" data-group="${esc(g.group)}"
@@ -605,13 +626,16 @@
                         const evi = $(`evi_${c.id}`)
                         if (!sel) continue
                         syncEvi(c.id) // 确保分步证据写回隐藏字段
-                        const hasResult = !!sel.value
+                        // 仅当用户明确选择了结果（非占位空值）才视为有效提交；未选结果则跳过，
+                        // 避免未测试的用例被误存为「通过」（原 bug：默认选中 passed 会被保存）
+                        const hasResult = !!(sel.value && sel.value !== '')
                         const hasDetail = (det && det.value.trim())
                         const hasEvidence = (evi && evi.value.trim())
                         if (!hasResult && !hasDetail && !hasEvidence) continue // 全空跳过
+                        if (!hasResult) continue // 只填了详情/证据但未选结果的，也跳过（结果必选）
                         const payload = {
                             case_id: c.id, case_group: g.group, case_title: c.title,
-                            result: hasResult ? sel.value : 'pending',
+                            result: sel.value,
                             detail: det ? det.value : '', evidence: evi ? evi.value : '',
                             tester_name: testerName(),
                         }
@@ -684,6 +708,11 @@
             const btn = event.target.closest('.save-btn')
             btn.disabled = true
             try {
+                if (!sel.value || sel.value === '') {
+                    alert('请先选择测试结果（通过/失败/跳过/待测），再保存。')
+                    btn.disabled = false
+                    return
+                }
                 const r = await fetch('/api/test-results', {
                     method: 'POST',
                     headers: apiHeaders(),
