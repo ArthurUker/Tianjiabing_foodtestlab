@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-08-13T03:00:00.000Z",
+  "generated_at": "2026-08-13T02:00:34.605Z",
   "overall": {
     "passed": 15,
     "failed": 13,
     "skipped": 0,
-    "pending": 0,
-    "total": 28,
+    "pending": 28,
+    "total": 56,
     "done": 28
   },
   "groups": [
@@ -14,8 +14,8 @@
       "groupName": "吴翠楠 · 业务功能复测（第一部分~第三部分 + 回归）",
       "total": 17,
       "counts": {
-        "passed": 8,
-        "failed": 9,
+        "passed": 9,
+        "failed": 8,
         "skipped": 0,
         "pending": 0
       },
@@ -47,26 +47,14 @@
         {
           "case_id": "Q1-果蔬阶段B",
           "case_title": "Q1 复检显示·果蔬农残（阶段B 刷新）",
-          "result": "failed",
-          "detail": "按F5刷新，没有报错，页面直接退出去复检页面",
-          "evidence": "[{\"seq\":1,\"caption\":\"\",\"urls\":[\"/api/test-results/evidence/Q1-%E6%9E%9C%E8%94%AC%E9%98%B6%E6%AE%B5B/1786522022893_8d6e0942.png\"]}]",
-          "evidence_list": [
-            {
-              "stepSeq": 1,
-              "stepCaption": "",
-              "raw": "/api/test-results/evidence/Q1-%E6%9E%9C%E8%94%AC%E9%98%B6%E6%AE%B5B/1786522022893_8d6e0942.png",
-              "type": "local",
-              "encCaseId": "Q1-%E6%9E%9C%E8%94%AC%E9%98%B6%E6%AE%B5B",
-              "decCaseId": "Q1-果蔬阶段B",
-              "file": "1786522022893_8d6e0942.png",
-              "caseTitle": "Q1 复检显示·果蔬农残（阶段B 刷新）",
-              "relPath": "evidence/Q1-果蔬阶段B/1786522022893_8d6e0942.png"
-            }
-          ],
-          "submitted_by": "吴翠楠",
-          "submitted_by_role": "admin@wuxiangjun",
-          "created_at": "2026-08-12T08:07:03.955Z",
-          "updated_at": "2026-08-12T08:07:03.955Z"
+          "result": "passed",
+          "detail": "",
+          "evidence": "[{\"seq\":1,\"caption\":\"123\",\"urls\":[]}]",
+          "evidence_list": [],
+          "submitted_by": "renkang",
+          "submitted_by_role": "admin@renkang",
+          "created_at": "2026-08-12T08:17:13.969Z",
+          "updated_at": "2026-08-12T08:17:13.969Z"
         },
         {
           "case_id": "Q1-果蔬阶段C",
@@ -356,8 +344,8 @@
       "groupName": "曾水平 · 备份与恢复模块（第四部分 B1-B9）",
       "total": 11,
       "counts": {
-        "passed": 7,
-        "failed": 4,
+        "passed": 6,
+        "failed": 5,
         "skipped": 0,
         "pending": 0
       },
@@ -450,8 +438,8 @@
         {
           "case_id": "B7-负向",
           "case_title": "B7 影子恢复·确认词错误不执行",
-          "result": "passed",
-          "detail": "前4步网页操作完成，第5步（确认词错误拦截）由开发在服务器侧验证：前端 backupManager.js 输错确认词即 return 不发起请求，后端 adminBackupRoutes.js 兜底 400 拒绝；SystemLog 无新增 backup_restore 记录、无新增旧 schema，确认恢复未执行，负向拦截成功。",
+          "result": "failed",
+          "detail": "前面4步可以通过，目前停留至第5步还没执行。",
           "evidence": "[{\"seq\":1,\"caption\":\"\",\"urls\":[\"/api/test-results/evidence/B7-%E8%B4%9F%E5%90%91/1786516240516_fe21ea09.png\"]}]",
           "evidence_list": [
             {
@@ -518,6 +506,356 @@
           "submitted_by_role": "admin@wuxiangjun",
           "created_at": "2026-08-11T08:20:57.827Z",
           "updated_at": "2026-08-12T09:21:58.853Z"
+        }
+      ]
+    },
+    {
+      "group": "retest_复测",
+      "groupName": "历史问题复测（2026-08-13 Excel 反馈汇总）",
+      "total": 28,
+      "counts": {
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "pending": 28
+      },
+      "done": 0,
+      "items": [
+        {
+          "case_id": "R-学校删除",
+          "case_title": "R1 学校列表：无法删除已新增的学校（备注：只能停用不能删除）",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "R-返回主界面",
+          "case_title": "R2 主界面：返回主界面后无法用任何管理员/学校账号登录",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "R-同步取消",
+          "case_title": "R3 数据同步：云端同步/暂停同步/清空本地缓存后无法点击取消",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "R-启用无效",
+          "case_title": "R4 用户管理：停用后「启用」无效（停用可以但启用不行）",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "R-恢复失败",
+          "case_title": "R5 备份恢复：用户管理→恢复失败",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "R-下载模板",
+          "case_title": "R6 病原体检测：下载模板打不开（考虑是否取消）",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "R-无可删除",
+          "case_title": "R7 界面定制：果蔬农残检测项目无可删除的项目",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "R-复检显示",
+          "case_title": "R8 复检显示：复检填合格仍显示不合格（果蔬/肉蛋/油）",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "R-新增项目",
+          "case_title": "R9 界面定制：肉蛋/果蔬新增检测项目后无显示",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "R-保存无反应",
+          "case_title": "R10 界面定制/基本信息：保存修改/保存定制无反应",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "R-复检存储",
+          "case_title": "R11 复检数据存储：提交复检后核对 localStorage 的 result 字段是否同步为合格",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "R-默认选项",
+          "case_title": "R12 界面定制：默认选项回归（新增项目后原有默认选项仍正常）",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "R-帮助跳转",
+          "case_title": "R13 登录页：帮助中心跳转无反应/子路径矛盾（V6 帮助中心跳转失败）",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "R-登录负向",
+          "case_title": "R14 学校登录：非法代码/非法输入负向拦截（V7 登录跳转负向失败）",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "R-回收站恢复",
+          "case_title": "R15 学校列表：回收站「恢复学校」报数据库错误（jsonb 类型不匹配，恢复失败）",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "R-创建用户",
+          "case_title": "R16 用户管理：创建新用户报「注册失败」（保存按钮被禁用/系统错误）",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "R-审计空白",
+          "case_title": "R17 审计日志：菜单选中但内容区空白无数据",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "R-定制500",
+          "case_title": "R18 界面定制：打开字段管理 customization 接口返回 500（Network 记录）",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "R-选项无法添加",
+          "case_title": "R19 界面定制：新增检测项目时「下拉选项」无法添加（暂无选项）",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "R-保存按钮文案",
+          "case_title": "R20 界面定制：「保存定制·未保存」按钮文案组合混乱",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "R-主登录提示",
+          "case_title": "R21 主登录页：未带 school 参数时报「未识别到有效的学校登录入口」提示不清晰",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "R-停用登录",
+          "case_title": "R22 学校登录：已停用学校的登录链接报「学校不存在或未激活」",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "R-登录Logo",
+          "case_title": "R23 登录页：学校 Logo 显示默认图标而非学校真实 Logo",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "R-复检缺日期",
+          "case_title": "R24 复检录入：弹窗无「复检日期」字段（只有结果/说明/复检人）",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "R-菜单重复",
+          "case_title": "R25 检测系统左侧菜单：「检测频率与月报」「检测频率与日历」重复出现",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "R-版本不一致",
+          "case_title": "R26 版本号：检测系统显示 Version 4.0，登录页显示 3.1.0（版本号不一致）",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "R-占位符",
+          "case_title": "R27 检测项目下拉：默认显示占位符「验证设」而非「请选择」",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
+        },
+        {
+          "case_id": "R-记录不存在",
+          "case_title": "R28 复检保存后：刷新列表时多个接口报 400 /「记录不存在」（复检记录未正确持久化）",
+          "result": "pending",
+          "detail": "",
+          "evidence": "",
+          "evidence_list": [],
+          "submitted_by": "",
+          "submitted_by_role": "",
+          "created_at": null,
+          "updated_at": null
         }
       ]
     }
