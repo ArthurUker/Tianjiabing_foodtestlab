@@ -7,119 +7,206 @@
     <link rel="stylesheet" href="/css/tailwind.css">
     <link rel="stylesheet" href="/css/vendor/fa/all.min.css" />
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f3f4f6; }
+        /* TD-GlassDesign: 对齐系统主站的玻璃态设计语言（admin-schools.html 的 .glass 风格） */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #ffe6f0 0%, #fff5e6 30%, #e6f3ff 60%, #f0e6ff 100%);
+            min-height: 100vh;
+        }
         .case-row { transition: background .15s; }
-        .case-row:hover { background: #f9fafb; }
-        select.result-passed { border-color: #22c55e; }
-        select.result-failed { border-color: #ef4444; }
-        select.result-skipped { border-color: #f59e0b; }
+        .case-row:hover { background: rgba(255,255,255,0.45); }
+        select.result-passed { border-color: #22c55e; background: rgba(34,197,94,0.08); }
+        select.result-failed { border-color: #ef4444; background: rgba(239,68,68,0.08); }
+        select.result-skipped { border-color: #f59e0b; background: rgba(245,158,11,0.08); }
+        /* glass-panel：轻量玻璃面板（用于输入框/分组卡内部元素） */
+        .glass-input {
+            background: rgba(255,255,255,0.72);
+            border: 1px solid rgba(255,255,255,0.6);
+            backdrop-filter: blur(8px) saturate(160%);
+            transition: all .15s ease;
+        }
+        .glass-input:focus {
+            background: rgba(255,255,255,0.92);
+            border-color: rgba(99,102,241,0.5);
+            box-shadow: 0 0 0 3px rgba(99,102,241,0.12);
+            outline: none;
+        }
+        .glass-card {
+            background: rgba(255,255,255,0.66);
+            border: 1px solid rgba(255,255,255,0.78);
+            border-radius: 1.7rem;
+            backdrop-filter: blur(14px) saturate(180%);
+            box-shadow: 0 16px 46px rgba(40,60,100,0.2),
+                        inset 0 2px 0 rgba(255,255,255,0.95),
+                        inset 0 0 0 1px rgba(255,255,255,0.55),
+                        inset 0 0 34px rgba(255,255,255,0.3);
+        }
+        .glass-section {
+            background: rgba(255,255,255,0.72);
+            border: 1px solid rgba(255,255,255,0.6);
+            border-radius: 1.25rem;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.7),
+                        0 4px 14px rgba(40,60,100,0.08);
+        }
+        .glass-tile {
+            background: linear-gradient(135deg, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.55) 100%);
+            border: 1px solid rgba(255,255,255,0.85);
+            border-radius: 1.25rem;
+            backdrop-filter: blur(10px) saturate(160%);
+            box-shadow: 0 8px 24px rgba(40,60,100,0.12),
+                        inset 0 1px 0 rgba(255,255,255,0.95);
+        }
+        /* 主按钮渐变（与系统 emerald-400/indigo-400 一致） */
+        .btn-primary {
+            background: linear-gradient(135deg, #34d399 0%, #10b981 100%);
+            color: white; font-weight: 600;
+            box-shadow: 0 4px 14px rgba(16,185,129,0.35);
+            transition: all .15s ease;
+        }
+        .btn-primary:hover {
+            box-shadow: 0 6px 20px rgba(16,185,129,0.45);
+            transform: translateY(-1px);
+        }
+        .btn-secondary {
+            background: linear-gradient(135deg, #818cf8 0%, #6366f1 100%);
+            color: white; font-weight: 600;
+            box-shadow: 0 4px 14px rgba(99,102,241,0.35);
+            transition: all .15s ease;
+        }
+        .btn-secondary:hover {
+            box-shadow: 0 6px 20px rgba(99,102,241,0.45);
+            transform: translateY(-1px);
+        }
+        .btn-ghost {
+            background: rgba(255,255,255,0.6);
+            border: 1px solid rgba(255,255,255,0.8);
+            color: #475569;
+            transition: all .15s ease;
+        }
+        .btn-ghost:hover {
+            background: rgba(255,255,255,0.85);
+            border-color: rgba(99,102,241,0.4);
+        }
+        .btn-danger-ghost {
+            background: rgba(254,226,226,0.5);
+            border: 1px solid rgba(252,165,165,0.6);
+            color: #b91c1c;
+            transition: all .15s ease;
+        }
+        .btn-danger-ghost:hover {
+            background: rgba(254,226,226,0.85);
+        }
     </style>
 </head>
 <body class="min-h-screen">
     <!-- ═══════ 登录卡片 ═══════ -->
-    <div id="loginWrap" class="max-w-md mx-auto mt-16 bg-white rounded-xl shadow-lg p-8 border border-gray-200">
+    <div id="loginWrap" class="max-w-md mx-auto mt-16 glass-card p-8">
         <div class="text-center mb-6">
-            <i class="fas fa-vial text-3xl text-blue-600"></i>
-            <h1 class="text-xl font-bold text-gray-800 mt-2">浏览器测试报告上报</h1>
-            <p class="text-gray-400 text-xs mt-1">登录后按测试文档提交各用例执行结果（数据存入系统数据库，服务器可拉取汇总）</p>
+            <div class="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-400 to-indigo-500 text-white shadow-lg mb-3">
+                <i class="fas fa-vial text-2xl"></i>
+            </div>
+            <h1 class="text-xl font-bold text-gray-800">浏览器测试报告上报</h1>
+            <p class="text-gray-500 text-xs mt-2 leading-relaxed">登录后按测试文档提交各用例执行结果（数据存入系统数据库，服务器可拉取汇总）</p>
         </div>
-        <div id="loginError" class="hidden mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm"></div>
+        <div id="loginError" class="hidden mb-4 p-3 rounded-xl bg-red-50/80 border border-red-200 text-red-700 text-sm"></div>
         <form id="loginForm" class="space-y-4">
             <div>
-                <label class="block text-xs text-gray-500 mb-1">学校代码</label>
-                <input id="loginSchool" type="text" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="如 tjb" required>
+                <label class="block text-sm font-medium text-gray-700 mb-1.5">学校代码</label>
+                <input id="loginSchool" type="text" class="w-full glass-input rounded-xl px-3 py-2.5 text-sm" placeholder="如 tjb" required>
             </div>
             <div>
-                <label class="block text-xs text-gray-500 mb-1">用户名</label>
-                <input id="loginUser" type="text" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="测试账号用户名" required>
+                <label class="block text-sm font-medium text-gray-700 mb-1.5">用户名</label>
+                <input id="loginUser" type="text" class="w-full glass-input rounded-xl px-3 py-2.5 text-sm" placeholder="测试账号用户名" required>
             </div>
             <div>
-                <label class="block text-xs text-gray-500 mb-1">密码</label>
-                <input id="loginPass" type="password" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="密码" required>
+                <label class="block text-sm font-medium text-gray-700 mb-1.5">密码</label>
+                <input id="loginPass" type="password" class="w-full glass-input rounded-xl px-3 py-2.5 text-sm" placeholder="密码" required>
             </div>
-            <button type="submit" id="loginBtn" class="w-full py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
-                登 录
+            <button type="submit" id="loginBtn" class="w-full py-3 btn-secondary rounded-xl text-sm mt-2">
+                <i class="fas fa-sign-in-alt mr-2"></i>登 录
             </button>
         </form>
-        <p class="text-center text-xs text-gray-400 mt-4">测试账号请联系平台超管分配（学校 manager / 超管均可）</p>
+        <p class="text-center text-xs text-gray-500 mt-5 leading-relaxed">测试账号请联系平台超管分配（学校 manager / 超管均可）</p>
     </div>
 
     <!-- ═══════ 已登录：用例上报区 ═══════ -->
-    <div id="reportWrap" class="hidden max-w-6xl mx-auto my-6 px-4">
+    <div id="reportWrap" class="hidden max-w-6xl mx-auto my-6 px-4 space-y-5">
         <!-- 顶部信息：标题 + 操作按钮 一行；测试人员姓名 一行 -->
-        <div class="bg-white rounded-xl shadow-sm border border-gray-200 px-5 py-4 mb-5">
+        <div class="glass-card px-6 py-5">
             <div class="flex items-center justify-between flex-wrap gap-3">
                 <div class="flex items-center gap-3 min-w-0">
-                    <i class="fas fa-clipboard-check text-2xl text-blue-600 shrink-0"></i>
+                    <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-400 to-indigo-500 flex items-center justify-center text-white shadow-md shrink-0">
+                        <i class="fas fa-clipboard-check text-lg"></i>
+                    </div>
                     <div class="min-w-0">
                         <h1 class="text-lg font-bold text-gray-800">浏览器测试报告上报</h1>
-                        <p class="text-xs text-gray-500 mt-0.5 truncate">当前用户：<b id="curUser" class="text-gray-700"></b>（<span id="curRole" class="text-gray-500"></span>）</p>
+                        <p class="text-xs text-gray-600 mt-0.5 truncate">当前用户：<b id="curUser" class="text-gray-800"></b>（<span id="curRole" class="text-gray-600"></span>）</p>
                     </div>
                 </div>
                 <div class="flex items-center gap-2 shrink-0">
-                    <button id="saveAllBtn" title="把当前页所有已填写的测试结果一次性保存" class="px-4 py-2 text-sm rounded-md bg-emerald-600 text-white font-medium shadow-sm hover:bg-emerald-700 transition-colors"><i class="fas fa-save mr-1.5"></i>保存全部</button>
-                    <button id="syncBtn" title="保存后点这里：重新生成汇总报告并同步给所有测试人员" class="px-4 py-2 text-sm rounded-md bg-indigo-600 text-white font-medium shadow-sm hover:bg-indigo-700 transition-colors"><i class="fas fa-cloud-upload-alt mr-1.5"></i>同步</button>
-                    <button id="refreshBtn" title="刷新页面" class="px-3 py-2 text-sm rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors"><i class="fas fa-sync-alt mr-1"></i>刷新</button>
-                    <button id="logoutBtn" title="退出登录" class="px-3 py-2 text-sm rounded-md border border-red-200 text-red-600 hover:bg-red-50 transition-colors"><i class="fas fa-sign-out-alt mr-1"></i>退出</button>
+                    <button id="saveAllBtn" title="把当前页所有已填写的测试结果一次性保存" class="px-4 py-2 text-sm btn-primary rounded-xl"><i class="fas fa-save mr-1.5"></i>保存全部</button>
+                    <button id="syncBtn" title="保存后点这里：重新生成汇总报告并同步给所有测试人员" class="px-4 py-2 text-sm btn-secondary rounded-xl"><i class="fas fa-cloud-upload-alt mr-1.5"></i>同步</button>
+                    <button id="refreshBtn" title="刷新页面" class="px-3 py-2 text-sm btn-ghost rounded-xl"><i class="fas fa-sync-alt mr-1"></i>刷新</button>
+                    <button id="logoutBtn" title="退出登录" class="px-3 py-2 text-sm btn-danger-ghost rounded-xl"><i class="fas fa-sign-out-alt mr-1"></i>退出</button>
                 </div>
             </div>
-            <div class="mt-3 pt-3 border-t border-gray-100 flex items-center gap-3 flex-wrap">
-                <label for="testerName" class="text-xs text-gray-600 font-medium shrink-0 flex items-center gap-1">
+            <div class="mt-4 pt-4 border-t border-white/50 flex items-center gap-3 flex-wrap">
+                <label for="testerName" class="text-sm text-gray-700 font-medium shrink-0 flex items-center gap-1.5">
                     <i class="fas fa-user-edit text-amber-500"></i>测试人员姓名
                 </label>
-                <input id="testerName" type="text" maxlength="50" placeholder="填姓名，便于同账号多人区分（保存后自动记住）" class="flex-1 min-w-[200px] border border-amber-300 rounded-md px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-amber-200 focus:border-amber-400 outline-none">
-                <span class="text-[11px] text-gray-400 shrink-0">💡 此姓名会显示在所有提交的测试结果上</span>
+                <input id="testerName" type="text" maxlength="50" placeholder="填姓名，便于同账号多人区分（保存后自动记住）" class="flex-1 min-w-[200px] glass-input rounded-xl px-3 py-2 text-sm">
+                <span class="text-xs text-gray-500 shrink-0">💡 此姓名会显示在所有提交的测试结果上</span>
             </div>
         </div>
 
         <!-- 汇总卡（服务器可拉取 summary 看整体效果） -->
-        <div id="summaryBar" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6"></div>
+        <div id="summaryBar" class="grid grid-cols-2 md:grid-cols-4 gap-4"></div>
 
         <!-- 分组用例表单 -->
         <div id="groupsWrap" class="space-y-6"></div>
 
         <!-- ═══════ 新问题反馈（清单外问题/缺陷上报，可补充更新） ═══════ -->
-        <div class="bg-white rounded-xl border border-red-200 shadow-sm overflow-hidden">
-            <div class="px-5 py-3 bg-red-50 border-b border-red-200 flex items-center gap-3">
-                <div class="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center shrink-0">
-                    <i class="fas fa-bug text-red-500 text-sm"></i>
+        <div class="glass-card overflow-hidden border-2 border-rose-200/40">
+            <div class="px-6 py-4 bg-gradient-to-r from-rose-50/70 to-pink-50/70 border-b border-white/60 flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-rose-400 to-pink-500 flex items-center justify-center text-white shadow-md shrink-0">
+                    <i class="fas fa-bug text-base"></i>
                 </div>
                 <div class="flex-1 min-w-0">
-                    <h2 class="text-sm font-semibold text-gray-800">发现新问题？提交反馈</h2>
-                    <div class="text-[11px] text-gray-500 mt-0.5">清单外的问题/缺陷上报 · 点下方列表里的"编辑"可补充更新</div>
+                    <h2 class="text-base font-semibold text-gray-800">发现新问题？提交反馈</h2>
+                    <div class="text-xs text-gray-600 mt-0.5">清单外的问题/缺陷上报 · 点下方列表里的"编辑"可补充更新</div>
                 </div>
             </div>
-            <div class="px-5 py-4 space-y-4">
+            <div class="px-6 py-5 space-y-4">
                 <div>
-                    <label class="block text-xs font-medium text-gray-700 mb-1.5">
-                        <i class="fas fa-tag text-gray-400 mr-1"></i>问题标题 <span class="text-red-500">*</span>
+                    <label class="block text-sm font-medium text-gray-700 mb-1.5">
+                        <i class="fas fa-tag text-gray-500 mr-1"></i>问题标题 <span class="text-red-500">*</span>
                     </label>
-                    <input id="issueTitle" type="text" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-red-200 focus:border-red-400 outline-none transition-colors" placeholder="一句话描述问题，如：新增记录时某字段校验失败">
+                    <input id="issueTitle" type="text" class="w-full glass-input rounded-xl px-3 py-2.5 text-sm" placeholder="一句话描述问题，如：新增记录时某字段校验失败">
                 </div>
                 <div>
-                    <label class="block text-xs font-medium text-gray-700 mb-1.5">
-                        <i class="fas fa-comment-dots text-gray-400 mr-1"></i>详细描述 <span class="text-[11px] text-gray-400 font-normal">(复现步骤 / 期望 vs 实际)</span>
+                    <label class="block text-sm font-medium text-gray-700 mb-1.5">
+                        <i class="fas fa-comment-dots text-gray-500 mr-1"></i>详细描述 <span class="text-xs text-gray-500 font-normal">(复现步骤 / 期望 vs 实际)</span>
                     </label>
-                    <textarea id="issueDetail" rows="3" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-red-200 focus:border-red-400 outline-none transition-colors resize-none" placeholder="选填，写清复现步骤、期望表现和实际表现"></textarea>
+                    <textarea id="issueDetail" rows="3" class="w-full glass-input rounded-xl px-3 py-2.5 text-sm resize-none" placeholder="选填，写清复现步骤、期望表现和实际表现"></textarea>
                 </div>
                 <div>
                     <div class="flex items-center justify-between mb-1.5">
-                        <span class="text-xs font-medium text-gray-700"><i class="fas fa-images text-emerald-500 mr-1"></i>分步截图（按问题出现顺序一步一步加）</span>
-                        <button type="button" id="issueStepAdd" class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm transition-colors"><i class="fas fa-plus mr-1"></i>添加一步</button>
+                        <span class="text-sm font-medium text-gray-700"><i class="fas fa-images text-emerald-500 mr-1"></i>分步截图（按问题出现顺序一步一步加）</span>
+                        <button type="button" id="issueStepAdd" class="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-lg bg-emerald-50/80 text-emerald-700 border border-emerald-200/60 hover:bg-emerald-100/90 transition-colors"><i class="fas fa-plus mr-1"></i>添加一步</button>
                     </div>
-                    <div id="issueStepWrap" class="space-y-1.5">
-                        <div class="text-[11px] text-gray-400 py-1 text-center">点击"添加一步"，按复现顺序逐步骤传截图</div>
+                    <div id="issueStepWrap" class="space-y-2">
+                        <div class="text-xs text-gray-500 py-1 text-center">点击"添加一步"，按复现顺序逐步骤传截图</div>
                     </div>
                     <input type="hidden" id="issueEvidence" value="">
                 </div>
-                <div class="flex items-center gap-2 flex-wrap pt-2 border-t border-gray-100">
-                    <button type="button" id="issueSubmitBtn" class="inline-flex items-center px-4 py-2 text-sm rounded-md bg-red-600 text-white font-medium hover:bg-red-700 shadow-sm transition-colors"><i class="fas fa-paper-plane mr-1.5"></i>提交 / 更新问题</button>
-                    <button type="button" id="issueResetBtn" class="px-3 py-2 text-sm rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors">清空</button>
-                    <span id="issueCur" class="text-[11px] text-gray-400"></span>
+                <div class="flex items-center gap-2 flex-wrap pt-3 border-t border-white/50">
+                    <button type="button" id="issueSubmitBtn" class="inline-flex items-center px-5 py-2.5 text-sm rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 text-white font-semibold shadow-md hover:shadow-lg transition-all"><i class="fas fa-paper-plane mr-1.5"></i>提交 / 更新问题</button>
+                    <button type="button" id="issueResetBtn" class="px-4 py-2.5 text-sm btn-ghost rounded-xl">清空</button>
+                    <span id="issueCur" class="text-xs text-gray-500"></span>
                 </div>
             </div>
-            <div class="px-5 pb-4 border-t border-gray-100 pt-3 bg-gray-50/50">
-                <div class="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1"><i class="fas fa-list text-gray-400"></i>我已反馈的问题</div>
+            <div class="px-6 pb-5 border-t border-white/50 pt-4 bg-white/30">
+                <div class="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-1.5"><i class="fas fa-list text-gray-500"></i>我已反馈的问题</div>
                 <div id="issueList" class="space-y-2"></div>
             </div>
         </div>
@@ -402,52 +489,52 @@
         function renderGroups() {
             const wrap = $('groupsWrap')
             wrap.innerHTML = CASE_DEFS.map((g) => `
-                <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                    <div class="px-5 py-3 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-blue-100 flex items-center gap-3">
-                        <div class="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center shrink-0">
-                            <i class="fas fa-user text-blue-600 text-sm"></i>
+                <div class="glass-card overflow-hidden">
+                    <div class="px-6 py-4 bg-gradient-to-r from-emerald-50/60 to-indigo-50/60 border-b border-white/60 flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 to-indigo-500 flex items-center justify-center text-white shadow-md shrink-0">
+                            <i class="fas fa-folder-open text-base"></i>
                         </div>
                         <div class="flex-1 min-w-0">
-                            <h2 class="text-sm font-semibold text-gray-800">${esc(g.groupName)}</h2>
-                            <div class="text-[11px] text-gray-500 mt-0.5">共 ${g.cases.length} 项用例 · 全部完成后点页面顶部「保存全部」</div>
+                            <h2 class="text-base font-semibold text-gray-800">${esc(g.groupName)}</h2>
+                            <div class="text-xs text-gray-600 mt-0.5">共 ${g.cases.length} 项用例 · 全部完成后点页面顶部「保存全部」</div>
                         </div>
                     </div>
-                    <div class="divide-y divide-gray-100">
+                    <div class="divide-y divide-white/40">
                         ${g.cases.map((c) => `
-                        <div class="case-row px-5 py-4 hover:bg-gray-50/50 transition-colors">
+                        <div class="case-row px-6 py-5 transition-colors">
                             <!-- 第一行：ID+标题 | 结果 | 保存按钮 -->
                             <div class="flex items-start gap-3 flex-wrap">
                                 <div class="flex-1 min-w-[200px]">
                                     <div class="flex items-center gap-2 flex-wrap">
-                                        <span class="inline-flex items-center px-2.5 py-1 rounded text-xs font-mono font-semibold bg-blue-50 text-blue-700 border border-blue-200">${esc(c.id)}</span>
+                                        <span class="inline-flex items-center px-3 py-1 rounded-lg text-xs font-mono font-semibold bg-gradient-to-r from-indigo-100 to-emerald-100 text-indigo-700 border border-white/60">${esc(c.id)}</span>
                                         <span id="st_${esc(c.id)}" class="text-xs text-gray-500"></span>
-                                        ${c.guide ? `<button type="button" data-guide="${esc(c.id)}" class="guide-toggle inline-flex items-center gap-1.5 text-xs font-medium text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-md px-2.5 py-1 transition-colors" title="点击展开/收起测试步骤指导">
+                                        ${c.guide ? `<button type="button" data-guide="${esc(c.id)}" class="guide-toggle inline-flex items-center gap-1.5 text-xs font-medium text-amber-700 hover:text-amber-900 bg-amber-50/80 hover:bg-amber-100/90 border border-amber-200/60 rounded-lg px-2.5 py-1 transition-colors" title="点击展开/收起测试步骤指导">
                                             <i class="fas fa-list-check"></i><span>测试步骤</span><i class="guide-arrow fas fa-chevron-down text-[10px]"></i>
                                         </button>` : ''}
                                     </div>
-                                    <div class="text-sm text-gray-700 mt-1 leading-snug">${esc(c.title)}</div>
-                                    ${c.guide ? `<div id="guide_${esc(c.id)}" class="guide-panel hidden mt-2 rounded-lg bg-amber-50/60 border border-amber-200 p-3 text-[12px] leading-relaxed text-gray-700 whitespace-pre-line">${esc(c.guide)}</div>` : ''}
+                                    <div class="text-sm text-gray-800 mt-2 leading-snug font-medium">${esc(c.title)}</div>
+                                    ${c.guide ? `<div id="guide_${esc(c.id)}" class="guide-panel hidden mt-2 rounded-xl glass-section p-3 text-sm leading-relaxed text-gray-700 whitespace-pre-line">${esc(c.guide)}</div>` : ''}
                                 </div>
                                 <div class="w-full sm:w-auto sm:min-w-[140px]">
-                                    <select id="sel_${esc(c.id)}" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none transition-colors"
+                                    <select id="sel_${esc(c.id)}" class="w-full glass-input rounded-xl px-3 py-2.5 text-sm"
                                         onchange="this.classList.remove('result-passed','result-failed','result-skipped'); this.classList.add('result-'+this.value)">
                                         ${RESULT_OPTIONS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}
                                     </select>
                                 </div>
                                 <button type="button" data-case="${esc(c.id)}" data-title="${esc(c.title)}" data-group="${esc(g.group)}"
-                                    class="save-btn inline-flex items-center justify-center px-4 py-2 text-sm rounded-md bg-blue-600 text-white font-medium shadow-sm hover:bg-blue-700 transition-colors whitespace-nowrap">
+                                    class="save-btn inline-flex items-center justify-center px-5 py-2.5 text-sm btn-primary rounded-xl whitespace-nowrap">
                                     <i class="fas fa-save mr-1.5"></i>保存
                                 </button>
                             </div>
                             <!-- 第二行：实际表现（左侧）+ 截图区域（右侧） -->
-                            <div class="mt-3 grid grid-cols-1 md:grid-cols-5 gap-3">
+                            <div class="mt-4 grid grid-cols-1 md:grid-cols-5 gap-4">
                                 <div class="md:col-span-2">
                                     <label class="block text-sm font-medium text-gray-700 mb-1.5">
-                                        <i class="fas fa-comment-dots text-gray-400 mr-1"></i>实际表现
+                                        <i class="fas fa-comment-dots text-gray-500 mr-1"></i>实际表现
                                         <span class="text-red-500 ml-0.5">*</span>
                                         <span class="text-xs text-gray-500 font-normal ml-1">(失败必填，说明现象)</span>
                                     </label>
-                                    <textarea id="det_${esc(c.id)}" rows="2" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none transition-colors resize-none" placeholder="写清看到什么、复现步骤、期望 vs 实际"></textarea>
+                                    <textarea id="det_${esc(c.id)}" rows="3" class="w-full glass-input rounded-xl px-3 py-2.5 text-sm resize-none" placeholder="写清看到什么、复现步骤、期望 vs 实际"></textarea>
                                 </div>
                                 <div class="md:col-span-3">
                                     <div class="flex items-center justify-between mb-1.5">
@@ -456,12 +543,12 @@
                                             <span class="text-xs text-gray-500 font-normal ml-1">(按 bug 出现顺序添加)</span>
                                         </span>
                                         <button type="button" data-case="${esc(c.id)}" title="按顺序新增一步（先做第1步再测的，就按顺序加）"
-                                            class="step-add inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors">
+                                            class="step-add inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-lg bg-emerald-50/80 text-emerald-700 border border-emerald-200/60 hover:bg-emerald-100/90 transition-colors">
                                             <i class="fas fa-plus mr-1"></i>添加一步
                                         </button>
                                     </div>
-                                    <div id="stepWrap_${esc(c.id)}" class="space-y-1.5">
-                                        <button type="button" data-case="${esc(c.id)}" class="step-add-empty w-full border-2 border-dashed border-emerald-200 rounded-md py-3 text-sm text-emerald-600 hover:bg-emerald-50 hover:border-emerald-400 transition-colors">
+                                    <div id="stepWrap_${esc(c.id)}" class="space-y-2">
+                                        <button type="button" data-case="${esc(c.id)}" class="step-add-empty w-full border-2 border-dashed border-emerald-300/60 rounded-xl py-3 text-sm text-emerald-700 hover:bg-emerald-50/60 hover:border-emerald-400 transition-colors">
                                             <i class="fas fa-plus-circle mr-1"></i>点此处添加第 1 步（上传本步骤截图 + 写步骤说明）
                                         </button>
                                     </div>
@@ -628,15 +715,15 @@
                     const done = (gs.passed || 0) + (gs.failed || 0) + (gs.skipped || 0)
                     const pct = total ? Math.round((done / total) * 100) : 0
                     const remain = total - done
-                    return `<div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+                    return `<div class="glass-tile p-5">
                         <div class="text-base font-semibold text-gray-800 truncate" title="${esc(g.groupName)}">${esc(g.groupName.split(' · ')[0])}</div>
                         <div class="flex items-baseline gap-1.5 mt-3">
-                            <span class="text-4xl font-bold text-gray-800 leading-none">${done}</span>
+                            <span class="text-4xl font-bold bg-gradient-to-br from-emerald-500 to-indigo-600 bg-clip-text text-transparent leading-none">${done}</span>
                             <span class="text-base text-gray-500">/ ${total} 项</span>
-                            <span class="text-xs text-gray-500 ml-auto shrink-0 bg-gray-100 px-2 py-0.5 rounded-full">完成 ${pct}%</span>
+                            <span class="text-xs text-gray-600 ml-auto shrink-0 bg-white/60 backdrop-blur px-2 py-0.5 rounded-full border border-white/60">完成 ${pct}%</span>
                         </div>
-                        <div class="w-full h-1.5 bg-gray-100 rounded-full mt-3 overflow-hidden">
-                            <div class="h-full bg-blue-500 rounded-full transition-all" style="width:${pct}%"></div>
+                        <div class="w-full h-1.5 bg-gray-200/60 rounded-full mt-3 overflow-hidden">
+                            <div class="h-full bg-gradient-to-r from-emerald-400 to-indigo-500 rounded-full transition-all" style="width:${pct}%"></div>
                         </div>
                         <div class="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
                             <div class="flex items-center gap-2 ${icons.passed}">
