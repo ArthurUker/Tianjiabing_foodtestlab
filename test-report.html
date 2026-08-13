@@ -418,11 +418,11 @@
                             <!-- 第一行：ID+标题 | 结果 | 保存按钮 -->
                             <div class="flex items-start gap-3 flex-wrap">
                                 <div class="flex-1 min-w-[200px]">
-                                    <div class="flex items-center gap-2">
-                                        <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono font-semibold bg-blue-50 text-blue-700 border border-blue-200">${esc(c.id)}</span>
-                                        <span id="st_${esc(c.id)}" class="text-[11px] text-gray-400"></span>
-                                        ${c.guide ? `<button type="button" data-guide="${esc(c.id)}" class="guide-toggle inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 hover:text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-2 py-0.5 transition-colors" title="点击展开/收起测试步骤指导">
-                                            <i class="fas fa-list-check"></i><span>测试步骤</span><i class="guide-arrow fas fa-chevron-down ml-0.5 text-[9px]"></i>
+                                    <div class="flex items-center gap-2 flex-wrap">
+                                        <span class="inline-flex items-center px-2.5 py-1 rounded text-xs font-mono font-semibold bg-blue-50 text-blue-700 border border-blue-200">${esc(c.id)}</span>
+                                        <span id="st_${esc(c.id)}" class="text-xs text-gray-500"></span>
+                                        ${c.guide ? `<button type="button" data-guide="${esc(c.id)}" class="guide-toggle inline-flex items-center gap-1.5 text-xs font-medium text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-md px-2.5 py-1 transition-colors" title="点击展开/收起测试步骤指导">
+                                            <i class="fas fa-list-check"></i><span>测试步骤</span><i class="guide-arrow fas fa-chevron-down text-[10px]"></i>
                                         </button>` : ''}
                                     </div>
                                     <div class="text-sm text-gray-700 mt-1 leading-snug">${esc(c.title)}</div>
@@ -442,26 +442,26 @@
                             <!-- 第二行：实际表现（左侧）+ 截图区域（右侧） -->
                             <div class="mt-3 grid grid-cols-1 md:grid-cols-5 gap-3">
                                 <div class="md:col-span-2">
-                                    <label class="block text-xs font-medium text-gray-600 mb-1">
+                                    <label class="block text-sm font-medium text-gray-700 mb-1.5">
                                         <i class="fas fa-comment-dots text-gray-400 mr-1"></i>实际表现
                                         <span class="text-red-500 ml-0.5">*</span>
-                                        <span class="text-[10px] text-gray-400 font-normal ml-1">(失败必填，说明现象)</span>
+                                        <span class="text-xs text-gray-500 font-normal ml-1">(失败必填，说明现象)</span>
                                     </label>
                                     <textarea id="det_${esc(c.id)}" rows="2" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none transition-colors resize-none" placeholder="写清看到什么、复现步骤、期望 vs 实际"></textarea>
                                 </div>
                                 <div class="md:col-span-3">
-                                    <div class="flex items-center justify-between mb-1">
-                                        <span class="text-xs font-medium text-gray-600">
+                                    <div class="flex items-center justify-between mb-1.5">
+                                        <span class="text-sm font-medium text-gray-700">
                                             <i class="fas fa-images text-emerald-500 mr-1"></i>分步截图
-                                            <span class="text-[10px] text-gray-400 font-normal ml-1">(按 bug 出现顺序添加)</span>
+                                            <span class="text-xs text-gray-500 font-normal ml-1">(按 bug 出现顺序添加)</span>
                                         </span>
                                         <button type="button" data-case="${esc(c.id)}" title="按顺序新增一步（先做第1步再测的，就按顺序加）"
-                                            class="step-add inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors">
+                                            class="step-add inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors">
                                             <i class="fas fa-plus mr-1"></i>添加一步
                                         </button>
                                     </div>
                                     <div id="stepWrap_${esc(c.id)}" class="space-y-1.5">
-                                        <button type="button" data-case="${esc(c.id)}" class="step-add-empty w-full border-2 border-dashed border-emerald-200 rounded-md py-2.5 text-xs text-emerald-600 hover:bg-emerald-50 hover:border-emerald-400 transition-colors">
+                                        <button type="button" data-case="${esc(c.id)}" class="step-add-empty w-full border-2 border-dashed border-emerald-200 rounded-md py-3 text-sm text-emerald-600 hover:bg-emerald-50 hover:border-emerald-400 transition-colors">
                                             <i class="fas fa-plus-circle mr-1"></i>点此处添加第 1 步（上传本步骤截图 + 写步骤说明）
                                         </button>
                                     </div>
@@ -628,36 +628,36 @@
                     const done = (gs.passed || 0) + (gs.failed || 0) + (gs.skipped || 0)
                     const pct = total ? Math.round((done / total) * 100) : 0
                     const remain = total - done
-                    return `<div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-                        <div class="text-sm font-semibold text-gray-700 truncate" title="${esc(g.groupName)}">${esc(g.groupName.split(' · ')[0])}</div>
-                        <div class="flex items-baseline gap-1.5 mt-2">
-                            <span class="text-3xl font-bold text-gray-800">${done}</span>
-                            <span class="text-sm text-gray-400">/ ${total} 项</span>
-                            <span class="text-[11px] text-gray-400 ml-auto shrink-0">完成 ${pct}%</span>
+                    return `<div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+                        <div class="text-base font-semibold text-gray-800 truncate" title="${esc(g.groupName)}">${esc(g.groupName.split(' · ')[0])}</div>
+                        <div class="flex items-baseline gap-1.5 mt-3">
+                            <span class="text-4xl font-bold text-gray-800 leading-none">${done}</span>
+                            <span class="text-base text-gray-500">/ ${total} 项</span>
+                            <span class="text-xs text-gray-500 ml-auto shrink-0 bg-gray-100 px-2 py-0.5 rounded-full">完成 ${pct}%</span>
                         </div>
-                        <div class="w-full h-1 bg-gray-100 rounded-full mt-2 overflow-hidden">
+                        <div class="w-full h-1.5 bg-gray-100 rounded-full mt-3 overflow-hidden">
                             <div class="h-full bg-blue-500 rounded-full transition-all" style="width:${pct}%"></div>
                         </div>
-                        <div class="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
-                            <div class="flex items-center gap-1.5 ${icons.passed}">
-                                <i class="fas fa-check-circle"></i>
-                                <span class="text-gray-600">通过</span>
-                                <span class="font-semibold ml-auto text-gray-800">${gs.passed || 0}</span>
+                        <div class="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+                            <div class="flex items-center gap-2 ${icons.passed}">
+                                <i class="fas fa-check-circle text-base"></i>
+                                <span class="text-gray-700">通过</span>
+                                <span class="font-semibold ml-auto text-gray-900">${gs.passed || 0}</span>
                             </div>
-                            <div class="flex items-center gap-1.5 ${icons.failed}">
-                                <i class="fas fa-times-circle"></i>
-                                <span class="text-gray-600">失败</span>
-                                <span class="font-semibold ml-auto text-gray-800">${gs.failed || 0}</span>
+                            <div class="flex items-center gap-2 ${icons.failed}">
+                                <i class="fas fa-times-circle text-base"></i>
+                                <span class="text-gray-700">失败</span>
+                                <span class="font-semibold ml-auto text-gray-900">${gs.failed || 0}</span>
                             </div>
-                            <div class="flex items-center gap-1.5 ${icons.skipped}">
-                                <i class="fas fa-forward"></i>
-                                <span class="text-gray-600">跳过</span>
-                                <span class="font-semibold ml-auto text-gray-800">${gs.skipped || 0}</span>
+                            <div class="flex items-center gap-2 ${icons.skipped}">
+                                <i class="fas fa-forward text-base"></i>
+                                <span class="text-gray-700">跳过</span>
+                                <span class="font-semibold ml-auto text-gray-900">${gs.skipped || 0}</span>
                             </div>
-                            <div class="flex items-center gap-1.5 ${icons.pending}">
-                                <i class="far fa-clock"></i>
-                                <span class="text-gray-600">待测</span>
-                                <span class="font-semibold ml-auto text-gray-800">${remain}</span>
+                            <div class="flex items-center gap-2 ${icons.pending}">
+                                <i class="far fa-clock text-base"></i>
+                                <span class="text-gray-700">待测</span>
+                                <span class="font-semibold ml-auto text-gray-900">${remain}</span>
                             </div>
                         </div>
                     </div>`
