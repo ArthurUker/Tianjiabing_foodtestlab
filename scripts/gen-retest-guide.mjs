@@ -44,10 +44,13 @@ function parseGuide(guide) {
   return { purpose, steps, verdict }
 }
 
-// 从用例 title 提取 R 编号（如 title="R1 学校列表：..." → "R1"）
+// 从用例 title 提取 R 编号（如 title="R01 学校列表：..." → "R01"，保留前导零统一2位）
 function rNo(c) {
   const m = c.title.match(/^R(\d+)/)
-  return m ? `R${m[1]}` : c.id
+  if (m) return `R${m[1].padStart(2, '0')}`
+  // 兼容旧版无前导零 title
+  const m2 = c.id.match(/^R-(\d+)/)
+  return m2 ? `R${m2[1].padStart(2, '0')}` : c.id
 }
 
 const lines = []
@@ -68,9 +71,11 @@ lines.push(`| 人员 | 负责条目 | 数量 |`)
 lines.push(`|---|---|---|`)
 const byPerson = {}
 for (const c of retest.cases) {
-  const p = ASSIGN[rNo(c)] || '待定'
+  const no = rNo(c)
+  const assignKey = no.replace(/^R0+(\d+)$/, 'R$1') // R01 → R1（匹配 ASSIGN key）
+  const p = ASSIGN[assignKey] || '待定'
   byPerson[p] = byPerson[p] || []
-  byPerson[p].push(rNo(c))
+  byPerson[p].push(no)
 }
 const personOrder = ['吴翠楠', '曾水平', '邬祥俊']
 for (const p of personOrder) {

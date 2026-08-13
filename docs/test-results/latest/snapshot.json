@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-13T02:27:59.077Z",
+  "generated_at": "2026-08-13T03:08:43.296Z",
   "overall": {
     "passed": 15,
     "failed": 13,
@@ -522,8 +522,8 @@
       "done": 0,
       "items": [
         {
-          "case_id": "R-学校删除",
-          "case_title": "R1 学校列表：无法删除已新增的学校（备注：只能停用不能删除）",
+          "case_id": "R01",
+          "case_title": "R01 学校列表：无法删除已新增的学校（备注：只能停用不能删除）",
           "result": "pending",
           "detail": "",
           "evidence": "",
@@ -534,8 +534,8 @@
           "updated_at": null
         },
         {
-          "case_id": "R-返回主界面",
-          "case_title": "R2 主界面：返回主界面后无法用任何管理员/学校账号登录",
+          "case_id": "R02",
+          "case_title": "R02 主界面：返回主界面后无法用任何管理员/学校账号登录",
           "result": "pending",
           "detail": "",
           "evidence": "",
@@ -546,8 +546,8 @@
           "updated_at": null
         },
         {
-          "case_id": "R-同步取消",
-          "case_title": "R3 数据同步：云端同步/暂停同步/清空本地缓存后无法点击取消",
+          "case_id": "R03",
+          "case_title": "R03 数据同步：云端同步/暂停同步/清空本地缓存后无法点击取消",
           "result": "pending",
           "detail": "",
           "evidence": "",
@@ -558,8 +558,8 @@
           "updated_at": null
         },
         {
-          "case_id": "R-启用无效",
-          "case_title": "R4 用户管理：停用后「启用」无效（停用可以但启用不行）",
+          "case_id": "R04",
+          "case_title": "R04 用户管理：停用后「启用」无效（停用可以但启用不行）",
           "result": "pending",
           "detail": "",
           "evidence": "",
@@ -570,8 +570,8 @@
           "updated_at": null
         },
         {
-          "case_id": "R-恢复失败",
-          "case_title": "R5 备份恢复：用户管理→恢复失败",
+          "case_id": "R05",
+          "case_title": "R05 备份恢复：用户管理→恢复失败",
           "result": "pending",
           "detail": "",
           "evidence": "",
@@ -582,8 +582,8 @@
           "updated_at": null
         },
         {
-          "case_id": "R-下载模板",
-          "case_title": "R6 病原体检测：下载模板打不开（考虑是否取消）",
+          "case_id": "R06",
+          "case_title": "R06 病原体检测：下载模板打不开（考虑是否取消）",
           "result": "pending",
           "detail": "",
           "evidence": "",
@@ -594,8 +594,8 @@
           "updated_at": null
         },
         {
-          "case_id": "R-无可删除",
-          "case_title": "R7 界面定制：果蔬农残检测项目无可删除的项目",
+          "case_id": "R07",
+          "case_title": "R07 界面定制：果蔬农残检测项目无可删除的项目",
           "result": "pending",
           "detail": "",
           "evidence": "",
@@ -606,8 +606,8 @@
           "updated_at": null
         },
         {
-          "case_id": "R-复检显示",
-          "case_title": "R8 复检显示：复检填合格仍显示不合格（果蔬/肉蛋/油）",
+          "case_id": "R08",
+          "case_title": "R08 复检显示：复检填合格仍显示不合格（果蔬/肉蛋/油）",
           "result": "pending",
           "detail": "",
           "evidence": "",
@@ -618,8 +618,8 @@
           "updated_at": null
         },
         {
-          "case_id": "R-新增项目",
-          "case_title": "R9 界面定制：肉蛋/果蔬新增检测项目后无显示",
+          "case_id": "R09",
+          "case_title": "R09 界面定制：肉蛋/果蔬新增检测项目后无显示",
           "result": "pending",
           "detail": "",
           "evidence": "",
@@ -630,7 +630,7 @@
           "updated_at": null
         },
         {
-          "case_id": "R-保存无反应",
+          "case_id": "R10",
           "case_title": "R10 界面定制/基本信息：保存修改/保存定制无反应",
           "result": "pending",
           "detail": "",
@@ -642,7 +642,7 @@
           "updated_at": null
         },
         {
-          "case_id": "R-复检存储",
+          "case_id": "R11",
           "case_title": "R11 复检数据存储：提交复检后核对 localStorage 的 result 字段是否同步为合格",
           "result": "pending",
           "detail": "",
@@ -654,7 +654,7 @@
           "updated_at": null
         },
         {
-          "case_id": "R-默认选项",
+          "case_id": "R12",
           "case_title": "R12 界面定制：默认选项回归（新增项目后原有默认选项仍正常）",
           "result": "pending",
           "detail": "",
@@ -666,7 +666,7 @@
           "updated_at": null
         },
         {
-          "case_id": "R-帮助跳转",
+          "case_id": "R13",
           "case_title": "R13 登录页：帮助中心跳转无反应/子路径矛盾（V6 帮助中心跳转失败）",
           "result": "pending",
           "detail": "",
@@ -678,7 +678,7 @@
           "updated_at": null
         },
         {
-          "case_id": "R-登录负向",
+          "case_id": "R14",
           "case_title": "R14 学校登录：非法代码/非法输入负向拦截（V7 登录跳转负向失败）",
           "result": "pending",
           "detail": "",
@@ -690,7 +690,7 @@
           "updated_at": null
         },
         {
-          "case_id": "R-回收站恢复",
+          "case_id": "R15",
           "case_title": "R15 学校列表：回收站「恢复学校」报数据库错误（jsonb 类型不匹配，恢复失败）",
           "result": "pending",
           "detail": "",
@@ -702,7 +702,7 @@
           "updated_at": null
         },
         {
-          "case_id": "R-创建用户",
+          "case_id": "R16",
           "case_title": "R16 用户管理：创建新用户报「注册失败」（保存按钮被禁用/系统错误）",
           "result": "pending",
           "detail": "",
@@ -714,7 +714,7 @@
           "updated_at": null
         },
         {
-          "case_id": "R-审计空白",
+          "case_id": "R17",
           "case_title": "R17 审计日志：菜单选中但内容区空白无数据",
           "result": "pending",
           "detail": "",
@@ -726,7 +726,7 @@
           "updated_at": null
         },
         {
-          "case_id": "R-定制500",
+          "case_id": "R18",
           "case_title": "R18 界面定制：打开字段管理 customization 接口返回 500（Network 记录）",
           "result": "pending",
           "detail": "",
@@ -738,7 +738,7 @@
           "updated_at": null
         },
         {
-          "case_id": "R-选项无法添加",
+          "case_id": "R19",
           "case_title": "R19 界面定制：新增检测项目时「下拉选项」无法添加（暂无选项）",
           "result": "pending",
           "detail": "",
@@ -750,7 +750,7 @@
           "updated_at": null
         },
         {
-          "case_id": "R-保存按钮文案",
+          "case_id": "R20",
           "case_title": "R20 界面定制：「保存定制·未保存」按钮文案组合混乱",
           "result": "pending",
           "detail": "",
@@ -762,7 +762,7 @@
           "updated_at": null
         },
         {
-          "case_id": "R-主登录提示",
+          "case_id": "R21",
           "case_title": "R21 主登录页：未带 school 参数时报「未识别到有效的学校登录入口」提示不清晰",
           "result": "pending",
           "detail": "",
@@ -774,7 +774,7 @@
           "updated_at": null
         },
         {
-          "case_id": "R-停用登录",
+          "case_id": "R22",
           "case_title": "R22 学校登录：已停用学校的登录链接报「学校不存在或未激活」",
           "result": "pending",
           "detail": "",
@@ -786,7 +786,7 @@
           "updated_at": null
         },
         {
-          "case_id": "R-登录Logo",
+          "case_id": "R23",
           "case_title": "R23 登录页：学校 Logo 显示默认图标而非学校真实 Logo",
           "result": "pending",
           "detail": "",
@@ -798,7 +798,7 @@
           "updated_at": null
         },
         {
-          "case_id": "R-复检缺日期",
+          "case_id": "R24",
           "case_title": "R24 复检录入：弹窗无「复检日期」字段（只有结果/说明/复检人）",
           "result": "pending",
           "detail": "",
@@ -810,7 +810,7 @@
           "updated_at": null
         },
         {
-          "case_id": "R-菜单重复",
+          "case_id": "R25",
           "case_title": "R25 检测系统左侧菜单：「检测频率与月报」「检测频率与日历」重复出现",
           "result": "pending",
           "detail": "",
@@ -822,7 +822,7 @@
           "updated_at": null
         },
         {
-          "case_id": "R-版本不一致",
+          "case_id": "R26",
           "case_title": "R26 版本号：检测系统显示 Version 4.0，登录页显示 3.1.0（版本号不一致）",
           "result": "pending",
           "detail": "",
@@ -834,7 +834,7 @@
           "updated_at": null
         },
         {
-          "case_id": "R-占位符",
+          "case_id": "R27",
           "case_title": "R27 检测项目下拉：默认显示占位符「验证设」而非「请选择」",
           "result": "pending",
           "detail": "",
@@ -846,7 +846,7 @@
           "updated_at": null
         },
         {
-          "case_id": "R-记录不存在",
+          "case_id": "R28",
           "case_title": "R28 复检保存后：刷新列表时多个接口报 400 /「记录不存在」（复检记录未正确持久化）",
           "result": "pending",
           "detail": "",

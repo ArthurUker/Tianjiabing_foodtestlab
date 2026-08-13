@@ -230,51 +230,76 @@ function renderHtml(snap) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>浏览器测试结果汇总</title>
 <style>
+  /* TD-GlassReport: 玻璃态设计语言，与 admin-schools.html 的 .glass 风格一致 */
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif; background: #f3f4f6; color: #1f2937; }
-  .wrap { max-width: 1100px; margin: 0 auto; padding: 24px 16px 60px; }
-  header h1 { font-size: 22px; }
-  header .meta { color: #6b7280; font-size: 12px; margin-top: 6px; }
-  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin: 18px 0; }
-  .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px; }
-  .card .gname { font-size: 13px; font-weight: 600; color: #374151; }
-  .card .num { font-size: 26px; font-weight: 700; margin: 6px 0 4px; }
-  .card .sub { font-size: 12px; color: #6b7280; }
-  .card .chips { margin-top: 8px; font-size: 12px; display: flex; gap: 10px; flex-wrap: wrap; }
-  .filters { display: flex; gap: 10px; flex-wrap: wrap; margin: 14px 0; }
-  .filters select, .filters input { border: 1px solid #d1d5db; border-radius: 8px; padding: 7px 10px; font-size: 13px; background: #fff; }
-  .filters input { flex: 1; min-width: 200px; }
-  .item { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; display: flex; gap: 12px; }
-  .badge { flex-shrink: 0; width: 56px; text-align: center; border-radius: 6px; color: #fff; font-size: 12px; padding: 4px 0; height: fit-content; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif; color: #1f2937; background: linear-gradient(135deg, #ffe6f0 0%, #fff5e6 30%, #e6f3ff 60%, #f0e6ff 100%); min-height: 100vh; }
+  .glass-card { background: rgba(255,255,255,0.66); border: 1px solid rgba(255,255,255,0.78); border-radius: 1.7rem; backdrop-filter: blur(14px) saturate(180%); box-shadow: 0 16px 46px rgba(40,60,100,0.2), inset 0 2px 0 rgba(255,255,255,0.95), inset 0 0 0 1px rgba(255,255,255,0.55), inset 0 0 34px rgba(255,255,255,0.3); }
+  .glass-section { background: rgba(255,255,255,0.72); border: 1px solid rgba(255,255,255,0.6); border-radius: 1.25rem; box-shadow: inset 0 1px 0 rgba(255,255,255,0.7), 0 4px 14px rgba(40,60,100,0.08); }
+  .glass-tile { background: linear-gradient(135deg, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.55) 100%); border: 1px solid rgba(255,255,255,0.85); border-radius: 1.25rem; backdrop-filter: blur(10px) saturate(160%); box-shadow: 0 8px 24px rgba(40,60,100,0.12), inset 0 1px 0 rgba(255,255,255,0.95); }
+  .glass-input { background: rgba(255,255,255,0.72); border: 1px solid rgba(255,255,255,0.6); border-radius: 1rem; backdrop-filter: blur(8px) saturate(160%); padding: 9px 14px; font-size: 14px; color: #1f2937; transition: all .15s ease; }
+  .glass-input:focus { background: rgba(255,255,255,0.92); border-color: rgba(99,102,241,0.5); box-shadow: 0 0 0 3px rgba(99,102,241,0.12); outline: none; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 28px 20px 60px; }
+  header { padding: 28px 32px; margin-bottom: 22px; }
+  header .h-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  header .icon-box { width: 52px; height: 52px; border-radius: 14px; background: linear-gradient(135deg, #34d399 0%, #6366f1 100%); color: white; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 20px rgba(99,102,241,0.3); font-size: 22px; }
+  header h1 { font-size: 22px; font-weight: 700; color: #1f2937; }
+  header .meta { color: #6b7280; font-size: 13px; margin-top: 4px; }
+  header .meta code { background: rgba(255,255,255,0.6); padding: 2px 8px; border-radius: 6px; font-size: 12px; border: 1px solid rgba(255,255,255,0.7); }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-bottom: 22px; }
+  .card { padding: 20px; }
+  .card .gname { font-size: 15px; font-weight: 600; color: #374151; }
+  .card .num-row { display: flex; align-items: baseline; gap: 6px; margin-top: 12px; }
+  .card .num { font-size: 36px; font-weight: 700; line-height: 1; background: linear-gradient(135deg, #10b981 0%, #6366f1 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .card .num-total { font-size: 15px; color: #6b7280; }
+  .card .pct { margin-left: auto; font-size: 12px; color: #475569; background: rgba(255,255,255,0.6); padding: 4px 10px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.7); backdrop-filter: blur(8px); }
+  .card .chips { margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; font-size: 13px; }
+  .chip { display: flex; align-items: center; gap: 8px; }
+  .chip .icon { width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+  .chip .lbl { color: #4b5563; flex: 1; }
+  .chip .v { font-weight: 700; color: #111827; }
+  .progress { width: 100%; height: 6px; background: rgba(229,231,235,0.6); border-radius: 999px; margin-top: 12px; overflow: hidden; }
+  .progress > div { height: 100%; background: linear-gradient(90deg, #34d399 0%, #6366f1 100%); border-radius: 999px; transition: width .3s ease; }
+  .filters { display: flex; gap: 12px; flex-wrap: wrap; padding: 18px 22px; margin-bottom: 14px; }
+  .filters select { min-width: 130px; }
+  .filters input { flex: 1; min-width: 220px; }
+  .item { padding: 18px 22px; margin-bottom: 12px; display: flex; gap: 16px; align-items: stretch; transition: all .2s ease; }
+  .item:hover { background: rgba(255,255,255,0.85); transform: translateY(-1px); box-shadow: 0 12px 36px rgba(40,60,100,0.15), inset 0 2px 0 rgba(255,255,255,0.95), inset 0 0 0 1px rgba(255,255,255,0.55); }
+  .badge { flex-shrink: 0; min-width: 72px; text-align: center; border-radius: 14px; padding: 8px 10px; height: fit-content; font-size: 13px; font-weight: 600; color: #fff; align-self: flex-start; box-shadow: 0 4px 12px rgba(0,0,0,0.12); }
   .item .body { flex: 1; min-width: 0; }
-  .item .id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; font-weight: 700; }
-  .item .title { font-size: 13px; color: #374151; margin-top: 2px; }
-  .item .meta { font-size: 11px; color: #9ca3af; margin-top: 4px; }
-  .item .detail { font-size: 12px; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 6px 8px; margin-top: 8px; white-space: pre-wrap; }
-  .evid { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
-  .evid img.thumb { width: 92px; height: 68px; object-fit: cover; border-radius: 6px; border: 1px solid #e5e7eb; cursor: zoom-in; }
-  .evid a.ext { font-size: 12px; color: #2563eb; text-decoration: none; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 6px 10px; }
-  .count-line { font-size: 12px; color: #6b7280; margin: 8px 0; }
-  .empty { text-align: center; color: #9ca3af; padding: 40px 0; }
-  #lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.82); display: none; align-items: center; justify-content: center; z-index: 99; cursor: zoom-out; }
-  #lightbox img { max-width: 92vw; max-height: 90vh; border-radius: 6px; }
-  @media (max-width: 640px) { .item { flex-direction: column; } .badge { width: fit-content; } }
+  .item .id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; font-weight: 700; background: linear-gradient(135deg, rgba(99,102,241,0.1) 0%, rgba(16,185,129,0.1) 100%); color: #4f46e5; padding: 3px 10px; border-radius: 8px; border: 1px solid rgba(99,102,241,0.15); display: inline-block; }
+  .item .title { font-size: 14px; color: #1f2937; margin-top: 8px; font-weight: 500; line-height: 1.5; }
+  .item .meta { font-size: 12px; color: #6b7280; margin-top: 6px; }
+  .item .detail { font-size: 13px; color: #92400e; background: rgba(254,243,199,0.65); border: 1px solid rgba(252,211,77,0.5); border-radius: 12px; padding: 10px 14px; margin-top: 10px; white-space: pre-wrap; backdrop-filter: blur(6px); }
+  .evid { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+  .evid img.thumb { width: 96px; height: 72px; object-fit: cover; border-radius: 10px; border: 2px solid rgba(255,255,255,0.8); cursor: zoom-in; transition: all .2s ease; box-shadow: 0 4px 10px rgba(40,60,100,0.15); }
+  .evid img.thumb:hover { transform: scale(1.05); border-color: #6366f1; }
+  .evid a.ext { font-size: 13px; color: #4f46e5; text-decoration: none; background: rgba(238,242,255,0.7); border: 1px solid rgba(99,102,241,0.25); border-radius: 10px; padding: 8px 14px; align-self: center; }
+  .count-line { font-size: 13px; color: #6b7280; margin: 14px 4px 10px; }
+  .empty { text-align: center; color: #9ca3af; padding: 60px 0; font-size: 14px; }
+  #lightbox { position: fixed; inset: 0; background: rgba(15,23,42,0.85); backdrop-filter: blur(8px); display: none; align-items: center; justify-content: center; z-index: 99; cursor: zoom-out; }
+  #lightbox img { max-width: 92vw; max-height: 90vh; border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
+  @media (max-width: 720px) { header { padding: 20px; } .item { flex-direction: column; padding: 16px; } .badge { width: fit-content; } .filters { padding: 14px; } }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <header>
-    <h1>🧪 浏览器测试结果汇总</h1>
-    <div class="meta">生成时间：<span id="genTime"></span> · 数据源：数据库 <code>public."TestResult"</code> · 证据图片见本目录 <code>evidence/</code></div>
+  <header class="glass-card">
+    <div class="h-row">
+      <div class="icon-box">🧪</div>
+      <div>
+        <h1>浏览器测试结果汇总</h1>
+        <div class="meta">生成时间：<span id="genTime"></span> · 数据源：数据库 <code>public."TestResult"</code> · 证据图片见本目录 <code>evidence/</code></div>
+      </div>
+    </div>
   </header>
 
   <div class="cards" id="cards"></div>
 
-  <div class="filters">
-    <select id="fGroup"><option value="">全部分组</option>${groupFilterOptions}</select>
-    <select id="fResult"><option value="">全部结果</option>${resultFilterOptions}</select>
-    <select id="fUser"><option value="">全部提交人</option></select>
-    <input id="fKeyword" type="search" placeholder="搜索用例编号 / 标题 / 实际表现…">
+  <div class="filters glass-section">
+    <select id="fGroup" class="glass-input"><option value="">全部分组</option>${groupFilterOptions}</select>
+    <select id="fResult" class="glass-input"><option value="">全部结果</option>${resultFilterOptions}</select>
+    <select id="fUser" class="glass-input"><option value="">全部提交人</option></select>
+    <input id="fKeyword" type="search" class="glass-input" placeholder="🔍 搜索用例编号 / 标题 / 实际表现…">
   </div>
   <div class="count-line" id="countLine"></div>
   <div id="list"></div>
@@ -293,12 +318,15 @@ function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'
 function renderCards() {
   $('cards').innerHTML = SNAPSHOT.groups.map(g => {
     const pct = g.total ? Math.round(g.done / g.total * 100) : 0;
-    const chips = ['passed','failed','skipped','pending'].map(k =>
-      '<span style="color:' + LABELS[k].color + '">' + LABELS[k].emoji + ' ' + LABELS[k].label + ' ' + g.counts[k] + '</span>'
-    ).join('');
-    return '<div class="card"><div class="gname">' + esc(g.groupName) + '</div>' +
-      '<div class="num">' + g.done + '<span style="font-size:13px;color:#9ca3af">/' + g.total + ' 已测</span></div>' +
-      '<div class="sub">完成度 ' + pct + '%</div><div class="chips">' + chips + '</div></div>';
+    const remain = g.total - g.done;
+    const mkChip = (k, lbl) => '<div class="chip" style="color:' + LABELS[k].color + '"><i class="icon">' + LABELS[k].emoji + '</i><span class="lbl">' + lbl + '</span><span class="v">' + (k === 'pending' ? remain : g.counts[k]) + '</span></div>';
+    const chips = mkChip('passed','通过') + mkChip('failed','失败') + mkChip('skipped','跳过') + mkChip('pending','待测');
+    return '<div class="card glass-tile">' +
+      '<div class="gname">' + esc(g.groupName.split(' · ')[0]) + '</div>' +
+      '<div class="num-row"><span class="num">' + g.done + '</span><span class="num-total">/ ' + g.total + ' 项</span>' +
+      '<span class="pct">完成 ' + pct + '%</span></div>' +
+      '<div class="progress"><div style="width:' + pct + '%"></div></div>' +
+      '<div class="chips">' + chips + '</div></div>';
   }).join('');
   const u = new Set();
   SNAPSHOT.groups.forEach(g => g.items.forEach(it => { if (it.submitted_by) u.add(it.submitted_by); }));
@@ -322,12 +350,13 @@ function renderList() {
       if (e.type === 'local') return '<img class="thumb" src="' + esc(e.relPath) + '" alt="' + esc(it.case_title) + '" onclick="openLb(this.src)">';
       return '<a class="ext" href="' + esc(e.url) + '" target="_blank" rel="noopener">🔗 证据链接</a>';
     }).join('');
-    return '<div class="item">' +
-      '<div class="badge" style="background:' + b.color + '">' + b.emoji + ' ' + b.label + '</div>' +
+    const GRAD = { passed: 'linear-gradient(135deg,#34d399,#10b981)', failed: 'linear-gradient(135deg,#fb7185,#e11d48)', skipped: 'linear-gradient(135deg,#fbbf24,#d97706)', pending: 'linear-gradient(135deg,#cbd5e1,#94a3b8)' };
+    return '<div class="item glass-section">' +
+      '<div class="badge" style="background:' + (GRAD[it.result] || '#9ca3af') + '">' + b.emoji + ' ' + b.label + '</div>' +
       '<div class="body"><div class="id">' + esc(it.case_id) + '</div>' +
       '<div class="title">' + esc(it.case_title) + '</div>' +
-      '<div class="meta">提交人：' + esc(it.submitted_by || '—') + ' · 更新：' + fmt(it.updated_at) + '</div>' +
-      (it.detail ? '<div class="detail">📝 ' + esc(it.detail) + '</div>' : '') +
+      '<div class="meta">👤 提交人：' + esc(it.submitted_by || '—') + ' · 🕐 更新：' + fmt(it.updated_at) + '</div>' +
+      (it.detail ? '<div class="detail">' + esc(it.detail) + '</div>' : '') +
       (evid ? '<div class="evid">' + evid + '</div>' : '') +
       '</div></div>';
   }).join('');
