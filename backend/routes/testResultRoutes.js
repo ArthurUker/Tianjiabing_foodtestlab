@@ -71,7 +71,11 @@ export function createTestResultRoutes(userManager, prisma) {
   }
 
   // ── GET /api/test-results/defs — 用例清单（放最前，避免被 /:xxx 风格路由吞）──
+  // TD-DefsNoCache: 用例清单会被前端动态渲染，禁止浏览器缓存（否则开发更新用例后
+  // 测试人员看不到新分组/新用例，误以为"没更新"）。
   router.get('/defs', (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
+    res.setHeader('Pragma', 'no-cache')
     res.json({ success: true, data: CASE_DEFS, result_options: RESULT_OPTIONS })
   })
 
