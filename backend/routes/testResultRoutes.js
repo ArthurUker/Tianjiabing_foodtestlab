@@ -62,11 +62,50 @@ export function createTestResultRoutes(userManager, prisma) {
     }
   }
 
-  // 保存成功后自动同步 docs 报告（fire-and-forget，不阻塞响应）
+  // 同步 docs 报告 + 重建 dist（让 Caddy 立即生效）。
+  // 复用同一把 syncing 锁，避免并发提交多次清空重建 dist。
+  let syncing = false
+  async function runSyncAndBuild() {
+    if (process.env.TEST_REPORT_DOCS_SYNC === 'false') return { skipped: true }
+    if (syncing) return { skipped: true, reason: '同步进行中' }
+    syncing = true
+    try {
+      // 1) 重新生成 docs/test-results/latest/（snapshot.json / REPORT.md / index.html / 证据副本）
+      const docs = await syncTestResultDocs({ prisma })
+      // 2) 重建 dist/（把最新报告同步进 Caddy 服务的部署目录，否则网页看到的是旧副本）
+      const rootDir = path.resolve(EVIDENCE_STORE_DIR, '../..')
+      const buildScript = path.join(rootDir, 'scripts', 'build-static.js')
+      let distOk = true
+      let distErr = ''
+      if (fs.existsSync(buildScript)) {
+        try {
+          await new Promise((resolve, reject) => {
+            const cp = require('node:child_process').execFile(
+              process.execPath, [buildScript],
+              { cwd: rootDir, timeout: 120000 },
+              (err) => {
+                if (err) reject(new Error(err.message))
+                else resolve()
+              }
+            )
+            if (cp && cp.stderr) cp.stderr.on('data', (d) => { if (String(d).trim()) console.error('[testResultRoutes] build-static stderr:', String(d).trim()) })
+          })
+        } catch (e) {
+          distOk = false
+          distErr = e.message
+        }
+      }
+      return { skipped: false, docs, distOk, distErr }
+    } finally {
+      syncing = false
+    }
+  }
+
+  // 保存成功后自动同步 docs 报告并重建 dist（fire-and-forget，不阻塞响应）
   function scheduleDocsSync() {
     if (process.env.TEST_REPORT_DOCS_SYNC === 'false') return
-    syncTestResultDocs({ prisma }).catch((e) => {
-      console.error('[testResultRoutes] docs 报告同步失败:', e?.message || e)
+    runSyncAndBuild().catch((e) => {
+      console.error('[testResultRoutes] 同步+构建失败:', e?.message || e)
     })
   }
 
@@ -198,49 +237,22 @@ export function createTestResultRoutes(userManager, prisma) {
     }
   })
 
-  // ── POST /api/test-results/sync — 重新同步汇总报告并重建 dist（让所有测试人员看到最新结果）──
-  let syncing = false
+  // ── POST /api/test-results/sync — 手动重新同步汇总报告并重建 dist（与提交后自动同步同一套逻辑）──
   router.post('/sync', async (req, res) => {
-    if (syncing) return res.status(409).json({ success: false, error: '同步正在进行中，请稍候再试' })
-    syncing = true
     try {
-      // 1) 重新生成 docs/test-results/latest/（snapshot.json / REPORT.md / index.html / 证据副本）
-      const docs = await syncTestResultDocs({ prisma })
-      // 2) 重建 dist/（把最新报告同步进 Caddy 服务的部署目录）
-      const rootDir = path.resolve(EVIDENCE_STORE_DIR, '../..')
-      const buildScript = path.join(rootDir, 'scripts', 'build-static.js')
-      let distOk = true
-      let distErr = ''
-      if (fs.existsSync(buildScript)) {
-        try {
-          await new Promise((resolve, reject) => {
-            const cp = require('node:child_process').execFile(
-              process.execPath, [buildScript],
-              { cwd: rootDir, timeout: 120000 },
-              (err, stdout, stderr) => {
-                if (err) reject(new Error(stderr || err.message))
-                else resolve()
-              }
-            )
-            if (cp && cp.stdout) cp.stdout.on('data', (d) => { /* 忽略构建日志 */ })
-            if (cp && cp.stderr) cp.stderr.on('data', (d) => { if (String(d).trim()) console.error('[testResultRoutes] build-static stderr:', String(d).trim()) })
-          })
-        } catch (e) {
-          distOk = false
-          distErr = e.message
-        }
+      const r = await runSyncAndBuild()
+      if (r.skipped) {
+        return res.json({ success: true, skipped: true, message: r.reason || '同步已跳过（TEST_REPORT_DOCS_SYNC=false 或正在同步）' })
       }
       res.json({
         success: true,
-        docs: { generatedAt: docs.generatedAt, itemCount: docs.itemCount },
-        dist: { ok: distOk, error: distErr || null },
-        message: distOk ? '同步完成，汇总报告已更新' : 'docs 已更新，但 dist 重建失败：' + distErr,
+        docs: { generatedAt: r.docs.generatedAt, itemCount: r.docs.itemCount },
+        dist: { ok: r.distOk, error: r.distErr || null },
+        message: r.distOk ? '同步完成，汇总报告已更新' : 'docs 已更新，但 dist 重建失败：' + r.distErr,
       })
     } catch (e) {
       console.error('[testResultRoutes] 同步失败:', e)
       res.status(500).json({ success: false, error: '同步失败：' + e.message })
-    } finally {
-      syncing = false
     }
   })
 
