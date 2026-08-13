@@ -21,11 +21,11 @@ const outFile = path.join(docsDir, `测试安排-历史问题复测-${today}.md`
 
 // 分工说明
 const ASSIGN = {
-  R1: '吴晓君', R2: '吴晓君', R3: '曾水平', R4: '吴晓君', R5: '曾水平',
-  R6: '曾水平', R7: '吴晓君', R8: '吴翠楠', R9: '吴翠楠', R10: '吴翠楠',
-  R11: '吴翠楠', R12: '吴翠楠', R13: '曾水平', R14: '吴晓君',
-  R15: '吴晓君', R16: '吴晓君', R17: '吴晓君', R18: '吴晓君', R19: '吴翠楠',
-  R20: '吴翠楠', R21: '吴晓君', R22: '吴晓君', R23: '吴晓君',
+  R1: '邬祥俊', R2: '邬祥俊', R3: '曾水平', R4: '邬祥俊', R5: '曾水平',
+  R6: '曾水平', R7: '邬祥俊', R8: '吴翠楠', R9: '吴翠楠', R10: '吴翠楠',
+  R11: '吴翠楠', R12: '吴翠楠', R13: '曾水平', R14: '邬祥俊',
+  R15: '邬祥俊', R16: '邬祥俊', R17: '邬祥俊', R18: '邬祥俊', R19: '吴翠楠',
+  R20: '吴翠楠', R21: '邬祥俊', R22: '邬祥俊', R23: '邬祥俊',
   R24: '吴翠楠', R25: '曾水平', R26: '曾水平', R27: '曾水平', R28: '吴翠楠',
 }
 
@@ -54,7 +54,7 @@ const lines = []
 lines.push(`# 历史问题复测安排（最终版）`)
 lines.push(``)
 lines.push(`> 生成日期：${today}（由 scripts/gen-retest-guide.mjs 从 testCaseDefs.js 自动生成）`)
-lines.push(`> 数据来源：5 份测试反馈 Excel（吴晓君 / 曾水平 / 吴翠楠 / 浏览器测试验证 ×2）`)
+lines.push(`> 数据来源：5 份测试反馈 Excel（邬祥俊 / 曾水平 / 吴翠楠 / 浏览器测试验证 ×2）`)
 lines.push(`> **本文件与 test-report.html 网页同步**——两者都从 backend/lib/testCaseDefs.js 读取，`)
 lines.push(`> 修改只需改 defs，再运行本脚本重新生成即可，不会出现"一个更新一个老样子"。`)
 lines.push(`> 环境：\`http://111.231.166.161:8080/\``)
@@ -72,14 +72,14 @@ for (const c of retest.cases) {
   byPerson[p] = byPerson[p] || []
   byPerson[p].push(rNo(c))
 }
-const personOrder = ['吴翠楠', '曾水平', '吴晓君']
+const personOrder = ['吴翠楠', '曾水平', '邬祥俊']
 for (const p of personOrder) {
   if (byPerson[p]) {
     lines.push(`| ${p} | ${byPerson[p].join(' · ')} | ${byPerson[p].length} |`)
   }
 }
 lines.push(``)
-lines.push(`> 说明：分工详见下方各用例标注。吴晓君负担较重（多平台超管侧），如任务过重可把`)
+lines.push(`> 说明：分工详见下方各用例标注。邬祥俊负担较重（多平台超管侧），如任务过重可把`)
 lines.push(`> R21/R22/R23（登录相关，简单）分给曾水平或吴翠楠协助。`)
 lines.push(``)
 
