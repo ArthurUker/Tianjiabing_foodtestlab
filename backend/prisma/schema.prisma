@@ -235,6 +235,11 @@ model TestResult {
   evidence     String?  // 证据（截图/Network 记录等，可文本或 URL）
   submitted_by String   // 提交人（登录 username）
   submitted_by_role String? // 提交人角色
+  // TD-Close: 测试任务收口标记。closed=true 后该 case_id 在上报页归入「已完成」区，
+  // 不再可继续测试（后端拒绝 POST 更新）。任何已登录用户可收口/打开。
+  closed       Boolean  @default(false)
+  closed_by    String?  // 收口操作人 username
+  closed_at    DateTime? // 收口时间
   created_at   DateTime @default(now())
   updated_at   DateTime @updatedAt
 
@@ -242,6 +247,7 @@ model TestResult {
   @@index([case_group])
   @@index([submitted_by])
   @@index([created_at])
+  @@index([closed])
 }
 
 // ========== 会话管理（TD-Session）==========

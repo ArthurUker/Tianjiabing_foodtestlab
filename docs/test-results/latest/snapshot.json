@@ -1,12 +1,13 @@
 {
-  "generated_at": "2026-08-13T06:31:13.934Z",
+  "generated_at": "2026-08-13T07:39:38.206Z",
   "overall": {
-    "passed": 1,
+    "passed": 3,
     "failed": 4,
     "skipped": 0,
-    "pending": 55,
+    "pending": 53,
+    "closed": 0,
     "total": 60,
-    "done": 5
+    "done": 7
   },
   "groups": [
     {
@@ -17,7 +18,8 @@
         "passed": 1,
         "failed": 0,
         "skipped": 0,
-        "pending": 16
+        "pending": 16,
+        "closed": 0
       },
       "done": 1,
       "items": [
@@ -31,7 +33,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.142Z",
-          "updated_at": "2026-08-13T11:44:29.286Z"
+          "updated_at": "2026-08-13T11:44:29.286Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "Q1-果蔬阶段B",
@@ -43,7 +48,10 @@
           "submitted_by": "wuxiangjun",
           "submitted_by_role": "admin@wuxiangjun",
           "created_at": "2026-08-12T09:21:58.375Z",
-          "updated_at": "2026-08-13T06:31:13.562Z"
+          "updated_at": "2026-08-13T07:39:35.404Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "Q1-果蔬阶段C",
@@ -55,7 +63,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.146Z",
-          "updated_at": "2026-08-13T11:44:29.288Z"
+          "updated_at": "2026-08-13T11:44:29.288Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "Q1-肉蛋",
@@ -67,7 +78,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.104Z",
-          "updated_at": "2026-08-13T11:44:29.290Z"
+          "updated_at": "2026-08-13T11:44:29.290Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "Q1-油",
@@ -79,7 +93,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.100Z",
-          "updated_at": "2026-08-13T11:44:29.289Z"
+          "updated_at": "2026-08-13T11:44:29.289Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "V8-基本信息",
@@ -91,7 +108,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.100Z",
-          "updated_at": "2026-08-13T11:44:29.316Z"
+          "updated_at": "2026-08-13T11:44:29.316Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "V8-界面定制",
@@ -103,7 +123,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.174Z",
-          "updated_at": "2026-08-13T11:44:29.317Z"
+          "updated_at": "2026-08-13T11:44:29.317Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "V1-肉蛋",
@@ -115,7 +138,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.192Z",
-          "updated_at": "2026-08-13T11:44:29.293Z"
+          "updated_at": "2026-08-13T11:44:29.293Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "V1-果蔬",
@@ -127,7 +153,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.206Z",
-          "updated_at": "2026-08-13T11:44:29.291Z"
+          "updated_at": "2026-08-13T11:44:29.291Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "V6-帮助跳转",
@@ -139,7 +168,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.208Z",
-          "updated_at": "2026-08-13T11:44:29.293Z"
+          "updated_at": "2026-08-13T11:44:29.293Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "V7-负向",
@@ -151,7 +183,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.258Z",
-          "updated_at": "2026-08-13T11:44:29.314Z"
+          "updated_at": "2026-08-13T11:44:29.314Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "回归V2",
@@ -163,7 +198,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.257Z",
-          "updated_at": "2026-08-13T11:44:29.317Z"
+          "updated_at": "2026-08-13T11:44:29.317Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "回归V3",
@@ -175,7 +213,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.258Z",
-          "updated_at": "2026-08-13T11:44:29.319Z"
+          "updated_at": "2026-08-13T11:44:29.319Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "回归V4",
@@ -187,7 +228,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.263Z",
-          "updated_at": "2026-08-13T11:44:29.320Z"
+          "updated_at": "2026-08-13T11:44:29.320Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "回归V5",
@@ -199,7 +243,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.376Z",
-          "updated_at": "2026-08-13T11:44:29.324Z"
+          "updated_at": "2026-08-13T11:44:29.324Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "回归V6地址",
@@ -211,7 +258,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.375Z",
-          "updated_at": "2026-08-13T11:44:29.324Z"
+          "updated_at": "2026-08-13T11:44:29.324Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "回归V7正向",
@@ -223,7 +273,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.379Z",
-          "updated_at": "2026-08-13T11:44:29.325Z"
+          "updated_at": "2026-08-13T11:44:29.325Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         }
       ]
     },
@@ -232,36 +285,43 @@
       "groupName": "曾水平 · 备份与恢复模块（第四部分 B1-B9）",
       "total": 11,
       "counts": {
-        "passed": 0,
+        "passed": 2,
         "failed": 0,
         "skipped": 0,
-        "pending": 11
+        "pending": 9,
+        "closed": 0
       },
-      "done": 0,
+      "done": 2,
       "items": [
         {
           "case_id": "B1",
           "case_title": "B1 入口权限（超管可入+运维备份 Tab 可见 / 非超管整页拦截）",
-          "result": "pending",
+          "result": "passed",
           "detail": "",
           "evidence": "",
           "evidence_list": [],
-          "submitted_by": "renkang",
-          "submitted_by_role": "admin@renkang",
-          "created_at": "2026-08-13T03:39:42.375Z",
-          "updated_at": "2026-08-13T11:44:29.329Z"
+          "submitted_by": "wuxiangjun",
+          "submitted_by_role": "admin@wuxiangjun",
+          "created_at": "2026-08-11T07:38:45.792Z",
+          "updated_at": "2026-08-13T07:39:35.583Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "B2",
           "case_title": "B2 备份列表显示",
-          "result": "pending",
+          "result": "passed",
           "detail": "",
           "evidence": "",
           "evidence_list": [],
-          "submitted_by": "renkang",
-          "submitted_by_role": "admin@renkang",
-          "created_at": "2026-08-13T03:39:42.406Z",
-          "updated_at": "2026-08-13T11:44:29.330Z"
+          "submitted_by": "wuxiangjun",
+          "submitted_by_role": "admin@wuxiangjun",
+          "created_at": "2026-08-11T07:39:32.348Z",
+          "updated_at": "2026-08-13T07:39:35.602Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "B3",
@@ -273,7 +333,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.405Z",
-          "updated_at": "2026-08-13T11:44:29.331Z"
+          "updated_at": "2026-08-13T11:44:29.331Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "B4",
@@ -285,7 +348,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.444Z",
-          "updated_at": "2026-08-13T11:44:29.332Z"
+          "updated_at": "2026-08-13T11:44:29.332Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "B5",
@@ -297,7 +363,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.446Z",
-          "updated_at": "2026-08-13T11:44:29.333Z"
+          "updated_at": "2026-08-13T11:44:29.333Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "B6",
@@ -309,7 +378,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.445Z",
-          "updated_at": "2026-08-13T11:44:29.334Z"
+          "updated_at": "2026-08-13T11:44:29.334Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "B7-负向",
@@ -321,7 +393,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.504Z",
-          "updated_at": "2026-08-13T11:44:29.337Z"
+          "updated_at": "2026-08-13T11:44:29.337Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "B7-正向",
@@ -333,7 +408,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.504Z",
-          "updated_at": "2026-08-13T11:44:29.336Z"
+          "updated_at": "2026-08-13T11:44:29.336Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "B7-旧schema",
@@ -345,7 +423,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.505Z",
-          "updated_at": "2026-08-13T11:44:29.335Z"
+          "updated_at": "2026-08-13T11:44:29.335Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "B8",
@@ -357,7 +438,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.568Z",
-          "updated_at": "2026-08-13T11:44:29.338Z"
+          "updated_at": "2026-08-13T11:44:29.338Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "B9",
@@ -369,7 +453,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.537Z",
-          "updated_at": "2026-08-13T11:44:29.339Z"
+          "updated_at": "2026-08-13T11:44:29.339Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         }
       ]
     },
@@ -381,7 +468,8 @@
         "passed": 0,
         "failed": 0,
         "skipped": 0,
-        "pending": 28
+        "pending": 28,
+        "closed": 0
       },
       "done": 0,
       "items": [
@@ -395,7 +483,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.570Z",
-          "updated_at": "2026-08-13T11:44:29.258Z"
+          "updated_at": "2026-08-13T11:44:29.258Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "R02",
@@ -407,7 +498,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.619Z",
-          "updated_at": "2026-08-13T11:44:29.259Z"
+          "updated_at": "2026-08-13T11:44:29.259Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "R03",
@@ -419,7 +513,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.618Z",
-          "updated_at": "2026-08-13T11:44:29.260Z"
+          "updated_at": "2026-08-13T11:44:29.260Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "R04",
@@ -431,7 +528,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.620Z",
-          "updated_at": "2026-08-13T11:44:29.261Z"
+          "updated_at": "2026-08-13T11:44:29.261Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "R05",
@@ -443,7 +543,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.624Z",
-          "updated_at": "2026-08-13T11:44:29.262Z"
+          "updated_at": "2026-08-13T11:44:29.262Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "R06",
@@ -455,7 +558,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.654Z",
-          "updated_at": "2026-08-13T11:44:29.263Z"
+          "updated_at": "2026-08-13T11:44:29.263Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "R07",
@@ -467,7 +573,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.705Z",
-          "updated_at": "2026-08-13T11:44:29.265Z"
+          "updated_at": "2026-08-13T11:44:29.265Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "R08",
@@ -479,7 +588,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.707Z",
-          "updated_at": "2026-08-13T11:44:29.266Z"
+          "updated_at": "2026-08-13T11:44:29.266Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "R09",
@@ -491,7 +603,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.716Z",
-          "updated_at": "2026-08-13T11:44:29.267Z"
+          "updated_at": "2026-08-13T11:44:29.267Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "R10",
@@ -503,7 +618,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.717Z",
-          "updated_at": "2026-08-13T11:44:29.268Z"
+          "updated_at": "2026-08-13T11:44:29.268Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "R11",
@@ -515,7 +633,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.721Z",
-          "updated_at": "2026-08-13T11:44:29.269Z"
+          "updated_at": "2026-08-13T11:44:29.269Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "R12",
@@ -527,7 +648,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.736Z",
-          "updated_at": "2026-08-13T11:44:29.270Z"
+          "updated_at": "2026-08-13T11:44:29.270Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "R13",
@@ -539,7 +663,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.795Z",
-          "updated_at": "2026-08-13T11:44:29.271Z"
+          "updated_at": "2026-08-13T11:44:29.271Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "R14",
@@ -551,7 +678,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.792Z",
-          "updated_at": "2026-08-13T11:44:29.272Z"
+          "updated_at": "2026-08-13T11:44:29.272Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "R15",
@@ -563,7 +693,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.796Z",
-          "updated_at": "2026-08-13T11:44:29.272Z"
+          "updated_at": "2026-08-13T11:44:29.272Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "R16",
@@ -575,7 +708,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.806Z",
-          "updated_at": "2026-08-13T11:44:29.273Z"
+          "updated_at": "2026-08-13T11:44:29.273Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "R17",
@@ -587,7 +723,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.796Z",
-          "updated_at": "2026-08-13T11:44:29.274Z"
+          "updated_at": "2026-08-13T11:44:29.274Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "R18",
@@ -599,7 +738,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.809Z",
-          "updated_at": "2026-08-13T11:44:29.275Z"
+          "updated_at": "2026-08-13T11:44:29.275Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "R19",
@@ -611,7 +753,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.878Z",
-          "updated_at": "2026-08-13T11:44:29.276Z"
+          "updated_at": "2026-08-13T11:44:29.276Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "R20",
@@ -623,7 +768,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.880Z",
-          "updated_at": "2026-08-13T11:44:29.278Z"
+          "updated_at": "2026-08-13T11:44:29.278Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "R21",
@@ -635,7 +783,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.884Z",
-          "updated_at": "2026-08-13T11:44:29.278Z"
+          "updated_at": "2026-08-13T11:44:29.278Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "R22",
@@ -647,7 +798,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.884Z",
-          "updated_at": "2026-08-13T11:44:29.279Z"
+          "updated_at": "2026-08-13T11:44:29.279Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "R23",
@@ -659,7 +813,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.885Z",
-          "updated_at": "2026-08-13T11:44:29.280Z"
+          "updated_at": "2026-08-13T11:44:29.280Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "R24",
@@ -671,7 +828,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.920Z",
-          "updated_at": "2026-08-13T11:44:29.281Z"
+          "updated_at": "2026-08-13T11:44:29.281Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "R25",
@@ -683,7 +843,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.953Z",
-          "updated_at": "2026-08-13T11:44:29.282Z"
+          "updated_at": "2026-08-13T11:44:29.282Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "R26",
@@ -695,7 +858,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.992Z",
-          "updated_at": "2026-08-13T11:44:29.283Z"
+          "updated_at": "2026-08-13T11:44:29.283Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "R27",
@@ -707,7 +873,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.993Z",
-          "updated_at": "2026-08-13T11:44:29.284Z"
+          "updated_at": "2026-08-13T11:44:29.284Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "R28",
@@ -719,7 +888,10 @@
           "submitted_by": "renkang",
           "submitted_by_role": "admin@renkang",
           "created_at": "2026-08-13T03:39:42.991Z",
-          "updated_at": "2026-08-13T11:44:29.285Z"
+          "updated_at": "2026-08-13T11:44:29.285Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         }
       ]
     },
@@ -812,7 +984,10 @@
           "submitted_by": "吴翠楠",
           "submitted_by_role": "admin@wuxiangjun",
           "created_at": "2026-08-13T06:23:45.968Z",
-          "updated_at": "2026-08-13T06:23:45.968Z"
+          "updated_at": "2026-08-13T06:23:45.968Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "NEW-20260813-140219",
@@ -858,7 +1033,10 @@
           "submitted_by": "吴翠楠",
           "submitted_by_role": "admin@wuxiangjun",
           "created_at": "2026-08-13T06:06:27.830Z",
-          "updated_at": "2026-08-13T06:06:27.830Z"
+          "updated_at": "2026-08-13T06:06:27.830Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "NEW-20260812-170648",
@@ -915,7 +1093,10 @@
           "submitted_by": "wuxiangjun",
           "submitted_by_role": "admin@wuxiangjun",
           "created_at": "2026-08-12T09:19:43.148Z",
-          "updated_at": "2026-08-12T09:19:43.148Z"
+          "updated_at": "2026-08-12T09:19:43.148Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         },
         {
           "case_id": "NEW-20260812-170647",
@@ -927,7 +1108,10 @@
           "submitted_by": "wuxiangjun",
           "submitted_by_role": "admin@wuxiangjun",
           "created_at": "2026-08-12T09:06:47.288Z",
-          "updated_at": "2026-08-12T09:06:47.288Z"
+          "updated_at": "2026-08-12T09:06:47.288Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
         }
       ]
     }

@@ -123,10 +123,22 @@ function buildSnapshot(results) {
     if (!cur || (r.updated_at ?? 0) >= (cur.updated_at ?? 0)) byId.set(r.case_id, r)
   }
 
+  // TD-CloseMap: 收集每个 case_id 的最早收口记录（同一 case_id 任一提交人收口即整组收口），
+  // 汇总报告页据此打"已收口"标记。
+  const closedMap = new Map()
+  for (const r of results) {
+    if (!r.closed) continue
+    const cur = closedMap.get(r.case_id)
+    if (!cur || (r.closed_at ?? 0) < (cur.closed_at ?? 0)) {
+      closedMap.set(r.case_id, { closed_by: r.closed_by, closed_at: r.closed_at, by_submitter: r.submitted_by })
+    }
+  }
+
   const groups = CASE_DEFS.map((g) => {
     const items = g.cases.map((c) => {
       const rec = byId.get(c.id)
       const evidenceList = rec ? parseEvidenceList(rec.evidence) : []
+      const closedInfo = closedMap.get(c.id)
       return {
         case_id: c.id,
         case_title: c.title,
@@ -138,10 +150,17 @@ function buildSnapshot(results) {
         submitted_by_role: rec?.submitted_by_role || '',
         created_at: rec?.created_at || null,
         updated_at: rec?.updated_at || null,
+        // TD-Close: 收口状态 + 收口人/时间（仅整组任一提交人收口后置 true）
+        closed: !!closedInfo,
+        closed_by: closedInfo?.closed_by || null,
+        closed_at: closedInfo?.closed_at || null,
       }
     })
-    const counts = { passed: 0, failed: 0, skipped: 0, pending: 0 }
-    for (const it of items) counts[it.result] += 1
+    const counts = { passed: 0, failed: 0, skipped: 0, pending: 0, closed: 0 }
+    for (const it of items) {
+      if (it.closed) counts.closed += 1
+      else counts[it.result] += 1
+    }
     const done = counts.passed + counts.failed + counts.skipped
     return { group: g.group, groupName: g.groupName, total: items.length, counts, done, items }
   })
@@ -153,6 +172,7 @@ function buildSnapshot(results) {
   if (extraRecs.length) {
     const items = extraRecs.map((rec) => {
       const evidenceList = parseEvidenceList(rec.evidence)
+      const closedInfo = closedMap.get(rec.case_id)
       return {
         case_id: rec.case_id,
         case_title: rec.case_title || rec.case_id,
@@ -164,6 +184,9 @@ function buildSnapshot(results) {
         submitted_by_role: rec?.submitted_by_role || '',
         created_at: rec?.created_at || null,
         updated_at: rec?.updated_at || null,
+        closed: !!closedInfo,
+        closed_by: closedInfo?.closed_by || null,
+        closed_at: closedInfo?.closed_at || null,
       }
     })
     const counts = { passed: 0, failed: 0, skipped: 0, pending: 0 }
@@ -174,11 +197,11 @@ function buildSnapshot(results) {
 
   const overall = groups.reduce(
     (acc, g) => {
-      for (const k of ['passed', 'failed', 'skipped', 'pending']) acc[k] += g.counts[k]
+      for (const k of ['passed', 'failed', 'skipped', 'pending', 'closed']) acc[k] += g.counts[k] || 0
       acc.total += g.total
       return acc
     },
-    { passed: 0, failed: 0, skipped: 0, pending: 0, total: 0 }
+    { passed: 0, failed: 0, skipped: 0, pending: 0, closed: 0, total: 0 }
   )
   overall.done = overall.passed + overall.failed + overall.skipped
 
@@ -373,6 +396,7 @@ function renderHtml(snap) {
     <select id="fGroup" class="glass-input"><option value="">全部分组</option>${groupFilterOptions}</select>
     <select id="fResult" class="glass-input"><option value="">全部结果</option>${resultFilterOptions}</select>
     <select id="fUser" class="glass-input"><option value="">全部提交人</option></select>
+    <select id="fClosed" class="glass-input" title="收口筛选：已收口=测试任务已完成/不再继续；未收口=可继续测试"><option value="">全部收口</option><option value="open">未收口</option><option value="closed">已收口</option></select>
     <input id="fKeyword" type="search" class="glass-input" placeholder="🔍 搜索用例编号 / 标题 / 实际表现…">
   </div>
   <div class="count-line" id="countLine"></div>
@@ -411,10 +435,13 @@ function allItems() { const a = []; SNAPSHOT.groups.forEach(g => g.items.forEach
 
 function renderList() {
   const fg = $('fGroup').value, fr = $('fResult').value, fu = $('fUser').value, kw = $('fKeyword').value.trim().toLowerCase();
+  // TD-CloseFilter: 列表筛选增加 closed 维度
+  const fClosed = $('fClosed') ? $('fClosed').value : '';
   const items = allItems().filter(it =>
     (!fg || it.group === fg) &&
     (!fr || it.result === fr) &&
     (!fu || it.submitted_by === fu) &&
+    (!fClosed || (fClosed === 'closed' ? !!it.closed : !it.closed)) &&
     (!kw || (it.case_id + ' ' + it.case_title + ' ' + it.detail).toLowerCase().includes(kw))
   );
   $('empty').style.display = items.length ? 'none' : 'block';
@@ -432,20 +459,48 @@ function renderList() {
     const links = urlEvs.map(e => '<a class="ext" href="' + esc(e.url) + '" target="_blank" rel="noopener">🔗 证据链接</a>').join('');
     const evidClass = 'evid' + (localEvs.length > 1 ? ' multi' : '');
     const GRAD = { passed: 'linear-gradient(135deg,#34d399,#10b981)', failed: 'linear-gradient(135deg,#fb7185,#e11d48)', skipped: 'linear-gradient(135deg,#fbbf24,#d97706)', pending: 'linear-gradient(135deg,#cbd5e1,#94a3b8)' };
-    return '<div class="item glass-section">' +
+    // TD-Close: 已收口时灰化卡片 + 显示「已收口」徽章 + 收口人/时间
+    const closedAt = it.closed_at ? fmt(it.closed_at) : '';
+    const closedBadge = it.closed
+      ? '<span class="badge" style="background:linear-gradient(135deg,#94a3b8,#64748b); margin-left:6px">🔒 已收口</span>'
+      : '';
+    const closedMeta = it.closed
+      ? '<div class="meta">🔒 收口人：' + esc(it.closed_by || '—') + (closedAt ? ' · 🕐 收口时间：' + closedAt : '') + '</div>'
+      : '';
+    // 收口/打开按钮：仅已登录用户可见
+    const loginState = (typeof getLoginState === 'function') ? getLoginState() : { loggedIn: false };
+    const actionBtn = loginState.loggedIn
+      ? (it.closed
+          ? '<button class="btn-closed-open" data-case="' + esc(it.case_id) + '" data-closed="0" style="background:rgba(99,102,241,0.12); border:1px solid rgba(99,102,241,0.3); color:#4f46e5; padding:6px 12px; border-radius:10px; font-size:12px; font-weight:600; cursor:pointer;"><i class="fas fa-lock-open mr-1"></i>打开收口</button>'
+          : '<button class="btn-closed-open" data-case="' + esc(it.case_id) + '" data-closed="1" style="background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.3); color:#059669; padding:6px 12px; border-radius:10px; font-size:12px; font-weight:600; cursor:pointer;"><i class="fas fa-lock mr-1"></i>收口</button>')
+      : '';
+    const cardOpacity = it.closed ? 'opacity:.78;' : '';
+    return '<div class="item glass-section" style="' + cardOpacity + '">' +
       '<div class="item-text">' +
-      '<div class="badge" style="background:' + (GRAD[it.result] || '#9ca3af') + '">' + b.emoji + ' ' + b.label + '</div>' +
+      '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">' +
+        '<div class="badge" style="background:' + (GRAD[it.result] || '#9ca3af') + '">' + b.emoji + ' ' + b.label + '</div>' +
+        closedBadge +
+        (actionBtn ? '<div style="margin-left:auto">' + actionBtn + '</div>' : '') +
+      '</div>' +
       '<div class="id">' + esc(it.case_id) + '</div>' +
       '<div class="title">' + esc(it.case_title) + '</div>' +
       '<div class="meta">👤 提交人：' + esc(it.submitted_by || '—') + ' · 🕐 更新：' + fmt(it.updated_at) + '</div>' +
+      closedMeta +
       (it.detail ? '<div class="detail">' + esc(it.detail) + '</div>' : '') +
       (links ? '<div>' + links + '</div>' : '') +
       '</div>' +
       (pics ? '<div class="' + evidClass + '">' + pics + '</div>' : '') +
       '</div>';
   }).join('');
-  const done = items.filter(it => it.result !== 'pending').length;
-  $('countLine').textContent = '共 ' + items.length + ' 项（已测 ' + done + '）';
+  // 绑定收口/打开按钮事件
+  $('list').querySelectorAll('.btn-closed-open').forEach((btn) => {
+    btn.addEventListener('click', () => toggleClosed(btn.dataset.case, btn.dataset.closed === '1', btn));
+  });
+  const done = items.filter((it) => it.result !== 'pending' && !it.closed).length;
+  const closed = items.filter((it) => it.closed).length;
+  let line = '共 ' + items.length + ' 项（已测 ' + done + '）';
+  if (closed) line += ' · 已收口 ' + closed;
+  $('countLine').textContent = line;
 }
 
 function openLb(src) { $('lbImg').src = src; $('lightbox').style.display = 'flex'; }
@@ -497,6 +552,10 @@ function promptLogin(reason) {
   }
 }
 
+// TD-CloseAction: 当前登录状态（按钮权限判定用）
+let _loginState = { loggedIn: false, username: null, role: null }
+function getLoginState() { return _loginState }
+
 async function initUser() {
   const token = findToken();
   if (!token) { $('loginLink').classList.remove('hidden'); return; }
@@ -506,9 +565,40 @@ async function initUser() {
     $('userName').textContent = j.data.username + (j.data.role ? ' (' + j.data.role + ')' : '');
     $('userInfo').classList.remove('hidden');
     $('logoutBtn').classList.remove('hidden');
+    _loginState = { loggedIn: true, username: j.data.username, role: j.data.role || null }
+    // 登录后让每张卡显示「收口/打开」按钮
+    try { renderList() } catch (e) { /* 首次加载时 renderList 还未定义 */ }
   } catch (e) {
     if (e.message === 'UNAUTHORIZED') $('loginLink').classList.remove('hidden');
     else console.error('获取当前用户失败:', e.message);
+  }
+}
+
+// TD-CloseAction: 收口/打开用例（按 case_id 维度，整组任一提交人都会受影响）
+async function toggleClosed(caseId, toClosed, btn) {
+  if (!_loginState.loggedIn) { promptLogin('收口操作需要先登录'); return; }
+  const action = toClosed ? '收口' : '打开'
+  if (!confirm('确认要【' + action + '】用例 ' + caseId + ' 吗？\\n\\n' + (toClosed
+    ? '收口后该用例将归入「已完成」，上报系统不再显示此用例。'
+    : '打开后该用例可重新测试。'))) return
+  const oldHtml = btn.innerHTML
+  btn.disabled = true
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>' + (toClosed ? '收口中…' : '打开中…')
+  try {
+    const r = await fetch('/api/test-results/close', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + findToken() },
+      body: JSON.stringify({ case_ids: [caseId], closed: toClosed }),
+    })
+    const j = await r.json()
+    if (!j.success) throw new Error(j.error || '操作失败')
+    // 收口/打开成功后让后端重新生成报告（close 路由内已触发 scheduleDocsSync）。
+    // 等待 1.5s 让同步完成，然后带时间戳重新加载页面（避免浏览器缓存旧 snapshot.json）
+    setTimeout(() => { window.location.href = window.location.pathname + '?_=' + Date.now() }, 1500)
+  } catch (e) {
+    alert('操作失败：' + e.message)
+    btn.disabled = false
+    btn.innerHTML = oldHtml
   }
 }
 

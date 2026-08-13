@@ -62,6 +62,16 @@ export function createTestResultRoutes(userManager, prisma) {
     }
   }
 
+  // TD-CloseGuard: 该 case_id（任意提交人维度）已被收口 → 拒绝任何 POST 更新，
+  // 避免「绕过汇总页收口按钮偷偷改结果」。汇总页可重新打开后才会放行。
+  async function assertNotClosed(caseId) {
+    const closed = await prisma.testResult.findFirst({
+      where: { case_id: caseId, closed: true },
+      select: { id: true, submitted_by: true, closed_at: true, closed_by: true },
+    })
+    return closed
+  }
+
   // 同步 docs 报告 + 重建 dist（让 Caddy 立即生效）。
   // 复用同一把 syncing 锁，避免并发提交多次清空重建 dist。
   let syncing = false
@@ -112,10 +122,38 @@ export function createTestResultRoutes(userManager, prisma) {
   // ── GET /api/test-results/defs — 用例清单（放最前，避免被 /:xxx 风格路由吞）──
   // TD-DefsNoCache: 用例清单会被前端动态渲染，禁止浏览器缓存（否则开发更新用例后
   // 测试人员看不到新分组/新用例，误以为"没更新"）。
-  router.get('/defs', (req, res) => {
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
-    res.setHeader('Pragma', 'no-cache')
-    res.json({ success: true, data: CASE_DEFS, result_options: RESULT_OPTIONS })
+  router.get('/defs', async (req, res) => {
+    try {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
+      res.setHeader('Pragma', 'no-cache')
+      // TD-CloseList: 同步返回【已收口 case_id 集合】（任一提交人已收口即整组收口），
+      // 上报页据此把对应用例折叠到"已完成"区、不再可继续测试。
+      const closedRows = await prisma.testResult.findMany({
+        where: { closed: true },
+        select: { case_id: true, closed_by: true, closed_at: true, submitted_by: true },
+      })
+      // 按 case_id 聚合：保留最早收口记录（first），便于前端展示收口人/时间
+      const closedMap = new Map()
+      for (const r of closedRows) {
+        if (!closedMap.has(r.case_id)) {
+          closedMap.set(r.case_id, {
+            case_id: r.case_id,
+            closed_by: r.closed_by,
+            closed_at: r.closed_at,
+            by_submitter: r.submitted_by,
+          })
+        }
+      }
+      res.json({
+        success: true,
+        data: CASE_DEFS,
+        result_options: RESULT_OPTIONS,
+        closed_case_ids: [...closedMap.values()],
+      })
+    } catch (e) {
+      console.error('[testResultRoutes] defs 失败:', e)
+      res.status(500).json({ success: false, error: '获取用例清单失败' })
+    }
   })
 
   // ── GET /api/test-results/me — 当前登录用户信息（供汇总页等静态页面显示）──
@@ -186,6 +224,14 @@ export function createTestResultRoutes(userManager, prisma) {
     try {
       const { error, data } = sanitizeBody(req.body)
       if (error) return res.status(400).json({ success: false, error })
+      // TD-CloseGuard: 收口守卫 —— 该 case_id 任一提交人已收口则拒绝更新
+      const closed = await assertNotClosed(data.case_id)
+      if (closed) {
+        return res.status(409).json({
+          success: false,
+          error: `该用例已被 ${closed.closed_by || closed.submitted_by} 收口（${closed.closed_at ? new Date(closed.closed_at).toISOString() : ''}），需先在汇总报告页打开后再继续测试`,
+        })
+      }
       const username = req.user?.username || 'unknown'
       // tester_name 仅用于区分提交人，不是 TestResult 表字段，写入前剥离
       const testerName = (data.tester_name || '').trim()
@@ -248,6 +294,52 @@ export function createTestResultRoutes(userManager, prisma) {
     } catch (e) {
       console.error('[testResultRoutes] 图片上传失败:', e)
       res.status(500).json({ success: false, error: '图片上传失败' })
+    }
+  })
+
+  // ── POST /api/test-results/close — 收口管理（按 case_id 整组收口）──
+  // body: { case_ids: string[], closed: boolean }
+  //   - case_ids: 要收口/打开的用例 id 数组（同一 case_id 任一提交人收口即整组收口）
+  //   - closed: true=收口 / false=打开
+  // 任何已登录用户可操作（收口是测试负责人对任务下结论的协作动作）。
+  router.post('/close', express.json({ limit: '32kb' }), async (req, res) => {
+    try {
+      const { case_ids, closed } = req.body || {}
+      if (!Array.isArray(case_ids) || case_ids.length === 0) {
+        return res.status(400).json({ success: false, error: 'case_ids 必填且为非空数组' })
+      }
+      if (typeof closed !== 'boolean') {
+        return res.status(400).json({ success: false, error: 'closed 必填且为布尔值（true=收口 / false=打开）' })
+      }
+      // 限制单次最多 100 个 case，避免误操作大面积影响
+      const ids = case_ids.slice(0, 100).map((s) => String(s).trim()).filter(Boolean)
+      if (!ids.length) return res.status(400).json({ success: false, error: 'case_ids 全为空' })
+
+      const username = req.user?.username || 'unknown'
+      const now = new Date()
+      // 收口/打开：通过 case_id 维度更新该用例所有提交人的记录
+      // （按业务约定：同一 case_id 收口后任一提交人都不再能测试）
+      const data = closed
+        ? { closed: true, closed_by: username, closed_at: now }
+        : { closed: false, closed_by: null, closed_at: null }
+      const r = await prisma.testResult.updateMany({
+        where: { case_id: { in: ids } },
+        data,
+      })
+      res.json({
+        success: true,
+        data: {
+          case_ids: ids,
+          closed,
+          matched: r.count,
+          operator: username,
+          at: now.toISOString(),
+        },
+      })
+      scheduleDocsSync() // 收口状态变化 → 重新生成报告
+    } catch (e) {
+      console.error('[testResultRoutes] 收口失败:', e)
+      res.status(500).json({ success: false, error: '收口失败：' + e.message })
     }
   })
 

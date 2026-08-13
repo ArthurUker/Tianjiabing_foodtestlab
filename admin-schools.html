@@ -165,8 +165,8 @@
             <div class="flex items-center shrink-0">
                 <!-- P6 临时止损:移除"返回主界面"链接(原指向根 ./index.html,会触发根页面认证拦截踢人循环)。
                      本控制台即平台超管最高层入口,不存在更"主"的界面;若后续确认需"回到列表首屏"语义,另行实现。 -->
-                <!-- 临时测试工具:浏览器测试报告上报页（测试人员入口，超管可见） -->
-                <a href="/test-report.html" class="ml-3 text-sm px-3 py-1.5 bg-emerald-400 text-white font-semibold hover:bg-emerald-300 rounded-lg transition shadow">
+                <!-- 临时测试工具:浏览器测试报告上报页（测试人员入口，超管可见 → 新窗口打开，避免离开控制台） -->
+                <a href="/test-report.html" target="_blank" rel="noopener" class="ml-3 text-sm px-3 py-1.5 bg-emerald-400 text-white font-semibold hover:bg-emerald-300 rounded-lg transition shadow" title="在新窗口打开测试报告上报页（token 自动复用，无需重复登录）">
                     <i class="fas fa-clipboard-check mr-1"></i>测试报告
                 </a>
                 <!-- 临时测试工具:测试结果汇总报告页（docs/test-results/latest/index.html，由生成脚本产出，超管可查看汇总） -->

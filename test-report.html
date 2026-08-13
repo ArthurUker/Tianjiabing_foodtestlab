@@ -19,6 +19,12 @@
         select.result-failed { border-color: #ef4444; background: rgba(239,68,68,0.08); }
         select.result-skipped { border-color: #f59e0b; background: rgba(245,158,11,0.08); }
         select.result-empty { border-color: #d1d5db; color: #9ca3af; background: rgba(243,244,246,0.6); }
+        /* 顶部 4 张卡同行（3 汇总 + 1 测试人员）：用 grid-template-columns 直接写
+           避开未编译的 Tailwind 任意值类；窄屏堆叠，lg 起 4 列均分 */
+        .summary-row { grid-template-columns: 1fr; }
+        @media (min-width: 1024px) {
+            .summary-row { grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: stretch; }
+        }
         /* glass-panel：轻量玻璃面板（用于输入框/分组卡内部元素） */
         .glass-input {
             background: rgba(255,255,255,0.72);
@@ -135,49 +141,51 @@
         </div>
     </nav>
 
-    <!-- ═══════ 登录卡片 ═══════ -->
-    <div id="loginWrap" class="max-w-md mx-auto mt-12 glass-card p-8">
-        <div class="text-center mb-6">
+    <!-- ═══════ 无登录态提示（TD-NoStandalone：测试报告页是超管内嵌功能，不提供独立登录） ═══════ -->
+    <div id="loginWrap" class="hidden max-w-md mx-auto mt-12 glass-card p-8">
+        <div class="text-center mb-5">
             <div class="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-400 to-indigo-500 text-white shadow-lg mb-3">
                 <i class="fas fa-vial text-2xl"></i>
             </div>
             <h1 class="text-xl font-bold text-gray-800">浏览器测试报告上报</h1>
-            <p class="text-gray-500 text-xs mt-2 leading-relaxed">登录后按测试文档提交各用例执行结果（数据存入系统数据库，服务器可拉取汇总）</p>
+            <p class="text-gray-500 text-xs mt-2 leading-relaxed">本页面是【超管界面】的临时测试工具，不提供独立登录入口</p>
         </div>
-        <div id="loginError" class="hidden mb-4 p-3 rounded-xl bg-red-50/80 border border-red-200 text-red-700 text-sm"></div>
-        <form id="loginForm" class="space-y-4">
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1.5">学校代码</label>
-                <input id="loginSchool" type="text" class="w-full glass-input rounded-xl px-3 py-2.5 text-sm" placeholder="如 tjb" required>
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1.5">用户名</label>
-                <input id="loginUser" type="text" class="w-full glass-input rounded-xl px-3 py-2.5 text-sm" placeholder="测试账号用户名" required>
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1.5">密码</label>
-                <input id="loginPass" type="password" class="w-full glass-input rounded-xl px-3 py-2.5 text-sm" placeholder="密码" required>
-            </div>
-            <button type="submit" id="loginBtn" class="w-full py-3 btn-secondary rounded-xl text-sm mt-2">
-                <i class="fas fa-sign-in-alt mr-2"></i>登 录
+        <div class="p-4 rounded-xl bg-amber-50/80 border border-amber-200/70 text-amber-800 text-sm leading-relaxed">
+            <div class="font-semibold flex items-center gap-1.5 mb-1.5"><i class="fas fa-info-circle"></i>请从超管界面进入</div>
+            <p>登录状态已失效或未检测到登录信息。请回到「学校管理控制台」(<code>admin-schools.html</code>)，点击右上角 <b>「测试报告」</b> 按钮，本页会自动复用登录状态并打开。</p>
+        </div>
+        <div class="flex items-center gap-2 flex-wrap mt-5">
+            <a href="/admin-schools.html" target="_self" class="flex-1 min-w-[140px] text-center py-3 btn-secondary rounded-xl text-sm">
+                <i class="fas fa-arrow-left mr-2"></i>返回超管控制台
+            </a>
+            <button type="button" id="reopenFromOpener" class="hidden flex-1 min-w-[140px] py-3 btn-primary rounded-xl text-sm">
+                <i class="fas fa-redo mr-2"></i>重试检测登录
             </button>
-        </form>
-        <p class="text-center text-xs text-gray-500 mt-5 leading-relaxed">测试账号请联系平台超管分配（学校 manager / 超管均可）</p>
+        </div>
     </div>
 
     <!-- ═══════ 已登录：用例上报区 ═══════ -->
     <div id="reportWrap" class="hidden max-w-6xl mx-auto my-6 px-4 space-y-5">
-        <!-- 测试人员姓名 -->
-        <div class="glass-card px-6 py-4 flex items-center gap-3 flex-wrap">
-            <label for="testerName" class="text-sm text-gray-700 font-medium shrink-0 flex items-center gap-1.5">
-                <i class="fas fa-user-edit text-amber-500"></i>测试人员姓名
-            </label>
-            <input id="testerName" type="text" maxlength="50" placeholder="填姓名，便于同账号多人区分（保存后自动记住）" class="flex-1 min-w-[200px] glass-input rounded-xl px-3 py-2 text-sm">
-            <span class="text-xs text-gray-500 shrink-0">💡 此姓名会显示在所有提交的测试结果上</span>
+        <!-- 4 张卡一排：3 张分组汇总（JS 渲染）+ 1 张测试人员（与汇总卡同款 glass-tile） -->
+        <!-- 用 grid + 内联 grid-template-columns 避开缺失的 lg:flex-row 工具类 -->
+        <!-- 父层 4 列等分；窄屏堆叠 -->
+        <div class="summary-row grid gap-4">
+            <!-- 3 张分组汇总（JS 渲染到 #summaryBar） -->
+            <div id="summaryBar" class="grid grid-cols-1 sm:grid-cols-3 gap-3 min-w-0"></div>
+            <!-- 测试人员卡：固定宽度 280px（用内联 style 避免依赖未编译的 Tailwind 任意值类） -->
+            <div class="glass-tile p-5 flex flex-col gap-2 min-w-0" style="width:100%; max-width:280px;">
+                <div class="text-base font-semibold text-gray-800 flex items-center gap-1.5">
+                    <i class="fas fa-user-edit text-amber-500"></i>测试人员姓名
+                </div>
+                <input id="testerName" type="text" maxlength="50" placeholder="填姓名，便于同账号多人区分（保存后自动记住）" class="w-full glass-input rounded-xl px-3 py-2 text-sm">
+                <div class="text-xs text-gray-500 flex items-center gap-1.5 flex-wrap mt-auto">
+                    <i class="fas fa-user-shield text-indigo-500"></i>
+                    <span>当前登录：</span>
+                    <span id="loginUserTip" class="font-semibold text-indigo-700">—</span>
+                </div>
+                <div class="text-[11px] text-gray-400 leading-snug">💡 此姓名会显示在所有提交的测试结果上</div>
+            </div>
         </div>
-
-        <!-- 汇总卡（服务器可拉取 summary 看整体效果） -->
-        <div id="summaryBar" class="grid grid-cols-2 md:grid-cols-4 gap-4"></div>
 
         <!-- 分组用例表单 -->
         <div id="groupsWrap" class="space-y-6"></div>
@@ -255,28 +263,6 @@
 
         function apiHeaders() { return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authService.getToken()}` } }
 
-        // ═══ 登录 ═══
-        $('loginForm').addEventListener('submit', async (e) => {
-            e.preventDefault()
-            const schoolCode = $('loginSchool').value.trim()
-            const username = $('loginUser').value.trim()
-            const password = $('loginPass').value
-            const btn = $('loginBtn')
-            btn.disabled = true; btn.textContent = '登录中…'
-            $('loginError').classList.add('hidden')
-            try {
-                const r = await authService.login(username, password, schoolCode, true)
-                if (!r.success) throw new Error(r.message || '登录失败')
-                enterApp()
-            } catch (err) {
-                const el = $('loginError')
-                el.textContent = '登录失败：' + (err.message || '请检查学校代码/用户名/密码')
-                el.classList.remove('hidden')
-            } finally {
-                btn.disabled = false; btn.textContent = '登 录'
-            }
-        })
-
         function enterApp() {
             $('loginWrap').classList.add('hidden')
             $('reportWrap').classList.remove('hidden')
@@ -284,10 +270,17 @@
             $('curUser').textContent = (u && u.username) || 'unknown'
             $('curRole').textContent = (u && u.role) ? '(' + u.role + ')' : ''
             $('navUserBadge').classList.remove('hidden')
+            // TD-LoginTip: 把"当前登录账号"也写到"测试人员姓名"卡片里（始终展示，让用户清楚自己以谁的身份提交）
+            const loginTip = $('loginUserTip')
+            if (loginTip) loginTip.textContent = (u && u.username) ? `${u.username}${(u.role) ? ' (' + u.role + ')' : ''}` : '未登录'
             ;['saveAllBtn','syncBtn','refreshBtn','logoutBtn'].forEach((id) => $(id).classList.remove('hidden'))
             initTesterName()
             loadDefs().then(loadAll)
         }
+
+        // TD-Close: 已收口用例集合（任一提交人收口即整组收口），渲染/保存时据此拦截
+        let CLOSED_CASE_IDS = new Set()
+        let CLOSED_CASE_INFO = {} // case_id -> { closed_by, closed_at, by_submitter }
 
         // ═══ 从后端拉取用例清单（唯一权威副本 backend/lib/testCaseDefs.js）═══
         async function loadDefs() {
@@ -296,6 +289,12 @@
                 const j = await r.json()
                 if (j.success && Array.isArray(j.data) && j.data.length) {
                     CASE_DEFS = j.data
+                    CLOSED_CASE_IDS = new Set()
+                    CLOSED_CASE_INFO = {}
+                    for (const c of (j.closed_case_ids || [])) {
+                        CLOSED_CASE_IDS.add(c.case_id)
+                        CLOSED_CASE_INFO[c.case_id] = c
+                    }
                     return
                 }
                 throw new Error(j.error || 'defs 为空')
@@ -509,7 +508,18 @@
         // ═══ 渲染分组表单 ═══
         function renderGroups() {
             const wrap = $('groupsWrap')
-            wrap.innerHTML = CASE_DEFS.map((g) => `
+            // TD-Close: 把已收口用例从主列表剔除，单独渲染到"已完成（已收口）"折叠区
+            const openGroups = CASE_DEFS.map((g) => ({
+                ...g,
+                cases: g.cases.filter((c) => !CLOSED_CASE_IDS.has(c.id)),
+            })).filter((g) => g.cases.length > 0)
+            const closedGroups = CASE_DEFS.map((g) => ({
+                ...g,
+                cases: g.cases.filter((c) => CLOSED_CASE_IDS.has(c.id)),
+            })).filter((g) => g.cases.length > 0)
+            const closedTotal = closedGroups.reduce((s, g) => s + g.cases.length, 0)
+
+            wrap.innerHTML = openGroups.map((g) => `
                 <div class="glass-card overflow-hidden">
                     <div class="px-6 py-4 bg-gradient-to-r from-emerald-50/60 to-indigo-50/60 border-b border-white/60 flex items-center gap-3">
                         <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 to-indigo-500 flex items-center justify-center text-white shadow-md shrink-0">
@@ -581,6 +591,52 @@
                     </div>
                 </div>`).join('')
 
+            // TD-Close: 已收口用例单独列在「已完成（已收口）」折叠区
+            if (closedTotal > 0) {
+                const closedRows = closedGroups.flatMap((g) => g.cases.map((c) => ({ ...c, groupName: g.groupName, group: g.group })))
+                const closedHtml = `
+                <div class="glass-card overflow-hidden border-2 border-gray-200/40">
+                    <div class="px-6 py-4 bg-gradient-to-r from-gray-50/70 to-slate-50/70 border-b border-white/60 flex items-center gap-3 cursor-pointer select-none" id="closedHeader">
+                        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-gray-400 to-slate-500 flex items-center justify-center text-white shadow-md shrink-0">
+                            <i class="fas fa-check-double text-base"></i>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <h2 class="text-base font-semibold text-gray-700">已完成（已收口）</h2>
+                            <div class="text-xs text-gray-500 mt-0.5">共 ${closedTotal} 项用例已被收口 · 不再继续测试 · 点击展开/收起</div>
+                        </div>
+                        <i id="closedArrow" class="fas fa-chevron-down text-gray-500 transition-transform"></i>
+                    </div>
+                    <div id="closedList" class="hidden divide-y divide-white/40">
+                        ${closedRows.map((c) => {
+                            const info = CLOSED_CASE_INFO[c.id] || {}
+                            const closedAt = info.closed_at ? new Date(info.closed_at).toLocaleString('zh-CN') : '—'
+                            const closedBy = info.closed_by || info.by_submitter || '—'
+                            return `
+                        <div class="px-6 py-4 flex items-start gap-3 flex-wrap bg-gray-50/30">
+                            <div class="flex-1 min-w-[200px]">
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <span class="inline-flex items-center px-3 py-1 rounded-lg text-xs font-mono font-semibold bg-gray-100 text-gray-600 border border-white/60">${esc(c.id)}</span>
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-700 border border-emerald-200/60">
+                                        <i class="fas fa-lock mr-1"></i>已收口
+                                    </span>
+                                    <span class="text-[10px] text-gray-500">由 ${esc(closedBy)} 收口 · ${esc(closedAt)}</span>
+                                </div>
+                                <div class="text-sm text-gray-600 mt-2 leading-snug">${esc(c.title)}</div>
+                                <div class="text-[10px] text-gray-400 mt-1">来源：${esc(c.groupName)}</div>
+                            </div>
+                        </div>`
+                        }).join('')}
+                    </div>
+                </div>`
+                wrap.insertAdjacentHTML('beforeend', closedHtml)
+                $('closedHeader').addEventListener('click', () => {
+                    const list = $('closedList')
+                    const arrow = $('closedArrow')
+                    const hidden = list.classList.toggle('hidden')
+                    if (arrow) arrow.style.transform = hidden ? '' : 'rotate(180deg)'
+                })
+            }
+
             wrap.querySelectorAll('.save-btn').forEach((b) => b.addEventListener('click', () => saveCase(b.dataset)))
 
             // "测试步骤" 展开/收起（对应 defs 里的 guide 字段，与 md 同步的权威副本）
@@ -625,6 +681,8 @@
                         const det = $(`det_${c.id}`)
                         const evi = $(`evi_${c.id}`)
                         if (!sel) continue
+                        // TD-Close: 已收口用例的 DOM 已被剔除（不会到这里），做一次防御性检查
+                        if (CLOSED_CASE_IDS.has(c.id)) continue
                         syncEvi(c.id) // 确保分步证据写回隐藏字段
                         // 仅当用户明确选择了结果（非占位空值）才视为有效提交；未选结果则跳过，
                         // 避免未测试的用例被误存为「通过」（原 bug：默认选中 passed 会被保存）
@@ -710,6 +768,13 @@
             try {
                 if (!sel.value || sel.value === '') {
                     alert('请先选择测试结果（通过/失败/跳过/待测），再保存。')
+                    btn.disabled = false
+                    return
+                }
+                // TD-CloseGuard: 本地先拦截一次（即使被收口了保存按钮在 DOM 里也会被隐藏，但旧 DOM 残留或调试时仍可能触发）
+                if (CLOSED_CASE_IDS.has(caseId)) {
+                    const info = CLOSED_CASE_INFO[caseId] || {}
+                    alert(`该用例已被 ${info.closed_by || info.by_submitter || '其他测试人员'} 收口，不再继续测试。如需重新测试，请到汇总报告页打开收口。`)
                     btn.disabled = false
                     return
                 }
@@ -993,9 +1058,32 @@
             if (e.target.closest('#issueStepAddEmpty')) addIssueStep()
         })
 
-        // 若已登录直接进入
+        // ═══ TD-NoStandalone: 入口逻辑 ═══
+        // 本页面是超管内嵌的临时测试工具，不提供独立登录入口：
+        //   1. 检测 token：有则直接进入上报区
+        //   2. 无 token：显示「请从超管进入」提示卡，附「返回超管控制台」按钮
+        //   3. 若从超管新窗口（window.opener）打开且超时未拿到 token，显示「重试检测」按钮
+        //      （可能因 localStorage 在新窗口尚未初始化完毕造成竞态）
+        function showNoLoginTip() {
+            $('loginWrap').classList.remove('hidden')
+            $('reportWrap').classList.add('hidden')
+            // 若是从超管新窗口打开，附「重试」按钮（处理新窗口 localStorage 初始化竞态）
+            if (window.opener && !window.opener.closed) {
+                $('reopenFromOpener').classList.remove('hidden')
+                $('reopenFromOpener').addEventListener('click', () => {
+                    if (authService.getToken()) {
+                        location.reload()
+                    } else {
+                        alert('仍未检测到登录信息。请确认在超管界面已登录后再点击「测试报告」按钮。')
+                    }
+                })
+            }
+        }
+
         if (authService.getToken()) {
             enterApp()
+        } else {
+            showNoLoginTip()
         }
     </script>
 </body>

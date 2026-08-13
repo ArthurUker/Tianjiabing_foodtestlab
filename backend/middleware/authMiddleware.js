@@ -273,7 +273,8 @@ export function createAuthMiddleware(userManager, prisma) {
           const [dbUser, revoked] = await Promise.all([
             db.user.findUnique({
               where: { id: u.userId },
-              select: { status: true, school_code: true, must_change_password: true }
+              // H1-ext: 同时回查当前角色，使后台调整角色后旧 token 能尽快生效（最大延迟=缓存 TTL）
+              select: { status: true, school_code: true, must_change_password: true, role: true }
             }),
             isTokenRevoked(rootPrisma, { jti: u.jti, userId: u.userId, iat: u.iat })
           ])
@@ -295,6 +296,11 @@ export function createAuthMiddleware(userManager, prisma) {
               error: '❌ 首次登录须先修改初始密码，方可使用系统',
               code: 'MUST_CHANGE_PASSWORD'
             })
+          }
+
+          // H1-ext: 用数据库当前角色覆盖 token 中的角色，角色调整后无需强制重新登录
+          if (dbUser.role && dbUser.role !== u.role) {
+            u.role = dbUser.role
           }
 
           // 注意：must_change_password=true 时不写 'ok' 缓存，保证改密后即时恢复（无 TTL 延迟）
