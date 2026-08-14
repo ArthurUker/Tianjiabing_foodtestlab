@@ -281,9 +281,14 @@ async function main() {
 
   // ---------- I. 访客 ----------
   console.log('\n【I】访客')
-  await test('POST /api/guest/quick-access 获取访客令牌', async () => {
-    const { status, json } = await call('POST', '/api/guest/quick-access', {})
-    assert(status === 200 && json?.token, `status=${status}`)
+  // TD-GuestGate: quick-access 现受 guest_enabled 开关（未开启返回 403）+ 限流保护
+  await test('POST /api/guest/quick-access 缺 schoolCode = 400', async () => {
+    const { status } = await call('POST', '/api/guest/quick-access', {})
+    assert(status === 400, `期望400 实际${status}`)
+  })
+  await test('POST /api/guest/quick-access guest_enabled 未开启 = 403', async () => {
+    const { status } = await call('POST', '/api/guest/quick-access', { body: { schoolCode: 'tianjiabing' } })
+    assert(status === 403, `期望403 实际${status}`)
   })
 
   // ---------- J. 多租户隔离 ----------

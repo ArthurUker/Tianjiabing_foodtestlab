@@ -31,6 +31,8 @@ import { writeTenantAuditLog } from '../lib/auditLog.js'
 // NB-12: 访客公开端点限流
 const guestRegisterLimiter = rateLimit(10, 60 * 1000)   // 每分钟10次
 const guestLoginLimiter = rateLimit(20, 60 * 1000)      // 每分钟20次
+// TD-GuestGate: quick-access 无凭证签发只读 JWT，需额外限流防批量枚举学校代码拉取数据
+const quickAccessLimiter = rateLimit(30, 60 * 1000)     // 每分钟30次
 
 // NB-06: 访客类型白名单
 const VALID_GUEST_TYPES = new Set(['readonly', 'export_applicant'])
@@ -67,9 +69,40 @@ function makeGuestToken(guest, schoolCode, jwtSecret) {
     )
 }
 
+// TD-GuestGate: 访客功能开关后端强制校验（首轮阻断项 #2+#3 修复）。
+// 此前 guest_enabled 仅在前端登录页控制访客 Tab 显隐，后端 register/login/quick-access
+// 三个端点均不校验，导致超管关闭访客入口后仍可直连 API 自注册/快速访问。
+// 提取为单一工厂函数，供三端点复用同一实现，避免分散复制（架构一致性）。
+function makeGuestEnabledGuard(prisma) {
+    return async (req, res, next) => {
+        const schoolCode = req.body?.schoolCode || req.query?.schoolCode
+        if (!schoolCode) {
+            return res.status(400).json({ error: '❌ 缺少学校代码（schoolCode）' })
+        }
+        try {
+            const rows = await prisma.$queryRawUnsafe(
+                `SELECT "guest_enabled" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`,
+                schoolCode
+            )
+            // fail-closed：记录不存在 或 guest_enabled 非 true 一律视为关闭，拒绝放行
+            const enabled = rows?.[0]?.guest_enabled === true
+            if (!enabled) {
+                return res.status(403).json({ error: '❌ 该校未开放访客入口，请联系管理员' })
+            }
+            next()
+        } catch (err) {
+            // fail-closed：开关校验不可用时拒绝签发，而非静默放行
+            console.error('[guest] 校验 guest_enabled 失败:', err)
+            return res.status(503).json({ error: '访客服务暂不可用，请稍后重试' })
+        }
+    }
+}
+
 export function createGuestRoutes(userManager, prisma, jwtSecret) {
     const router = express.Router()
     const { authenticateUser, requireGuestReadOnly } = createAuthMiddleware(userManager, prisma)
+    // TD-GuestGate: 供三端点复用的开关校验中间件
+    const checkGuestEnabled = makeGuestEnabledGuard(prisma)
 
     const requireGuest = (req, res, next) => {
         if (!req.user || req.user.role !== 'guest') {
@@ -78,8 +111,8 @@ export function createGuestRoutes(userManager, prisma, jwtSecret) {
         next()
     }
 
-    // 访客自注册（NB-12: 加注册限流）
-    router.post('/register', guestRegisterLimiter, async (req, res) => {
+    // 访客自注册（NB-12: 加注册限流；TD-GuestGate: 强制校验 guest_enabled 开关）
+    router.post('/register', guestRegisterLimiter, checkGuestEnabled, async (req, res) => {
         let db = null  // H5: 提升到 try 外，避免 catch 块 ReferenceError
         try {
             const {
@@ -153,8 +186,8 @@ export function createGuestRoutes(userManager, prisma, jwtSecret) {
         }
     })
 
-    // 访客登录（NB-12: 加登录限流）
-    router.post('/login', guestLoginLimiter, async (req, res) => {
+    // 访客登录（NB-12: 加登录限流；TD-GuestGate: 强制校验 guest_enabled 开关）
+    router.post('/login', guestLoginLimiter, checkGuestEnabled, async (req, res) => {
         try {
             const { username, password, schoolCode } = req.body
 
@@ -204,7 +237,8 @@ export function createGuestRoutes(userManager, prisma, jwtSecret) {
 
     // P0-07：快速访问 —— 无需凭证，签发只读限权 JWT（2h）。
     // 原内联在 server.js，现收口到 guestRoutes 保持结构统一。
-    router.post('/quick-access', async (req, res) => {
+    // TD-GuestGate: 增加限流 + 强制校验 guest_enabled 开关（原无任何凭证与限流，可直接枚举学校代码）。
+    router.post('/quick-access', quickAccessLimiter, checkGuestEnabled, async (req, res) => {
         try {
             // RK23: 快速访问令牌必须携带 schoolCode，否则 tenantMiddleware 回退 public schema，
             // 造成跨租户数据泄漏。无法确定学校时拒绝签发。

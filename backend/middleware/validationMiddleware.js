@@ -369,28 +369,20 @@ export function rateLimit(maxRequests = 100, windowMs = 15 * 60 * 1000) {
         const key = req.ip || req.connection.remoteAddress
         const now = Date.now()
 
-        if (!requestMap.has(key)) {
-            requestMap.set(key, [])
-        }
-
-        const requests = requestMap.get(key)
-
-        // 移除超出时间窗口的请求
-        const validRequests = requests.filter(timestamp => now - timestamp < windowMs)
-        // NB-29: 过滤后数组为空则删除该 key，防止 Map 键永存导致内存增长
-        if (validRequests.length === 0) {
-            requestMap.delete(key)
-        } else {
-            requestMap.set(key, validRequests)
-        }
+        // 移除超出时间窗口的请求（filter 返回新数组，必须在 push 后写回 requestMap，
+        // 否则每次请求都从空数组重新计数，限流形同虚设）
+        const validRequests = (requestMap.get(key) || []).filter(timestamp => now - timestamp < windowMs)
 
         if (validRequests.length >= maxRequests) {
+            // 达到上限：写回当前窗口后拒绝
+            requestMap.set(key, validRequests)
             return res.status(429).json({
                 error: '❌ 请求过于频繁，请稍后再试'
             })
         }
 
         validRequests.push(now)
+        requestMap.set(key, validRequests)
         next()
     }
 }
