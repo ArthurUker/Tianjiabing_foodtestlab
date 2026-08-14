@@ -361,8 +361,9 @@ describe('M2 · 临时密码账号强制改密标记', () => {
     });
 
     test('POST /api/admin/schools/:code/users 新增用户 SQL 含 must_change_password=true（静态回归）', () => {
+        // P1-5 拆路由后该端点已迁至 routes/schoolRoutes.js
         const src = fs.readFileSync(
-            path.resolve(__dirname, '../backend/server.js'), 'utf8'
+            path.resolve(__dirname, '../backend/routes/schoolRoutes.js'), 'utf8'
         );
         // 新增用户端点 INSERT 必须显式置 must_change_password（初始密码=临时密码，首登强制改密）
         const createUserInsert = src.match(/INSERT INTO "\$\{schema\}"\."User"[\s\S]*?VALUES[^\n]*/);
