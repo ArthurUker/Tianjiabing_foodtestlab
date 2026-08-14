@@ -586,8 +586,12 @@ async function initUser() {
     try { renderList() } catch (e) { /* 首次加载时 renderList 还未定义 */ }
   } catch (e) {
     if (e.message === 'UNAUTHORIZED') {
-      // 登录已过期：直接跳超管登录页，不弹窗
-      redirectToLogin();
+      // 登录已过期：静默降级为未登录态（仅显示登录入口），不强制跳转。
+      // 修复「汇总报告闪退回超管界面」：原实现 redirectToLogin() 跳超管登录页，
+      // 而登录页检测到本地 token 仍"看似有效"会立即 replace 回 admin-schools.html，
+      // 造成点击「汇总报告」后新标签页一闪即退回超管界面。本页为公开静态报告，
+      // 未登录同样可浏览，故 401 时仅展示登录入口，不再跳转。
+      $('loginLink').classList.remove('hidden');
       return;
     }
     console.error('获取当前用户失败:', e.message);

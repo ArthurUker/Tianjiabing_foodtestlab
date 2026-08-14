@@ -110,6 +110,21 @@
     <script type="module">
         import { authService } from '/js/services/AuthService.js';
 
+        // 解析并校验 redirect 参数（防开放重定向：仅允许站内相对路径）。
+        // 汇总报告页（docs/test-results/latest/index.html）在 token 失效时
+        // redirectToLogin() 会携带 ?redirect=<原页面>，登录成功后应回到原页面，
+        // 而不是固定跳回 admin-schools.html（否则会表现为「闪退回超管界面」）。
+        function resolveRedirect() {
+            try {
+                const raw = new URLSearchParams(window.location.search).get('redirect');
+                if (raw && /^\/[^/]/.test(raw) && !/^\/\//.test(raw) && !/[:\\]/.test(raw)) {
+                    return raw;
+                }
+            } catch (e) { /* 忽略非法参数 */ }
+            return './admin-schools.html';
+        }
+        const redirectTarget = resolveRedirect();
+
         const form = document.getElementById('saLoginForm');
         const usernameInput = document.getElementById('username');
         const passwordInput = document.getElementById('password');
@@ -118,11 +133,11 @@
         const errorMessage = document.getElementById('errorMessage');
         const errorText = document.getElementById('errorText');
 
-        // 已登录则直接进入控制台
+        // 已登录则直接进入控制台（或回到 redirect 指定页面）
         if (authService.isAuthenticated()) {
             const u = authService.getUser();
             if (u && u.role === 'admin' && !u.schoolCode) {
-                window.location.replace('./admin-schools.html');
+                window.location.replace(redirectTarget);
             }
         }
 
@@ -162,7 +177,7 @@
                 const result = await authService.loginSuperAdmin(username, password, true);
                 if (result.success) {
                     loginBtnText.innerHTML = '<i class="fas fa-check mr-2"></i>登录成功';
-                    setTimeout(() => window.location.replace('./admin-schools.html'), 80);
+                    setTimeout(() => window.location.replace(redirectTarget), 80);
                 } else {
                     showError(result.message || '登录失败，请检查账号或密码');
                     form.classList.add('error-shake');
