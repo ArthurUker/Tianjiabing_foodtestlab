@@ -85,9 +85,12 @@ export async function isTokenRevoked(prisma, { jti, userId, iat }) {
     const rows = await query()
     return rows.length > 0
   } catch (e) {
-    // 吊销表查询异常时不阻断全站请求（用户状态回查仍然 fail-closed），但必须高声告警。
-    console.error('❌ [revocation] 吊销校验失败（临时降级为未吊销，请立即排查）:', e.message)
-    return false
+    // R2-03: 吊销表查询异常时不得静默降级为「未吊销」（fail-open），否则已吊销 token 会在
+    // 吊销表单独故障时被放行。改为向上抛出，交由调用方统一决策：
+    //   - authenticateUser 内 Promise.all 抛错 → 进入 fail-soft/fail-closed 折中计数（与 user 回查同口径）
+    //   - refresh-token 内 await 抛错 → 进入其 catch 返回 401（fail-closed）
+    console.error('❌ [revocation] 吊销校验失败（向上抛出，交由调用方降级决策）:', e.message)
+    throw e
   }
 }
 
