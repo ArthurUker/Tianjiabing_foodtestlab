@@ -24,7 +24,12 @@ const dirsToCopy = [
   'css',
   'js',
   'vendor',
-  'docs/test-results/latest'
+];
+
+// 可选目录：docs/test-results/latest 是运行时由 testReportSync 生成的中间源，
+// 全新 clone 部署（仓库未收录该产物）时可能尚不存在，跳过即可，等有测试数据提交后自动生成。
+const optionalDirsToCopy = [
+  'docs/test-results/latest',
 ];
 
 function ensureCleanDist() {
@@ -51,6 +56,16 @@ function copyDirRelative(relPath) {
   fs.cpSync(src, dst, { recursive: true });
 }
 
+// 复制可选目录：源不存在时仅跳过（打印日志），保证全新部署不因缺 docs 中间源而失败。
+function copyDirRelativeOptional(relPath) {
+  const src = path.join(root, relPath);
+  if (!fs.existsSync(src)) {
+    console.log(`Skip missing optional directory: ${relPath}`);
+    return;
+  }
+  copyDirRelative(relPath);
+}
+
 function main() {
   ensureCleanDist();
 
@@ -60,6 +75,10 @@ function main() {
 
   for (const relDir of dirsToCopy) {
     copyDirRelative(relDir);
+  }
+
+  for (const relDir of optionalDirsToCopy) {
+    copyDirRelativeOptional(relDir);
   }
 
   console.log('Build completed: dist/ generated successfully');

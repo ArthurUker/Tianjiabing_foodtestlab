@@ -32,9 +32,12 @@ docs/test-results/
 
 ## 注意事项
 
-- `latest/` 是**覆盖式**快照，不保留历史；需要归档某一轮结果时，把整个
-  `docs/test-results/latest/` 复制为带日期的目录（如 `docs/test-results/2026-08-11/`）再提交 git。
-- 服务器 git 部署（`deploy.sh` 的 `git fetch + reset`）会还原本目录到仓库版本，因此
-  **归档需手动 `git add docs/test-results` 提交**，不要把同步产物当作唯一的持久化存储。
+- `latest/` 是**覆盖式**快照，不保留历史，且**不入库**（已在 `.gitignore` 中忽略，
+  磁盘上仅作为 `build-static.js` 复制到 `dist/` 的中间源保留）。
+- 需要归档某一轮结果时，把整个 `docs/test-results/latest/` 复制为带日期的目录
+  （如 `docs/test-results/2026-08-11/`），再单独 `git add` 提交该日期目录即可。
+- 权威数据始终在数据库 `public."TestResult"`；`deploy.sh` 全新部署（git reset）后
+  `latest/` 目录不存在，`build-static.js` 会自动跳过，待有测试数据提交后由
+  `testReportSync` 重新生成。
 - 图片运行时存储于 `backend/uploads/test-evidence/`（已加入 `.gitignore`，不入库）；
   `docs/test-results/latest/evidence/` 里的副本在下次同步时按数据库引用重建。
