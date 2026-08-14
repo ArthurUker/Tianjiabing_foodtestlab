@@ -267,6 +267,7 @@
             ['skipped', '⏭ 跳过'],
             ['pending', '⏳ 待测'],
         ];
+        const RESULT_LABEL = Object.fromEntries(RESULT_OPTIONS)
 
         function esc(s) {
             if (s == null) return ''
@@ -321,16 +322,35 @@
         // 修订：先异步拉取已保存记录，再调用 renderGroups(map) 渲染，
         // 使"已填写用例"首次渲染即为正确状态，避免依赖后置 fillRow 二次刷新（用户硬刷可见）。
         // 未填写过的用例在 renderGroups 中预判 result/detail/evidence 后保持默认"待测"空状态。
+        // N1 止血：仅 admin/manager 可见全量测试结果；operator/viewer 仅能查看自己
+        // （按测试人员姓名/账号 submitted_by）提交的记录，避免普通账号越权看到他人检验记录。
+        function canViewAllResults() {
+            const u = authService.getUser ? authService.getUser() : null
+            return !!(u && (u.role === 'admin' || u.role === 'manager'))
+        }
+
         async function loadAll() {
             let map = {}
+            let allMap = {}
             try {
-                const me = (authService.getUser ? authService.getUser() : null) || {}
-                const who = testerName() || me.username || $('curUser').textContent || 'unknown'
-                const r = await fetch(`/api/test-results?submitted_by=${encodeURIComponent(who)}`, { headers: apiHeaders() })
+                const canAll = canViewAllResults()
+                const who = testerName() || currentUsername()
+                const qs = canAll
+                    ? `?pageSize=500`
+                    : `?submitted_by=${encodeURIComponent(who)}&pageSize=500`
+                const r = await fetch(`/api/test-results${qs}`, { headers: apiHeaders() })
                 const j = await r.json()
-                for (const it of (j.data || [])) map[it.case_id] = it
+                // 同一 case_id 可能被多个测试人员提交，取 updated_at 最新的一条作为当前展示值
+                for (const it of (j.data || [])) {
+                    (allMap[it.case_id] = allMap[it.case_id] || []).push(it)
+                    const prev = map[it.case_id]
+                    if (!prev || new Date(it.updated_at || 0) > new Date(prev.updated_at || 0)) {
+                        map[it.case_id] = it
+                    }
+                }
+                for (const id in allMap) allMap[id].sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0))
             } catch { /* 拉取失败时回退到默认空渲染 */ }
-            renderGroups(map)
+            renderGroups(map, allMap)
             // renderGroups 内 select 已根据 recordsMap 预填 selected & result-* 类；
             // 此处再回填 detail textarea / evidence 分步 / 已保存时间，确保首次渲染即为最终态。
             restoreFromRecords(map)
@@ -351,7 +371,7 @@
                 // 用有序分步渲染回填证据（会接管 stepWrap 内容、绑定事件）
                 try { renderSteps(id, evidenceSteps(rec.evidence || '')) } catch (e) { /* 忽略单条异常 */ }
                 const st = $(`st_${id}`)
-                if (st && rec.updated_at) st.textContent = `已保存 ${new Date(rec.updated_at).toLocaleString('zh-CN')}`
+                if (st && rec.updated_at) st.textContent = `已保存 ${new Date(rec.updated_at).toLocaleString('zh-CN')} · 操作人 ${rec.submitted_by || '—'}`
             }
         }
 
@@ -546,8 +566,9 @@
         // ═══ 渲染分组表单 ═══
         // recordsMap: 可选 { case_id -> {result, detail, evidence, updated_at} }，用于首次渲染时直接预填
         // "已填写"用例的结果与"已保存"时间，避免依赖异步 fillRow 二次刷新。
-        function renderGroups(recordsMap) {
+        function renderGroups(recordsMap, allRecordsMap) {
             recordsMap = recordsMap || {}
+            allRecordsMap = allRecordsMap || {}
             const wrap = $('groupsWrap')
             // TD-Close: 把已收口用例从主列表剔除，单独渲染到"已完成（已收口）"折叠区
             const openGroups = CASE_DEFS.map((g) => ({
@@ -595,7 +616,7 @@
                                         const rec = recordsMap[c.id]
                                         const hasContent = rec && ((rec.detail && rec.detail.trim()) || (rec.evidence && rec.evidence.trim()) || (rec.result && rec.result !== 'pending'))
                                         const cur = hasContent ? rec.result : ''
-                                        const stText = hasContent && rec.updated_at ? `已保存 ${new Date(rec.updated_at).toLocaleString('zh-CN')}` : ''
+                                        const stText = hasContent && rec.updated_at ? `已保存 ${new Date(rec.updated_at).toLocaleString('zh-CN')} · 操作人 ${rec.submitted_by || '—'}` : ''
                                         return `<select id="sel_${esc(c.id)}" class="w-full glass-input rounded-xl px-3 py-2.5 text-sm result-${cur || 'empty'}"
                                             onchange="this.classList.remove('result-passed','result-failed','result-skipped','result-empty'); this.classList.add('result-'+(this.value||'empty'))">
                                             ${RESULT_OPTIONS.map(([v, l]) => `<option value="${v}"${v === cur ? ' selected' : ''}>${l}</option>`).join('')}
@@ -662,6 +683,15 @@
                             const info = CLOSED_CASE_INFO[c.id] || {}
                             const closedAt = info.closed_at ? new Date(info.closed_at).toLocaleString('zh-CN') : '—'
                             const closedBy = info.closed_by || info.by_submitter || '—'
+                            const recs = allRecordsMap[c.id] || []
+                            const resCls = (r) => r === 'passed' ? 'bg-emerald-100 text-emerald-700' : r === 'failed' ? 'bg-red-100 text-red-700' : r === 'skipped' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'
+                            const submittersHtml = recs.length
+                                ? recs.map((r) => `<div class="flex items-center gap-2 text-[11px] text-gray-600">
+                                    <span class="font-medium text-gray-700">${esc(r.submitted_by || '—')}</span>
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${resCls(r.result)} border border-white/60">${esc(RESULT_LABEL[r.result] || r.result || '—')}</span>
+                                    <span class="text-gray-400">${r.updated_at ? new Date(r.updated_at).toLocaleString('zh-CN') : ''}</span>
+                                </div>`).join('')
+                                : '<div class="text-[11px] text-gray-400">无测试记录</div>'
                             return `
                         <div class="px-6 py-4 flex items-start gap-3 flex-wrap bg-gray-50/30">
                             <div class="flex-1 min-w-[200px]">
@@ -674,6 +704,7 @@
                                 </div>
                                 <div class="text-sm text-gray-600 mt-2 leading-snug">${esc(c.title)}</div>
                                 <div class="text-[10px] text-gray-400 mt-1">来源：${esc(c.groupName)}</div>
+                                <div class="mt-2 space-y-1">${submittersHtml}</div>
                             </div>
                         </div>`
                         }).join('')}
@@ -724,6 +755,11 @@
             btn.disabled = true
             let saved = 0, failed = 0, firstErr = ''
             try {
+                // 测试人员姓名必填：为空则提示并中止，避免提交人回退成账号名
+                if (!testerName()) {
+                    alert('请先填写「测试人员姓名」后再保存。')
+                    return
+                }
                 // 1) 正式用例：遍历所有结果下拉框，已选择的（含 pending）才保存；若仅填了详情/证据也算
                 const promises = []
                 for (const g of CASE_DEFS) {
@@ -817,6 +853,10 @@
             const btn = event.target.closest('.save-btn')
             btn.disabled = true
             try {
+                if (!testerName()) {
+                    alert('请先填写「测试人员姓名」后再保存。')
+                    return
+                }
                 if (!sel.value || sel.value === '') {
                     alert('请先选择测试结果（通过/失败/跳过/待测），再保存。')
                     btn.disabled = false
@@ -856,14 +896,18 @@
                 const bar = $('summaryBar')
                 bar.innerHTML = CASE_DEFS.map((g) => {
                     const gs = s[g.group] || {}
+                    // TD-CloseNumerator: 收口口径修正 —— "分子扣除"（收口项从 result 计数移除，已由 summary API 的 closed 单独计数实现），
+                    // total 保持总数不变；完成度 = (已测 + 已收口) / 总数，收口视为"结案完成"，全部收口 = 100%。
                     const total = g.cases.length
+                    const closed = gs.closed || 0
                     const done = (gs.passed || 0) + (gs.failed || 0) + (gs.skipped || 0)
-                    const pct = total ? Math.round((done / total) * 100) : 0
-                    const remain = total - done
+                    const completed = done + closed
+                    const pct = total ? Math.round((completed / total) * 100) : 0
+                    const remain = total - completed
                     return `<div class="glass-tile p-5">
                         <div class="text-base font-semibold text-gray-800 truncate" title="${esc(g.groupName)}">${esc(g.groupName.split(' · ')[0])}</div>
                         <div class="flex items-baseline gap-1.5 mt-3">
-                            <span class="text-4xl font-bold bg-gradient-to-br from-emerald-500 to-indigo-600 bg-clip-text text-transparent leading-none">${done}</span>
+                            <span class="text-4xl font-bold bg-gradient-to-br from-emerald-500 to-indigo-600 bg-clip-text text-transparent leading-none">${completed}</span>
                             <span class="text-base text-gray-500">/ ${total} 项</span>
                             <span class="text-xs text-gray-600 ml-auto shrink-0 bg-white/60 backdrop-blur px-2 py-0.5 rounded-full border border-white/60">完成 ${pct}%</span>
                         </div>
@@ -890,6 +934,11 @@
                                 <i class="far fa-clock text-base"></i>
                                 <span class="text-gray-700">待测</span>
                                 <span class="font-semibold ml-auto text-gray-900">${remain}</span>
+                            </div>
+                            <div class="flex items-center gap-2 text-slate-500">
+                                <i class="fas fa-lock text-base"></i>
+                                <span class="text-gray-700">收口</span>
+                                <span class="font-semibold ml-auto text-gray-900">${closed}</span>
                             </div>
                         </div>
                     </div>`
@@ -939,7 +988,12 @@
 
         async function loadMyIssues() {
             try {
-                const r = await fetch(`/api/test-results?case_group=${encodeURIComponent(NEW_ISSUE_GROUP)}&submitted_by=${encodeURIComponent(testerName() || currentUsername())}`, { headers: apiHeaders() })
+                const canAll = canViewAllResults()
+                const who = testerName() || currentUsername()
+                const qs = canAll
+                    ? `?case_group=${encodeURIComponent(NEW_ISSUE_GROUP)}&pageSize=500`
+                    : `?case_group=${encodeURIComponent(NEW_ISSUE_GROUP)}&submitted_by=${encodeURIComponent(who)}&pageSize=500`
+                const r = await fetch(`/api/test-results${qs}`, { headers: apiHeaders() })
                 const j = await r.json()
                 const items = j.data || []
                 const list = $('issueList')
@@ -949,7 +1003,7 @@
                             <div class="flex-1 min-w-0">
                                 <div class="text-xs font-medium text-gray-700">${esc(it.case_title || '（未填标题）')}</div>
                                 <div class="text-[10px] text-gray-400 truncate">${esc(it.detail || '')}</div>
-                                <div class="text-[10px] text-gray-300">${esc(it.case_id)} · ${new Date(it.updated_at).toLocaleString('zh-CN')}</div>
+                                <div class="text-[10px] text-gray-300">${esc(it.case_id)} · 操作人 ${esc(it.submitted_by || '—')} · ${new Date(it.updated_at).toLocaleString('zh-CN')}</div>
                             </div>
                             <button type="button" data-edit="${esc(it.case_id)}" class="issue-edit shrink-0 text-[10px] px-2 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-100">编辑</button>
                         </div>`).join('')
@@ -1101,7 +1155,7 @@
 
         async function editIssue(caseId) {
             try {
-                const r = await fetch(`/api/test-results?case_group=${encodeURIComponent(NEW_ISSUE_GROUP)}&submitted_by=${encodeURIComponent(testerName() || currentUsername())}`, { headers: apiHeaders() })
+                const r = await fetch(`/api/test-results?case_group=${encodeURIComponent(NEW_ISSUE_GROUP)}&pageSize=500`, { headers: apiHeaders() })
                 const j = await r.json()
                 const rec = (j.data || []).find((it) => it.case_id === caseId)
                 if (!rec) return alert('未找到该反馈')
@@ -1119,6 +1173,7 @@
         async function submitIssue() {
             const title = $('issueTitle').value.trim()
             if (!title) return alert('请填写问题标题')
+            if (!testerName()) return alert('请先填写「测试人员姓名」后再保存。')
             const btn = $('issueSubmitBtn')
             btn.disabled = true
             try {

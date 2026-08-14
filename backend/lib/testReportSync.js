@@ -161,8 +161,12 @@ function buildSnapshot(results) {
       if (it.closed) counts.closed += 1
       else counts[it.result] += 1
     }
-    const done = counts.passed + counts.failed + counts.skipped
-    return { group: g.group, groupName: g.groupName, total: items.length, counts, done, items }
+    // TD-CloseNumerator: 收口口径修正 —— "分子扣除"（收口项从问题项/result 计数中移除，已在上方归入 counts.closed），
+    // 而 total（分母）保持总数不变。完成度 = (已测 + 已收口) / 总数：收口视为"结案完成"，
+    // 故全部收口时完成度 = 100%，避免旧口径"分母扣除"导致全部收口反而显示 0/0·0%。
+    const done = counts.passed + counts.failed + counts.skipped + counts.closed
+    const total = items.length
+    return { group: g.group, groupName: g.groupName, total, counts, done, items }
   })
 
   // TD-ExtraGroup: 清单外用例（如前端「新问题反馈」new_问题 组）也纳入报告。
@@ -189,10 +193,15 @@ function buildSnapshot(results) {
         closed_at: closedInfo?.closed_at || null,
       }
     })
-    const counts = { passed: 0, failed: 0, skipped: 0, pending: 0 }
-    for (const it of items) counts[it.result] += 1
-    const done = counts.passed + counts.failed + counts.skipped
-    groups.push({ group: 'new_问题', groupName: '新问题 / 缺陷反馈', total: items.length, counts, done, items })
+    // new_问题 组口径与 CASE_DEFS 组一致（分子扣除 + total 不变，收口视为完成）
+    const counts = { passed: 0, failed: 0, skipped: 0, pending: 0, closed: 0 }
+    for (const it of items) {
+      if (it.closed) counts.closed += 1
+      else counts[it.result] += 1
+    }
+    const done = counts.passed + counts.failed + counts.skipped + counts.closed
+    const total = items.length
+    groups.push({ group: 'new_问题', groupName: '新问题 / 缺陷反馈', total, counts, done, items })
   }
 
   const overall = groups.reduce(
@@ -203,7 +212,7 @@ function buildSnapshot(results) {
     },
     { passed: 0, failed: 0, skipped: 0, pending: 0, closed: 0, total: 0 }
   )
-  overall.done = overall.passed + overall.failed + overall.skipped
+  overall.done = overall.passed + overall.failed + overall.skipped + overall.closed
 
   return { generated_at: new Date().toISOString(), overall, groups }
 }
@@ -223,15 +232,15 @@ function renderMarkdown(snap) {
   lines.push('')
   lines.push('## 一、总体统计')
   lines.push('')
-  lines.push('| 分组 | 通过 | 失败 | 跳过 | 待测 | 已测/总数 | 完成度 |')
-  lines.push('|---|---:|---:|---:|---:|---:|---:|')
+  lines.push('| 分组 | 通过 | 失败 | 跳过 | 待测 | 收口 | 已完成/总数 | 完成度 |')
+  lines.push('|---|---:|---:|---:|---:|---:|---:|---:|')
   for (const g of snap.groups) {
     const pct = g.total ? Math.round((g.done / g.total) * 100) : 0
-    lines.push(`| ${g.groupName} | ${g.counts.passed} | ${g.counts.failed} | ${g.counts.skipped} | ${g.counts.pending} | ${g.done}/${g.total} | ${pct}% |`)
+    lines.push(`| ${g.groupName} | ${g.counts.passed} | ${g.counts.failed} | ${g.counts.skipped} | ${g.counts.pending} | ${g.counts.closed} | ${g.done}/${g.total} | ${pct}% |`)
   }
   const o = snap.overall
   lines.push(
-    `| **合计** | **${o.passed}** | **${o.failed}** | **${o.skipped}** | **${o.pending}** | **${o.done}/${o.total}** | **${o.total ? Math.round((o.done / o.total) * 100) : 0}%** |`
+    `| **合计** | **${o.passed}** | **${o.failed}** | **${o.skipped}** | **${o.pending}** | **${o.closed}** | **${o.done}/${o.total}** | **${o.total ? Math.round((o.done / o.total) * 100) : 0}%** |`
   )
   lines.push('')
 
@@ -297,9 +306,10 @@ function renderHtml(snap) {
   .glass-tile { background: linear-gradient(135deg, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.55) 100%); border: 1px solid rgba(255,255,255,0.85); border-radius: 1.25rem; backdrop-filter: blur(10px) saturate(160%); box-shadow: 0 8px 24px rgba(40,60,100,0.12), inset 0 1px 0 rgba(255,255,255,0.95); }
   .glass-input { background: rgba(255,255,255,0.72); border: 1px solid rgba(255,255,255,0.6); border-radius: 1rem; backdrop-filter: blur(8px) saturate(160%); padding: 9px 14px; font-size: 14px; color: #1f2937; transition: all .15s ease; }
   .glass-input:focus { background: rgba(255,255,255,0.92); border-color: rgba(99,102,241,0.5); box-shadow: 0 0 0 3px rgba(99,102,241,0.12); outline: none; }
-  .wrap { max-width: 1180px; margin: 0 auto; padding: 16px 20px 60px; }
+  /* TD-WidthFill: 主容器随屏幕自适应，max-width 提到 2000px（1920~2400px 屏幕基本填满，更宽屏也有合理留白） */
+  .wrap { max-width: 2000px; margin: 0 auto; padding: 16px 28px 60px; }
   .topnav { position: sticky; top: 0; z-index: 50; background: rgba(20,28,48,0.86); border-bottom: 1px solid rgba(255,255,255,0.5); backdrop-filter: blur(14px) saturate(180%); color: #fff; }
-  .topnav .container { max-width: 1180px; margin: 0 auto; padding: 14px 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .topnav .container { max-width: 2000px; margin: 0 auto; padding: 14px 28px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
   .topnav .brand { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }
   .topnav .brand-logo { width: 36px; height: 36px; border-radius: 10px; background: rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
   .topnav .brand-logo i { color: #fde047; font-size: 18px; }
@@ -323,7 +333,8 @@ function renderHtml(snap) {
   .meta-bar { padding: 12px 18px; margin-bottom: 18px; font-size: 13px; color: #4b5563; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .meta-bar code { background: rgba(255,255,255,0.6); padding: 2px 8px; border-radius: 6px; font-size: 12px; border: 1px solid rgba(255,255,255,0.7); }
   .hidden { display: none !important; }
-  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-bottom: 22px; }
+  /* TD-WidthFill: 顶部汇总卡网格，min 从 260→220，5 张卡也能在一行并排（2000px 容器里每张 ~400px） */
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 22px; }
   .card { padding: 20px; }
   .card .gname { font-size: 15px; font-weight: 600; color: #374151; }
   .card .num-row { display: flex; align-items: baseline; gap: 6px; margin-top: 12px; }
@@ -337,11 +348,13 @@ function renderHtml(snap) {
   .chip .v { font-weight: 700; color: #111827; }
   .progress { width: 100%; height: 6px; background: rgba(229,231,235,0.6); border-radius: 999px; margin-top: 12px; overflow: hidden; }
   .progress > div { height: 100%; background: linear-gradient(90deg, #34d399 0%, #6366f1 100%); border-radius: 999px; transition: width .3s ease; }
-  .filters { display: flex; gap: 12px; flex-wrap: wrap; padding: 18px 22px; margin-bottom: 14px; }
+  /* TD-WidthFill: 筛选区水平 padding 与主容器对齐 */
+  .filters { display: flex; gap: 12px; flex-wrap: wrap; padding: 18px 28px; margin-bottom: 14px; }
   .filters select { min-width: 130px; }
   .filters input { flex: 1; min-width: 220px; }
   /* 整页卡片网格：列数随容器宽度自动增加（窗口越大列越多），每张卡片保留最小宽度以容纳左文右图两列布局 */
-  #list { display: grid; grid-template-columns: repeat(auto-fill, minmax(440px, 1fr)); gap: 16px; }
+  /* TD-WidthFill: 最小列宽 440→400，让 2000px 容器里能放下 4 列（之前 1180px 容器只能放 2 列） */
+  #list { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 16px; }
   .item { padding: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; min-height: 220px; transition: all .2s ease; }
   .item:hover { background: rgba(255,255,255,0.85); transform: translateY(-1px); box-shadow: 0 12px 36px rgba(40,60,100,0.15), inset 0 2px 0 rgba(255,255,255,0.95), inset 0 0 0 1px rgba(255,255,255,0.55); }
   .item-text { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
@@ -424,7 +437,9 @@ function renderCards() {
     const pct = g.total ? Math.round(g.done / g.total * 100) : 0;
     const remain = g.total - g.done;
     const mkChip = (k, lbl) => '<div class="chip" style="color:' + LABELS[k].color + '"><i class="icon">' + LABELS[k].emoji + '</i><span class="lbl">' + lbl + '</span><span class="v">' + (k === 'pending' ? remain : g.counts[k]) + '</span></div>';
-    const chips = mkChip('passed','通过') + mkChip('failed','失败') + mkChip('skipped','跳过') + mkChip('pending','待测');
+    // TD-CloseNumerator: 新增「收口」chip，使大数字（已完成 = 已测 + 已收口）有据可查
+    const closedChip = '<div class="chip" style="color:#64748b"><i class="icon">🔒</i><span class="lbl">收口</span><span class="v">' + (g.counts.closed || 0) + '</span></div>';
+    const chips = mkChip('passed','通过') + mkChip('failed','失败') + mkChip('skipped','跳过') + mkChip('pending','待测') + closedChip;
     return '<div class="card glass-tile">' +
       '<div class="gname">' + esc(g.groupName.split(' · ')[0]) + '</div>' +
       '<div class="num-row"><span class="num">' + g.done + '</span><span class="num-total">/ ' + g.total + ' 项</span>' +
@@ -504,7 +519,10 @@ function renderList() {
   });
   const done = items.filter((it) => it.result !== 'pending' && !it.closed).length;
   const closed = items.filter((it) => it.closed).length;
-  let line = '共 ' + items.length + ' 项（已测 ' + done + '）';
+  // TD-CloseNumerator: "共 X 项"中的 X 保持总数不变（分母不变），已测 / 已收口分别单独列出，
+  // 与卡片口径一致（收口项不再算"待测/问题项"，但总数不缩水）。
+  const total = items.length;
+  let line = '共 ' + total + ' 项（已测 ' + done + '）';
   if (closed) line += ' · 已收口 ' + closed;
   $('countLine').textContent = line;
 }

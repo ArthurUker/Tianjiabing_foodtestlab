@@ -49,6 +49,10 @@ export function createTestResultRoutes(userManager, prisma) {
     if (!VALID_GROUPS.has(case_group)) return { error: `case_group 必须为 ${[...VALID_GROUPS].join(' / ')}` }
     if (!VALID_RESULTS.has(result)) return { error: 'result 必须为 passed/failed/skipped/pending' }
     const clean = (s, max) => (s == null ? '' : String(s)).slice(0, max)
+    // TD-TesterNameRequired: 测试人员姓名必填，作为提交人标识。
+    // 空则拦截，避免回退成登录账号，防止「账号名/姓名」混用导致同一人被拆成多条记录。
+    const testerName = clean(tester_name, 50).trim()
+    if (!testerName) return { error: '测试人员姓名必填，请先填写后再保存' }
     return {
       data: {
         case_id: clean(case_id, 50),
@@ -57,8 +61,7 @@ export function createTestResultRoutes(userManager, prisma) {
         result,
         detail: clean(detail, 2000),
         evidence: clean(evidence, 5000),
-        // 测试人员姓名（可选，供同账号多人区分）。无姓名时后端回退为登录账号。
-        tester_name: clean(tester_name, 50),
+        tester_name: testerName,
       },
     }
   }
@@ -180,9 +183,11 @@ export function createTestResultRoutes(userManager, prisma) {
       // TD-SummaryDedupe: 每个 case_id 按 case_group + case_id 分组时只算一次（取最新一次提交）。
       // 修复前 bug：groupBy 直接累加所有 TestResult 行，同一 case 多次更新会让汇总数 > 用例总数
       // （如吴翠楠 17 项却显示 37）。修复后：每个 case 只计 1 次，按其最新 result 判定。
+      // TD-SummaryClosed: 同步返回 closed 计数，供前端把"已收口"用例从分子（问题项/result 计数）中移除；
+      // 分母（total = 用例总数）保持不变。
       const latestPerCase = await prisma.$queryRawUnsafe(`
-        SELECT case_group, result FROM (
-          SELECT case_group, case_id, result,
+        SELECT case_group, result, closed FROM (
+          SELECT case_group, case_id, result, closed,
             ROW_NUMBER() OVER (PARTITION BY case_group, case_id ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST) AS rn
           FROM "TestResult"
         ) t WHERE rn = 1
@@ -191,8 +196,9 @@ export function createTestResultRoutes(userManager, prisma) {
       for (const row of latestPerCase) {
         const g = row.case_group
         const r = row.result
-        if (!summary[g]) summary[g] = { passed: 0, failed: 0, skipped: 0, pending: 0 }
-        if (summary[g][r] !== undefined) summary[g][r] += 1
+        if (!summary[g]) summary[g] = { passed: 0, failed: 0, skipped: 0, pending: 0, closed: 0 }
+        if (row.closed) summary[g].closed += 1
+        else if (summary[g][r] !== undefined) summary[g][r] += 1
       }
       res.json({ success: true, data: summary })
     } catch (e) {
@@ -240,8 +246,8 @@ export function createTestResultRoutes(userManager, prisma) {
       // tester_name 仅用于区分提交人，不是 TestResult 表字段，写入前剥离
       const testerName = (data.tester_name || '').trim()
       delete data.tester_name
-      // 提交人标识 = 前端填的测试人员姓名（同账号多人区分）；未填则回退为登录账号
-      const submittedBy = testerName || username
+      // 提交人标识 = 前端填的测试人员姓名（已在 sanitizeBody 强制必填）
+      const submittedBy = testerName
       // 真实账号追溯：submitted_by_role 记录「角色@账号」
       const roleDesc = `${req.user?.role || ''}@${username}`.trim()
       // 一个测试人员对一个用例只保留一条最新结果（复测更新）——按 姓名/账号 维度 upsert
@@ -323,19 +329,25 @@ export function createTestResultRoutes(userManager, prisma) {
       const now = new Date()
       // 收口/打开：通过 case_id 维度更新该用例所有提交人的记录
       // （按业务约定：同一 case_id 收口后任一提交人都不再能测试）
-      const data = closed
-        ? { closed: true, closed_by: username, closed_at: now }
-        : { closed: false, closed_by: null, closed_at: null }
-      const r = await prisma.testResult.updateMany({
-        where: { case_id: { in: ids } },
-        data,
-      })
+      // TD-CloseKeepUpdatedAt: 改用 $executeRawUnsafe 只更新 closed 相关字段，
+      // 避免 Prisma @updatedAt 自动改写 updated_at——否则收口会污染所有记录的
+      // updated_at，导致「取最新结果」判定失效（收口后看不到最后真实测试结果）。
+      const placeholders = ids.map((_, i) => `$${i + (closed ? 3 : 1)}`).join(', ')
+      const matched = closed
+        ? await prisma.$executeRawUnsafe(
+            `UPDATE "TestResult" SET "closed" = true, "closed_by" = $1, "closed_at" = $2 WHERE "case_id" IN (${placeholders})`,
+            username, now, ...ids
+          )
+        : await prisma.$executeRawUnsafe(
+            `UPDATE "TestResult" SET "closed" = false, "closed_by" = NULL, "closed_at" = NULL WHERE "case_id" IN (${placeholders})`,
+            ...ids
+          )
       res.json({
         success: true,
         data: {
           case_ids: ids,
           closed,
-          matched: r.count,
+          matched,
           operator: username,
           at: now.toISOString(),
         },
