@@ -407,8 +407,14 @@ if [ -z "$CORS_ORIGIN" ]; then
     CORS_ORIGIN="https://$DOMAIN"
   else
     PUBIP=$(curl -s --max-time 5 ifconfig.me || true)
-    if [ -n "$PUBIP" ]; then CORS_ORIGIN="http://$PUBIP:$FRONTEND_PORT"; else CORS_ORIGIN="*"; fi
+    if [ -n "$PUBIP" ]; then CORS_ORIGIN="http://$PUBIP:$FRONTEND_PORT"; else CORS_ORIGIN="http://127.0.0.1:$FRONTEND_PORT"; fi
   fi
+fi
+# 后端启动时拒绝 CORS_ORIGIN="*"（server.js 会 process.exit(1)），故兜底值必须为非通配符。
+# 无法获取公网 IP 时临时用回环地址，并显式告警需人工修正，避免静默产出必失败的配置。
+if [ "$CORS_ORIGIN" = "http://127.0.0.1:$FRONTEND_PORT" ]; then
+  echo "⚠️ 未能自动获取公网 IP，CORS_ORIGIN 已临时设为 http://127.0.0.1:$FRONTEND_PORT"
+  echo "   部署后浏览器跨域请求将被拒绝，请手动修正 backend/.env 的 CORS_ORIGIN 为真实访问域名/IP 后重启服务。"
 fi
 
 # 注意：不要加引号、不要出现会破坏 systemd EnvironmentFile 解析的字符
@@ -594,6 +600,8 @@ cat > "/etc/systemd/system/${APP_NAME}-backup.service" <<EOF
 [Unit]
 Description=$SYSTEM_NAME daily database backup (pg_dump + AES encryption)
 After=postgresql.service
+# FIX-07: 备份失败触发告警钩子，避免"静默失败"无人感知
+OnFailure=${APP_NAME}-backup-alert.service
 
 [Service]
 Type=oneshot
@@ -602,7 +610,9 @@ Group=$SYSTEM_NAME
 WorkingDirectory=$REPO_ROOT/backend
 EnvironmentFile=$BACKEND_ENV
 Environment=TZ=Asia/Shanghai
-ExecStart=/usr/local/bin/node scripts/003_backup-now.mjs --all
+# FIX-07: 脚本实际位于 backend/scripts/003_backup-now.mjs（此前的相对路径 scripts/... 依赖
+# WorkingDirectory=backend 才能命中，易被误判为"文件缺失"）。改为绝对路径，消除歧义。
+ExecStart=/usr/local/bin/node $REPO_ROOT/backend/scripts/003_backup-now.mjs --all
 StandardOutput=append:$LOG_DIR/backup.out.log
 StandardError=append:$LOG_DIR/backup.err.log
 EOF
@@ -618,10 +628,24 @@ RandomizedDelaySec=300
 [Install]
 WantedBy=timers.target
 EOF
+# FIX-07: 备份失败告警钩子（OnFailure）。写日志，并可在后端 env 配置 BACKUP_ALERT_WEBHOOK 推送机器人。
+cat > "/etc/systemd/system/${APP_NAME}-backup-alert.service" <<EOF
+[Unit]
+Description=$SYSTEM_NAME backup failure alert hook
+
+[Service]
+Type=oneshot
+User=$SYSTEM_NAME
+Group=$SYSTEM_NAME
+EnvironmentFile=$BACKEND_ENV
+Environment=TZ=Asia/Shanghai
+Environment=BACKUP_ALERT_LOG=$LOG_DIR/backup.err.log
+ExecStart=/bin/bash $REPO_ROOT/scripts/backup-alert.sh
+EOF
 systemctl daemon-reload
 systemctl enable "${APP_NAME}-backup.timer"
 systemctl start "${APP_NAME}-backup.timer" || true
-ok "备份定时任务已启用: ${APP_NAME}-backup.timer（每日 02:00，目录 $BACKUP_DIR）"
+ok "备份定时任务已启用: ${APP_NAME}-backup.timer（每日 02:00，目录 $BACKUP_DIR，失败告警 ${APP_NAME}-backup-alert.service）"
 
 # ------------------------- 9. Caddy 多用户站点（import 模式，互不覆盖）-------------------------
 log "写入 Caddy 站点（多用户隔离）"
@@ -696,6 +720,14 @@ $CADDY_ADDR {
         not path /api/*
     }
     rewrite @schoolLogin /login.html
+
+    # FIX-03: 帮助中心子路径兜底。任何 /<code>/help.html 统一重写到根 /help.html，
+    # 避免直接访问子路径帮助页 404（登录页已改为绝对路径跳转，此为历史/书签链接兜底）。
+    @schoolHelp {
+        path_regexp ^/[^/]+/help\.html/?$
+        not path /api/*
+    }
+    rewrite @schoolHelp /help.html
 
     # API 反代必须放在最前、且用 handle 互斥：Caddy 固定指令顺序中 rewrite 在
     # reverse_proxy 之前，若把 try_files 放外面会把 /api/* 先改写到 /index.html，
