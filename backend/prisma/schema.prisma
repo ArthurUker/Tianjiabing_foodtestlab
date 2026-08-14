@@ -36,7 +36,6 @@ model User {
   audit_logs    AuditLog[]
   test_records  TestRecord[]
   guests        Guest[]
-  backups       Backup[]
   sessions      Session[]
 }
 
@@ -48,7 +47,7 @@ model AuditLog {
   action        String   // login / create / update / delete / export / import
   resource_type String?  // test_record / user / backup / etc
   resource_id   String?
-  details       String?  // JSON string for additional details
+  details       Json?  // JSON object for additional details (P1-4: 升级 jsonb)
   ip_address    String?
   created_at    DateTime @default(now())
 
@@ -65,8 +64,8 @@ model TestRecord {
   record_code   String   @unique
   test_type     String   // pathogen / tableware / generic / custom
   test_name     String
-  sample_info   String   @default("{}") // JSON for sample details (D-02: 非空，默认 {})
-  result_data   String   @default("{}") // JSON for test results (D-02: 非空，默认 {})
+  sample_info   Json   @default("{}") // JSON for sample details (D-02: 非空，默认 {})
+  result_data   Json   @default("{}") // JSON for test results (D-02: 非空，默认 {})
   status        String   @default("pending") // pending / completed / failed / archived
   created_by    String
   created_at    DateTime @default(now())
@@ -155,7 +154,7 @@ model GuestExportRequest {
   guest_id       String
   request_type   String   // 申请类型（如 data_export）
   request_reason String?
-  request_data   String?  // JSON，附加数据
+  request_data   Json?  // JSON，附加数据 (P1-4: 升级 jsonb)
   status         String   @default("pending") // pending / approved / rejected
   reviewed_by    String?  // 审批人（User.id）
   reviewed_at    DateTime?
@@ -166,29 +165,6 @@ model GuestExportRequest {
 
   @@index([guest_id])
   @@index([status])
-}
-
-// ========== 系统备份元数据 ==========
-
-// ⚠️【历史遗留】Backup 模型为旧版「浏览器 localStorage + Supabase」架构设计，
-// 全库无任何代码写入（无 /api/backup 路由、前端 BackupRestore.js 纯 localStorage）。
-// 保留不动以免破坏 User.backups 关系；新备份体系统一使用下方 BackupRun（P0 备份引擎）。
-// @deprecated — 仅供历史兼容，勿再新增引用。
-
-model Backup {
-  id            String   @id @default(cuid())
-  backup_name   String
-  backup_path   String   @unique
-  backup_size   Int?
-  record_count  Int      @default(0)
-  created_at    DateTime @default(now())
-  created_by    String?
-  notes         String?
-
-  // P2-08: 关联用户外键约束（created_by 可为空，引用 User.id）
-  created_user  User?    @relation(fields: [created_by], references: [id], onDelete: SetNull)
-
-  @@index([created_by])
 }
 
 // ========== 运维备份执行记录（P0 备份引擎）==========
@@ -206,7 +182,7 @@ model BackupRun {
   school_code   String?  // 学校代码（UI 展示 / 筛选用）
   file_path     String   @unique
   file_size     Int?
-  table_counts  String?  // JSON {"schema.table": count}，供 L2 恢复后行数对比
+  table_counts  Json?  // JSON {"schema.table": count}，供 L2 恢复后行数对比 (P1-4: 升级 jsonb)
   checksum      String?  // 备份文件（gz 压缩流）的 sha256（与 meta.json 同值，恢复时校验）
   encrypted     Boolean  @default(true)
   status        String   @default("pending") // pending | running | ok | error
@@ -316,7 +292,7 @@ model SystemLog {
   id            String   @id @default(cuid())
   level         String   // info / warn / error / debug
   message       String
-  context       String?  // JSON
+  context       Json?  // JSON (P1-4: 升级 jsonb)
   created_at    DateTime @default(now())
 
   @@index([level])
@@ -349,31 +325,31 @@ model SchoolCustomization {
   // D-04：学校删除时定制配置级联删除，避免孤儿记录
   school        School   @relation("SchoolCustomization", fields: [school_code], references: [code], onDelete: Cascade)
   // 可见检测类型（JSON 数组，如 ["tableware","pathogen"]）
-  visible_types      String?  // JSON array
+  visible_types      Json?  // JSON array
   // 侧边栏菜单项可见性（JSON 数组，如 ["dashboard","tableware",...,"logout"]）
   // 用于菜单栏定制：管理员可单独控制每个侧边菜单项的显隐
   // （退出登录项 canHide=false 强制始终显示，应用层兜底过滤）
-  visible_menu_items String?  // JSON array
+  visible_menu_items Json?  // JSON array
   // 学校食堂信息（JSON 数组，如 ["一食堂","二食堂","三食堂"]）
   // 学校基本信息，保存时同步写入 field_options.canteen，使录入表单下拉自动应用
-  canteens String?  // JSON array
+  canteens Json?  // JSON array
   // 字段标签覆盖（JSON，如 {"testDate":"检测日期"}）
-  field_labels  String?  // JSON object
+  field_labels  Json?  // JSON object
   // 隐藏字段（JSON 数组）
-  hidden_fields String?  // JSON array
+  hidden_fields Json?  // JSON array
   // 其它主题设置（JSON）
-  theme_config  String?  // JSON object
+  theme_config  Json?  // JSON object
   // 字段级规则（JSON，如 {"sampler":{"required":true},"note":{"required":false,"maxLength":200}}）
-  field_rules   String?  // JSON object
+  field_rules   Json?  // JSON object
   // 下拉选项覆盖（JSON object，{ 字段名: [选项...] }）——顶层形态，兼容 theme_config 嵌套形态
-  field_options String?  // JSON object
-  field_types  String?  // JSON object { fieldName: 'text'|'number'|'date'|'select'|'textarea'|'checkbox' }
+  field_options Json?  // JSON object
+  field_types  Json?  // JSON object { fieldName: 'text'|'number'|'date'|'select'|'textarea'|'checkbox' }
   // 字段顺序覆盖（JSON object，{ 模块code: [字段名...] }）
-  field_order   String?  // JSON object
+  field_order   Json?  // JSON object
   // 层级A：模块内新增自定义字段（JSON object，{ 模块code: [{name,label,type,options,statRole,...}] }）
-  custom_fields String?  // JSON object
+  custom_fields Json?  // JSON object
   // 层级B：全新检测类型定义（JSON array，[{code,name,fields:[...],statRole,...}]）
-  test_types    String?  // JSON array
+  test_types    Json?  // JSON array
   // 访客功能开关（RBAC 收敛）：false=该校关闭访客扫码只读入口（登录页访客 Tab 隐藏）。
   // 由平台超管在 admin-schools.html 按校配置；默认关闭（需超管显式开启）。
   guest_enabled Boolean  @default(false)

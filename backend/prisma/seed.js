@@ -101,7 +101,8 @@ async function main() {
       data: { code, name, theme_color: themeColor }
     })
     await prisma.schoolCustomization.create({
-      data: { school_code: code, theme_config: JSON.stringify({ theme_color: themeColor }) }
+      // P1-4: theme_config 已由 String? 改为 Json?（jsonb），直接传对象，Prisma 自动序列化
+      data: { school_code: code, theme_config: { theme_color: themeColor } }
     })
     console.log(`✅ 已创建系统学校记录: ${code}`)
   }

@@ -47,8 +47,8 @@ export function createSyncRoutes(userManager, prisma) {
                             record_code: data.record_code || `SYNC-${store}-${Date.now()}`,
                             test_type: store,
                             test_name: data.test_name || store,
-                            sample_info: JSON.stringify(data.sample_info || {}),
-                            result_data: JSON.stringify(data.result_data || data),
+                            sample_info: data.sample_info || {},
+                            result_data: data.result_data || data,
                             status: data.status || 'completed',
                             created_by: req.user.userId
                         }
@@ -70,8 +70,8 @@ export function createSyncRoutes(userManager, prisma) {
                         where: { id: data.id },
                         data: {
                             test_name: data.test_name,
-                            sample_info: data.sample_info ? JSON.stringify(data.sample_info) : undefined,
-                            result_data: data.result_data ? JSON.stringify(data.result_data) : undefined,
+                            sample_info: data.sample_info ? data.sample_info : undefined,
+                            result_data: data.result_data ? data.result_data : undefined,
                             status: data.status
                         }
                     })
@@ -146,8 +146,8 @@ export function createSyncRoutes(userManager, prisma) {
                                     record_code: data.record_code || `SYNC-${store}-${Date.now()}`,
                                     test_type: store,
                                     test_name: data.test_name || store,
-                                    sample_info: JSON.stringify(data.sample_info || {}),
-                                    result_data: JSON.stringify(data.result_data || data),
+                                    sample_info: data.sample_info || {},
+                                    result_data: data.result_data || data,
                                     status: data.status || 'completed',
                                     created_by: req.user.userId
                                 }
@@ -163,8 +163,8 @@ export function createSyncRoutes(userManager, prisma) {
                                 where: { id: data.id },
                                 data: {
                                     test_name: data.test_name,
-                                    sample_info: data.sample_info ? JSON.stringify(data.sample_info) : undefined,
-                                    result_data: data.result_data ? JSON.stringify(data.result_data) : undefined,
+                                    sample_info: data.sample_info ? data.sample_info : undefined,
+                                    result_data: data.result_data ? data.result_data : undefined,
                                     status: data.status
                                 }
                             })

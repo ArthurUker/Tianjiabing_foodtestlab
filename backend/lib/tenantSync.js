@@ -71,7 +71,7 @@ export async function backfillSchoolCustomization(prisma, log = console.log) {
     }
     for (const c of OBJ_COLS) {
       await prisma.$executeRawUnsafe(
-        `ALTER TABLE "${table_schema}"."SchoolCustomization" ADD COLUMN IF NOT EXISTS "${c}" TEXT`
+        `ALTER TABLE "${table_schema}"."SchoolCustomization" ADD COLUMN IF NOT EXISTS "${c}" JSONB`
       )
       await prisma.$executeRawUnsafe(
         `UPDATE "${table_schema}"."SchoolCustomization" SET "${c}" = '{}' WHERE "${c}" IS NULL`
@@ -79,18 +79,17 @@ export async function backfillSchoolCustomization(prisma, log = console.log) {
     }
     for (const c of ARR_COLS) {
       await prisma.$executeRawUnsafe(
-        `ALTER TABLE "${table_schema}"."SchoolCustomization" ADD COLUMN IF NOT EXISTS "${c}" TEXT`
+        `ALTER TABLE "${table_schema}"."SchoolCustomization" ADD COLUMN IF NOT EXISTS "${c}" JSONB`
       )
       await prisma.$executeRawUnsafe(
         `UPDATE "${table_schema}"."SchoolCustomization" SET "${c}" = '[]' WHERE "${c}" IS NULL`
       )
     }
     await prisma.$executeRawUnsafe(
-      `ALTER TABLE "${table_schema}"."SchoolCustomization" ADD COLUMN IF NOT EXISTS "visible_types" TEXT`
+      `ALTER TABLE "${table_schema}"."SchoolCustomization" ADD COLUMN IF NOT EXISTS "visible_types" JSONB`
     )
-    // Bug#2-visible_types: public schema 历史遗留 visible_types 为 jsonb 类型，
-    // 纯 text 参数($1) 赋 jsonb 列触发 PG 42804。用 $1::jsonb 显式转换，
-    // 经本地实验验证对 jsonb 列与 text 列均兼容（jsonb→text 赋值存在 assignment cast）。
+    // P1-4: 全库统一为 jsonb（schema.prisma Json 类型），$1 为 text 参数（Prisma 传参），
+    // 赋 jsonb 列必须显式 $1::jsonb（否则 PG 42804）。这是 jsonb 列写入的正确写法，非兼容 hack。
     await prisma.$executeRawUnsafe(
       `UPDATE "${table_schema}"."SchoolCustomization" SET "visible_types" = $1::jsonb WHERE "visible_types" IS NULL`,
       DEFAULT_VISIBLE_TYPES
@@ -98,18 +97,16 @@ export async function backfillSchoolCustomization(prisma, log = console.log) {
     // 菜单栏定制（菜单项可见性）：默认全选（与可见检测类型一致的"友好默认"策略）
     // 注意：field_types 已由上方 OBJ_COLS 循环统一 ADD COLUMN，此处无需重复
     await prisma.$executeRawUnsafe(
-      `ALTER TABLE "${table_schema}"."SchoolCustomization" ADD COLUMN IF NOT EXISTS "visible_menu_items" TEXT`
+      `ALTER TABLE "${table_schema}"."SchoolCustomization" ADD COLUMN IF NOT EXISTS "visible_menu_items" JSONB`
     )
-    // Bug#2-visible_menu_items: 同 visible_types —— public 历史遗留为 jsonb，$1::jsonb 双类型兼容
     await prisma.$executeRawUnsafe(
       `UPDATE "${table_schema}"."SchoolCustomization" SET "visible_menu_items" = $1::jsonb WHERE "visible_menu_items" IS NULL`,
       DEFAULT_VISIBLE_MENU_ITEMS
     )
     // 学校食堂信息（学校基本信息）：默认 一/二/三 食堂；保存时同步 field_options.canteen
     await prisma.$executeRawUnsafe(
-      `ALTER TABLE "${table_schema}"."SchoolCustomization" ADD COLUMN IF NOT EXISTS "canteens" TEXT`
+      `ALTER TABLE "${table_schema}"."SchoolCustomization" ADD COLUMN IF NOT EXISTS "canteens" JSONB`
     )
-    // Bug#2-canteens: 同 visible_types —— public 历史遗留为 jsonb，$1::jsonb 双类型兼容
     await prisma.$executeRawUnsafe(
       `UPDATE "${table_schema}"."SchoolCustomization" SET "canteens" = $1::jsonb WHERE "canteens" IS NULL`,
       DEFAULT_CANTEENS

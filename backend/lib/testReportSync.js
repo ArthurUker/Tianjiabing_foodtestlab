@@ -154,27 +154,26 @@ function buildSnapshot(results) {
         closed: !!closedInfo,
         closed_by: closedInfo?.closed_by || null,
         closed_at: closedInfo?.closed_at || null,
+        // FIX-NOTICE: 本轮已修复标记（来自 testCaseDefs.js 的 fixNote），供报告页渲染「已修复·请复测」徽章
+        fix_note: c.fixNote || '',
       }
     })
     // TD-CountsIncludeClosed: counts 是"该结果类别的全部用例"（含已收口），便于负责人一眼看清结果分布。
-    // closed 仍独立维度显示。done/activeTotal 仍按 TD-DenomExcludeClosed 口径计算（收口不计入待办）。
+    // closed 作为独立 chip 维度展示；完成度计算时 closed 不进入分子也不进入分母。
     const counts = { passed: 0, failed: 0, skipped: 0, pending: 0, closed: 0 }
     for (const it of items) {
       if (it.closed) counts.closed += 1
       if (it.result) counts[it.result] = (counts[it.result] || 0) + 1
     }
-    // TD-DenomExcludeClosed: 与 test-report.html 的卡片一致 —— 已收口用例**不计入**「问题数」统计。
-    //   · done        = passed + failed + skipped（真实已测，不含收口）
-    //   · activeTotal = total - closed（活跃待办分母）
-    //   · pct         = done / activeTotal（activeTotal=0 时按 100% 展示"已全部收口"）
-    // 设计意图：docs 汇总报告给负责人的是"待办清单"，收口是业务结论另作维度。
+    // TD-NoClosedInPct: 已收口用例既不计入分子也不计入分母——
+    //   · 分母（total）= CASE_DEFS items.length
+    //   · 分子（done）  = passed + failed + skipped
+    //   · 完成度       = done / total（天然不会超过 100%）
+    //   · "已收口"作为独立 chip 维度展示（仅作业务结论维度，不影响完成度）
     const done = counts.passed + counts.failed + counts.skipped
     const total = items.length
-    const activeTotal = Math.max(0, total - counts.closed)
-    const pct = activeTotal > 0
-      ? Math.round((done / activeTotal) * 100)
-      : (total > 0 ? 100 : 0)
-    return { group: g.group, groupName: g.groupName, total, counts, done, activeTotal, pct, items }
+    const pct = total > 0 ? Math.round((done / total) * 100) : 0
+    return { group: g.group, groupName: g.groupName, total, counts, done, pct, items }
   })
 
   // TD-ExtraGroup: 清单外用例（如前端「新问题反馈」new_问题 组）也纳入报告。
@@ -199,32 +198,33 @@ function buildSnapshot(results) {
         closed: !!closedInfo,
         closed_by: closedInfo?.closed_by || null,
         closed_at: closedInfo?.closed_at || null,
+        fix_note: '',
       }
     })
-    // new_问题 组口径与 CASE_DEFS 组一致（分子扣除 + total 不变，收口视为完成）
-    // TD-CountsIncludeClosed: counts 是"该结果类别的全部用例"（含已收口），便于负责人一眼看清结果分布。
-    // closed 仍独立维度显示。done/activeTotal 仍按 TD-DenomExcludeClosed 口径计算（收口不计入待办）。
+    // new_问题 组口径与 CASE_DEFS 组一致 —— done/total 都不含 closed，closed 仅作为独立 chip 展示
+    // TD-NoClosedInPct: 已收口既不计入分子也不计入分母（与 CASE_DEFS 组同口径）
     const counts = { passed: 0, failed: 0, skipped: 0, pending: 0, closed: 0 }
     for (const it of items) {
       if (it.closed) counts.closed += 1
       if (it.result) counts[it.result] = (counts[it.result] || 0) + 1
     }
-    const done = counts.passed + counts.failed + counts.skipped + counts.closed
+    const done = counts.passed + counts.failed + counts.skipped
     const total = items.length
-    groups.push({ group: 'new_问题', groupName: '新问题 / 缺陷反馈', total, counts, done, items })
+    const pct = total > 0 ? Math.round((done / total) * 100) : 0
+    groups.push({ group: 'new_问题', groupName: '新问题 / 缺陷反馈', total, counts, done, pct, items })
   }
 
   const overall = groups.reduce(
     (acc, g) => {
       for (const k of ['passed', 'failed', 'skipped', 'pending', 'closed']) acc[k] += g.counts[k] || 0
       acc.total += g.total
-      acc.activeTotal += g.activeTotal || 0
       return acc
     },
-    { passed: 0, failed: 0, skipped: 0, pending: 0, closed: 0, total: 0, activeTotal: 0 }
+    { passed: 0, failed: 0, skipped: 0, pending: 0, closed: 0, total: 0 }
   )
-  // TD-DenomExcludeClosed: 与卡片口径一致 —— done 不含 closed，activeTotal 已扣除 closed
+  // TD-NoClosedInPct: 与卡片口径一致 —— done 不含 closed，分母直接用 total
   overall.done = overall.passed + overall.failed + overall.skipped
+  overall.pct = overall.total > 0 ? Math.round((overall.done / overall.total) * 100) : 0
 
   return { generated_at: new Date().toISOString(), overall, groups }
 }
@@ -234,7 +234,7 @@ function escMd(s) {
 }
 
 // ═══════════════════════ Markdown 报告 ═══════════════════════
-function renderMarkdown(snap) {
+export function renderMarkdown(snap) {
   const L = RESULT_LABELS
   const lines = []
   lines.push('# 浏览器测试结果汇总')
@@ -244,17 +244,15 @@ function renderMarkdown(snap) {
   lines.push('')
   lines.push('## 一、总体统计')
   lines.push('')
-  lines.push('| 分组 | 通过 | 失败 | 跳过 | 待测 | 收口 | 已测试/活跃 | 完成度 |')
+  lines.push('| 分组 | 通过 | 失败 | 跳过 | 待测 | 收口 | 已测试/总数 | 完成度 |')
   lines.push('|---|---:|---:|---:|---:|---:|---:|---:|')
   for (const g of snap.groups) {
-    // TD-DenomExcludeClosed: 已完成改为「已测试」，分母改为「活跃总数」(扣除已收口)
-    lines.push(`| ${g.groupName} | ${g.counts.passed} | ${g.counts.failed} | ${g.counts.skipped} | ${g.counts.pending} | ${g.counts.closed} | ${g.done}/${g.activeTotal} | ${g.pct}% |`)
+    // TD-NoClosedInPct: 分母用 g.total（不再扣 closed），避免 done > 分子导致百分比 > 100%
+    lines.push(`| ${g.groupName} | ${g.counts.passed} | ${g.counts.failed} | ${g.counts.skipped} | ${g.counts.pending} | ${g.counts.closed} | ${g.done}/${g.total} | ${g.pct}% |`)
   }
   const o = snap.overall
-  // 合计行的完成度：把各组 activeTotal 加起来当分母，分子也是各组 done 的合计
-  const oPct = o.activeTotal > 0 ? Math.round((o.done / o.activeTotal) * 100) : (o.total > 0 ? 100 : 0)
   lines.push(
-    `| **合计** | **${o.passed}** | **${o.failed}** | **${o.skipped}** | **${o.pending}** | **${o.closed}** | **${o.done}/${o.activeTotal}** | **${oPct}%** |`
+    `| **合计** | **${o.passed}** | **${o.failed}** | **${o.skipped}** | **${o.pending}** | **${o.closed}** | **${o.done}/${o.total}** | **${o.pct}%** |`
   )
   lines.push('')
 
@@ -267,7 +265,9 @@ function renderMarkdown(snap) {
     lines.push('|---|---:|---|---|')
     for (const it of g.items) {
       const r = L[it.result]
-      lines.push(`| **${it.case_id}** ${it.case_title} | ${r.emoji} ${r.label} | ${it.submitted_by || '—'} | ${fmtDateTime(it.updated_at) || '—'} |`)
+      // FIX-NOTICE: 已修复项在标题后追加「🔧已修复」标记
+      const fixTag = it.fix_note ? ' 🔧已修复' : ''
+      lines.push(`| **${it.case_id}** ${it.case_title}${fixTag} | ${r.emoji} ${r.label} | ${it.submitted_by || '—'} | ${fmtDateTime(it.updated_at) || '—'} |`)
     }
     lines.push('')
     const detailed = g.items.filter((it) => it.detail || it.evidence_list.length)
@@ -292,7 +292,7 @@ function renderMarkdown(snap) {
 }
 
 // ═══════════════════════ HTML 报告 ═══════════════════════
-function renderHtml(snap) {
+export function renderHtml(snap) {
   const safeJson = JSON.stringify(snap).replace(/</g, '\\u003c')
   const L = RESULT_LABELS
   const groupFilterOptions = snap.groups
@@ -402,6 +402,9 @@ function renderHtml(snap) {
   .item .title { font-size: 14px; color: #1f2937; font-weight: 500; line-height: 1.5; }
   .item .meta { font-size: 12px; color: #6b7280; }
   .item .detail { font-size: 13px; color: #92400e; background: rgba(254,243,199,0.65); border: 1px solid rgba(252,211,77,0.5); border-radius: 12px; padding: 10px 14px; white-space: pre-wrap; backdrop-filter: blur(6px); }
+  /* FIX-NOTICE: 「已修复·请重复测试」徽章 —— 提醒测试人员对已修复项复测 */
+  .fix-badge { width: fit-content; display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: #065f46; background: linear-gradient(135deg, rgba(16,185,129,0.16) 0%, rgba(99,102,241,0.14) 100%); border: 1px solid rgba(16,185,129,0.4); border-radius: 10px; padding: 4px 10px; }
+  .fix-badge .fix-note-text { font-weight: 400; color: #047857; }
   .evid { display: grid; grid-template-columns: 1fr; grid-template-rows: 1fr; height: 100%; min-height: 0; }
   .evid .pic { position: relative; border-radius: 12px; overflow: hidden; border: 2px solid rgba(255,255,255,0.8); box-shadow: 0 4px 10px rgba(40,60,100,0.15); transition: all .2s ease; background: rgba(255,255,255,0.5); height: 100%; min-height: 0; }
   .evid .pic:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(40,60,100,0.2); border-color: #6366f1; }
@@ -476,15 +479,16 @@ function getLoginState() { return _loginState }
 
 function renderCards() {
   $('cards').innerHTML = SNAPSHOT.groups.map(g => {
-    // TD-DenomExcludeClosed: 与 test-report.html 一致 —— 大数字和分母都只看"活跃待办"维度
+    // TD-NoClosedInPct: 与 test-report.html 一致 —— 已收口不进入分子/分母
     //   · 大数字 = done (passed+failed+skipped)，不含 closed
-    //   · 分母   = activeTotal (total - closed)
-    //   · 完成度 = pct（activeTotal=0 时为 100%）
+    //   · 分母   = total（CASE_DEFS / 清单外用例总数）
+    //   · 完成度 = pct（total=0 时为 0%，天然不会超过 100%）
     const pct = typeof g.pct === 'number' ? g.pct : (g.total ? Math.round(g.done / g.total * 100) : 0)
-    const remain = Math.max(0, (g.activeTotal || 0) - g.done)
-    const denom = typeof g.activeTotal === 'number' ? g.activeTotal : g.total
+    // 待测 = 还没测且未收口的用例数（避免被收口污染）
+    const remain = Math.max(0, (g.total || 0) - g.done - (g.counts.closed || 0))
+    const denom = g.total
     const mkChip = (k, lbl) => '<div class="chip" style="color:' + LABELS[k].color + '"><i class="icon">' + LABELS[k].emoji + '</i><span class="lbl">' + lbl + '</span><span class="v">' + (k === 'pending' ? remain : g.counts[k]) + '</span></div>';
-    // TD-CloseNumerator: 新增「收口」chip，使大数字（仅已测，不含收口）有据可查
+    // 「收口」chip 独立展示，不影响完成度
     const closedChip = '<div class="chip" style="color:#64748b"><i class="icon">🔒</i><span class="lbl">收口</span><span class="v">' + (g.counts.closed || 0) + '</span></div>';
     const chips = mkChip('passed','通过') + mkChip('failed','失败') + mkChip('skipped','跳过') + mkChip('pending','待测') + closedChip;
     // TD-GnameShort: 汇总卡简称取「· 之后、（之前」的部分，
@@ -584,6 +588,7 @@ function renderList() {
       '</div>' +
       '<div class="id">' + esc(it.case_id) + '</div>' +
       '<div class="title">' + esc(it.case_title) + '</div>' +
+      (it.fix_note ? '<div class="fix-badge"><i class="fas fa-wrench"></i> 已修复 · 请重复测试<span class="fix-note-text">' + esc(it.fix_note) + '</span></div>' : '') +
       '<div class="meta">👤 提交人：' + esc(it.submitted_by || '—') + ' · 🕐 更新：' + fmt(it.updated_at) + '</div>' +
       closedMeta +
       (it.detail ? '<div class="detail">' + esc(it.detail) + '</div>' : '') +

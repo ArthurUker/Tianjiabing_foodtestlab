@@ -163,12 +163,14 @@ export async function provisionSchool({
   //   对象类（field_labels/field_rules/field_options/field_order/custom_fields/theme_config）→ '{}'
   //   数组类（hidden_fields/test_types）→ '[]'
   //   visible_types → 默认五大模块全开，避免开通即白屏
+  // P1-4：visible_types 列为 jsonb（schema.prisma Json 类型），$3 为 text 参数（Prisma 传参），
+  // 赋 jsonb 列必须显式 $3::jsonb（否则 PG 42804）。'{}'/'[]' 为 SQL 字面量，自动 cast 无需处理。
   const DEFAULT_VISIBLE_TYPES = JSON.stringify(['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'])
   await prisma.$executeRawUnsafe(
     `INSERT INTO public."SchoolCustomization"
        ("id","school_code","theme_config","field_labels","hidden_fields","field_rules",
         "field_options","field_order","custom_fields","test_types","visible_types","updated_at")
-     VALUES ($1,$2,'{}','{}','[]','{}','{}','{}','{}','[]',$3,now())
+     VALUES ($1,$2,'{}','{}','[]','{}','{}','{}','{}','[]',$3::jsonb,now())
      ON CONFLICT ("school_code") DO NOTHING`,
     `sc_${code}`,
     code,
