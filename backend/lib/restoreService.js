@@ -146,14 +146,19 @@ export async function runRestore({ prisma, backup, targetSchoolCode, actor, log 
     await runPsql({ command: switchSql })
     step('SWITCHING', `已原子切换：${schema} ← ${restoreSchema}（旧数据保留于 ${oldSchema}）`)
 
-    // ── 5. COMPLETE：清理旧 schema（保留 24h 由运维确认后手动清理，或立即清理可配）──
-    if (process.env.RESTORE_DROP_OLD !== 'keep') {
-      // 默认：切换成功后立即删除旧 schema（事务已提交，新数据生效；如需回滚请先关闭此开关）
-      // ⚠️ 默认 keep 更安全：切换后旧 schema 保留，确认无误后由运维执行
-      //     DROP SCHEMA "<oldSchema>" CASCADE（P1 安全默认：不自动删）
+    // ── 5. COMPLETE：清理旧 schema ──
+    // FIX-06：原实现无论 RESTORE_DROP_OLD 为何值都【只打印日志、从不真正 DROP】，导致旧 schema
+    //   （school_<code>_old_<ts>）无限残留。现按环境变量语义真正执行清理：
+    //   - RESTORE_DROP_OLD=drop  → 切换成功（事务已提交、新数据已生效）后立即 DROP 旧 schema，避免残留；
+    //   - 其它/未设置（默认安全）→ 保留旧 schema，仅日志提示运维确认后手动清理（支持回滚）。
+    const dropOld = process.env.RESTORE_DROP_OLD === 'drop'
+    if (dropOld) {
+      await runPsql({ command: `DROP SCHEMA "${oldSchema}" CASCADE` })
+      step('COMPLETE', `恢复完成，目标 schema=${schema}（旧 schema ${oldSchema} 已清理）`)
+    } else {
       log(`${TAG} 旧 schema 保留: ${oldSchema}（确认无误后手动 DROP SCHEMA "${oldSchema}" CASCADE 清理）`)
+      step('COMPLETE', `恢复完成，目标 schema=${schema}，旧 schema=${oldSchema}（待人工清理）`)
     }
-    step('COMPLETE', `恢复完成，目标 schema=${schema}，旧 schema=${oldSchema}（待人工清理）`)
 
     // 审计（平台级操作）
     try {

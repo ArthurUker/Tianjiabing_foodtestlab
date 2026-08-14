@@ -244,6 +244,16 @@ export class Router {
                 console.log('✅ 已隐藏病原体检测内容区域');
             }
         }
+
+        // FIX-15: 已登录员工若没有 records:create 权限（viewer），隐藏所有检测录入表单，
+        // 从入口层面杜绝"视觉层仍可填写并提交"的越权新增（提交层 handleSubmit 另有二次拦截）。
+        if (user && !permissionService.hasPermission('records:create')) {
+            ['tablewareTestForm', 'pesticideTestForm', 'oilTestForm', 'leanMeatTestForm'].forEach(id => {
+                const form = document.getElementById(id);
+                if (form) form.classList.add('hidden');
+            });
+            console.log('🔒 当前角色无 records:create 权限，已隐藏检测录入表单');
+        }
     }
 
     /**

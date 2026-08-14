@@ -377,7 +377,7 @@ export function createGuestExportRequestRoutes(userManager, prisma, jwtSecret) {
                     guest_id: req.user.guestId,
                     request_type,
                     request_reason: request_reason || null,
-                    request_data: request_data ? JSON.stringify(request_data) : null,
+                    request_data: request_data || null,
                     status: 'pending'
                 }
             })

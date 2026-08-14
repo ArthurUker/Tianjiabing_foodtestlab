@@ -58,7 +58,9 @@ export async function writeTenantAuditLog(db, { actorId, action, resourceType, r
       action,
       resource_type: resourceType || null,
       resource_id: resourceId || null,
-      details: details ? JSON.stringify(details) : null,
+      // P1-4: details 列升级为 Json（jsonb），直接传对象（Prisma 自动序列化）。
+      // 兼容字符串入参：字符串原样存储（Prisma 存为 JSON 字符串），对象存为 JSON 对象。
+      details: details || null,
       ip_address: ip || null,
     },
   })
@@ -113,7 +115,8 @@ export async function writeSystemLog(prisma, { level = 'info', message, context 
     data: {
       level,
       message,
-      context: normalized ? JSON.stringify(normalized) : null,
+      // P1-4: context 列升级为 Json（jsonb），normalizeAuditContext 已保证对象，直接传。
+      context: normalized || null,
     },
   })
 }

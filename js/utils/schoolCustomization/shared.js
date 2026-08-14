@@ -1,7 +1,8 @@
 /**
  * schoolCustomization/shared.js（RK51 拆分）
  * 子模块共享的纯工具函数与常量，无 DOM / 网络 / 存储副作用。
- * 仅供 schoolCustomization 子模块内部使用，不对外导出到聚合入口。
+ * escapeHtml 作为通用 HTML 转义工具，被 js/main.js 及 js/modules/* 多处复用（P2-5 收口）；
+ * 其余（parseJSONField/FORM_MODULE_MAP/TEST_FORM_IDS/parseTopOrThemeObject）仅供 schoolCustomization 子模块内部使用。
  */
 
 // 解析 customization 里的字符串 JSON 字段（DB 里存的是 text）

@@ -10,13 +10,7 @@ import { collectCustomFieldValues, getSchoolCustomization, getSchoolCanteens } f
 // 过滤"已隐藏的自定义字段"；若 getSchoolCustomization 不传 schoolCode 则恒为 {}，
 // 隐藏规则失效，被管理端隐藏的字段会随提交再次落库。
 import { extractSchoolCode } from '../utils/schoolCode.js';
-
-// TD-RecheckInspector: HTML 转义，防止复检人员/复检说明等用户输入在详情/历史中产生 XSS
-function escapeHtml(str) {
-    return String(str == null ? '' : str).replace(/[&<>"']/g, c => ({
-        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-    }[c]));
-}
+import { escapeHtml } from '../utils/schoolCustomization/shared.js';
 
 export class GenericTestModule {
     constructor(config) {
@@ -1073,8 +1067,11 @@ export class GenericTestModule {
                 // 1) field_options 来源（内置字段 batchNo 定制选项）
                 const parseFO = (src) => {
                     if (!src || typeof src !== 'object') return null;
-                    const list = src.batchNo || src.testType;
-                    return Array.isArray(list) && list.length ? list : null;
+                    // FIX-11: 用 in 判断键是否存在，区分「未配置」(null，回退默认) 与「显式清空」([]，覆盖默认)。
+                    // 原实现 `list.length ? list : null` 把空数组当未配置，导致删光选项后录入端仍回退硬编码默认项。
+                    if (!('batchNo' in src) && !('testType' in src)) return null;
+                    const list = src.batchNo ?? src.testType;
+                    return Array.isArray(list) ? list : null;
                 };
                 batchOptions = parseFO(customization.field_options);
                 if (!batchOptions) {
@@ -1092,16 +1089,24 @@ export class GenericTestModule {
                     }
                 }
             }
-            if (Array.isArray(batchOptions) && batchOptions.length > 0) {
+            if (Array.isArray(batchOptions)) {
                 const batchSelect = newSection.querySelector('select[name="batchNo[]"], select[name="batchNo"]');
                 if (batchSelect) {
                     batchSelect.innerHTML = '';
-                    batchOptions.forEach(opt => {
+                    if (batchOptions.length > 0) {
+                        batchOptions.forEach(opt => {
+                            const o = document.createElement('option');
+                            o.value = String(opt);
+                            o.textContent = String(opt);
+                            batchSelect.appendChild(o);
+                        });
+                    } else {
+                        // FIX-11: 显式清空时覆盖默认项，渲染占位选项（"请选择"），而非回退硬编码默认列表
                         const o = document.createElement('option');
-                        o.value = String(opt);
-                        o.textContent = String(opt);
+                        o.value = '';
+                        o.textContent = '请选择';
                         batchSelect.appendChild(o);
-                    });
+                    }
                 }
             }
         } catch (e) {
@@ -1129,6 +1134,12 @@ export class GenericTestModule {
 
     handleSubmit(e) {
         e.preventDefault();
+        // FIX-15: viewer/guest 越权新增检测记录拦截（事件处理层纵深防御）。
+        // 视觉层隐藏"新增"入口不可信，这里在提交前再次校验 records:create 权限。
+        if (!permissionService.hasPermission('records:create')) {
+            UINotification.error('权限不足：您没有创建检测记录的权限');
+            return;
+        }
         const formData = new FormData(e.target);
 
         const baseInfo = {
@@ -1272,6 +1283,10 @@ export class GenericTestModule {
         const tbody = document.getElementById(this.tableId);
         if (!tbody) return;
 
+        // P1-06: viewer 等只读角色在列表"操作"栏仅保留查看，隐藏编辑/删除入口（视觉层收敛）
+        const canUpdate = permissionService.hasPermission('records:update');
+        const canDelete = permissionService.hasPermission('records:delete');
+
         const filteredRecords = this.getFilteredRecords();
 
         const sortedRecords = [...filteredRecords].sort((a, b) => {
@@ -1344,15 +1359,11 @@ export class GenericTestModule {
                 <td class="border px-4 py-2">${r.inspector || '-'}</td>
                 <td class="border px-4 py-2">
                     <div class="flex gap-2 justify-center">
-                        <button class="text-blue-600 hover:text-blue-800 btn-edit" data-id="${r.id}" title="整改/复检">
-                            <i class="fas fa-edit"></i>
-                        </button>
+                        ${canUpdate ? `<button class="text-blue-600 hover:text-blue-800 btn-edit" data-id="${r.id}" title="整改/复检"><i class="fas fa-edit"></i></button>` : ''}
                         <button class="text-green-600 hover:text-green-800 btn-detail" data-id="${r.id}" title="查看详情">
                             <i class="fas fa-info-circle"></i>
                         </button>
-                        <button class="text-red-600 hover:text-red-800 btn-delete" data-id="${r.id}" title="删除">
-                            <i class="fas fa-trash"></i>
-                        </button>
+                        ${canDelete ? `<button class="text-red-600 hover:text-red-800 btn-delete" data-id="${r.id}" title="删除"><i class="fas fa-trash"></i></button>` : ''}
                     </div>
                 </td>
             </tr>`;

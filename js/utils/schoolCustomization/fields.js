@@ -183,20 +183,27 @@ export function applySchoolCustomizationToForm(formEl, customization) {
         // 支持 chips object 格式 [{value, subOptions?}]：取 .value 作为 option value/text
         // CR-03/BS-05: 当前值不在新选项中时，追加一个 disabled 的"历史值"option，
         // 避免用户已选值/历史记录值被静默丢弃
-        if (field.tagName === 'SELECT' && Array.isArray(fieldOptions[name]) && fieldOptions[name].length) {
+        // FIX-11: 用 hasOwnProperty 区分「未配置」与「显式清空（[]）」。空数组也应覆盖默认项，
+        // 否则删光选项后录入端仍回退硬编码默认列表 → "删不掉"。
+        if (field.tagName === 'SELECT' && Object.prototype.hasOwnProperty.call(fieldOptions, name) && Array.isArray(fieldOptions[name])) {
             const opts = fieldOptions[name]
             const current = field.value
             const optValues = opts.map(o => (typeof o === 'string' ? o : (o && o.value != null ? String(o.value) : ''))).filter(Boolean)
-            field.innerHTML = optValues.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('')
-            if (optValues.includes(current)) {
-                field.value = current
-            } else if (current) {
-                const legacy = document.createElement('option')
-                legacy.value = current
-                legacy.textContent = `${current}（历史值）`
-                legacy.disabled = true
-                field.appendChild(legacy)
-                field.value = current
+            if (optValues.length) {
+                field.innerHTML = optValues.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('')
+                if (optValues.includes(current)) {
+                    field.value = current
+                } else if (current) {
+                    const legacy = document.createElement('option')
+                    legacy.value = current
+                    legacy.textContent = `${current}（历史值）`
+                    legacy.disabled = true
+                    field.appendChild(legacy)
+                    field.value = current
+                }
+            } else {
+                field.innerHTML = '<option value="">请选择</option>'
+                field.value = ''
             }
         }
     })

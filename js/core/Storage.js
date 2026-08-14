@@ -373,6 +373,11 @@ export class StorageService {
                         this._updateRequestRetry(req.id, currentRetry, Date.now() + retryDelay);
                     } else {
                         this._markRequestFailed(req.id, e.message || '请求失败');
+                        // FIX-15: 权限拒绝（403/401）的 create 请求，回滚本地 temp 记录，
+                        // 避免 viewer 看到"保存成功"后刷新又消失的假成功，以及 localStorage 脏数据残留。
+                        if (req.type === 'create' && (httpStatus === 403 || httpStatus === 401)) {
+                            this._rollbackTempRecord(req.tempId);
+                        }
                         this._emit('error', { request: req, error: e });
                     }
 
@@ -710,6 +715,20 @@ export class StorageService {
     _cleanupTempRequests(tempId) {
         const list = this._getPendingRequests().filter(r => r.tempId !== tempId);
         this._setPendingRequests(list);
+    }
+
+    // FIX-15: 权限拒绝时的本地 temp 记录回滚。
+    // 从本地缓存移除指定 tempId 的 pending 记录，并清理其关联的 pending 请求队列，
+    // 使 viewer 越权"新增"的记录不留脏数据（与 _cleanupTempRequests 配合使用）。
+    _rollbackTempRecord(tempId) {
+        if (!tempId) return;
+        const rows = this._getLocalCacheData();
+        const filtered = rows.filter(r => String(r.id) !== String(tempId));
+        if (filtered.length !== rows.length) {
+            this._updateLocalCache(filtered, { forceServer: true });
+        }
+        this.pendingTempIds.delete(tempId);
+        this._cleanupTempRequests(tempId);
     }
 
     _genReqId(type) {

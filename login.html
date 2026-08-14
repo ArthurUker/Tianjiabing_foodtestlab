@@ -276,9 +276,9 @@
             </div>
 
             <!-- 其他登录选项 (P8: 跳转帮助中心)
-                 P2-子路径兼容：原绝对路径 /help.html 在多学校子路径部署（如 /<code>/login.html）下会 404，
-                 改为相对路径，兼容根路径与子路径两种部署形态。 -->
-            <a href="./help.html" class="w-full py-2 px-4 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition flex items-center justify-center">
+                 FIX-03: 统一走绝对路径 /help.html 并携带 school 参数（由下方模块脚本动态写入），
+                 避免子路径部署（/code/login.html）下相对路径 ./help.html 解析到 /code/help.html 而 404。 -->
+            <a id="helpCenterLink" href="/help.html" class="w-full py-2 px-4 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition flex items-center justify-center">
                 <i class="fas fa-question-circle mr-2"></i>
                 需要帮助？
             </a>
@@ -334,6 +334,12 @@
             applySchoolTheme(currentSchoolCode);
         } else {
             showSchoolError('未识别到有效的学校登录入口，请使用学校提供的专属登录链接（例如 /demo/login.html?school=xxx）。');
+        }
+
+        // FIX-03: 帮助中心链接按校动态构建，携带 ?school= 以便帮助页正确"返回登录"
+        const helpLink = document.getElementById('helpCenterLink');
+        if (helpLink) {
+            helpLink.href = '/help.html' + (currentSchoolCode ? '?school=' + encodeURIComponent(currentSchoolCode) : '');
         }
 
         // 登录前拉取学校个性化配置（Logo / 主题色 / 名称），失败不阻断登录
@@ -718,13 +724,6 @@
             });
             newInput.focus();
         }
-
-        // 按 Enter 提交表单
-        form.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                form.dispatchEvent(new Event('submit'));
-            }
-        });
 
         // P7: 忘记密码——引导联系管理员重置(复用现有 overlay 弹窗模式,不新增服务)
         const forgotPasswordLink = document.getElementById('forgotPasswordLink');

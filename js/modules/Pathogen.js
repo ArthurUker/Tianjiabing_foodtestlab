@@ -158,7 +158,16 @@ export function initPathogen() {
 
             fetch('./templates/pathogen_template.docx', { method: 'HEAD' })
                 .then((res) => {
-                    if (res.ok) {
+                    // FIX-10/R06: 模板文件不存在时，Caddy 的 try_files 会把请求回退到 /index.html
+                    // （返回 200 + text/html），导致 res.ok 恒为 true，把 HTML 当 .docx 下载 → Word 报"文件损坏"。
+                    // 增加 Content-Type 校验：仅当响应确实是 docx（或二进制流）时才下载，否则回退到可打开的格式说明。
+                    const ct = (res.headers.get('Content-Type') || '').toLowerCase();
+                    const isDocx = res.ok && (
+                        ct.includes('openxmlformats') ||
+                        ct.includes('application/octet-stream') ||
+                        ct.includes('application/zip')
+                    );
+                    if (isDocx) {
                         const link = document.createElement('a');
                         link.href = './templates/pathogen_template.docx';
                         link.download = 'pathogen_template.docx';
@@ -223,6 +232,11 @@ function loadMammothJS() {
 }
 
 function handleFileImport(file) {
+    // FIX-15: viewer/guest 越权导入检测记录拦截（事件处理层纵深防御）。
+    if (!permissionService.hasPermission('records:create')) {
+        UINotification.error('权限不足：您没有新增检测记录的权限');
+        return;
+    }
     if (!file.name.endsWith('.docx')) {
         UINotification.error('❌ 请选择 Word 文档(.docx 格式)');
         return;
@@ -372,9 +386,11 @@ function handleRecheckImport(file, originalRecord, currentUser, callback) {
                 if (recheckRecord.isPassed) {
                     originalRecord.finalStatus = '复检通过';
                     originalRecord.riskLevel = '无风险';
+                    originalRecord.result = '合格';
                 } else {
                     originalRecord.finalStatus = `复检${recheckRecord.riskLevel}`;
                     originalRecord.riskLevel = recheckRecord.riskLevel;
+                    originalRecord.result = '不合格';
                 }
                 
                 originalRecord.modificationLogs = originalRecord.modificationLogs || [];
@@ -1549,6 +1565,10 @@ function renderTable() {
     const tbody = document.getElementById('pathogenRecords');
     if (!tbody) return;
 
+    // P1-06: viewer 等只读角色在列表"操作"栏隐藏编辑/删除入口（视觉层收敛）
+    const canUpdate = permissionService.hasPermission('records:update');
+    const canDelete = permissionService.hasPermission('records:delete');
+
     // 1. 插入表头和分页控件（如果不存在）
     const tableContainer = tbody.closest('table');
     if (tableContainer) {
@@ -1641,9 +1661,20 @@ function renderTable() {
 
     tbody.innerHTML = currentRecords.map(item => {
         const riskAssessment = calculatePathogenRisk(item.positiveDetails || [], item.allTestItems || []);
-        const displayPositiveItems = riskAssessment.positiveItemsDisplay;
-        const displayRiskLevel = riskAssessment.riskLevel || item.riskLevel;
-        const displayRiskReason = riskAssessment.riskReason || item.riskReason;
+        // TD-Recheck-Sync: 已导入复检报告的记录，风险等级/阳性项以复检结论为准，
+        // 不再用首检阳性数据重算覆盖复检结论（否则「复检通过」后列表仍显示旧的高风险）。
+        const recheckReports = Array.isArray(item.recheckReports) ? item.recheckReports : [];
+        const latestRecheck = recheckReports.length > 0 ? recheckReports[0] : null;
+        const hasRecheck = !!latestRecheck;
+        const displayPositiveItems = hasRecheck
+            ? (latestRecheck.isPassed ? '无' : (latestRecheck.positiveItems || riskAssessment.positiveItemsDisplay))
+            : riskAssessment.positiveItemsDisplay;
+        const displayRiskLevel = hasRecheck
+            ? (item.riskLevel || latestRecheck.riskLevel || riskAssessment.riskLevel)
+            : (riskAssessment.riskLevel || item.riskLevel);
+        const displayRiskReason = hasRecheck
+            ? (latestRecheck.riskReason || item.riskReason)
+            : (riskAssessment.riskReason || item.riskReason);
 
         let riskClass = 'bg-gray-100 text-gray-800';
         if (displayRiskLevel === '高风险') {
@@ -1683,12 +1714,8 @@ function renderTable() {
                 <td class="px-4 py-3 text-center">${escapeHtml(item.inspector)}</td>
                 <td class="px-4 py-3 text-center">
                     <div class="flex gap-2 justify-center">
-                        <button class="px-3 py-1.5 bg-blue-50 text-blue-700 rounded hover:bg-blue-100 btn-edit" data-id="${item.id}">
-                            <i class="fas fa-edit text-xs"></i>
-                        </button>
-                        <button class="px-3 py-1.5 bg-red-50 text-red-700 rounded hover:bg-red-100 btn-delete" data-id="${item.id}">
-                            <i class="fas fa-trash text-xs"></i>
-                        </button>
+                        ${canUpdate ? `<button class="px-3 py-1.5 bg-blue-50 text-blue-700 rounded hover:bg-blue-100 btn-edit" data-id="${item.id}"><i class="fas fa-edit text-xs"></i></button>` : ''}
+                        ${canDelete ? `<button class="px-3 py-1.5 bg-red-50 text-red-700 rounded hover:bg-red-100 btn-delete" data-id="${item.id}"><i class="fas fa-trash text-xs"></i></button>` : ''}
                     </div>
                 </td>
             </tr>

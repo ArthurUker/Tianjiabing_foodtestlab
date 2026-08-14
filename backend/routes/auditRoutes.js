@@ -258,7 +258,8 @@ export function createAuditRoutes(userManager, prisma) {
             const rows = logs.map(log => {
                 const time = new Date(log.created_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
                 const user = log.user ? `${log.user.username}(${log.user.full_name || ''})` : (log.user_id || '')
-                const details = log.details || ''
+                // P1-4: details 列升级为 Json（jsonb），model 读取返回对象；CSV 导出需序列化为字符串
+                const details = log.details == null ? '' : (typeof log.details === 'string' ? log.details : JSON.stringify(log.details))
                 const ip = log.ip_address || ''
                 return [
                     csvField(time),

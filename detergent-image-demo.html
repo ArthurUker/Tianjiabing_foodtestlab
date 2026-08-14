@@ -251,6 +251,27 @@
     .qc-note.error { background: #fee2e2; color: #7f1d1d; border-color: var(--c-danger); }
     .qc-note.info { background: #dbeafe; color: #1e3a8a; border-color: var(--c-brand); }
 
+    /* ============ FIX-17 人工判定覆盖按钮 ============ */
+    #manualOverrideSection {
+      margin-top: 12px; padding: 12px;
+      background: rgba(255, 255, 255, 0.7);
+      border: 1px dashed rgba(99, 102, 241, 0.5);
+      border-radius: 0.75rem;
+    }
+    .manual-level-btn {
+      padding: 6px 12px; border-radius: 0.5rem;
+      border: 1px solid #e2e8f0; background: #fff;
+      color: #334155; font-size: 12px; font-weight: 600;
+      cursor: pointer; transition: all 0.15s ease;
+    }
+    .manual-level-btn:hover { border-color: var(--c-brand); color: var(--c-brand); }
+    .manual-level-btn.active {
+      background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+      border-color: transparent; color: #fff;
+      box-shadow: 0 2px 6px rgba(99, 102, 241, 0.4);
+    }
+    .manual-level-btn.reset { border-style: dashed; color: #64748b; }
+
     /* ============ 明细表 ============ */
     .distance-table {
       width: 100%; font-size: 12px; margin-top: 8px;
@@ -379,6 +400,7 @@
           </p>
         </div>
         <div class="result-grid" id="resultGrid"></div>
+        <div id="manualOverrideSection" style="display:none;"></div>
         <div id="qcSection" class="qc-notes"></div>
         <details>
           <summary>色块距离明细</summary>
@@ -424,6 +446,7 @@
 
     let lastImg = null; // 上次图片（HTMLImageElement）
     let lastResult = null;
+    let manualOverride = null; // FIX-17: 人工判定覆盖值（null=未覆盖，使用算法主判）
 
     // 嵌入模式（被主系统 iframe 打开时 ?embed=1）：隐藏独立页面元素、识别后显示"回填"按钮
     const isEmbed = new URLSearchParams(location.search).get('embed') === '1';
@@ -573,6 +596,7 @@
       ctx.drawImage(lastImg, 0, 0, w, h);
 
       // 调用算法
+      manualOverride = null; // FIX-17: 新一次识别重置人工覆盖
       const result = analyzeDetergentImage(canvas, { concentrations });
       lastResult = result;
 
@@ -581,6 +605,32 @@
 
       // 渲染结果
       renderResult(result);
+    }
+
+    // FIX-17: 人工判定覆盖——算法识别不准时，允许操作员按肉眼判读手动选择比色级别。
+    // 级别列表从算法色卡参考浓度动态生成，保证与算法内部级别完全一致。
+    function renderManualOverride(result) {
+      const section = document.getElementById('manualOverrideSection');
+      if (!section) return;
+      const levels = [...new Set((result.sortedDistances || []).map(d => Number(d.concentration)))].sort((a, b) => a - b);
+      if (levels.length === 0) { section.style.display = 'none'; return; }
+      const active = manualOverride != null ? manualOverride : result.mainValue;
+      section.style.display = 'block';
+      section.innerHTML = `
+        <div class="label" style="font-size:12px;color:var(--c-muted);margin-bottom:6px;">
+          <i class="fas fa-hand-pointer"></i> 人工判定覆盖（选择后以人工结果为准）：
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">
+          ${levels.map(c => `<button type="button" class="manual-level-btn ${Number(active) === c ? 'active' : ''}" data-level="${c}">${c} mg/L</button>`).join('')}
+          ${manualOverride != null ? '<button type="button" class="manual-level-btn reset" data-level="reset">↺ 还原算法结果</button>' : ''}
+        </div>`;
+      section.querySelectorAll('.manual-level-btn').forEach(btn => {
+        btn.onclick = () => {
+          const v = btn.dataset.level;
+          manualOverride = (v === 'reset') ? null : Number(v);
+          renderResult(result);
+        };
+      });
     }
 
     function renderResult(result) {
@@ -603,8 +653,9 @@
         return;
       }
 
-      // 主判值
-      const mainV = result.mainValue;
+      // 主判值（FIX-17: 支持人工覆盖，manualOverride 非 null 时以人工判定为准）
+      const mainV = manualOverride != null ? manualOverride : result.mainValue;
+      const mainValueText = manualOverride != null ? String(manualOverride) : result.mainValueText;
       const judgeClass = mainV === 0 ? 'pass'
         : mainV <= 0.05 ? 'pass'
         : mainV <= 0.1 ? 'warn'
@@ -614,8 +665,8 @@
 
       resultGrid.innerHTML = `
         <div class="result-card main">
-          <div class="label">主判定</div>
-          <div class="value">${result.mainValueText} mg/L</div>
+          <div class="label">主判定${manualOverride != null ? '（人工覆盖）' : ''}</div>
+          <div class="value">${mainValueText} mg/L</div>
         </div>
         <div class="result-card ${judgeClass}">
           <div class="label">判定等级</div>
@@ -658,7 +709,14 @@
           qcHtml += `<div class="qc-note ${n.level}"><i class="fas ${icon}"></i> ${n.text}</div>`;
         });
       }
+      // FIX-17: 低置信度提示（置信度 < 60% 或算法疑似异常时建议人工复核）
+      if ((result.confidence || 0) < 0.6 || result.anomalySuspected) {
+        qcHtml += `<div class="qc-note warn"><i class="fas fa-exclamation-triangle"></i> 本次识别置信度较低，建议结合下方「人工判定覆盖」复核结果</div>`;
+      }
       qcSection.innerHTML = qcHtml;
+
+      // FIX-17: 渲染人工判定覆盖按钮组
+      renderManualOverride(result);
 
       // 距离明细
       distanceTable.innerHTML = result.sortedDistances.map((d, i) => {
@@ -694,12 +752,13 @@
         btn.onclick = () => {
           const payload = {
             type: 'DETERGENT_RESULT',
-            value: result.mainValue,
-            valueText: result.mainValueText,
+            value: mainV,
+            valueText: mainValueText,
             judge: judgeText,
             deltaE: result.deltaE,
             confidence: result.confidence,
             refinedValue: result.refinedValue,
+            manualOverride: manualOverride != null, // FIX-17: 标记是否人工覆盖
           };
           window.parent.postMessage(payload, '*');
           // 提示已发送

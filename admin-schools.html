@@ -3100,10 +3100,13 @@
         }
 
         // 从 chips DOM 读出当前数组（去重、去空、保留顺序）
+        // FIX-11: 原实现 querySelectorAll('[data-opt-idx]') 命中的是外层 <span>（只带 data-opt-idx），
+        // 而真正携带选项值的是内层 <button data-opt="...">。读 span.dataset.opt 恒为 undefined，
+        // 导致 getSpOptionsChips() 永远返回 []，删除一个 chip 会清空全部、且保存时无法写回 → "删不掉"。
         function getSpOptionsChips() {
             const list = document.getElementById('spOptionsList');
             if (!list) return [];
-            return Array.from(list.querySelectorAll('[data-opt-idx]'))
+            return Array.from(list.querySelectorAll('[data-opt]'))
                 .map(el => el.dataset.opt || '')
                 .filter(Boolean);
         }
@@ -3412,9 +3415,11 @@
                 } else {
                     delete fieldTypes[statPopoverField];
                 }
-                if (type === 'select' && optionsArr.length) {
+                // FIX-11: 允许删除到空——type 为 select 时始终写回（含空数组），
+                // 否则删光选项后 fieldOptions 残留旧值，录入端会回退硬编码默认项导致"删不掉"。
+                if (type === 'select') {
                     fieldOptions[statPopoverField] = optionsArr;
-                } else if (type !== 'select') {
+                } else {
                     delete fieldOptions[statPopoverField];
                 }
             }
@@ -3834,11 +3839,27 @@
                     body: JSON.stringify(payload)
                 });
                 const json = await resp.json();
-                if (!resp.ok) throw new Error(json.error || '保存失败');
+                if (!resp.ok) {
+                    const err = new Error(json.error || '保存失败');
+                    err.status = resp.status;
+                    throw err;
+                }
                 closeUserModal();
                 showNotice('✅ ' + (json.message || '已保存'), 'success');
                 loadUsers();
             } catch (err) {
+                // FIX-14: 区分 401（登录失效）/403（无权限）/其它，给出可操作提示
+                if (err.status === 401) {
+                    errEl.textContent = '登录状态已失效，请重新以平台超管登录';
+                    errEl.classList.remove('hidden');
+                    setTimeout(() => { window.location.href = '/super-admin-login.html'; }, 1200);
+                    return;
+                }
+                if (err.status === 403) {
+                    errEl.textContent = '当前账号无权限管理该校用户（仅平台超管可操作）';
+                    errEl.classList.remove('hidden');
+                    return;
+                }
                 errEl.textContent = err.message;
                 errEl.classList.remove('hidden');
             }

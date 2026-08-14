@@ -83,6 +83,7 @@ export class FormValidator {
         },
         
         // P2-20: XSS 防护规则，与后端 validationMiddleware.detectXss 保持一致
+        // ⚠️ 单一事实源锚点：与 backend/middleware/validationMiddleware.js:199 (detectXss) 同步维护，任一侧改动须同步另一侧（P2-8 收敛）。
         xss: (value) => {
             if (typeof value !== 'string') return null
             const xssPatterns = [
@@ -101,14 +102,19 @@ export class FormValidator {
         },
         
         // P2-20: SQL 注入防护规则，与后端 validationMiddleware.detectSqlInjection 保持一致
+        // ⚠️ 单一事实源锚点：与 backend/middleware/validationMiddleware.js:50 (detectSqlInjection) 同步维护，任一侧改动须同步另一侧（P2-8 收敛）。
+        // 后端为权威实现（更严格），本侧已对齐补齐 FROM/WHERE/SCRIPT/JAVASCRIPT、OR/AND 变体、双引号变体、/* */ 注释注入。
         sqlInjection: (value) => {
             if (typeof value !== 'string') return null
             const sqlPatterns = [
-                /(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|UNION)\b)/gi,
+                /(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|UNION|FROM|WHERE|SCRIPT|JAVASCRIPT)\b)/gi,
+                /(OR|AND)\s+(\d+|'[^']*')\s*=/gi,
                 /UNION\s+SELECT/gi,
                 /OR\s*1\s*=\s*1/gi,
                 /'\s*OR\s*'1'='1/gi,
-                /--\s*$/gi
+                /"\s*OR\s*"1"="1/gi,
+                /--\s*$/gi,
+                /\/\*.*\*\//gi
             ]
             return sqlPatterns.some(p => p.test(value))
                 ? '输入包含可疑的 SQL 代码'

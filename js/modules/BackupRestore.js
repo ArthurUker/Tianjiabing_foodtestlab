@@ -32,6 +32,7 @@ export class BackupRestoreService {
         this._abortCtrl = null;            // TD-EventLeak-Phase2: 取消事件监听
         this._connMonitorId = null;        // TD-BackupRestore-Bugs ②: 连接监控定时器句柄
         this._trackedIntervals = [];        // TD-EventLeak-Phase2: 所有定时器句柄
+        this._cloudSyncAbort = null;        // FIX-09: 云端同步取消控制器
     }
 
     init() {
@@ -602,6 +603,39 @@ export class BackupRestoreService {
     // 替换了原有的逻辑，改为直接从 5 个业务表拉取数据
     // 解决了 406 Not Acceptable (system_backups 表不存在) 的问题
     // ============================================================
+    // FIX-09: 云端同步进度对话框 + 取消按钮。长时间同步期间用户可随时中止，
+    // 而非只能等待完成（原实现仅开始前 confirm，执行中无任何取消入口）。
+    _showSyncProgress() {
+        this._hideSyncProgress();
+        const overlay = document.createElement('div');
+        overlay.id = 'cloud-sync-progress';
+        overlay.className = 'fixed inset-0 z-[100] flex items-center justify-center bg-black/40';
+        overlay.innerHTML = `
+            <div class="bg-white rounded-xl shadow-2xl p-6 w-80 max-w-[90vw] text-center">
+                <i class="fas fa-cloud-download-alt text-3xl text-purple-600 mb-3"></i>
+                <p class="font-semibold text-gray-800 mb-2">正在云端同步</p>
+                <p id="cloud-sync-progress-text" class="text-sm text-gray-500 mb-4">准备连接服务器...</p>
+                <div class="w-full bg-gray-100 rounded-full h-2 mb-4 overflow-hidden">
+                    <div id="cloud-sync-progress-bar" class="h-2 bg-purple-500 rounded-full transition-all" style="width:0%"></div>
+                </div>
+                <button id="cloud-sync-cancel" type="button"
+                    class="px-4 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm transition">取消</button>
+            </div>`;
+        document.body.appendChild(overlay);
+        document.getElementById('cloud-sync-cancel')?.addEventListener('click', () => this._cloudSyncAbort?.abort());
+    }
+
+    _updateSyncProgress(done, total, text) {
+        const textEl = document.getElementById('cloud-sync-progress-text');
+        const barEl = document.getElementById('cloud-sync-progress-bar');
+        if (textEl) textEl.textContent = text;
+        if (barEl) barEl.style.width = `${total ? Math.round((done / total) * 100) : 0}%`;
+    }
+
+    _hideSyncProgress() {
+        document.getElementById('cloud-sync-progress')?.remove();
+    }
+
     async handleCloudRestore() {
         const confirmed = await UINotification.confirm(
             '确定要从服务器重新加载所有数据吗？⚠️ 注意：这将覆盖本地当前的缓存数据',
@@ -628,13 +662,19 @@ export class BackupRestoreService {
             return;
         }
 
+        // FIX-09: 进度对话框 + 取消
+        this._cloudSyncAbort = new AbortController();
+        this._showSyncProgress();
+        const total = this.targetTables.length;
+        let completed = 0;
+
         try {
-            // 使用 Promise.all 并行拉取 5 张表
-            const promises = this.targetTables.map(async (tableName) => {
+            // 顺序拉取（5 张表），逐表更新进度并可响应取消
+            for (const tableName of this.targetTables) {
+                this._updateSyncProgress(completed, total, `正在同步「${tableName}」(${completed + 1}/${total})...`);
                 const response = await fetch(`/api/records/${tableName}?limit=1000&offset=0`, {
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    signal: this._cloudSyncAbort.signal
                 });
 
                 const result = await response.json();
@@ -666,26 +706,35 @@ export class BackupRestoreService {
 
                 // 直接写入缓存
                 localStorage.setItem(`cache_${tableName}`, JSON.stringify({ data: processedData }));
-                return processedData.length;
-            });
+                completed++;
+                this._updateSyncProgress(completed, total, `已完成 ${completed}/${total} 张表`);
+            }
 
-            await Promise.all(promises);
-
+            this._hideSyncProgress();
+            this._cloudSyncAbort = null;
             this.showStatus('✅ 云端同步成功！页面即将刷新...', 'green');
             // 记录审计日志
             await auditService.log(
                 'import',
                 'system',
                 'backup',
-                `从服务器云端恢复数据：已加载 5 个数据表`
+                `从服务器云端恢复数据：已加载 ${total} 个数据表`
             );
             UINotification.success('✅ 同步成功！本地数据已更新为服务器最新状态');
             setTimeout(() => window.location.reload(), 1500);
 
         } catch (err) {
-            console.error(err);
-            this.showStatus(`❌ 云端同步失败: ${err.message}`, 'red');
-            UINotification.error('❌ 无法从服务器下载数据，请检查网络或联系管理员');
+            const cancelled = err && err.name === 'AbortError';
+            this._hideSyncProgress();
+            this._cloudSyncAbort = null;
+            if (cancelled) {
+                this.showStatus('⏹️ 云端同步已取消', 'yellow');
+                UINotification.error('已取消云端同步，本地数据保持不变');
+            } else {
+                console.error(err);
+                this.showStatus(`❌ 云端同步失败: ${err.message}`, 'red');
+                UINotification.error('❌ 无法从服务器下载数据，请检查网络或联系管理员');
+            }
             if(btn) btn.disabled = false;
         }
     }

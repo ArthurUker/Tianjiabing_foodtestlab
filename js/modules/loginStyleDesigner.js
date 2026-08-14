@@ -21,6 +21,8 @@
  * 返回 { load(code), hasUnsaved(), setGraphical(on) } 供宿主页调度。
  */
 
+import { escapeHtml } from '../utils/schoolCustomization/shared.js'
+
 function defaultLoginStyle() {
   return {
     background: { type: 'aurora' },
@@ -30,13 +32,6 @@ function defaultLoginStyle() {
 }
 
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)) }
-
-function escapeHtml(s) {
-  if (s == null) return ''
-  return String(s).replace(/[&<>"']/g, (c) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-  }[c]))
-}
 
 // 文件 → dataURL（按 maxDim 等比缩小，避免超大 payload）
 function fileToDataURL(file, maxDim = 1600) {

@@ -60,6 +60,7 @@ export function createUserRoutes(userManager) {
             if (error.validation) {
                 return res.status(error.status || 400).json({ error: error.message })
             }
+            console.error('❌ [user] 注册失败:', error)
             res.status(error.status || 400).json({ error: '注册失败' })
         }
     })
@@ -301,6 +302,7 @@ export function createUserRoutes(userManager) {
             }
             res.json(result)
         } catch (error) {
+            console.error('❌ [user] 获取用户信息失败:', error)
             res.status(400).json({ error: `获取用户信息失败` })
         }
     })
@@ -315,6 +317,7 @@ export function createUserRoutes(userManager) {
             })
             res.json(result)
         } catch (error) {
+            console.error('❌ [user] 更新个人资料失败:', error)
             res.status(400).json({ error: `更新失败` })
         }
     })
@@ -411,6 +414,7 @@ router.post('/change-password', authenticateUser, async (req, res) => {
             )
             res.json(result)
         } catch (error) {
+            console.error('❌ [user] 修改密码失败:', error)
             res.status(400).json({ error: `修改密码失败` })
         }
     })
@@ -434,6 +438,7 @@ router.post('/change-password', authenticateUser, async (req, res) => {
             const result = await userManager.forTenant(req.user.schoolCode).getUserList(Math.min(parseInt(limit) || 100, 500), Math.max(0, parseInt(offset) || 0))
             res.json(result)
         } catch (error) {
+            console.error('❌ [user] 获取用户列表失败:', error)
             res.status(400).json({ error: `获取用户列表失败` })
         }
     })

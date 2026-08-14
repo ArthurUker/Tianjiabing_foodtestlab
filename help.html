@@ -16,7 +16,7 @@
                 <i class="fas fa-question-circle text-blue-600"></i>
                 <h1 class="text-lg font-bold text-gray-800">帮助中心</h1>
             </div>
-            <a href="./login.html" class="text-sm text-blue-600 hover:text-blue-800 transition">
+            <a id="backToLoginLink" href="./login.html" class="text-sm text-blue-600 hover:text-blue-800 transition">
                 <i class="fas fa-arrow-left mr-1"></i>返回登录
             </a>
         </div>
@@ -126,5 +126,17 @@
     <footer class="max-w-3xl mx-auto px-4 py-6 text-center text-xs text-gray-400">
         <p>© 2026 食品安全检验系统 · 系统版本 3.1.0</p>
     </footer>
+
+    <script>
+        // FIX-03: 帮助页"返回登录"按校构建，避免落到根 /login.html（无学校上下文 → "未识别入口"）。
+        // 登录页跳转时携带 ?school=，此处据此生成 /<code>/login.html?school=<code>。
+        (function () {
+            var school = new URLSearchParams(window.location.search).get('school');
+            var link = document.getElementById('backToLoginLink');
+            if (link && school) {
+                link.href = '/' + encodeURIComponent(school) + '/login.html?school=' + encodeURIComponent(school);
+            }
+        })();
+    </script>
 </body>
 </html>

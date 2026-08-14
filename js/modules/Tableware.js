@@ -373,7 +373,20 @@ function showEditModal(record, currentUser) {
 
         record.recheckRecords = record.recheckRecords || [];
         record.recheckRecords.unshift(recheckRecord);
-        
+
+        // TD-Recheck-Sync: 复检结果回写到首检点位数据（atpPoints）与顶层 result，
+        // 使列表「数值/结果」列与统计口径跟随最新一次复检（对齐 GenericTest 口径）。
+        // 复检可能只复检部分点位，未复检的点位保留首检原值；新增点位直接追加。
+        const atpPoints = Array.isArray(record.atpPoints) ? record.atpPoints.slice() : [];
+        points.forEach((p) => {
+            const idx = atpPoints.findIndex((a) => a.loc === p.loc);
+            const merged = { loc: p.loc, rlu: p.rlu, res: p.res, testType: p.testType };
+            if (idx >= 0) atpPoints[idx] = merged;
+            else atpPoints.push(merged);
+        });
+        record.atpPoints = atpPoints;
+        record.result = allPassed ? '合格' : '不合格';
+
         let logContent = '';
         if (allPassed) {
             record.finalStatus = '整改后复检合格';
@@ -697,6 +710,12 @@ async function handleDeleteRecord(recordId) {
 
 function handleFormSubmit(e) {
     e.preventDefault();
+    // FIX-15: viewer/guest 越权新增检测记录拦截（事件处理层纵深防御）。
+    // 与 GenericTest.handleSubmit 一致，提交前校验 records:create 权限。
+    if (!permissionService.hasPermission('records:create')) {
+        UINotification.error('权限不足：您没有新增检测记录的权限');
+        return;
+    }
     const formData = new FormData(e.target);
     const data = Object.fromEntries(formData.entries());
 
@@ -795,7 +814,11 @@ function handleFormSubmit(e) {
 function renderTable() {
     // ✨ 设置调试标志
     console.log('🎯 renderTable() 被调用');
-    
+
+    // P1-06: viewer 等只读角色在列表"操作"栏仅保留查看，隐藏编辑/删除入口（视觉层收敛）
+    const canUpdate = permissionService.hasPermission('records:update');
+    const canDelete = permissionService.hasPermission('records:delete');
+
     // ✨ 快速访问模式：直接从localStorage读取，绕过StorageService缓存
     let allRecords;
     const isQuickAccess = new URLSearchParams(window.location.search).get('quickAccess') === 'true';
@@ -903,7 +926,7 @@ function renderTable() {
                     <td class="border px-4 py-2">${record.inspector}</td>
                     <td class="border px-4 py-2">
                         <div class="flex gap-2 justify-center">
-                            <button class="text-red-600 hover:text-red-800 btn-delete" data-id="${record.id}" title="删除"><i class="fas fa-trash"></i></button>
+                            ${canDelete ? `<button class="text-red-600 hover:text-red-800 btn-delete" data-id="${record.id}" title="删除"><i class="fas fa-trash"></i></button>` : ''}
                         </div>
                     </td>
                 </tr>`;
@@ -945,9 +968,9 @@ function renderTable() {
                     ${idx === 0 ? `<td rowspan="${rowSpan}" class="border px-4 py-2">${record.inspector}</td>` : ''}
                     ${idx === 0 ? `<td rowspan="${rowSpan}" class="border px-4 py-2">
                         <div class="flex gap-2 justify-center">
-                            <button class="text-blue-600 hover:text-blue-800 btn-edit" data-id="${record.id}" title="整改/复检"><i class="fas fa-edit"></i></button>
+                            ${canUpdate ? `<button class="text-blue-600 hover:text-blue-800 btn-edit" data-id="${record.id}" title="整改/复检"><i class="fas fa-edit"></i></button>` : ''}
                             <button class="text-green-600 hover:text-green-800 btn-detail" data-id="${record.id}" title="查看详情"><i class="fas fa-info-circle"></i></button>
-                            <button class="text-red-600 hover:text-red-800 btn-delete" data-id="${record.id}" title="删除"><i class="fas fa-trash"></i></button>
+                            ${canDelete ? `<button class="text-red-600 hover:text-red-800 btn-delete" data-id="${record.id}" title="删除"><i class="fas fa-trash"></i></button>` : ''}
                         </div>
                     </td>` : ''}
                 </tr>
