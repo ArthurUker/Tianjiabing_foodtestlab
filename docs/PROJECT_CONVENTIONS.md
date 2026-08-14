@@ -3,7 +3,7 @@
 > 本文件为本项目**长期生效、最高优先级**的操作规范，适用于所有后续代码修复 / 验证 / 清理 / 重构 / 部署工作，**不因换模型、换会话或换开发者而失效**。
 > 任何 AI 助手或开发者在执行涉及审计日志、多学校隔离、认证授权、数据库迁移、前端访问层、部署等操作前，**必须先阅读并遵守以下规则**。
 > 规则一、规则二为不可动摇的硬红线；其余规则是对当前代码库事实形成的工程约束，偏离须参照规则二预先报备。
-> 历史文档统一归档于 [`docs/history/`](./history/)，仅作参考，不作为权威依据。
+> 近期变更见 [`docs/CHANGELOG.md`](./CHANGELOG.md)；待修复问题见 [`docs/fix/`](./fix/)。
 
 ---
 
@@ -223,4 +223,4 @@ server.js（入口/路由/中间件装配）
 - 开发文档（随代码更新）：[`docs/DEVELOPMENT_GUIDE.md`](./DEVELOPMENT_GUIDE.md)
 - 部署说明：[`deploy/README.md`](../deploy/README.md)
 - 后端说明：[`backend/README.md`](../backend/README.md)
-- 历史归档（仅供参考，非权威）：[`docs/history/`](./history/)
+- 近期变更日志：[`docs/CHANGELOG.md`](./CHANGELOG.md)

@@ -156,17 +156,25 @@ function buildSnapshot(results) {
         closed_at: closedInfo?.closed_at || null,
       }
     })
+    // TD-CountsIncludeClosed: counts 是"该结果类别的全部用例"（含已收口），便于负责人一眼看清结果分布。
+    // closed 仍独立维度显示。done/activeTotal 仍按 TD-DenomExcludeClosed 口径计算（收口不计入待办）。
     const counts = { passed: 0, failed: 0, skipped: 0, pending: 0, closed: 0 }
     for (const it of items) {
       if (it.closed) counts.closed += 1
-      else counts[it.result] += 1
+      if (it.result) counts[it.result] = (counts[it.result] || 0) + 1
     }
-    // TD-CloseNumerator: 收口口径修正 —— "分子扣除"（收口项从问题项/result 计数中移除，已在上方归入 counts.closed），
-    // 而 total（分母）保持总数不变。完成度 = (已测 + 已收口) / 总数：收口视为"结案完成"，
-    // 故全部收口时完成度 = 100%，避免旧口径"分母扣除"导致全部收口反而显示 0/0·0%。
-    const done = counts.passed + counts.failed + counts.skipped + counts.closed
+    // TD-DenomExcludeClosed: 与 test-report.html 的卡片一致 —— 已收口用例**不计入**「问题数」统计。
+    //   · done        = passed + failed + skipped（真实已测，不含收口）
+    //   · activeTotal = total - closed（活跃待办分母）
+    //   · pct         = done / activeTotal（activeTotal=0 时按 100% 展示"已全部收口"）
+    // 设计意图：docs 汇总报告给负责人的是"待办清单"，收口是业务结论另作维度。
+    const done = counts.passed + counts.failed + counts.skipped
     const total = items.length
-    return { group: g.group, groupName: g.groupName, total, counts, done, items }
+    const activeTotal = Math.max(0, total - counts.closed)
+    const pct = activeTotal > 0
+      ? Math.round((done / activeTotal) * 100)
+      : (total > 0 ? 100 : 0)
+    return { group: g.group, groupName: g.groupName, total, counts, done, activeTotal, pct, items }
   })
 
   // TD-ExtraGroup: 清单外用例（如前端「新问题反馈」new_问题 组）也纳入报告。
@@ -194,10 +202,12 @@ function buildSnapshot(results) {
       }
     })
     // new_问题 组口径与 CASE_DEFS 组一致（分子扣除 + total 不变，收口视为完成）
+    // TD-CountsIncludeClosed: counts 是"该结果类别的全部用例"（含已收口），便于负责人一眼看清结果分布。
+    // closed 仍独立维度显示。done/activeTotal 仍按 TD-DenomExcludeClosed 口径计算（收口不计入待办）。
     const counts = { passed: 0, failed: 0, skipped: 0, pending: 0, closed: 0 }
     for (const it of items) {
       if (it.closed) counts.closed += 1
-      else counts[it.result] += 1
+      if (it.result) counts[it.result] = (counts[it.result] || 0) + 1
     }
     const done = counts.passed + counts.failed + counts.skipped + counts.closed
     const total = items.length
@@ -208,11 +218,13 @@ function buildSnapshot(results) {
     (acc, g) => {
       for (const k of ['passed', 'failed', 'skipped', 'pending', 'closed']) acc[k] += g.counts[k] || 0
       acc.total += g.total
+      acc.activeTotal += g.activeTotal || 0
       return acc
     },
-    { passed: 0, failed: 0, skipped: 0, pending: 0, closed: 0, total: 0 }
+    { passed: 0, failed: 0, skipped: 0, pending: 0, closed: 0, total: 0, activeTotal: 0 }
   )
-  overall.done = overall.passed + overall.failed + overall.skipped + overall.closed
+  // TD-DenomExcludeClosed: 与卡片口径一致 —— done 不含 closed，activeTotal 已扣除 closed
+  overall.done = overall.passed + overall.failed + overall.skipped
 
   return { generated_at: new Date().toISOString(), overall, groups }
 }
@@ -232,15 +244,17 @@ function renderMarkdown(snap) {
   lines.push('')
   lines.push('## 一、总体统计')
   lines.push('')
-  lines.push('| 分组 | 通过 | 失败 | 跳过 | 待测 | 收口 | 已完成/总数 | 完成度 |')
+  lines.push('| 分组 | 通过 | 失败 | 跳过 | 待测 | 收口 | 已测试/活跃 | 完成度 |')
   lines.push('|---|---:|---:|---:|---:|---:|---:|---:|')
   for (const g of snap.groups) {
-    const pct = g.total ? Math.round((g.done / g.total) * 100) : 0
-    lines.push(`| ${g.groupName} | ${g.counts.passed} | ${g.counts.failed} | ${g.counts.skipped} | ${g.counts.pending} | ${g.counts.closed} | ${g.done}/${g.total} | ${pct}% |`)
+    // TD-DenomExcludeClosed: 已完成改为「已测试」，分母改为「活跃总数」(扣除已收口)
+    lines.push(`| ${g.groupName} | ${g.counts.passed} | ${g.counts.failed} | ${g.counts.skipped} | ${g.counts.pending} | ${g.counts.closed} | ${g.done}/${g.activeTotal} | ${g.pct}% |`)
   }
   const o = snap.overall
+  // 合计行的完成度：把各组 activeTotal 加起来当分母，分子也是各组 done 的合计
+  const oPct = o.activeTotal > 0 ? Math.round((o.done / o.activeTotal) * 100) : (o.total > 0 ? 100 : 0)
   lines.push(
-    `| **合计** | **${o.passed}** | **${o.failed}** | **${o.skipped}** | **${o.pending}** | **${o.closed}** | **${o.done}/${o.total}** | **${o.total ? Math.round((o.done / o.total) * 100) : 0}%** |`
+    `| **合计** | **${o.passed}** | **${o.failed}** | **${o.skipped}** | **${o.pending}** | **${o.closed}** | **${o.done}/${o.activeTotal}** | **${oPct}%** |`
   )
   lines.push('')
 
@@ -349,9 +363,34 @@ function renderHtml(snap) {
   .progress { width: 100%; height: 6px; background: rgba(229,231,235,0.6); border-radius: 999px; margin-top: 12px; overflow: hidden; }
   .progress > div { height: 100%; background: linear-gradient(90deg, #34d399 0%, #6366f1 100%); border-radius: 999px; transition: width .3s ease; }
   /* TD-WidthFill: 筛选区水平 padding 与主容器对齐 */
-  .filters { display: flex; gap: 12px; flex-wrap: wrap; padding: 18px 28px; margin-bottom: 14px; }
-  .filters select { min-width: 130px; }
-  .filters input { flex: 1; min-width: 220px; }
+  /* 筛选区：克制风格 —— 不堆 emoji、不用 5x5px 小三角铺满当箭头；
+     改用浏览器原生 select 箭头 + 简洁的浅色边框样式。
+     旧版"彩色 emoji + 5x5 重复箭头"会让 select 背景被一堆色块/图形铺满，
+     不操作就显示一片密密麻麻的小三角，看上去像 bug。
+     注：避免 backdrop-filter 叠加在 select 上导致玻璃模糊渲染异常。 */
+  .filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; padding: 14px 16px; margin-bottom: 14px; background: rgba(255,255,255,0.6); border: 1px solid #e2e8f0; border-radius: 12px; }
+  .filters > select, .filters > input {
+    background: #fff;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    padding: 7px 28px 7px 12px;
+    font-size: 13px;
+    color: #1f2937;
+    min-height: 34px;
+    line-height: 1.4;
+    transition: border-color .15s ease, box-shadow .15s ease;
+  }
+  .filters > input { padding-right: 12px; cursor: text; }
+  .filters > select:hover, .filters > input:hover { border-color: #94a3b8; }
+  .filters > select:focus, .filters > input:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.15); }
+  #fGroup { min-width: 200px; }
+  #fResult { min-width: 130px; }
+  #fUser { min-width: 140px; }
+  #fClosed { min-width: 130px; }
+  #fKeyword { flex: 1; min-width: 220px; }
+  /* 重置按钮：简洁文本按钮，避免在玻璃态滤镜下出现意外色块 */
+  #fReset { display: inline-flex; align-items: center; gap: 4px; padding: 7px 16px; background: #fff; color: #64748b; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer; transition: all .15s ease; min-height: 34px; }
+  #fReset:hover { background: #f1f5f9; color: #334155; border-color: #94a3b8; }
   /* 整页卡片网格：列数随容器宽度自动增加（窗口越大列越多），每张卡片保留最小宽度以容纳左文右图两列布局 */
   /* TD-WidthFill: 最小列宽 440→400，让 2000px 容器里能放下 4 列（之前 1180px 容器只能放 2 列） */
   #list { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 16px; }
@@ -371,6 +410,8 @@ function renderHtml(snap) {
   .evid.multi { grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(auto-fit, minmax(100px, 1fr)); }
   .evid a.ext { font-size: 13px; color: #4f46e5; text-decoration: none; background: rgba(238,242,255,0.7); border: 1px solid rgba(99,102,241,0.25); border-radius: 10px; padding: 8px 14px; align-self: center; }
   .count-line { font-size: 13px; color: #6b7280; margin: 14px 4px 10px; }
+  /* TD-CloseDivider: 已收口卡片前柔和分隔条（grid 中跨整列，宽屏下左右各占一格） */
+  .closed-divider { grid-column: 1 / -1; padding: 12px 18px; margin-top: 6px; font-size: 13px; color: #64748b; background: linear-gradient(90deg, rgba(148,163,184,0.18), rgba(148,163,184,0.05)); border: 1px dashed rgba(148,163,184,0.55); border-radius: 14px; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(6px); }
   .empty { text-align: center; color: #9ca3af; padding: 60px 0; font-size: 14px; }
   #lightbox { position: fixed; inset: 0; background: rgba(15,23,42,0.85); backdrop-filter: blur(8px); display: none; align-items: center; justify-content: center; z-index: 99; cursor: zoom-out; }
   #lightbox img { max-width: 92vw; max-height: 90vh; border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
@@ -405,12 +446,13 @@ function renderHtml(snap) {
 
   <div class="cards" id="cards"></div>
 
-  <div class="filters glass-section">
-    <select id="fGroup" class="glass-input"><option value="">全部分组</option>${groupFilterOptions}</select>
-    <select id="fResult" class="glass-input"><option value="">全部结果</option>${resultFilterOptions}</select>
-    <select id="fUser" class="glass-input"><option value="">全部提交人</option></select>
-    <select id="fClosed" class="glass-input" title="收口筛选：已收口=测试任务已完成/不再继续；未收口=可继续测试"><option value="">全部收口</option><option value="open">未收口</option><option value="closed">已收口</option></select>
-    <input id="fKeyword" type="search" class="glass-input" placeholder="🔍 搜索用例编号 / 标题 / 实际表现…">
+  <div class="filters">
+    <select id="fGroup" aria-label="按分组筛选"><option value="">全部分组</option>${groupFilterOptions}</select>
+    <select id="fResult" aria-label="按结果筛选"><option value="">全部结果</option>${resultFilterOptions}</select>
+    <select id="fUser" aria-label="按提交人筛选"><option value="">全部提交人</option></select>
+    <select id="fClosed" aria-label="按收口状态筛选" title="收口筛选：已收口=测试任务已完成/不再继续；未收口=可继续测试"><option value="">全部收口</option><option value="open">未收口</option><option value="closed">已收口</option></select>
+    <input id="fKeyword" type="search" placeholder="搜索用例编号 / 标题 / 实际表现…">
+    <button id="fReset" type="button" title="清除全部筛选条件">↺ 重置</button>
   </div>
   <div class="count-line" id="countLine"></div>
   <div id="list"></div>
@@ -434,15 +476,29 @@ function getLoginState() { return _loginState }
 
 function renderCards() {
   $('cards').innerHTML = SNAPSHOT.groups.map(g => {
-    const pct = g.total ? Math.round(g.done / g.total * 100) : 0;
-    const remain = g.total - g.done;
+    // TD-DenomExcludeClosed: 与 test-report.html 一致 —— 大数字和分母都只看"活跃待办"维度
+    //   · 大数字 = done (passed+failed+skipped)，不含 closed
+    //   · 分母   = activeTotal (total - closed)
+    //   · 完成度 = pct（activeTotal=0 时为 100%）
+    const pct = typeof g.pct === 'number' ? g.pct : (g.total ? Math.round(g.done / g.total * 100) : 0)
+    const remain = Math.max(0, (g.activeTotal || 0) - g.done)
+    const denom = typeof g.activeTotal === 'number' ? g.activeTotal : g.total
     const mkChip = (k, lbl) => '<div class="chip" style="color:' + LABELS[k].color + '"><i class="icon">' + LABELS[k].emoji + '</i><span class="lbl">' + lbl + '</span><span class="v">' + (k === 'pending' ? remain : g.counts[k]) + '</span></div>';
-    // TD-CloseNumerator: 新增「收口」chip，使大数字（已完成 = 已测 + 已收口）有据可查
+    // TD-CloseNumerator: 新增「收口」chip，使大数字（仅已测，不含收口）有据可查
     const closedChip = '<div class="chip" style="color:#64748b"><i class="icon">🔒</i><span class="lbl">收口</span><span class="v">' + (g.counts.closed || 0) + '</span></div>';
     const chips = mkChip('passed','通过') + mkChip('failed','失败') + mkChip('skipped','跳过') + mkChip('pending','待测') + closedChip;
+    // TD-GnameShort: 汇总卡简称取「· 之后、（之前」的部分，
+    //   · "吴翠楠 · 业务功能复测（...）" → "业务功能复测"
+    //   · "曾水平 · 备份与恢复模块（...）" → "备份与恢复模块"
+    //   · "历史测试问题"（无分隔）           → 原名
+    //   · "新问题 / 缺陷反馈"（无分隔）       → 原名
+    // 旧实现 split(' · ')[0] 取的是前缀人名，导致多张卡同名（"吴翠楠" × 2）。
+    const shortName = g.groupName.includes(' · ')
+      ? g.groupName.split(/\s*·\s*/)[1].replace(/\s*（.*$/, '')
+      : g.groupName
     return '<div class="card glass-tile">' +
-      '<div class="gname">' + esc(g.groupName.split(' · ')[0]) + '</div>' +
-      '<div class="num-row"><span class="num">' + g.done + '</span><span class="num-total">/ ' + g.total + ' 项</span>' +
+      '<div class="gname" title="' + esc(g.groupName) + '">' + esc(shortName) + '</div>' +
+      '<div class="num-row"><span class="num">' + g.done + '</span><span class="num-total">/ ' + denom + ' 项</span>' +
       '<span class="pct">完成 ' + pct + '%</span></div>' +
       '<div class="progress"><div style="width:' + pct + '%"></div></div>' +
       '<div class="chips">' + chips + '</div></div>';
@@ -452,7 +508,14 @@ function renderCards() {
   $('fUser').innerHTML = '<option value="">全部提交人</option>' + [...u].map(x => '<option>' + esc(x) + '</option>').join('');
 }
 
-function allItems() { const a = []; SNAPSHOT.groups.forEach(g => g.items.forEach(it => a.push(it))); return a; }
+// TD-GroupFix: SNAPSHOT 中每个 item 不带 group 字段，导致前端筛选 (it.group === fg) 永远 false，
+// 用户反馈"筛选都筛不出正确信息"——选择了具体分组，列表瞬间被清空。
+// 这里在合成时把 group 字段带上，保持原对象引用不破坏其他逻辑。
+function allItems() {
+  const a = [];
+  SNAPSHOT.groups.forEach(g => g.items.forEach(it => { a.push(Object.assign({}, it, { group: g.group })); }));
+  return a;
+}
 
 function renderList() {
   const fg = $('fGroup').value, fr = $('fResult').value, fu = $('fUser').value, kw = $('fKeyword').value.trim().toLowerCase();
@@ -465,8 +528,26 @@ function renderList() {
     (!fClosed || (fClosed === 'closed' ? !!it.closed : !it.closed)) &&
     (!kw || (it.case_id + ' ' + it.case_title + ' ' + it.detail).toLowerCase().includes(kw))
   );
+  // TD-CloseSort: 默认把已收口卡片后置（仅在用户没有显式筛选 fClosed 时启用，
+  // 避免破坏「只看已收口 / 只看未收口」两种独立筛选的语义）。
+  // 使用稳定排序 + 取反：Number(!!closed) 把布尔转 0/1，减法即"未收口(0) 排在前，已收口(1) 排在后"。
+  if (!fClosed && items.length > 1) {
+    items.sort((a, b) => Number(!!a.closed) - Number(!!b.closed))
+  }
   $('empty').style.display = items.length ? 'none' : 'block';
-  $('list').innerHTML = items.map(it => {
+  // TD-CloseDivider: 在已收口分组前插一个跨行的柔和分隔条，标明"以下是已收口卡片 (N 项)"，
+  // 让用户在不展开筛选器的情况下也能一眼看清边界。仅在"未收口 + 已收口"同时存在时插入。
+  const hasClosed = items.some((it) => it.closed)
+  const firstClosedIdx = items.findIndex((it) => it.closed)
+  $('list').innerHTML = items.map((it, idx) => {
+    const divider = (hasClosed && idx === firstClosedIdx && firstClosedIdx > 0)
+      ? '<div class="closed-divider"><i class="fas fa-lock mr-1.5"></i>以下为已收口用例（不再测试，可点「打开收口」重新测试）</div>'
+      : ''
+    return divider + renderItem(it)
+  }).join('')
+
+  // TD-CloseSort: 单卡片渲染函数（之前是内联在 items.map() 里，现在抽出便于插入分隔条）
+  function renderItem(it) {
     const b = LABELS[it.result] || { label: it.result, emoji: '?', color: '#9ca3af' };
     const localEvs = (it.evidence_list || []).filter(e => e.type === 'local');
     const urlEvs = (it.evidence_list || []).filter(e => e.type === 'url');
@@ -480,7 +561,6 @@ function renderList() {
     const links = urlEvs.map(e => '<a class="ext" href="' + esc(e.url) + '" target="_blank" rel="noopener">🔗 证据链接</a>').join('');
     const evidClass = 'evid' + (localEvs.length > 1 ? ' multi' : '');
     const GRAD = { passed: 'linear-gradient(135deg,#34d399,#10b981)', failed: 'linear-gradient(135deg,#fb7185,#e11d48)', skipped: 'linear-gradient(135deg,#fbbf24,#d97706)', pending: 'linear-gradient(135deg,#cbd5e1,#94a3b8)' };
-    // TD-Close: 已收口时灰化卡片 + 显示「已收口」徽章 + 收口人/时间
     const closedAt = it.closed_at ? fmt(it.closed_at) : '';
     const closedBadge = it.closed
       ? '<span class="badge" style="background:linear-gradient(135deg,#94a3b8,#64748b); margin-left:6px">🔒 已收口</span>'
@@ -488,7 +568,6 @@ function renderList() {
     const closedMeta = it.closed
       ? '<div class="meta">🔒 收口人：' + esc(it.closed_by || '—') + (closedAt ? ' · 🕐 收口时间：' + closedAt : '') + '</div>'
       : '';
-    // 收口/打开按钮：仅已登录用户可见
     const loginState = (typeof getLoginState === 'function') ? getLoginState() : { loggedIn: false };
     const actionBtn = loginState.loggedIn
       ? (it.closed
@@ -512,7 +591,7 @@ function renderList() {
       '</div>' +
       (pics ? '<div class="' + evidClass + '">' + pics + '</div>' : '') +
       '</div>';
-  }).join('');
+  }
   // 绑定收口/打开按钮事件
   $('list').querySelectorAll('.btn-closed-open').forEach((btn) => {
     btn.addEventListener('click', () => toggleClosed(btn.dataset.case, btn.dataset.closed === '1', btn));
@@ -529,8 +608,14 @@ function renderList() {
 
 function openLb(src) { $('lbImg').src = src; $('lightbox').style.display = 'flex'; }
 $('lightbox').addEventListener('click', () => $('lightbox').style.display = 'none');
-['fGroup','fResult','fUser'].forEach(id => $(id).addEventListener('change', renderList));
+['fGroup','fResult','fUser','fClosed'].forEach(id => $(id).addEventListener('change', renderList));
 $('fKeyword').addEventListener('input', renderList);
+// TD-FilterReset: 重置按钮一次性清掉所有筛选条件并重渲染
+$('fReset').addEventListener('click', () => {
+  ['fGroup','fResult','fUser','fClosed'].forEach(id => { $(id).value = '' });
+  $('fKeyword').value = '';
+  renderList();
+});
 
 $('genTime').textContent = fmt(SNAPSHOT.generated_at);
 renderCards();

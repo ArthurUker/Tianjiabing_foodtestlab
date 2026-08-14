@@ -1,6 +1,6 @@
 # 开发文档（DEVELOPMENT GUIDE）
 
-> 本文基于 **当前仓库实际代码** 编写（非历史记录）。旧版文档已统一归档至 [`docs/history/`](./history/)，仅作为参考，不再作为权威说明。
+> 本文基于 **当前仓库实际代码** 编写（非历史记录）。近期变更见 [`docs/CHANGELOG.md`](./CHANGELOG.md)，待修复问题见 [`docs/fix/`](./fix/)。
 > 长期生效的项目操作规范见 [`docs/PROJECT_CONVENTIONS.md`](./PROJECT_CONVENTIONS.md)，任何修复 / 验证 / 清理工作都必须先遵守该文件（尤其是审计日志保留原则）。
 
 ---
@@ -465,6 +465,6 @@ npx cypress open           # 交互式
 - 系统总览（项目入口）：[`README.md`（根）](../README.md)
 - 文档中心（docs 索引）：[`docs/README.md`](./README.md)
 - 长期规范（最高优先）：[`docs/PROJECT_CONVENTIONS.md`](./PROJECT_CONVENTIONS.md)
-- 历史归档（仅供参考，非权威）：[`docs/history/`](./history/)
+- 近期变更日志：[`docs/CHANGELOG.md`](./CHANGELOG.md)
 - 部署说明：[`deploy/README.md`](../deploy/README.md)
 - 后端说明：[`backend/README.md`](../backend/README.md)

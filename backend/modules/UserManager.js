@@ -164,8 +164,10 @@ export class UserManager {
      * 计数查询失败时 fail-open（不锁定），避免日志故障导致全员无法登录。
      */
     async isAccountLocked(userId) {
+        // 开发/测试环境放宽账号锁定阈值（避免反复调试被 423 锁死）；生产环境保持严格。
+        const isProduction = process.env.NODE_ENV === 'production'
         const windowMs = Number(process.env.LOGIN_FAIL_LOCK_WINDOW_MS || 15 * 60 * 1000)
-        const threshold = Number(process.env.LOGIN_FAIL_LOCK_THRESHOLD || 5)
+        const threshold = Number(process.env.LOGIN_FAIL_LOCK_THRESHOLD || (isProduction ? 5 : 1000))
         try {
             const failures = await this.prisma.auditLog.count({
                 where: {

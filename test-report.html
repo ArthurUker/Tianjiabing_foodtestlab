@@ -322,23 +322,13 @@
         // 修订：先异步拉取已保存记录，再调用 renderGroups(map) 渲染，
         // 使"已填写用例"首次渲染即为正确状态，避免依赖后置 fillRow 二次刷新（用户硬刷可见）。
         // 未填写过的用例在 renderGroups 中预判 result/detail/evidence 后保持默认"待测"空状态。
-        // N1 止血：仅 admin/manager 可见全量测试结果；operator/viewer 仅能查看自己
-        // （按测试人员姓名/账号 submitted_by）提交的记录，避免普通账号越权看到他人检验记录。
-        function canViewAllResults() {
-            const u = authService.getUser ? authService.getUser() : null
-            return !!(u && (u.role === 'admin' || u.role === 'manager'))
-        }
-
         async function loadAll() {
             let map = {}
             let allMap = {}
             try {
-                const canAll = canViewAllResults()
-                const who = testerName() || currentUsername()
-                const qs = canAll
-                    ? `?pageSize=500`
-                    : `?submitted_by=${encodeURIComponent(who)}&pageSize=500`
-                const r = await fetch(`/api/test-results${qs}`, { headers: apiHeaders() })
+                // 业务口径（已确认）：检测记录「全校共享」——manager/operator/viewer 均可查看本校全部记录。
+                // 因此不做 submitted_by 过滤，全量拉取；提交人以「测试人员姓名」(submitted_by) 为准，仅用于展示。
+                const r = await fetch(`/api/test-results?pageSize=500`, { headers: apiHeaders() })
                 const j = await r.json()
                 // 同一 case_id 可能被多个测试人员提交，取 updated_at 最新的一条作为当前展示值
                 for (const it of (j.data || [])) {
@@ -896,19 +886,28 @@
                 const bar = $('summaryBar')
                 bar.innerHTML = CASE_DEFS.map((g) => {
                     const gs = s[g.group] || {}
-                    // TD-CloseNumerator: 收口口径修正 —— "分子扣除"（收口项从 result 计数移除，已由 summary API 的 closed 单独计数实现），
-                    // total 保持总数不变；完成度 = (已测 + 已收口) / 总数，收口视为"结案完成"，全部收口 = 100%。
+                    // TD-DenomExcludeClosed: 分母/分子口径修正 —— 已收口用例**不计入**「问题数」统计。
+                    // 旧口径 "分子扣除"（completed = done + closed）会让收口项被算成已完成，造成汇总数字虚高。
+                    // 新口径：
+                    //   · 分母（activeTotal）= 全部用例 - 已收口 → 只反映"还需测试"的活跃任务数
+                    //   · 分子（done）= passed + failed + skipped → 真实已测结果
+                    //   · 完成度 = done / activeTotal（activeTotal=0 时按 100% 展示"已全部收口"）
+                    //   · "已收口"以独立 chip 形式展示（不再混入"已完成"大数字）
+                    // 设计意图：卡片统计是给测试负责人的"待办提醒"——只看还需要测/已测/已失败，
+                    // 收口是另一个维度（业务结论），不应挤占"待办"看板的视线。
                     const total = g.cases.length
                     const closed = gs.closed || 0
                     const done = (gs.passed || 0) + (gs.failed || 0) + (gs.skipped || 0)
-                    const completed = done + closed
-                    const pct = total ? Math.round((completed / total) * 100) : 0
-                    const remain = total - completed
+                    const activeTotal = Math.max(0, total - closed)
+                    const pct = activeTotal > 0
+                        ? Math.round((done / activeTotal) * 100)
+                        : (total > 0 ? 100 : 0) // 全部收口或无用例
+                    const remain = Math.max(0, activeTotal - done)
                     return `<div class="glass-tile p-5">
                         <div class="text-base font-semibold text-gray-800 truncate" title="${esc(g.groupName)}">${esc(g.groupName.split(' · ')[0])}</div>
                         <div class="flex items-baseline gap-1.5 mt-3">
-                            <span class="text-4xl font-bold bg-gradient-to-br from-emerald-500 to-indigo-600 bg-clip-text text-transparent leading-none">${completed}</span>
-                            <span class="text-base text-gray-500">/ ${total} 项</span>
+                            <span class="text-4xl font-bold bg-gradient-to-br from-emerald-500 to-indigo-600 bg-clip-text text-transparent leading-none">${done}</span>
+                            <span class="text-base text-gray-500">/ ${activeTotal} 项</span>
                             <span class="text-xs text-gray-600 ml-auto shrink-0 bg-white/60 backdrop-blur px-2 py-0.5 rounded-full border border-white/60">完成 ${pct}%</span>
                         </div>
                         <div class="w-full h-1.5 bg-gray-200/60 rounded-full mt-3 overflow-hidden">
@@ -988,12 +987,8 @@
 
         async function loadMyIssues() {
             try {
-                const canAll = canViewAllResults()
-                const who = testerName() || currentUsername()
-                const qs = canAll
-                    ? `?case_group=${encodeURIComponent(NEW_ISSUE_GROUP)}&pageSize=500`
-                    : `?case_group=${encodeURIComponent(NEW_ISSUE_GROUP)}&submitted_by=${encodeURIComponent(who)}&pageSize=500`
-                const r = await fetch(`/api/test-results${qs}`, { headers: apiHeaders() })
+                // 业务口径（已确认）：全校共享，不做 submitted_by 过滤
+                const r = await fetch(`/api/test-results?case_group=${encodeURIComponent(NEW_ISSUE_GROUP)}&pageSize=500`, { headers: apiHeaders() })
                 const j = await r.json()
                 const items = j.data || []
                 const list = $('issueList')

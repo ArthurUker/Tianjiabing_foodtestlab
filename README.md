@@ -1,7 +1,7 @@
 # 食品检验系统（foodtestlab）
 
 > 本 README 基于**当前仓库实际代码**编写，是项目的系统级总览文档。
-> 深入的开发细节见 [`docs/DEVELOPMENT_GUIDE.md`](./docs/DEVELOPMENT_GUIDE.md)；长期操作规范见 [`docs/PROJECT_CONVENTIONS.md`](./docs/PROJECT_CONVENTIONS.md)（优先级最高）；历史文档归档于 [`docs/history/`](./docs/history/)。
+> 深入的开发细节见 [`docs/DEVELOPMENT_GUIDE.md`](./docs/DEVELOPMENT_GUIDE.md)；长期操作规范见 [`docs/PROJECT_CONVENTIONS.md`](./docs/PROJECT_CONVENTIONS.md)（优先级最高）；近期变更见 [`docs/CHANGELOG.md`](./docs/CHANGELOG.md)。
 
 ---
 
@@ -722,4 +722,5 @@ curl http://<公网IP>:8080/health            # 经 Caddy（验证反代与安�
 - 长期规范（优先级最高）：[`docs/PROJECT_CONVENTIONS.md`](./docs/PROJECT_CONVENTIONS.md)
 - 部署说明：[`deploy/README.md`](./deploy/README.md)
 - 后端说明：[`backend/README.md`](./backend/README.md)
-- 历史归档（仅供参考）：[`docs/history/`](./docs/history/)
+- 近期变更日志：[`docs/CHANGELOG.md`](./docs/CHANGELOG.md)
+- 待修复问题清单：[`docs/fix/`](./docs/fix/)

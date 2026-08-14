@@ -14,15 +14,19 @@ export function createUserRoutes(userManager) {
     // ====== Authentication Middleware（统一从 authMiddleware.js 导入）======
     const { authenticateUser, authorizeRoles } = createAuthMiddleware(userManager)
 
-    // P2-01: 登录接口专项限流（每 IP 每 15 分钟最多 10 次尝试），防止暴力破解
+    // 开发/测试环境放宽登录限流（避免反复调试被 429 锁死）；生产环境保持严格。
+    // 显式设置的环境变量始终优先，可覆盖此默认值。
+    const isProduction = process.env.NODE_ENV === 'production'
+
+    // P2-01: 登录接口专项限流（生产每 IP 每 15 分钟 10 次；开发/测试放宽）
     const loginRateLimit = rateLimit(
-        Number(process.env.LOGIN_RATE_LIMIT_MAX || 10),
+        Number(process.env.LOGIN_RATE_LIMIT_MAX || (isProduction ? 10 : 1000)),
         Number(process.env.LOGIN_RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000)
     )
 
-    // DS3-M1: 平台超管登录同样必须限流，且比普通登录更严格（默认每 IP 每 15 分钟 5 次）
+    // DS3-M1: 平台超管登录限流（生产每 IP 每 15 分钟 5 次；开发/测试放宽）
     const superAdminLoginRateLimit = rateLimit(
-        Number(process.env.SUPER_ADMIN_LOGIN_RATE_LIMIT_MAX || 5),
+        Number(process.env.SUPER_ADMIN_LOGIN_RATE_LIMIT_MAX || (isProduction ? 5 : 1000)),
         Number(process.env.LOGIN_RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000)
     )
 

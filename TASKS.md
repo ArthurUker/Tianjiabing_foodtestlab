@@ -182,8 +182,6 @@ lint → 6 个修改文件均无错误
 **35 项已完成任务 + 本次 4 处缺口修复 + TZ 临时方案，均已通过代码级 verification，具备部署条件。**
 
 > 收口声明：本轮完成后，不再进行新的缺陷搜索或模式扩散审查。所有"待确认"状态已转化为确定结论。
->
-> 📋 各任务的**可执行级细化方案**（问题定位/修改步骤/验证方法/依赖/工作量）见 [`docs/TASK_PLANS.md`](docs/TASK_PLANS.md)。
 
 > **【W4 窗口认领 · 2026-07-20】** 本窗口（会话/W4）认领并执行以下 W4 开放任务：TD-P2-15、TD-SessionEvent、TD-EventLeak、TD-Router-Timer、TD-BackupRestore-Bugs、TD-GuestDashboard-Err、TD-Orphan-2、TD-Role-Guard、TD-EventLeak-Phase2、TD-Fetch-Timeout、TD-409-Retry、TD-NoBeforeUnload、TD-BackupRestore-DataLoss。为避开 W1/W2/W3/W5 已认领文件，暂不触碰：TD-EnvConfig-NaN（server.js/userRoutes.js/tenantClient.js）、TD-ValidDays-NoValidation（guestRoutes.js）、TD-Version-TypeCoercion（server.js）、TD-Password-Rule-Inconsistent（UserManager.js）、TD-AcceptDataLoss（tenantProvisioner.js）、TD-Audit-Queue（AuditService.js）、TD-GuestQuickAccess（GuestAuthService.js）、TD-Dashboard-Override（index.html）、TD-MemMap（validationMiddleware.js）。
 

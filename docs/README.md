@@ -5,7 +5,7 @@
 > 本文与根 [`README.md`](../README.md) 分工不同：
 > - **根 `README.md`** 是**系统级技术总览**（架构图 / API / 认证 / 部署 / 安全 / 运维 的内容本体），回答"系统是怎么设计和运行的"。
 > - **本文（docs 文档中心）** 是**元文档**：不重复技术细节，只回答"**该读哪篇文档、按什么顺序读、每篇文档负责什么、想做某件事去改哪个代码文件**"。它是查阅文档与源码的索引与地图。
-> - 本目录文档均基于**当前仓库实际代码**维护；过程性、历史性说明统一归档在 [`history/`](./history/)，仅供追溯，不作权威依据。
+> - 本目录文档均基于**当前仓库实际代码**维护；近期变更见 [`CHANGELOG.md`](./CHANGELOG.md)，待修复问题见 [`fix/`](./fix/)，历史归档已清理移除。
 
 ---
 
@@ -33,7 +33,9 @@
 | [`docs/PROJECT_CONVENTIONS.md`](./PROJECT_CONVENTIONS.md) | **长期操作规范**：审计保留、多租户隔离、认证、迁移、部署等**红线与工程约束** | 权威（红线） | 是 | **最高** |
 | [`backend/README.md`](../backend/README.md) | **后端子项目说明**：仅后端本地起服务、环境变量、curl 自测 | 权威（局部） | 是 | 中 |
 | [`deploy/README.md`](../deploy/README.md) | **部署方案说明**：`deploy.sh` + 适配文件用法、部署前置、多用户同机、自适应资源 | 权威（局部） | 是 | 中 |
-| [`docs/history/`](./history/) | **历史归档**：旧修复/评审/设计记录（含已弃用的 Windows/Nginx/PM2/珠海一中方案） | 仅供追溯 | 否 | 只读参考 |
+| [`docs/CHANGELOG.md`](./CHANGELOG.md) | **近期变更日志**：2026-08 已上线功能按主题归类（测试报告/权限/备份/洗涤剂识别等） | 权威（记录） | 是 | 中 |
+| [`docs/fix/`](./fix/) | **待修复问题清单**：当前测试反馈未收口（failed-open）问题的根因定位与优先级 | 当前依据 | 是 | 中 |
+| [`docs/test-results/`](./test-results/README.md) | **测试结果快照**：`latest/` 覆盖式快照（HTML/MD/JSON + 证据图），权威数据在数据库 | 快照 | 是 | 参考 |
 
 > 分工原则：**根 README 讲"是什么/怎么跑"**（面向全体）；**DEVELOPMENT_GUIDE 讲"代码怎么组织、坑在哪"**（面向改代码的人）；**PROJECT_CONVENTIONS 讲"什么不能碰、必须怎么做"**（红线）；**本文讲"去哪找"**（索引）。四者不重复彼此的内容主体。
 
@@ -102,7 +104,6 @@
 | `deploy/deploy.adapter.example.conf` | 适配文件模板（多用户复制此文件） | deploy/README |
 | `scripts/provision-school.sh` | 从 `school_template` 克隆新校 schema | CONVENTIONS 规则三.8 |
 | `scripts/build-static.js` | 前端静态构建（复制到 `dist/`，含 `login.html`） | CONVENTIONS 规则十.5 |
-| `deploy/nginx/`·`deploy/pm2/`·`deploy.ps1` | ⚠️ 历史适配器，已弃用 | history/ |
 
 ---
 
@@ -129,12 +130,13 @@
 | `docs/README.md`（本文） | 文档中心/代码地图 | 新增文档、目录结构调整、关键文件搬迁时同步 | 是（元文档） |
 | `docs/DEVELOPMENT_GUIDE.md` | 开发文档 | 随代码更新 | 是 |
 | `docs/PROJECT_CONVENTIONS.md` | 长期操作规范 | 规则调整须谨慎（红线） | 是（最高优先） |
-| `docs/history/` | 历史归档 | 只读，不再更新 | 否（仅追溯） |
+| `docs/CHANGELOG.md` | 近期变更日志 | 每次功能上线后追加 | 是（记录） |
+| `docs/fix/` | 待修复问题清单 | 随测试反馈收口/修复更新 | 是（当前依据） |
 
 维护原则：
 1. **不重复内容主体**——同一事实只在一处权威文档详述，其余文档引用而非复制（本文只做索引与地图）。
 2. **代码变更 → 先看是否触及红线**（PROJECT_CONVENTIONS），再更新 DEVELOPMENT_GUIDE / 根 README，最后回本文校对代码地图与速查表。
-3. **历史方案入 `history/`**，正文只保留当前生效方案，避免"已弃用描述"污染权威文档（如 Windows/Nginx/PM2/珠海一中）。
+3. **正文只保留当前生效方案**——历史性/过程性文档一律清理，避免"已弃用描述"污染权威文档（如 Windows/Nginx/PM2/珠海一中旧方案已移除）。
 4. 发现**前后端不一致 / 技术债**，登记到 [`DEVELOPMENT_GUIDE.md`](./DEVELOPMENT_GUIDE.md) §9 与 [`PROJECT_CONVENTIONS.md`](./PROJECT_CONVENTIONS.md) §13，不要散落在各处注释。
 
 ---
@@ -146,4 +148,6 @@
 - 长期规范（最高优先）：[`docs/PROJECT_CONVENTIONS.md`](./PROJECT_CONVENTIONS.md)
 - 后端子项目：[`backend/README.md`](../backend/README.md)
 - 部署方案：[`deploy/README.md`](../deploy/README.md)
-- 历史归档（仅供追溯）：[`docs/history/`](./history/)
+- 近期变更日志：[`docs/CHANGELOG.md`](./CHANGELOG.md)
+- 待修复问题清单：[`docs/fix/`](./fix/)
+- 测试结果快照：[`docs/test-results/`](./test-results/README.md)
