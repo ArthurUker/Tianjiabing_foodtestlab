@@ -262,6 +262,15 @@ function validateCustomizationPayload(body) {
         normalized[key] = result
     }
 
+    // guest_enabled：布尔开关（非 JSON 列，单独校验；仅允许显式 boolean，不接受 null 清空）
+    if (Object.prototype.hasOwnProperty.call(b, 'guest_enabled')) {
+        if (typeof b.guest_enabled !== 'boolean') {
+            errors.push('guest_enabled 必须为布尔值')
+        } else {
+            normalized.guest_enabled = b.guest_enabled
+        }
+    }
+
     // theme_config 内颜色值校验
     if (normalized.theme_config && typeof normalized.theme_config === 'object') {
         for (const [k, v] of Object.entries(normalized.theme_config)) {
@@ -738,7 +747,7 @@ app.get('/api/schools/:schoolCode/config', rateLimit(60, 60 * 1000), async (req,
             code
         )
         const customRows = await prisma.$queryRawUnsafe(
-            `SELECT "visible_types","visible_menu_items","canteens","field_labels","hidden_fields","theme_config","field_rules","field_options","field_order","custom_fields","test_types","field_types","updated_at" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`,
+            `SELECT "visible_types","visible_menu_items","canteens","field_labels","hidden_fields","theme_config","field_rules","field_options","field_order","custom_fields","test_types","field_types","guest_enabled","updated_at" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`,
             code
         )
         const school = schoolRows?.[0] || null
@@ -849,7 +858,7 @@ app.post('/api/admin/schools', authenticateUser, requirePlatformSuperAdmin, asyn
 app.put('/api/admin/schools/:code', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
     try {
         const { code } = req.params
-        const { name, shortName, themeColor, logoUrl, logoStyle, systemTitle, canteens } = req.body || {}
+        const { name, shortName, themeColor, logoUrl, logoStyle, systemTitle, canteens, guestEnabled } = req.body || {}
         // RK8/DS-12: 主题色/Logo 服务器端校验
         if (themeColor != null && !HEX_COLOR_RE.test(themeColor)) {
             return res.status(400).json({ error: '主题色必须为 #RRGGBB 格式' })
@@ -956,6 +965,21 @@ app.put('/api/admin/schools/:code', authenticateUser, requirePlatformSuperAdmin,
             await prisma.$queryRawUnsafe(
                 `UPDATE public."SchoolCustomization" SET "field_options" = $1::jsonb, "updated_at" = now() WHERE "school_code" = $2`,
                 JSON.stringify(fo), code
+            )
+        }
+        // RBAC 收敛：访客功能开关（guest_enabled）由平台超管按校配置，写入 SchoolCustomization
+        if (guestEnabled !== undefined) {
+            if (typeof guestEnabled !== 'boolean') {
+                return res.status(400).json({ error: 'guestEnabled 必须为布尔值' })
+            }
+            await prisma.$queryRawUnsafe(
+                `INSERT INTO public."SchoolCustomization" ("id","school_code","updated_at")
+                 VALUES ($1,$2,now()) ON CONFLICT ("school_code") DO NOTHING`,
+                crypto.randomUUID(), code
+            )
+            await prisma.$queryRawUnsafe(
+                `UPDATE public."SchoolCustomization" SET "guest_enabled" = $1, "updated_at" = now() WHERE "school_code" = $2`,
+                guestEnabled, code
             )
         }
         res.json({ success: true, data: updated[0] })
@@ -1168,7 +1192,7 @@ app.get('/api/admin/schools/:code/customization', authenticateUser, requirePlatf
     try {
         const { code } = req.params
         const rows = await prisma.$queryRawUnsafe(
-            `SELECT ${CUSTOMIZATION_COLUMNS.map(c => `"${c}"`).join(',')},"updated_at"
+            `SELECT ${CUSTOMIZATION_COLUMNS.map(c => `"${c}"`).join(',')},"guest_enabled","updated_at"
              FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`, code
         )
         // 级联配置（FieldOption 表）：合并进 data 一并返回，管理端级联编辑器据此渲染
@@ -1230,6 +1254,11 @@ app.put('/api/admin/schools/:code/customization', authenticateUser, requirePlatf
             params.push(normalized[col] === null ? null : JSON.stringify(normalized[col]))
             // CUSTOMIZATION_COLUMNS 全是 jsonb 列（CUSTOMIZATION_COLUMNS 注释已声明），需 ::jsonb cast；null 也安全（NULL 标量与 JSON null 不冲突）
             sets.push(`"${col}" = $${params.length}::jsonb`)
+        }
+        // guest_enabled 为 boolean 列（非 jsonb），单独处理，不加 ::jsonb cast
+        if (Object.prototype.hasOwnProperty.call(normalized, 'guest_enabled')) {
+            params.push(normalized.guest_enabled)
+            sets.push(`"guest_enabled" = $${params.length}`)
         }
         if (sets.length === 0) {
             return res.status(400).json({ error: '未提供任何可更新的定制字段' })
@@ -1663,6 +1692,19 @@ app.delete('/api/admin/schools/:code/users/:userId', authenticateUser, requirePl
 // ====== User Authentication Routes ======
 const userRoutes = createUserRoutes(userManager)
 app.use('/api/user', userRoutes)
+
+// H1-ext / #6: 当前用户信息（权威角色）。前端登录后/定时调用以同步最新角色，
+// 避免后端角色变更（经 H1-ext 覆盖 / role-audit-trigger 即时生效）而前端按钮仍按旧 token 角色渲染。
+app.get('/api/user/me', authenticateUser, (req, res) => {
+  if (!req.user) return res.status(401).json({ error: '未认证' })
+  res.json({ success: true, user: {
+    id: req.user.userId,
+    username: req.user.username,
+    role: req.user.role,
+    schoolCode: req.user.schoolCode,
+    status: req.user.status,
+  } })
+})
 
 // ====== Audit Logs Routes ======
 const auditRoutes = createAuditRoutes(userManager, prisma)

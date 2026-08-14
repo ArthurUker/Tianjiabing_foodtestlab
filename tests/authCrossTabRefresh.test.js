@@ -58,6 +58,13 @@ function createRotatingBackend() {
     return fetchMock;
 }
 
+// H1-ext / #6：登录/刷新成功后 AuthService 会 fire-and-forget 调用 /api/user/me 同步角色，
+// 该额外请求不计入"刷新单飞"断言。这里只统计 /refresh-token 网络请求次数，精确保留
+// single-flight（防并发重放误吊销）验证意图。
+function countRefreshTokenCalls(fetchMock) {
+    return fetchMock.mock.calls.filter(([url]) => String(url).includes('/refresh-token')).length;
+}
+
 beforeEach(() => {
     localStorage.clear();
     sessionStorage.clear();
@@ -83,7 +90,8 @@ describe('检查项1 · 场景A：复制标签页（两标签页持同一 refres
         expect(ra.success).toBe(true);
         expect(rb.success).toBe(true);
         // 核心断言 1：全程只发出一次 /refresh-token（锁 + 锁内双重检查生效）
-        expect(fetchMock).toHaveBeenCalledTimes(1);
+        // 注：/api/user/me 角色同步请求不计入（见 countRefreshTokenCalls）
+        expect(countRefreshTokenCalls(fetchMock)).toBe(1);
         // 核心断言 2：双方收敛到同一份新 token（输家采用共享副本而非自己刷新）
         expect(tabA.getToken()).toBe(tabB.getToken());
         expect(tabA.getToken()).toMatch(/^tok2/);
@@ -126,7 +134,7 @@ describe('检查项1 · 场景B：普通新开标签页（B 无 refresh token，
         const [ra, rb] = await Promise.all([tabA.refreshToken(), tabB.refreshToken()]);
         expect(ra.success).toBe(true);
         expect(rb.success).toBe(true);
-        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(countRefreshTokenCalls(fetchMock)).toBe(1);
         expect(tabB.getToken()).toMatch(/^tok2/);
     });
 
@@ -142,7 +150,7 @@ describe('检查项1 · 场景B：普通新开标签页（B 无 refresh token，
 
         const r = await tabB.refreshToken();
         expect(r.success).toBe(false);
-        expect(fetchMock).not.toHaveBeenCalled();
+        expect(countRefreshTokenCalls(fetchMock)).toBe(0);
         // 关键：失败不触发 clearAuth —— localStorage 中的共享 token 原样保留，
         // 持有 refresh token 的其他标签页仍可正常续期整个会话。
         expect(localStorage.getItem('auth_token')).toBe(OLD_JWT);
@@ -169,7 +177,7 @@ describe('检查项1 · 场景C：层3 兜底——锁完全失效（微秒级�
         expect(ra.success).toBe(true);
         expect(rb.success).toBe(true);          // 输家未被登出：采用了 A 写入共享存储的新 token
         expect(rb.adopted).toBe(true);
-        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(countRefreshTokenCalls(fetchMock)).toBe(2);
         expect(tabB._memRefreshToken).toBeNull(); // 废 token 已丢弃
         expect(localStorage.getItem('auth_token')).toMatch(/^tok2/); // 会话完好
     });
@@ -188,12 +196,12 @@ describe('检查项1 · 场景C：层3 兜底——锁完全失效（微秒级�
         window.fetch = fetchMock;
 
         await tabA._doRefreshToken(); // A 轮转成功，写入信标
-        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(countRefreshTokenCalls(fetchMock)).toBe(1);
 
         const rb = await tabB._doRefreshToken(); // B 预检发现信标晚于自己的 savedAt
         expect(rb.success).toBe(true);
         expect(rb.adopted).toBe(true);
-        expect(fetchMock).toHaveBeenCalledTimes(1); // B 一个字节都没发
+        expect(countRefreshTokenCalls(fetchMock)).toBe(1); // B 一个字节都没发
     });
 });
 
@@ -210,7 +218,7 @@ describe('检查项1 · 回退锁健壮性', () => {
 
         const r = await tab.refreshToken();
         expect(r.success).toBe(true);
-        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(countRefreshTokenCalls(fetchMock)).toBe(1);
     });
 
     test('_adoptSharedToken 不采信与本地相同的副本（401 触发的真实刷新不被短路）', () => {

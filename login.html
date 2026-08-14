@@ -146,8 +146,8 @@
       </filter>
     </svg>
     <script>
-        // 访客入口开关：false 时隐藏登录页中的访客入口，但保留相关实现代码
-        window.__ENABLE_GUEST_ENTRY__ = false;
+        // [RBAC 收敛] 访客入口改为按学校配置 guest_enabled 动态开关（由平台超管在超管界面按校配置）。
+        // 默认关闭；学校配置开启后登录页显示访客 Tab。不再使用全局硬编码开关。
     </script>
     <div class="login-container w-full max-w-md">
         <!-- 学校识别错误提示：schoolCode 缺失/非法/不存在时显式提示，不静默回退默认学校 -->
@@ -298,7 +298,29 @@
         import { extractSchoolCode } from '/js/utils/schoolCode.js';
 
         const guestAuthService = new GuestAuthService();
-        const enableGuestEntry = window.__ENABLE_GUEST_ENTRY__ === true;
+        // [RBAC 收敛] 默认关闭访客入口；学校配置 guest_enabled=true 时由 applySchoolTheme 动态开启
+        let enableGuestEntry = false;
+
+        // 按学校配置显示/隐藏访客入口 Tab（RBAC 收敛：由平台超管按校配置 guest_enabled）
+        function applyGuestEntryVisibility(enabled) {
+            enableGuestEntry = !!enabled;
+            const gTab = document.getElementById('guestTabBtn');
+            const gForm = document.getElementById('guestForm');
+            const aTab = document.getElementById('adminTabBtn');
+            const tabs = document.getElementById('loginTabs');
+            if (!gTab || !gForm) return;
+            if (enableGuestEntry) {
+                gTab.classList.remove('hidden');
+                gForm.classList.remove('hidden');
+                if (aTab) { aTab.classList.add('flex-1'); aTab.classList.remove('w-full'); }
+                if (tabs) tabs.classList.add('border-b');
+            } else {
+                gTab.classList.add('hidden');
+                gForm.classList.add('hidden');
+                if (aTab) { aTab.classList.remove('flex-1'); aTab.classList.add('w-full'); }
+                if (tabs) tabs.classList.remove('border-b');
+            }
+        }
 
         // 显式错误提示（schoolCode 缺失/非法/不存在），避免静默回退到默认/第一个学校
         function showSchoolError(msg) {
@@ -340,6 +362,10 @@
                     try {
                         localStorage.setItem('school_customization_' + schoolCode, JSON.stringify(cfg.customization));
                     } catch (e) { /* 存储不可用时忽略 */ }
+                }
+                // [RBAC 收敛] 按学校配置 guest_enabled 动态开关访客入口（超管按校配置）
+                if (cfg.customization && typeof cfg.customization.guest_enabled === 'boolean') {
+                    applyGuestEntryVisibility(cfg.customization.guest_enabled);
                 }
                 // 同时缓存学校外观信息（name/logoUrl/themeColor），供主页顶部标题动态显示
                 try {
@@ -509,13 +535,8 @@
         const adminForm = document.getElementById('loginForm');
         const guestForm = document.getElementById('guestForm');
 
-        if (!enableGuestEntry) {
-            guestTabBtn.classList.add('hidden');
-            guestForm.classList.add('hidden');
-            adminTabBtn.classList.remove('flex-1');
-            adminTabBtn.classList.add('w-full');
-            document.getElementById('loginTabs').classList.remove('border-b');
-        }
+        // [RBAC 收敛] 初始按默认（关闭）隐藏访客 Tab；学校配置加载后由 applySchoolTheme 按 guest_enabled 更新
+        applyGuestEntryVisibility(enableGuestEntry);
         
         adminTabBtn.addEventListener('click', () => {
             adminTabBtn.classList.add('border-b-2', 'border-blue-600', 'text-blue-600');

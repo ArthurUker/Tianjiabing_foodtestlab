@@ -174,6 +174,56 @@ export function setAuthStateCache(adapter) {
     : null
 }
 
+// H4-ext / #8: DB 回查失败降级策略（fail-soft → fail-closed 折中计数器）。
+// 背景：authenticateUser 的回查 catch 原为「直接 503」（fail-closed），但因 _authStateCache
+// 默认 null，回查每次直连 DB；PG 瞬时抖动 / 连接池耗尽会触发全站认证 503 雪崩。
+// 折中：维护「进程级连续回查失败计数」，仅当连续失败次数达到阈值才 fail-closed（503），
+// 阈值内降级为 fail-soft（沿用 token 角色 + 告警），避免瞬时抖动误伤正常请求。
+// 注意：这是进程级计数，多实例各自独立；阈值取 3（约 3×单请求超时 ~30s，与既有 30s TTL 同量级）。
+const DB_RECHECK_FAIL_THRESHOLD = Number(process.env.AUTH_DB_RECHECK_FAIL_THRESHOLD || 3)
+let _consecutiveRecheckFails = 0
+let _recheckFailMetrics = { total: 0, lastError: null, lastAt: null }
+
+// 供测试 / 监控读取当前降级状态（无需重启即可观测是否处于 fail-closed 窗口）
+export function getRecheckFailState() {
+  return {
+    consecutiveFails: _consecutiveRecheckFails,
+    threshold: DB_RECHECK_FAIL_THRESHOLD,
+    isFailClosed: _consecutiveRecheckFails >= DB_RECHECK_FAIL_THRESHOLD,
+    metrics: { ..._recheckFailMetrics }
+  }
+}
+
+// 仅供测试使用：重置连续失败计数，避免进程级状态跨用例污染
+export function _resetRecheckFailStateForTest() {
+  _consecutiveRecheckFails = 0
+}
+
+// H4-ext / #9：合法角色白名单（与 role-audit-trigger.sql 的 role CHECK 约束口径一致）。
+// 集中定义，供 authenticateUser 角色覆盖、requireEditorOrAbove、authorizeAdmin 共用，
+// 防止枚举外角色（如 token 注入的 superuser/root）绕过授权守卫。
+const VALID_ROLES = new Set(['admin', 'manager', 'operator', 'viewer'])
+
+function _onRecheckFailure(err) {
+  _consecutiveRecheckFails += 1
+  _recheckFailMetrics.total += 1
+  _recheckFailMetrics.lastError = err && err.message
+  _recheckFailMetrics.lastAt = Date.now()
+  const failClosed = _consecutiveRecheckFails >= DB_RECHECK_FAIL_THRESHOLD
+  console.error(
+    `❌ [auth] DB 回查失败（连续 ${_consecutiveRecheckFails}/${DB_RECHECK_FAIL_THRESHOLD}，failClosed=${failClosed}）:`,
+    err && err.message
+  )
+  return failClosed
+}
+
+function _onRecheckSuccess() {
+  if (_consecutiveRecheckFails !== 0) {
+    console.warn(`✅ [auth] DB 回查恢复（连续失败计数清零，此前 ${_consecutiveRecheckFails} 次）`)
+  }
+  _consecutiveRecheckFails = 0
+}
+
 // IF-2/M2: must_change_password=true（临时密码账号）时允许访问的接口白名单。
 // 除此之外的一切受保护接口一律 403（code: MUST_CHANGE_PASSWORD），
 // 服务端强制、不依赖前端自觉；改密成功（changePassword 清 flag）后自动恢复。
@@ -263,10 +313,11 @@ export function createAuthMiddleware(userManager, prisma) {
 
         // 共享缓存命中（仅缓存"校验通过"的结果，TTL 内跳过 DB 回查）
         const cacheKey = `auth:${u.userId}:${u.jti}`
-        let cachedOk = false
+        let cached = null
         if (_authStateCache) {
-          try { cachedOk = (await _authStateCache.get(cacheKey)) === 'ok' } catch { /* 缓存故障降级直查 DB */ }
+          try { cached = await _authStateCache.get(cacheKey) } catch { /* 缓存故障降级直查 DB */ }
         }
+        const cachedOk = !!cached && cached.ok === true
 
         if (!cachedOk) {
           const db = createTenantClient(rootPrisma, u.schoolCode)
@@ -298,21 +349,42 @@ export function createAuthMiddleware(userManager, prisma) {
             })
           }
 
-          // H1-ext: 用数据库当前角色覆盖 token 中的角色，角色调整后无需强制重新登录
-          if (dbUser.role && dbUser.role !== u.role) {
+          // H1-ext: 用数据库当前角色覆盖 token 中的角色，角色调整后无需强制重新登录。
+          // #9 防御：仅当 DB role 为合法枚举值才覆盖，防止 role=NULL/非法串绕过覆盖逻辑、
+          // 使旧高权 token 不被降权（与 role-audit-trigger 的 CHECK 约束口径一致）。
+          if (dbUser.role && VALID_ROLES.has(dbUser.role) && dbUser.role !== u.role) {
             u.role = dbUser.role
           }
 
-          // 注意：must_change_password=true 时不写 'ok' 缓存，保证改密后即时恢复（无 TTL 延迟）
+          // 回查成功：清零连续失败计数（H4-ext / #8 折中）
+          _onRecheckSuccess()
+
+          // 注意：must_change_password=true 时不写缓存，保证改密后即时恢复（无 TTL 延迟）。
+          // #3: 缓存存 { ok, role }，使缓存命中路径也能同步 DB 最新角色（避免"命中即旧角色"窗口）。
           if (_authStateCache && !dbUser.must_change_password) {
-            try { await _authStateCache.set(cacheKey, 'ok', AUTH_STATE_CACHE_TTL_MS) } catch { /* 忽略缓存写失败 */ }
+            try {
+              await _authStateCache.set(cacheKey, { ok: true, role: dbUser.role || u.role }, AUTH_STATE_CACHE_TTL_MS)
+            } catch { /* 忽略缓存写失败 */ }
+          }
+        } else if (cached && cached.role) {
+          // #3: 缓存命中时同步 DB 最新角色（来自上次回查写入），消除"命中即旧 token 角色"窗口。
+          if (VALID_ROLES.has(cached.role) && cached.role !== u.role) {
+            u.role = cached.role
           }
         }
       }
     } catch (error) {
-      // DB 回查异常一律 fail-closed（拒绝而非放行），避免故障窗口内被禁用账号继续访问
-      console.error('❌ authenticateUser 状态回查失败:', error)
-      return res.status(503).json({ error: '认证服务暂不可用，请稍后重试' })
+      // H4-ext / #8: DB 回查异常降级策略（fail-soft → fail-closed 折中）。
+      // 历史实现为「一律 503」（fail-closed）：因 _authStateCache 默认 null，回查每次直连 DB，
+      // PG 瞬时抖动 / 连接池耗尽会触发全站认证 503 雪崩（可用性代价过高）。
+      // 现改为：连续失败达阈值才 fail-closed（503）；阈值内 fail-soft（沿用 token 角色 + 告警），
+      // 避免瞬时抖动误伤正常请求，同时连续故障仍快速 fail-closed。
+      const failClosed = _onRecheckFailure(error)
+      if (failClosed) {
+        return res.status(503).json({ error: '认证服务暂不可用，请稍后重试' })
+      }
+      // fail-soft：回查失败但连续失败未达阈值，沿用 token 内已认证身份继续（保守降级）
+      console.warn('⚠️ [auth] 回查失败未达阈值，按 fail-soft 放行（沿用 token 角色）')
     }
 
     req.user = u
@@ -330,7 +402,8 @@ export function createAuthMiddleware(userManager, prisma) {
    * 仅允许 role 为 'admin' 的用户通过。
    */
   function authorizeAdmin(req, res, next) {
-    if (!req.user || req.user.role !== 'admin') {
+    // #9/#11：role 必须为合法 admin，未知/非法 role 一律拒绝
+    if (!req.user || req.user.role !== 'admin' || !VALID_ROLES.has(req.user.role)) {
       return res.status(403).json({ error: '❌ 需要管理员权限' })
     }
     next()
@@ -444,7 +517,9 @@ export function createAuthMiddleware(userManager, prisma) {
    */
   function requireEditorOrAbove(req, res, next) {
     const role = req.user?.role
-    if (!role || role === 'guest' || role === 'viewer') {
+    // #9/#11：仅白名单角色可进入写接口；未知/非法 role（含 token 注入的 superuser/root 等）
+    // 一律拒绝，防止枚举外角色绕过写权限守卫。
+    if (!role || !VALID_ROLES.has(role) || role === 'guest' || role === 'viewer') {
       return res.status(403).json({
         error: '❌ 访客无写入权限，请以正式账号登录后操作'
       })

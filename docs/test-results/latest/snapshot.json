@@ -1,13 +1,13 @@
 {
-  "generated_at": "2026-08-13T07:39:38.206Z",
+  "generated_at": "2026-08-13T09:25:59.097Z",
   "overall": {
     "passed": 3,
-    "failed": 4,
+    "failed": 5,
     "skipped": 0,
     "pending": 53,
     "closed": 0,
-    "total": 60,
-    "done": 7
+    "total": 61,
+    "done": 8
   },
   "groups": [
     {
@@ -48,7 +48,7 @@
           "submitted_by": "wuxiangjun",
           "submitted_by_role": "admin@wuxiangjun",
           "created_at": "2026-08-12T09:21:58.375Z",
-          "updated_at": "2026-08-13T07:39:35.404Z",
+          "updated_at": "2026-08-13T09:24:46.723Z",
           "closed": false,
           "closed_by": null,
           "closed_at": null
@@ -303,7 +303,7 @@
           "submitted_by": "wuxiangjun",
           "submitted_by_role": "admin@wuxiangjun",
           "created_at": "2026-08-11T07:38:45.792Z",
-          "updated_at": "2026-08-13T07:39:35.583Z",
+          "updated_at": "2026-08-13T09:24:46.984Z",
           "closed": false,
           "closed_by": null,
           "closed_at": null
@@ -318,7 +318,7 @@
           "submitted_by": "wuxiangjun",
           "submitted_by_role": "admin@wuxiangjun",
           "created_at": "2026-08-11T07:39:32.348Z",
-          "updated_at": "2026-08-13T07:39:35.602Z",
+          "updated_at": "2026-08-13T09:24:46.984Z",
           "closed": false,
           "closed_by": null,
           "closed_at": null
@@ -898,15 +898,42 @@
     {
       "group": "new_问题",
       "groupName": "新问题 / 缺陷反馈",
-      "total": 4,
+      "total": 5,
       "counts": {
         "passed": 0,
-        "failed": 4,
+        "failed": 5,
         "skipped": 0,
         "pending": 0
       },
-      "done": 4,
+      "done": 5,
       "items": [
+        {
+          "case_id": "NEW-20260813-170443",
+          "case_title": "在超管平台上，tjb账户用户管理修改账户的类别失败",
+          "result": "failed",
+          "detail": "",
+          "evidence": "[{\"seq\":1,\"caption\":\"\",\"urls\":[\"/api/test-results/evidence/NEW-20260813-170443/1786611893650_6bdfd99a.png\"]}]",
+          "evidence_list": [
+            {
+              "stepSeq": 1,
+              "stepCaption": "",
+              "raw": "/api/test-results/evidence/NEW-20260813-170443/1786611893650_6bdfd99a.png",
+              "type": "local",
+              "encCaseId": "NEW-20260813-170443",
+              "decCaseId": "NEW-20260813-170443",
+              "file": "1786611893650_6bdfd99a.png",
+              "caseTitle": "NEW-20260813-170443",
+              "relPath": "evidence/NEW-20260813-170443/1786611893650_6bdfd99a.png"
+            }
+          ],
+          "submitted_by": "吴翠楠",
+          "submitted_by_role": "admin@wuxiangjun",
+          "created_at": "2026-08-13T09:04:56.571Z",
+          "updated_at": "2026-08-13T09:04:56.571Z",
+          "closed": false,
+          "closed_by": null,
+          "closed_at": null
+        },
         {
           "case_id": "NEW-20260813-140845",
           "case_title": "同样使用查看者的账号登录能增加食用油的检测项目",

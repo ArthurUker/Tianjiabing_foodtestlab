@@ -374,6 +374,9 @@ model SchoolCustomization {
   custom_fields String?  // JSON object
   // 层级B：全新检测类型定义（JSON array，[{code,name,fields:[...],statRole,...}]）
   test_types    String?  // JSON array
+  // 访客功能开关（RBAC 收敛）：false=该校关闭访客扫码只读入口（登录页访客 Tab 隐藏）。
+  // 由平台超管在 admin-schools.html 按校配置；默认关闭（需超管显式开启）。
+  guest_enabled Boolean  @default(false)
   updated_at    DateTime @updatedAt
 }
 

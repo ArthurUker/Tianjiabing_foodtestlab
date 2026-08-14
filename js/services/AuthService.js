@@ -30,6 +30,16 @@ export class AuthService {
         this.refreshLockKey = 'auth_refresh_lock';            // 跨标签页刷新锁（Web Locks 不可用时的回退）
         this.refreshSavedAtKey = 'refresh_token_saved_at';    // 本标签页 refresh token 的保存时间（sessionStorage，随复制标签页一起被复制）
 
+        // H1-ext / #6：捕获原始 fetch（未经过 401 刷新拦截器包装），
+        // 供 syncRoleFromServer 使用，避免角色同步请求触发全局拦截器的刷新/重放逻辑。
+        // 优先 global.fetch（Node/Jest 测试环境），其次 window.fetch（浏览器真实环境），
+        // 以保证测试可注入 mock 的同时运行时仍绕过拦截器。
+        const _g = (typeof globalThis !== 'undefined') ? globalThis : (typeof global !== 'undefined' ? global : null);
+        const _w = (typeof window !== 'undefined') ? window : null;
+        this._rawFetch = (_g && typeof _g.fetch === 'function')
+            ? _g.fetch.bind(_g)
+            : (_w && typeof _w.fetch === 'function' ? _w.fetch.bind(_w) : null);
+
         // TD-TenantIsolation：租户命名空间隔离，根治「同一浏览器不同窗口开不同学校时
         // token 串租户」。浏览器 localStorage/sessionStorage 按「同源」共享、不按租户隔离，
         // 原先所有租户共用裸 key（auth_token / current_user），窗口 A（学校 A）登录后写入的
@@ -257,6 +267,8 @@ export class AuthService {
                 // DS-16 & M3: 日志不输出完整用户名（PII 脱敏），审计日志同样脱敏
                 console.log('✅ 登录成功:', maskSensitive(data.user.username, 'name'));
                 auditService.log('login', 'auth', null, `用户 ${maskSensitive(data.user.username, 'name')} 登录系统`);
+                // H1-ext / #6: 登录后静默同步权威角色，避免本地角色与后端不一致
+                this.syncRoleFromServer().catch(() => {});
                 return { success: true, user: data.user };
             } else {
                 throw new Error(data.message || '登录失败');
@@ -595,6 +607,8 @@ export class AuthService {
             }
 
             console.log('✅ Token 已刷新');
+            // H1-ext / #6: 刷新后静默同步权威角色（refresh 后 token 仍可能带旧角色）
+            this.syncRoleFromServer().catch(() => {});
             return { success: true, token: data.token };
         } catch (error) {
             console.error('❌ Token 刷新错误:', error.message);
@@ -662,6 +676,41 @@ export class AuthService {
     isAuthenticated() {
         const token = this.getToken();
         return token && !this.isTokenExpired();
+    }
+
+    /**
+     * H1-ext / #6: 从服务器同步最新角色到本地。
+     * 后端角色可能经 H1-ext 覆盖（DB 角色覆盖 token 角色）或 role-audit-trigger
+     * 即时变更而前端仍持有旧 token 角色，导致按钮渲染与后端权限不一致。
+     * 调用 /api/user/me 拉取权威角色并覆盖本地 user.role（内存 + 双写存储）。
+     * 静默失败：网络/401 时不抛错、不清除登录态，避免影响主流程。
+     * @returns {Promise<{success: boolean, role?: string}>}
+     */
+    async syncRoleFromServer() {
+        const token = this.getToken();
+        if (!token) return { success: false };
+        const rawFetch = this._rawFetch || ((typeof fetch !== 'undefined') ? fetch.bind(globalThis) : null);
+        if (!rawFetch) return { success: false };
+        try {
+            const response = await rawFetch(`${this.apiBaseUrl}/api/user/me`, {
+                method: 'GET',
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+            });
+            if (!response || typeof response.ok !== 'boolean') return { success: false };
+            if (!response.ok) return { success: false };
+            const data = await response.json().catch(() => ({}));
+            if (!data || !data.success || !data.user) return { success: false };
+            const local = this.getUser();
+            if (local && data.user.role && data.user.role !== local.role) {
+                local.role = data.user.role;
+                this.saveUser(local, true);
+                console.warn(`🔄 [auth] 本地角色已与服务器同步为 ${data.user.role}`);
+            }
+            return { success: true, role: data.user.role };
+        } catch (e) {
+            // 静默失败：角色同步不影响主流程
+            return { success: false };
+        }
     }
 
     /**

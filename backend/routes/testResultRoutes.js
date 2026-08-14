@@ -18,9 +18,10 @@ import express from 'express'
 import path from 'node:path'
 import fs from 'node:fs'
 import crypto from 'node:crypto'
+import { execFile } from 'node:child_process'
 import { createAuthMiddleware } from '../middleware/authMiddleware.js'
 import { CASE_DEFS, RESULT_OPTIONS } from '../lib/testCaseDefs.js'
-import { syncTestResultDocs, EVIDENCE_STORE_DIR } from '../lib/testReportSync.js'
+import { syncTestResultDocs, EVIDENCE_STORE_DIR, PROJECT_ROOT } from '../lib/testReportSync.js'
 
 const VALID_RESULTS = new Set(['passed', 'failed', 'skipped', 'pending'])
 // 合法用例组：CASE_DEFS 定义的分组 + 前端"新问题反馈"专用组（清单外新问题/缺陷上报）
@@ -83,14 +84,17 @@ export function createTestResultRoutes(userManager, prisma) {
       // 1) 重新生成 docs/test-results/latest/（snapshot.json / REPORT.md / index.html / 证据副本）
       const docs = await syncTestResultDocs({ prisma })
       // 2) 重建 dist/（把最新报告同步进 Caddy 服务的部署目录，否则网页看到的是旧副本）
-      const rootDir = path.resolve(EVIDENCE_STORE_DIR, '../..')
+      // TD-SyncFix: 项目根必须用 PROJECT_ROOT（原 path.resolve(EVIDENCE_STORE_DIR, '../..')
+      // 只上两级算成了 backend/，导致 build-static.js 路径错误 → fs.existsSync 恒 false →
+      // dist 永远不重建，Caddy 服务的 dist 里始终是旧报告。同时 ESM 不能用 require()，改 import execFile。
+      const rootDir = PROJECT_ROOT
       const buildScript = path.join(rootDir, 'scripts', 'build-static.js')
       let distOk = true
       let distErr = ''
       if (fs.existsSync(buildScript)) {
         try {
           await new Promise((resolve, reject) => {
-            const cp = require('node:child_process').execFile(
+            const cp = execFile(
               process.execPath, [buildScript],
               { cwd: rootDir, timeout: 120000 },
               (err) => {

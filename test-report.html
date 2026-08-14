@@ -19,11 +19,17 @@
         select.result-failed { border-color: #ef4444; background: rgba(239,68,68,0.08); }
         select.result-skipped { border-color: #f59e0b; background: rgba(245,158,11,0.08); }
         select.result-empty { border-color: #d1d5db; color: #9ca3af; background: rgba(243,244,246,0.6); }
-        /* 顶部 4 张卡同行（3 汇总 + 1 测试人员）：用 grid-template-columns 直接写
-           避开未编译的 Tailwind 任意值类；窄屏堆叠，lg 起 4 列均分 */
-        .summary-row { grid-template-columns: 1fr; }
-        @media (min-width: 1024px) {
-            .summary-row { grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: stretch; }
+        /* 顶部 5 张卡同行：1 测试人员（最左）+ 3 汇总（中）+ 1 问题预览（最右）。
+           父层 3 列 grid（1fr 3fr 1fr），summaryBar 内部再分 3 列，
+           使 5 张卡视觉等宽（每张各占 1fr）；窄屏 1 列堆叠；sm 起 3 列分布。 */
+        .summary-row { grid-template-columns: 1fr; align-items: stretch; }
+        @media (min-width: 640px) {
+            .summary-row { grid-template-columns: 1fr 3fr 1fr; }
+        }
+        /* summaryBar 内部：3 张汇总卡同行（窄屏 1 列堆叠） */
+        .summary-bar-grid { display: grid; gap: 0.75rem; grid-template-columns: 1fr; }
+        @media (min-width: 640px) {
+            .summary-bar-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
         }
         /* glass-panel：轻量玻璃面板（用于输入框/分组卡内部元素） */
         .glass-input {
@@ -166,14 +172,11 @@
 
     <!-- ═══════ 已登录：用例上报区 ═══════ -->
     <div id="reportWrap" class="hidden max-w-6xl mx-auto my-6 px-4 space-y-5">
-        <!-- 4 张卡一排：3 张分组汇总（JS 渲染）+ 1 张测试人员（与汇总卡同款 glass-tile） -->
-        <!-- 用 grid + 内联 grid-template-columns 避开缺失的 lg:flex-row 工具类 -->
-        <!-- 父层 4 列等分；窄屏堆叠 -->
+        <!-- 顶部 5 张卡同行：1 测试人员（最左）+ 3 汇总（中）+ 1 问题预览（最右） -->
+        <!-- 父层 1fr+3fr+1fr 三列；summaryBar 内部 3 列放 3 张汇总卡；窄屏 1 列堆叠 -->
         <div class="summary-row grid gap-4">
-            <!-- 3 张分组汇总（JS 渲染到 #summaryBar） -->
-            <div id="summaryBar" class="grid grid-cols-1 sm:grid-cols-3 gap-3 min-w-0"></div>
-            <!-- 测试人员卡：固定宽度 280px（用内联 style 避免依赖未编译的 Tailwind 任意值类） -->
-            <div class="glass-tile p-5 flex flex-col gap-2 min-w-0" style="width:100%; max-width:280px;">
+            <!-- 测试人员卡（最左）：宽度随父层 1fr 自适应，与汇总卡/预览卡等宽 -->
+            <div class="glass-tile p-5 flex flex-col gap-2 min-w-0">
                 <div class="text-base font-semibold text-gray-800 flex items-center gap-1.5">
                     <i class="fas fa-user-edit text-amber-500"></i>测试人员姓名
                 </div>
@@ -184,6 +187,15 @@
                     <span id="loginUserTip" class="font-semibold text-indigo-700">—</span>
                 </div>
                 <div class="text-[11px] text-gray-400 leading-snug">💡 此姓名会显示在所有提交的测试结果上</div>
+            </div>
+            <!-- 3 张分组汇总（JS 渲染到 #summaryBar） -->
+            <div id="summaryBar" class="summary-bar-grid min-w-0"></div>
+            <!-- 新问题预览总结卡（最右）：实时预览正在填写 / 提交后总结新问题 -->
+            <div class="glass-tile p-5 flex flex-col gap-2 min-w-0">
+                <div class="text-base font-semibold text-gray-800 flex items-center gap-1.5">
+                    <i class="fas fa-clipboard-check text-rose-500"></i>问题预览
+                </div>
+                <div id="issuePreview" class="text-sm space-y-2 flex-1 min-h-0"></div>
             </div>
         </div>
 
@@ -275,6 +287,7 @@
             if (loginTip) loginTip.textContent = (u && u.username) ? `${u.username}${(u.role) ? ' (' + u.role + ')' : ''}` : '未登录'
             ;['saveAllBtn','syncBtn','refreshBtn','logoutBtn'].forEach((id) => $(id).classList.remove('hidden'))
             initTesterName()
+            updateIssuePreview()
             loadDefs().then(loadAll)
         }
 
@@ -331,6 +344,15 @@
             const det = $(`det_${caseId}`)
             const evi = $(`evi_${caseId}`)
             const st = $(`st_${caseId}`)
+            // 用户诉求：只有"填写过内容"才视为已填写；空记录（result=pending 且 detail/evidence 都为空）
+            // 视为"未进行过测试"，保持默认"待测"空状态、不显示"已保存"时间。
+            // 这样测试人员重开页面时，未真正填写的用例不会被"已保存 pending"误导。
+            const hasContent = (rec.detail && rec.detail.trim()) || (rec.evidence && rec.evidence.trim()) || (rec.result && rec.result !== 'pending')
+            if (!hasContent) {
+                if (sel) { sel.value = ''; sel.classList.remove('result-passed','result-failed','result-skipped'); sel.classList.add('result-empty') }
+                if (st) st.textContent = ''
+                return
+            }
             if (sel) { sel.value = rec.result; sel.classList.add(`result-${rec.result}`) }
             if (det) det.value = rec.detail || ''
             if (evi) { evi.value = rec.evidence || '' }
@@ -855,6 +877,7 @@
 
         // ═══════ 新问题反馈（清单外问题上报 / 更新） ═══════
         let issueEditingId = null // 正在编辑/草稿的 new_问题 case_id；null = 未开始
+        let lastIssueSubmit = null // 最近一次提交的总结：{ caseId, title, time, steps, imgs }
         const NEW_ISSUE_GROUP = 'new_问题'
         // 新增 issue 在首次"添加一步/上传"时即分配草稿 case_id，保证传图目录与提交 case_id 一致（避免图片 404）
         function ensureIssueId() {
@@ -906,6 +929,62 @@
             } catch { /* 加载失败不阻断 */ }
         }
 
+        // —— 新问题预览总结卡（右侧，实时预览 / 提交后总结）——
+        // 独立读取当前 DOM（标题/描述/步骤），不依赖 issueEvidence 时序，避免与 issueSerialize 互相递归
+        function updateIssuePreview() {
+            const el = $('issuePreview')
+            if (!el) return
+            const title = $('issueTitle').value.trim()
+            const detail = $('issueDetail').value.trim()
+            const cards = [...$('issueStepWrap').querySelectorAll('[data-step]')]
+            let stepCount = 0, imgCount = 0
+            cards.forEach((card) => {
+                const cap = (card.querySelector('.step-cap')?.value || '').trim()
+                const urls = (card.querySelector('.step-evi')?.value || '').split(/[\n\r]+/).map((t) => t.trim()).filter(Boolean)
+                if (cap || urls.length) stepCount++
+                imgCount += urls.length
+            })
+
+            // ① 用户正在填写（表单有内容）：实时预览态优先（提交后继续填写新问题时不会被旧总结卡住）
+            if (title || detail || stepCount) {
+                el.innerHTML = `
+                    <div class="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
+                        <i class="fas fa-pen"></i>待提交</div>
+                    <div>
+                        <div class="text-[11px] text-gray-400 mb-0.5">问题标题</div>
+                        <div class="text-sm font-semibold text-gray-800 leading-snug break-words">${title ? esc(title) : '<span class="text-gray-300 font-normal">（未填标题）</span>'}</div>
+                    </div>
+                    ${detail ? `<div>
+                        <div class="text-[11px] text-gray-400 mb-0.5">详细描述</div>
+                        <div class="text-xs text-gray-600 leading-snug break-words">${esc(detail)}</div>
+                    </div>` : ''}
+                    <div class="flex items-center gap-3 text-[11px] text-gray-500">
+                        <span><i class="fas fa-list-ol mr-1"></i>${stepCount} 步</span>
+                        <span><i class="fas fa-images mr-1"></i>${imgCount} 张截图</span>
+                    </div>`
+                return
+            }
+
+            // ② 表单为空但刚提交过：展示提交总结态
+            if (lastIssueSubmit) {
+                el.innerHTML = `
+                    <div class="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
+                        <i class="fas fa-check-circle"></i>已提交</div>
+                    <div class="text-[11px] text-gray-400 font-mono">${esc(lastIssueSubmit.caseId)}</div>
+                    <div class="text-sm font-semibold text-gray-800 leading-snug break-words">${esc(lastIssueSubmit.title)}</div>
+                    <div class="text-[11px] text-gray-500">${esc(lastIssueSubmit.time)}</div>
+                    <div class="flex items-center gap-3 text-[11px] text-gray-500">
+                        <span><i class="fas fa-list-ol mr-1"></i>${lastIssueSubmit.steps} 步</span>
+                        <span><i class="fas fa-images mr-1"></i>${lastIssueSubmit.imgs} 张截图</span>
+                    </div>
+                    <div class="text-[11px] text-emerald-600 pt-1 border-t border-white/60"><i class="fas fa-check mr-1"></i>已保存，可在下方「我已反馈的问题」中编辑</div>`
+                return
+            }
+
+            // ③ 完全空状态
+            el.innerHTML = `<div class="text-gray-400 text-xs leading-relaxed"><i class="fas fa-info-circle mr-1"></i>填写下方「发现新问题」表单后，这里实时预览将提交的内容</div>`
+        }
+
         // —— issue 专用分步证据（复用渲染逻辑，但绑定到 issueStepWrap） ——
         function issueSerialize() {
             const wrap = $('issueStepWrap')
@@ -916,6 +995,7 @@
                 const urls = (el.querySelector('.step-evi')?.value || '').split(/[\n\r]+/).map((t) => t.trim()).filter(Boolean)
                 if (caption || urls.length) steps.push({ seq: steps.length + 1, caption, urls })
             })
+            updateIssuePreview()
             return steps.length ? JSON.stringify(steps) : ''
         }
         function issueRenderSteps(arr) {
@@ -978,6 +1058,7 @@
                 }))
             })
             wrap.querySelectorAll('[data-step]').forEach((card) => renderStepPreview(card))
+            updateIssuePreview()
         }
         function issueReindex() {
             const wrap = $('issueStepWrap')
@@ -996,6 +1077,7 @@
                 const rec = (j.data || []).find((it) => it.case_id === caseId)
                 if (!rec) return alert('未找到该反馈')
                 issueEditingId = caseId
+                lastIssueSubmit = null
                 $('issueTitle').value = rec.case_title || ''
                 $('issueDetail').value = rec.detail || ''
                 $('issueEvidence').value = rec.evidence || ''
@@ -1029,10 +1111,15 @@
                 })
                 const j = await r.json()
                 if (!j.success) throw new Error(j.error || '保存失败')
+                // 捕获提交前的步骤/截图统计，用于预览卡展示「提交后总结」
+                const stepsArr = evidenceSteps($('issueEvidence').value)
+                const imgCount = stepsArr.reduce((n, s) => n + (s.urls || []).length, 0)
                 issueEditingId = null
                 $('issueCur').textContent = `已保存（${caseId}）`
                 $('issueTitle').value = ''; $('issueDetail').value = ''
                 issueRenderSteps([])
+                lastIssueSubmit = { caseId, title, time: new Date().toLocaleString('zh-CN'), steps: stepsArr.length, imgs: imgCount }
+                updateIssuePreview()
                 loadMyIssues()
             } catch (e) {
                 alert('保存失败：' + e.message)
@@ -1045,7 +1132,12 @@
             $('issueTitle').value = ''; $('issueDetail').value = ''
             issueRenderSteps([])
             $('issueCur').textContent = ''
+            lastIssueSubmit = null
+            updateIssuePreview()
         })
+        // 标题/描述输入时实时刷新右侧预览卡
+        $('issueTitle').addEventListener('input', updateIssuePreview)
+        $('issueDetail').addEventListener('input', updateIssuePreview)
         const addIssueStep = () => {
             ensureIssueId()
             const arr = evidenceSteps(issueSerialize())

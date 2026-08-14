@@ -114,6 +114,10 @@ export async function backfillSchoolCustomization(prisma, log = console.log) {
       `UPDATE "${table_schema}"."SchoolCustomization" SET "canteens" = $1::jsonb WHERE "canteens" IS NULL`,
       DEFAULT_CANTEENS
     )
+    // 访客功能开关（RBAC 收敛）：boolean 列，默认关闭（false，需平台超管显式开启）
+    await prisma.$executeRawUnsafe(
+      `ALTER TABLE "${table_schema}"."SchoolCustomization" ADD COLUMN IF NOT EXISTS "guest_enabled" BOOLEAN NOT NULL DEFAULT false`
+    )
     log(`✅ SchoolCustomization 回填完成: ${table_schema}`)
   }
 }

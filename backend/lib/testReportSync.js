@@ -379,7 +379,7 @@ function renderHtml(snap) {
       <span class="topnav-btn topnav-yellow"><i class="fas fa-chart-bar mr-1.5"></i>汇总报告</span>
       <span id="userInfo" class="topnav-user hidden"><i class="fas fa-user-circle mr-1.5"></i><span id="userName">—</span></span>
       <button id="logoutBtn" type="button" class="topnav-btn topnav-rose hidden"><i class="fas fa-sign-out-alt mr-1.5"></i>退出</button>
-      <a id="loginLink" href="/login.html" class="topnav-link topnav-indigo hidden"><i class="fas fa-sign-in-alt mr-1.5"></i>登录</a>
+      <a id="loginLink" href="/super-admin-login.html" class="topnav-link topnav-indigo hidden"><i class="fas fa-sign-in-alt mr-1.5"></i>登录</a>
       <button id="refreshBtn" type="button" class="topnav-btn topnav-indigo"><i class="fas fa-sync-alt mr-1.5"></i>刷新</button>
     </div>
   </div>
@@ -412,6 +412,12 @@ const $ = (id) => document.getElementById(id);
 
 function fmt(t) { if (!t) return '—'; const d = new Date(t); if (isNaN(d)) return '—'; const p = n => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()); }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// TD-CloseAction: 当前登录状态（按钮权限判定用）
+// 必须在 renderList 等任何调用之前声明，避免 let 暂时性死区（TDZ）导致
+// "Cannot access '_loginState' before initialization"。
+let _loginState = { loggedIn: false, username: null, role: null }
+function getLoginState() { return _loginState }
 
 function renderCards() {
   $('cards').innerHTML = SNAPSHOT.groups.map(g => {
@@ -513,6 +519,8 @@ renderCards();
 renderList();
 
 // 从 localStorage/sessionStorage 探测 token（兼容命名空间 key）
+// 修订：原正则要求两段都恰好以 eyJ 开头，很多合法 JWT 因 payload/signature 段非 eyJ 开头
+// 而被误判为非法，导致页面看不到登录态。改为按 JWT 形态（三段 base64url）校验，不强制每段前缀。
 function findToken() {
   try {
     for (const store of [sessionStorage, localStorage]) {
@@ -520,7 +528,7 @@ function findToken() {
         const k = store.key(i);
         if (!k || (!k.startsWith('auth_token') && k !== 'token')) continue;
         const v = store.getItem(k);
-        if (v && /^eyJ[\w-]*\.eyJ[\w-]*\.[\w-]*$/.test(v)) return v;
+        if (v && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(v)) return v;
       }
     }
   } catch (e) { /* 存储不可用时忽略 */ }
@@ -538,7 +546,7 @@ async function apiGet(path, token) {
 
 function redirectToLogin() {
   const here = encodeURIComponent(window.location.pathname + window.location.search);
-  window.location.href = '/login.html?redirect=' + here;
+  window.location.href = '/super-admin-login.html?redirect=' + here;
 }
 
 // 未登录/令牌失效时：高亮登录入口，并询问是否跳转到登录页
@@ -552,25 +560,37 @@ function promptLogin(reason) {
   }
 }
 
-// TD-CloseAction: 当前登录状态（按钮权限判定用）
-let _loginState = { loggedIn: false, username: null, role: null }
-function getLoginState() { return _loginState }
+// 注：_loginState / getLoginState 已提前至脚本顶部声明（见 esc 之后），
+// 此处不再重复声明，避免 let 重声明与 TDZ 问题。
 
 async function initUser() {
   const token = findToken();
-  if (!token) { $('loginLink').classList.remove('hidden'); return; }
+  if (!token) {
+    // 无 token 时显示登录入口，让用户点击进入超管登录；
+    // 不主动跳转，避免用户仅仅是浏览公开数据时被强制打断。
+    $('loginLink').classList.remove('hidden');
+    return;
+  }
   try {
     const j = await apiGet('/api/test-results/me', token);
-    if (!j.success || !j.data.username) { $('loginLink').classList.remove('hidden'); return; }
+    if (!j.success || !j.data.username) {
+      $('loginLink').classList.remove('hidden');
+      return;
+    }
     $('userName').textContent = j.data.username + (j.data.role ? ' (' + j.data.role + ')' : '');
     $('userInfo').classList.remove('hidden');
     $('logoutBtn').classList.remove('hidden');
+    $('loginLink').classList.add('hidden');
     _loginState = { loggedIn: true, username: j.data.username, role: j.data.role || null }
     // 登录后让每张卡显示「收口/打开」按钮
     try { renderList() } catch (e) { /* 首次加载时 renderList 还未定义 */ }
   } catch (e) {
-    if (e.message === 'UNAUTHORIZED') $('loginLink').classList.remove('hidden');
-    else console.error('获取当前用户失败:', e.message);
+    if (e.message === 'UNAUTHORIZED') {
+      // 登录已过期：直接跳超管登录页，不弹窗
+      redirectToLogin();
+      return;
+    }
+    console.error('获取当前用户失败:', e.message);
   }
 }
 
@@ -616,17 +636,18 @@ $('logoutBtn').addEventListener('click', () => {
       }
     });
   } catch (e) { /* 忽略 */ }
-  window.location.href = '/login.html';
+  window.location.href = '/super-admin-login.html';
 });
 
 // 刷新：重新从数据库生成报告并重建 dist，然后带时间戳重新加载页面（避免浏览器缓存）
+// 修订：未登录或 token 失效时直接跳超管登录页，不再弹窗询问（避免被「刷新需要先登录」打断）。
 async function refreshReport() {
   const btn = $('refreshBtn');
   if (btn.disabled) return;
 
   const token = findToken();
   if (!token) {
-    promptLogin('刷新报告需要先登录');
+    redirectToLogin();
     return;
   }
 
@@ -643,8 +664,8 @@ async function refreshReport() {
     const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token };
     const r = await fetch('/api/test-results/sync', { method: 'POST', headers });
     if (r.status === 401) {
-      resetBtn();
-      promptLogin('登录已过期，请重新登录后刷新');
+      // 登录已过期：直接跳超管登录页，不弹窗
+      redirectToLogin();
       return;
     }
     const j = await r.json();
@@ -688,8 +709,14 @@ export async function syncTestResultDocs({ prisma, outDir = DOCS_OUT_DIR, eviden
   fs.writeFileSync(path.join(outDir, 'index.html'), renderHtml(snap), 'utf8')
 
   // 4) 证据图片副本（先清空再复制，保证与数据库引用一致）
+  // TD-SyncRobust: 清空失败（如目录被 root 属主占位导致 EACCES）不应阻断整个同步。
+  // 降级为「不清空、直接覆盖复制」，snapshot/REPORT/index 仍正常生成，仅可能残留旧孤儿图片。
   const evOutDir = path.join(outDir, 'evidence')
-  fs.rmSync(evOutDir, { recursive: true, force: true })
+  try {
+    fs.rmSync(evOutDir, { recursive: true, force: true })
+  } catch (e) {
+    console.error('[testReportSync] 清空 evidence 目录失败（将继续覆盖复制）:', e?.message || e)
+  }
   let evidenceCopied = 0
   for (const g of snap.groups) {
     for (const it of g.items) {

@@ -82,7 +82,6 @@ export class UserManagement {
                     </div>
                     <select id="roleFilter" class="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                         <option value="">所有角色</option>
-                        <option value="admin">管理员</option>
                         <option value="manager">主管</option>
                         <option value="operator">操作人员</option>
                         <option value="viewer">查看者</option>
@@ -150,7 +149,6 @@ export class UserManagement {
                                 <option value="operator">操作人员</option>
                                 <option value="viewer">查看者</option>
                                 <option value="manager">主管</option>
-                                <option value="admin">管理员</option>
                             </select>
                         </div>
                         <div>

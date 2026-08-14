@@ -334,6 +334,16 @@
                     </button>
                 </div>
 
+                <!-- 访客功能开关（RBAC 收敛）：由平台超管按校配置，控制该校登录页是否显示访客扫码只读入口 -->
+                <div class="mb-4 p-4 border border-gray-200 rounded-lg bg-gray-50 md:col-span-2">
+                    <h3 class="font-medium text-gray-700 mb-1"><i class="fas fa-users mr-1 text-emerald-600"></i>访客功能</h3>
+                    <p class="text-xs text-gray-400 mb-3">控制该校登录页是否开放「访客入口」（食堂访客扫码只读查看检测公示）。默认关闭，仅当需要对外公示时由超管开启。</p>
+                    <label class="inline-flex items-center gap-2 cursor-pointer select-none">
+                        <input type="checkbox" id="bf_guestEnabled" class="w-4 h-4 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500">
+                        <span class="text-sm text-gray-700 font-medium">开启访客功能（登录页显示访客入口）</span>
+                    </label>
+                </div>
+
                 <!-- 校徽排版：属于「基本信息」，与上方校徽在「保存修改」时一并保存 -->
                 <!-- md:col-span-2：跨满整排，避免只占两栏网格的左半边导致预览不像真实整条顶部栏 -->
                 <div class="mb-4 p-4 border border-gray-200 rounded-lg bg-gray-50 md:col-span-2">
@@ -965,21 +975,36 @@
             throw new Error('blocked');
         }
 
-        // ②+③ 服务端校验 token 有效性 + 平台超管身份（以服务端返回为准）
+        // ② 服务端校验 token 有效性 + 平台超管身份（以服务端返回为准）
         let _verified = null;
+        let _verifyFailed = false; // true = 网络异常或返回无效
         try {
             const _r = await fetch('/api/user/verify-token', {
                 method: 'POST',
                 headers: { 'Authorization': 'Bearer ' + _rawToken, 'Content-Type': 'application/json' }
             });
             const _j = await _r.json();
-            if (_r.ok && _j.valid) _verified = _j.user;
+            if (_r.ok && _j.valid) {
+                _verified = _j.user;
+            } else {
+                // 401/403/valid=false：登录已失效或令牌属其他租户
+                _verifyFailed = true;
+                console.warn('[auth] verify-token 未通过：', _r.status, _j && _j.error);
+            }
         } catch (e) {
+            _verifyFailed = true;
             console.error('[auth] verify-token 请求失败，保守拒绝进入：', e);
         }
 
-        if (!_verified || _verified.role !== 'admin' || _verified.schoolCode) {
-            // 非平台超管（或无有效令牌）：拒绝进入，回平台超管登录页
+        // ②a 令牌无效/过期：清除本地残留态并跳转平台超管登录页（与 index.html 守卫保持一致）
+        if (!_verified) {
+            try { authService.clearAuth(); } catch (e) { /* clearAuth 异常不影响跳转 */ }
+            window.location.replace('./super-admin-login.html');
+            throw new Error(_verifyFailed ? '令牌无效或已过期，阻断执行' : '未通过服务端校验，阻断执行');
+        }
+
+        // ②b 令牌有效，但当前用户不是平台超管（角色非 admin 或带 schoolCode）：拒绝进入
+        if (_verified.role !== 'admin' || _verified.schoolCode) {
             document.body.innerHTML = '<div class="min-h-screen flex items-center justify-center"><div class="text-center"><i class="fas fa-lock text-5xl text-gray-400 mb-4"></i><h2 class="text-xl font-bold text-gray-600">权限不足</h2><p class="text-gray-400 mt-2">仅平台超级管理员可访问此页面</p><a href="./super-admin-login.html" class="inline-block mt-4 text-blue-600 hover:underline">前往平台超管登录</a></div></div>';
             throw new Error('非平台超管，阻断执行');
         }
@@ -1753,6 +1778,30 @@
             return `${location.origin}/${encodeURIComponent(c)}/login.html?school=${encodeURIComponent(c)}`;
         }
 
+        // RBAC 收敛：学校租户预览窗口（超管以 iframe 预览该校登录页/网页，不进入该校业务数据）
+        function openPreviewSchool(code) {
+            const school = allSchools.find(s => s.code === code);
+            const name = school ? (school.name || code) : code;
+            const url = schoolLoginUrl(code);
+            document.getElementById('previewSchoolTitle').textContent = `${name} (${code})`;
+            document.getElementById('previewSchoolOpenLink').href = url;
+            document.getElementById('previewSchoolFrame').src = url;
+            document.getElementById('previewSchoolModal').classList.remove('hidden');
+        }
+        function closePreviewSchool() {
+            document.getElementById('previewSchoolModal').classList.add('hidden');
+            document.getElementById('previewSchoolFrame').src = 'about:blank'; // 释放 iframe，避免后台继续运行
+        }
+        // 预览窗口关闭：点遮罩 / 关闭按钮 / ESC
+        document.querySelectorAll('[data-preview-close]').forEach(el => {
+            el.addEventListener('click', closePreviewSchool);
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && !document.getElementById('previewSchoolModal').classList.contains('hidden')) {
+                closePreviewSchool();
+            }
+        });
+
         // 当 Clipboard API 与 execCommand 均失败时弹出的降级对话框（用户手动复制 / 点击打开）
         function showManualCopyDialog(url) {
             const dlg = document.getElementById('manualCopyDialog');
@@ -1820,6 +1869,7 @@
                     <td class="text-xs text-gray-500">${s.created_at ? new Date(s.created_at).toLocaleDateString() : ''}</td>
                     <td><div class="flex items-center gap-1"><a href="${escapeHtml(schoolLoginUrl(s.code))}" target="_blank" rel="noopener" class="text-xs text-blue-600 hover:text-blue-800 hover:underline break-all max-w-[200px] truncate" title="${escapeHtml(schoolLoginUrl(s.code))}（点击新窗口打开）">${escapeHtml(schoolLoginUrl(s.code))}</a><button class="btn-copy-login flex-shrink-0 px-1.5 py-0.5 text-xs bg-gray-100 hover:bg-blue-100 text-gray-500 hover:text-blue-700 rounded transition" data-url="${escapeHtml(schoolLoginUrl(s.code))}" title="复制登录地址（请用无痕窗口打开）"><i class="fas fa-copy"></i></button></div></td>
                     <td><div class="flex items-center gap-1">
+                        <button class="px-2 py-1 text-xs bg-emerald-50 text-emerald-700 rounded hover:bg-emerald-100 transition btn-preview-school" data-code="${escapeHtml(s.code)}" title="在超管界面预览该校租户网页（iframe）"><i class="fas fa-eye mr-1"></i>预览</button>
                         <button class="px-2 py-1 text-xs bg-blue-50 text-blue-700 rounded hover:bg-blue-100 transition btn-manage" data-code="${escapeHtml(s.code)}"><i class="fas fa-cog mr-1"></i>管理</button>
                         <button class="px-2 py-1 text-xs bg-red-50 text-red-700 rounded hover:bg-red-100 transition btn-delete-school" data-code="${escapeHtml(s.code)}" title="停用该校（数据保留）"><i class="fas fa-trash mr-1"></i>停用</button>
                         ${s.status === 'disabled' ? `<button class="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition btn-hard-delete" data-code="${escapeHtml(s.code)}" title="彻底删除（移入回收站，90 天内可恢复）"><i class="fas fa-eraser mr-1"></i>彻底删除</button>` : ''}
@@ -1871,6 +1921,10 @@
             });
             tbody.querySelectorAll('.btn-manage').forEach(btn => {
                 btn.addEventListener('click', () => openDetail(btn.dataset.code));
+            });
+            // RBAC 收敛：学校租户预览窗口（超管以 iframe 预览该校网页，无需进入该校业务数据）
+            tbody.querySelectorAll('.btn-preview-school').forEach(btn => {
+                btn.addEventListener('click', () => openPreviewSchool(btn.dataset.code));
             });
 
             // P1: 逻辑删除(软删除——置 disabled,数据保留)
@@ -2286,6 +2340,8 @@
                         logoUrl,
                         systemTitle: (document.getElementById('bf_systemTitle')?.value || '').trim(),
                         canteens: getCanteenValues(),
+                        // RBAC 收敛：访客功能开关（boolean）
+                        guestEnabled: (document.getElementById('bf_guestEnabled')?.checked ?? false),
                         ...(logoStyleDirty ? { logoStyle: logoStyle || null } : {}),
                     })
                 });
@@ -2497,6 +2553,9 @@
                 if (Array.isArray(foOpts) && foOpts.length) canteens = foOpts;
             }
             renderCanteenInputs(Array.isArray(canteens) ? canteens : []);
+            // RBAC 收敛：回填访客功能开关（boolean 列，非 JSON）
+            const guestEnabledEl = document.getElementById('bf_guestEnabled');
+            if (guestEnabledEl) guestEnabledEl.checked = !!c.guest_enabled;
             fieldOrder = parseJSON(c.field_order) || parseJSON(c.theme_config)?.field_order || {};
             // 校徽排版配置（主题定制一部分）。存在未保存修改时保留内存中的草稿，
             // 避免从基本信息 Tab 进入「界面定制」时把刚排好的校徽覆盖掉。
@@ -3874,6 +3933,20 @@
         bindRecycleBinControls();
         loadSchools();
     </script>
+    <!-- 学校租户预览窗口（RBAC 收敛）：超管以 iframe 预览该校网页，不进入该校业务数据 -->
+    <div id="previewSchoolModal" class="hidden fixed inset-0 z-[100]">
+        <div class="absolute inset-0 bg-black/60" data-preview-close></div>
+        <div class="relative z-10 flex flex-col w-[min(92vw,1200px)] h-[85vh] mx-auto mt-8 bg-white rounded-xl shadow-2xl overflow-hidden">
+            <div class="flex items-center justify-between px-5 py-3 border-b border-gray-200 bg-gray-50">
+                <h3 class="font-medium text-gray-800"><i class="fas fa-eye mr-2 text-emerald-600"></i>预览学校租户：<span id="previewSchoolTitle" class="font-semibold"></span></h3>
+                <div class="flex items-center gap-3">
+                    <a id="previewSchoolOpenLink" href="#" target="_blank" rel="noopener" class="text-xs text-blue-600 hover:text-blue-800 hover:underline"><i class="fas fa-external-link-alt mr-1"></i>新窗口打开</a>
+                    <button data-preview-close class="px-2 py-1 text-gray-500 hover:text-gray-700 hover:bg-gray-200 rounded-lg transition text-lg leading-none">&times;</button>
+                </div>
+            </div>
+            <iframe id="previewSchoolFrame" class="flex-1 w-full border-0" title="学校租户预览" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+        </div>
+    </div>
     <!-- 手动复制/打开 降级对话框（剪贴板 API 不可用时） -->
     <div id="manualCopyDialog" class="hidden fixed inset-0 bg-black/40 z-50 items-center justify-center p-4">
         <div class="bg-white rounded-lg shadow-xl w-full max-w-lg p-5">
