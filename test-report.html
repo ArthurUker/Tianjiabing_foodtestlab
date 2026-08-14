@@ -318,25 +318,41 @@
         }
 
         // ═══ 加载已提交结果 + 汇总 ═══
+        // 修订：先异步拉取已保存记录，再调用 renderGroups(map) 渲染，
+        // 使"已填写用例"首次渲染即为正确状态，避免依赖后置 fillRow 二次刷新（用户硬刷可见）。
+        // 未填写过的用例在 renderGroups 中预判 result/detail/evidence 后保持默认"待测"空状态。
         async function loadAll() {
-            renderGroups()
-            loadSummary()
-            loadMyIssues()
-            // 回填当前提交人已提交的结果（优先按测试人员姓名，无则按登录账号）
+            let map = {}
             try {
                 const me = (authService.getUser ? authService.getUser() : null) || {}
                 const who = testerName() || me.username || $('curUser').textContent || 'unknown'
                 const r = await fetch(`/api/test-results?submitted_by=${encodeURIComponent(who)}`, { headers: apiHeaders() })
                 const j = await r.json()
-                const map = {}
                 for (const it of (j.data || [])) map[it.case_id] = it
-                for (const g of CASE_DEFS) {
-                    for (const c of g.cases) {
-                        const rec = map[c.id]
-                        if (rec) fillRow(c.id, rec)
-                    }
-                }
-            } catch { /* 回填失败不阻断 */ }
+            } catch { /* 拉取失败时回退到默认空渲染 */ }
+            renderGroups(map)
+            // renderGroups 内 select 已根据 recordsMap 预填 selected & result-* 类；
+            // 此处再回填 detail textarea / evidence 分步 / 已保存时间，确保首次渲染即为最终态。
+            restoreFromRecords(map)
+            loadSummary()
+            loadMyIssues()
+        }
+
+        // 把已保存的 detail / evidence 分步 / 时间戳写回 DOM（renderGroups 已用 recordsMap 预填 select 后调用）
+        function restoreFromRecords(map) {
+            for (const id in map) {
+                const rec = map[id]
+                const hasContent = (rec.detail && rec.detail.trim()) || (rec.evidence && rec.evidence.trim()) || (rec.result && rec.result !== 'pending')
+                if (!hasContent) continue
+                const det = $(`det_${id}`)
+                if (det) det.value = rec.detail || ''
+                const evi = $(`evi_${id}`)
+                if (evi) evi.value = rec.evidence || ''
+                // 用有序分步渲染回填证据（会接管 stepWrap 内容、绑定事件）
+                try { renderSteps(id, evidenceSteps(rec.evidence || '')) } catch (e) { /* 忽略单条异常 */ }
+                const st = $(`st_${id}`)
+                if (st && rec.updated_at) st.textContent = `已保存 ${new Date(rec.updated_at).toLocaleString('zh-CN')}`
+            }
         }
 
         function fillRow(caseId, rec) {
@@ -353,7 +369,7 @@
                 if (st) st.textContent = ''
                 return
             }
-            if (sel) { sel.value = rec.result; sel.classList.add(`result-${rec.result}`) }
+            if (sel) { sel.value = rec.result; sel.classList.remove('result-passed','result-failed','result-skipped','result-empty'); sel.classList.add(`result-${rec.result}`) }
             if (det) det.value = rec.detail || ''
             if (evi) { evi.value = rec.evidence || '' }
             // 用有序分步渲染回填证据
@@ -528,13 +544,19 @@
         }
 
         // ═══ 渲染分组表单 ═══
-        function renderGroups() {
+        // recordsMap: 可选 { case_id -> {result, detail, evidence, updated_at} }，用于首次渲染时直接预填
+        // "已填写"用例的结果与"已保存"时间，避免依赖异步 fillRow 二次刷新。
+        function renderGroups(recordsMap) {
+            recordsMap = recordsMap || {}
             const wrap = $('groupsWrap')
             // TD-Close: 把已收口用例从主列表剔除，单独渲染到"已完成（已收口）"折叠区
             const openGroups = CASE_DEFS.map((g) => ({
                 ...g,
                 cases: g.cases.filter((c) => !CLOSED_CASE_IDS.has(c.id)),
             })).filter((g) => g.cases.length > 0)
+            // 用户诉求：已"填写过内容"的用例直接渲染为已填写状态；
+            // 未填写过（无记录 或 仅 result=pending 且 detail/evidence 都为空）的用例保持默认"待测"空状态，
+            // 不显示"已保存时间"。
             const closedGroups = CASE_DEFS.map((g) => ({
                 ...g,
                 cases: g.cases.filter((c) => CLOSED_CASE_IDS.has(c.id)),
@@ -569,10 +591,17 @@
                                     ${c.guide ? `<div id="guide_${esc(c.id)}" class="guide-panel hidden mt-2 rounded-xl glass-section p-3 text-sm leading-relaxed text-gray-700 whitespace-pre-line">${esc(c.guide)}</div>` : ''}
                                 </div>
                                 <div class="w-full sm:w-auto sm:min-w-[140px]">
-                                    <select id="sel_${esc(c.id)}" class="w-full glass-input rounded-xl px-3 py-2.5 text-sm result-empty"
-                                        onchange="this.classList.remove('result-passed','result-failed','result-skipped','result-empty'); this.classList.add('result-'+(this.value||'empty'))">
-                                        ${RESULT_OPTIONS.map(([v, l]) => `<option value="${v}"${v === '' ? ' selected' : ''}>${l}</option>`).join('')}
-                                    </select>
+                                    ${(() => {
+                                        const rec = recordsMap[c.id]
+                                        const hasContent = rec && ((rec.detail && rec.detail.trim()) || (rec.evidence && rec.evidence.trim()) || (rec.result && rec.result !== 'pending'))
+                                        const cur = hasContent ? rec.result : ''
+                                        const stText = hasContent && rec.updated_at ? `已保存 ${new Date(rec.updated_at).toLocaleString('zh-CN')}` : ''
+                                        return `<select id="sel_${esc(c.id)}" class="w-full glass-input rounded-xl px-3 py-2.5 text-sm result-${cur || 'empty'}"
+                                            onchange="this.classList.remove('result-passed','result-failed','result-skipped','result-empty'); this.classList.add('result-'+(this.value||'empty'))">
+                                            ${RESULT_OPTIONS.map(([v, l]) => `<option value="${v}"${v === cur ? ' selected' : ''}>${l}</option>`).join('')}
+                                        </select>
+                                        <span id="st_${esc(c.id)}" class="text-xs text-gray-500 mt-1 block">${esc(stText)}</span>`
+                                    })()}
                                 </div>
                                 <button type="button" data-case="${esc(c.id)}" data-title="${esc(c.title)}" data-group="${esc(g.group)}"
                                     class="save-btn inline-flex items-center justify-center px-5 py-2.5 text-sm btn-primary rounded-xl whitespace-nowrap">
