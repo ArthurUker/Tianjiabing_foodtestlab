@@ -82,7 +82,7 @@
 ## 规则四：认证与授权统一
 
 1. **统一中间件工厂，禁止重复实现**：认证 / 授权必须经由 `backend/middleware/authMiddleware.js` 的 `createAuthMiddleware(userManager)` 导出的 `authenticateUser` / `authorizeAdmin` / `authorizeRoles(...)`。**禁止在路由文件内重新实现 Bearer 解析或手写角色判断。**
-2. **`authenticateUser` 之后必须挂租户客户端**：`server.js` 中 `authenticateUser` 在校验通过后调用 `attachTenant`（来自 `tenantMiddleware.js`），注入 `req.db` 与 `req.tenantSchema`。任何受保护 handler 都从 `req.db` 取数据。
+2. **`authenticateUser` 之后必须挂租户客户端**：`authMiddleware.js` 的 `authenticateUser` 在校验通过后内置挂载 `req.db`（供独立 Router 内路由复用）；`server.js` 的 `authenticateUser` 包装函数再调用 `attachTenant`（来自 `tenantMiddleware.js`）额外挂载 `req.tenantSchema`。任何受保护 handler 都从 `req.db` 取数据。
 3. **JWT 携带 `schoolCode`**：`UserManager.buildAccessToken` 在 payload 写入 `schoolCode`，登录时从 `req.body.schoolCode`（登录前尚未认证，故从请求体取）经 `forTenant(schoolCode)` 路由到对应 schema 的 `User` 表校验。
 4. **登录前公开端点**：`GET /api/schools/:schoolCode/config` 在**未认证**状态下即可调用，用于登录页个性化（返回 `name`/`shortName`/`themeColor`/`logoUrl`/`customization`）。它只读 `public` 系统表，且对未激活 / 不存在的学校返回 404。**新增个性化字段须同时兼容该端点与 `/api/school/config`（登录后，带 `req.user.schoolCode`）。**
 5. **RBAC 矩阵（概要，详细见 `README.md` §7）**：写操作由 `requireEditorOrAbove` 拦截（`guest`/`viewer` 一律 403）；用户管理需 `authorizeRoles('admin','manager')`；审计日志管理仅 `admin`。新增受保护接口时，必须显式挂对应授权中间件，不得默认放行。
@@ -139,7 +139,7 @@
 2. **CORS 白名单**：`server.js` 的 `parseAllowedOrigins` + `parseAllowedHostnames` 精确匹配来源；非白名单来源**不下发 CORS 头并记录告警**（不抛 500）。生产必须通过 `CORS_ORIGIN`（或 `CORS_HOSTNAMES`）配置，禁止把 `*` 用于生产。
 3. **输入安全**：`validationMiddleware` 提供 `detectXss` / `detectSqlInjection` / `escapeHtml` / `sanitizeHtml` / `sanitizeText`。前端 `FormValidator` 的 `xss` / `sqlInjection` 规则须与后端保持一致（**后端为超集**）。
 4. **密码**：bcryptjs 哈希（`password_hash`），不落明文；后端 `fieldValidators` 约束 `username`/`phone`/`password` 格式；`isStrongPassword` ≥8 位且含字母与数字。
-5. **请求体上限**：`express.json({ limit: '10mb' })`。
+5. **请求体上限**：`express.json({ limit: '8mb' })`（可由 `BODY_LIMIT` 环境变量覆盖）。
 6. **生产不暴露默认凭据**：见规则六第 4 条（seed 跳过 + 强密码）。
 
 ---
