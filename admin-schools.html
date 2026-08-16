@@ -1202,6 +1202,10 @@
     </div>
 
     <!-- 平台超管账号管理 -->
+    <!-- P-Sidebar: 隐藏触发器——SuperAdminAccount.js 的 openBtn 依赖 id=btnAccountMgmt 绑定
+         「打开弹层 + 加载超管列表」。顶部原按钮已迁入侧边栏「账号与权限」视图，
+         此处保留隐藏按钮作为事件绑定点，由页尾 btnAccountMgmtInline 转发 click。 -->
+    <button id="btnAccountMgmt" class="hidden" aria-hidden="true"></button>
     <div id="saAccountModal" class="hidden">
         <div class="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4">
             <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -1283,6 +1287,10 @@
         import { initBackupManager } from '/js/modules/backupManager.js';
 
         const API_BASE = getApiBaseUrl();
+
+        // P-Sidebar: 暴露 authService 到 window，供页尾普通 <script>（侧边栏退出登录按钮）
+        // 跨作用域调用——普通 script 无法访问 module 的 import 作用域变量。
+        window.authService = authService;
 
         // 🔐 权限守卫（安全加固 2026-07-31）：
         // 原逻辑仅依赖 localStorage 的 isAuthenticated() + 本地 user 对象判断平台超管，
@@ -4587,7 +4595,6 @@
     (function initAdminSidebar() {
         const sidebar = document.getElementById('adminSidebar');
         const items = sidebar ? sidebar.querySelectorAll('.admin-sidebar__item') : [];
-        const views = document.querySelectorAll('.admin-view');
         const main = document.querySelector('.admin-main');
 
         // 【DOM 收纳】
@@ -4645,9 +4652,15 @@
         // 顶部右侧退出登录按钮（与侧边栏底部共用同一逻辑）
         function doLogout() {
             if (!window.confirm('确定要退出登录吗？')) return;
-            authService.logout().finally(() => {
-                window.location.replace('./super-admin-login.html');
-            });
+            // authService 在 module 作用域内，普通 <script> 无法直接引用，
+            // 需通过 module script 暴露的 window.authService 跨作用域调用。
+            const svc = window.authService;
+            const done = () => window.location.replace('./super-admin-login.html');
+            if (svc && typeof svc.logout === 'function') {
+                svc.logout().finally(done);
+            } else {
+                done();
+            }
         }
         const btnLogoutTop = document.getElementById('btnLogoutTop');
         if (btnLogoutTop) btnLogoutTop.addEventListener('click', doLogout);
@@ -4700,17 +4713,20 @@
             });
         }
 
-        // KPI 数据填充：从原页面渲染后的统计中推断（最小侵入）
+        // KPI 数据填充：从原页面渲染后的 DOM 推断（最小侵入）。
+        // 学校列表 tbody id = schoolTbody；回收站是独立 table（在 recycleBinList 内），
+        // 二者分开统计，避免把回收站误算进「学校总数」。
         function refreshKpi() {
             try {
-                const rows = document.querySelectorAll('#schoolTableBody tr');
-                let total = rows.length;
-                let active = 0, recycled = 0;
-                rows.forEach((tr) => {
-                    const txt = tr.textContent || '';
-                    if (txt.includes('启用')) active++;
-                    if (txt.includes('回收') || txt.includes('已删')) recycled++;
+                const schoolRows = document.querySelectorAll('#schoolTbody tr');
+                // 排除「加载中…/暂无学校」这类占位行（真实行必含操作按钮 .btn-manage）
+                const realRows = Array.from(schoolRows).filter((tr) => tr.querySelector('.btn-manage'));
+                const total = realRows.length;
+                let active = 0;
+                realRows.forEach((tr) => {
+                    if ((tr.textContent || '').includes('启用')) active++;
                 });
+                const recycled = document.querySelectorAll('#recycleBinList tbody tr').length;
                 if (document.getElementById('kpiTotalSchools')) document.getElementById('kpiTotalSchools').textContent = total;
                 if (document.getElementById('kpiActiveSchools')) document.getElementById('kpiActiveSchools').textContent = active;
                 if (document.getElementById('kpiRecycleSchools')) document.getElementById('kpiRecycleSchools').textContent = recycled;
@@ -4720,11 +4736,10 @@
         setTimeout(refreshKpi, 1500);
         setInterval(refreshKpi, 8000);
 
-        // 回收站数量徽标
+        // 回收站数量徽标（recycleBinList 渲染为 <table><tbody><tr>，用 tbody tr 统计）
         function refreshRecycleBadge() {
             try {
-                const recycleCount = document.querySelectorAll('#recycleBinList li').length ||
-                                     (document.querySelector('#recycleCount')?.textContent || '0');
+                const recycleCount = document.querySelectorAll('#recycleBinList tbody tr').length;
                 const badge = document.getElementById('adminSidebarBadgeSchools');
                 if (!badge) return;
                 const n = parseInt(recycleCount, 10);
@@ -4742,7 +4757,8 @@
         // 顶部 super_admin 统计（软实现，从 super_admin 弹层渲染后的列表行推断）
         function refreshSuperAdminKpi() {
             try {
-                const rows = document.querySelectorAll('#saAccountList tr, [data-sa-row]');
+                // 超管列表 tbody id = saAdminList（SuperAdminAccount.js 的 listEl）
+                const rows = document.querySelectorAll('#saAdminList tr');
                 if (document.getElementById('kpiSuperAdmins')) {
                     document.getElementById('kpiSuperAdmins').textContent = rows.length || '?';
                 }
