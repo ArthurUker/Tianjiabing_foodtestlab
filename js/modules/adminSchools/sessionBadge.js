@@ -1,5 +1,5 @@
 /**
- * admin-schools.html 顶部导航会话徽章 + idle 倒计时（从 module script 抽离，P-Refactor）。
+ * admin-schools.html 顶部导航会话徽章 + idle 倒计时（P-Refactor，原 js/modules/adminSessionBadge.js 迁入本目录）。
  *
  * 职责：
  *   1. 渲染「当前登录用户」徽章（adminUserName）

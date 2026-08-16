@@ -6,528 +6,7 @@
     <title>学校管理控制台 - 平台超管</title>
     <link rel="stylesheet" href="/css/tailwind.css">
     <link rel="stylesheet" href="/css/vendor/fa/all.min.css" />
-    <style>
-      /* 登录样式 · 图形化编辑模式（DS-LOGIN-GRAPHIC） */
-      #loginStylePreview.ls-graphical .ls-card { cursor: move; outline: 2px dashed rgba(99,102,241,.55); outline-offset: 4px; transition: outline-color .15s ease; }
-      #loginStylePreview.ls-graphical .ls-card:hover { outline-color: rgba(99,102,241,.9); }
-      #loginStylePreview.ls-graphical [data-ls-edit] { cursor: text; border-radius: 4px; transition: background .15s ease, box-shadow .15s ease; }
-      #loginStylePreview.ls-graphical [data-ls-edit]:hover { background: rgba(99,102,241,.10); box-shadow: 0 0 0 2px rgba(99,102,241,.25); }
-      #loginStylePreview.ls-graphical [data-ls-edit].ls-editing { background: #fff; box-shadow: 0 0 0 2px #6366f1; cursor: text; }
-      #loginStylePreview.ls-graphical .ls-resize-handle { position: absolute; top: 0; right: -6px; width: 12px; height: 100%; cursor: ew-resize; border-radius: 6px; }
-      #loginStylePreview.ls-graphical .ls-resize-handle::after { content: ""; position: absolute; top: 50%; right: 4px; transform: translateY(-50%); width: 4px; height: 40px; border-radius: 4px; background: rgba(99,102,241,.85); }
-    </style>
-    <script src="/js/utils/themePresets.js"></script>
-    <style>
-      /* ====== 统一编辑弹层（字段规则 / 类型统计）====== */
-      .sc-popover{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 12px 32px rgba(0,0,0,.16);padding:14px;}
-      /* TD-PopoverAutoSize: 字段管理弹窗宽度按视口自适应（由 JS 在打开时设置 --sp-width）；
-         内部 padding / gap 跟随宽度调整（窄屏紧凑、宽屏舒展），避免内容紧密堆叠。 */
-      .sc-popover--auto {
-          width: var(--sp-width, 540px);
-          min-width: 360px;
-          max-width: min(96vw, 800px);
-          padding: clamp(12px, 1.2vw, 20px);
-      }
-      .sc-popover--auto .tree-card { padding: clamp(8px, 0.8vw, 14px); }
-      .sc-popover--auto .tree-card .flex.items-center.gap-2 { gap: clamp(6px, 0.6vw, 10px); }
-      .sc-popover--auto #spTreeList { gap: clamp(6px, 0.6vw, 10px); }
-      .sc-popover--auto .sp-child-chip { padding: clamp(4px, 0.4vw, 8px) clamp(6px, 0.6vw, 12px); }
-      /* 大屏（>1200px）进一步放松间距，让选项不再紧密；窄屏保持紧凑以容纳更多内容 */
-      @media (min-width: 1200px) {
-          .sc-popover--auto { padding: 18px 22px; }
-          .sc-popover--auto #spTreeList { gap: 10px; }
-          .sc-popover--auto .tree-card { padding: 14px; }
-          .sc-popover--auto .tree-card .flex.items-center.gap-2 { gap: 10px; }
-          .sc-popover--auto input.tree-value,
-          .sc-popover--auto input.tree-label { padding: 8px 12px; }
-          .sc-popover--auto .sp-child-chip { padding: 6px 10px; font-size: 12.5px; }
-      }
-      /* 极窄屏：退化为通栏弹窗，宽度几乎占满视口 */
-      @media (max-width: 640px) {
-          .sc-popover--auto { width: calc(100vw - 16px) !important; min-width: 0; }
-      }
-    </style>
-    <style>
-      /* ====== P-Sidebar: 平台超管控制台 — 左侧功能菜单 + 主区多视图布局 ======
-         - 两栏布局：固定宽侧栏 240px（可折叠到 64px 仅图标），主区自适应；
-         - 玻璃深色：与现有顶部 nav 视觉一致；
-         - 移动端 (<1024px)：侧栏整体可被收纳，默认图标态 + 浮层 nav。 */
-      .admin-layout {
-          display: flex;
-          gap: 20px;
-          max-width: 1280px;
-          margin: 0 auto;
-          padding: 20px 16px;
-          align-items: flex-start;
-      }
-      .admin-sidebar {
-          position: sticky;
-          top: 80px;
-          width: 240px;
-          flex-shrink: 0;
-          background: rgba(255, 255, 255, 0.55);
-          backdrop-filter: blur(14px) saturate(150%);
-          -webkit-backdrop-filter: blur(14px) saturate(150%);
-          border-radius: 18px;
-          box-shadow: 0 6px 22px rgba(30, 44, 80, 0.10);
-          padding: 16px 12px;
-          max-height: calc(100vh - 100px);
-          overflow-y: auto;
-          transition: width 0.25s ease, padding 0.25s ease;
-      }
-      .admin-sidebar__brand {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          padding: 6px 6px 14px 6px;
-          border-bottom: 1px solid rgba(30, 44, 80, 0.08);
-          margin-bottom: 12px;
-      }
-      .admin-sidebar__brand-icon {
-          width: 36px; height: 36px;
-          border-radius: 10px;
-          background: linear-gradient(135deg, rgba(59, 130, 246, 0.85), rgba(99, 102, 241, 0.85));
-          display: flex; align-items: center; justify-content: center;
-          color: #fff; font-size: 16px;
-          box-shadow: 0 2px 8px rgba(59, 130, 246, 0.28);
-      }
-      .admin-sidebar__brand-text {
-          font-weight: 700;
-          color: #1f2937;
-          font-size: 14px;
-          flex: 1;
-          white-space: nowrap;
-          overflow: hidden;
-      }
-      .admin-sidebar__collapse-btn {
-          width: 28px; height: 28px;
-          border-radius: 8px;
-          border: none;
-          background: rgba(0, 0, 0, 0.04);
-          color: #6b7280;
-          cursor: pointer;
-          transition: background 0.15s;
-          flex-shrink: 0;
-      }
-      .admin-sidebar__collapse-btn:hover { background: rgba(0, 0, 0, 0.08); }
-
-      .admin-sidebar__nav {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-      }
-      .admin-sidebar__item {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          padding: 10px 12px;
-          border-radius: 10px;
-          border: none;
-          background: transparent;
-          color: #374151;
-          font-size: 14px;
-          cursor: pointer;
-          text-align: left;
-          transition: background 0.15s, color 0.15s, transform 0.1s;
-          width: 100%;
-          white-space: nowrap;
-          overflow: hidden;
-      }
-      .admin-sidebar__item:hover {
-          background: rgba(59, 130, 246, 0.08);
-          color: #1e40af;
-      }
-      .admin-sidebar__item.active {
-          background: linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(99, 102, 241, 0.12));
-          color: #1e3a8a;
-          font-weight: 600;
-          box-shadow: inset 3px 0 0 #3b82f6;
-      }
-      .admin-sidebar__item i {
-          width: 20px;
-          text-align: center;
-          font-size: 15px;
-          flex-shrink: 0;
-      }
-      .admin-sidebar__item-label {
-          flex: 1;
-          overflow: hidden;
-          text-overflow: ellipsis;
-      }
-      .admin-sidebar__badge {
-          background: #ef4444;
-          color: #fff;
-          font-size: 11px;
-          padding: 1px 7px;
-          border-radius: 10px;
-          font-weight: 600;
-          min-width: 20px;
-          text-align: center;
-      }
-      .admin-sidebar__chevron {
-          width: 16px;
-          text-align: center;
-          font-size: 11px;
-          color: #9ca3af;
-          transition: transform 0.18s;
-          flex-shrink: 0;
-      }
-      .admin-sidebar__item.expanded .admin-sidebar__chevron { transform: rotate(90deg); color: #1e3a8a; }
-
-      /* ====== 二级菜单（subnav）====== */
-      .admin-sidebar__subnav {
-          display: none;                 /* 默认收起；切换一级菜单时由 JS 控制 */
-          flex-direction: column;
-          gap: 2px;
-          padding: 4px 0 6px 12px;
-          border-left: 1px dashed rgba(30, 44, 80, 0.12);
-          margin: 2px 10px 4px 22px;
-      }
-      .admin-sidebar__subnav.expanded { display: flex; }
-      .admin-sidebar__subitem {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          padding: 7px 10px;
-          border-radius: 8px;
-          border: none;
-          background: transparent;
-          color: #4b5563;
-          font-size: 13px;
-          cursor: pointer;
-          text-align: left;
-          transition: background 0.15s, color 0.15s;
-          width: 100%;
-          white-space: nowrap;
-          overflow: hidden;
-      }
-      .admin-sidebar__subitem:hover {
-          background: rgba(59, 130, 246, 0.08);
-          color: #1e40af;
-      }
-      .admin-sidebar__subitem.active {
-          background: rgba(59, 130, 246, 0.12);
-          color: #1e3a8a;
-          font-weight: 600;
-      }
-      .admin-sidebar__subitem i { width: 16px; text-align: center; font-size: 12px; flex-shrink: 0; }
-      .admin-sidebar__subitem-label {
-          overflow: hidden; text-overflow: ellipsis; flex: 1;
-      }
-      /* 学校分组标题：分隔「当前学校」配置项 */
-      .admin-sidebar__group-title {
-          font-size: 10px;
-          font-weight: 700;
-          color: #9ca3af;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-          padding: 10px 10px 4px 10px;
-          display: flex; align-items: center; gap: 6px;
-          white-space: nowrap;
-          overflow: hidden;
-      }
-      .admin-sidebar__group-title .code {
-          color: #1e3a8a;
-          font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-          font-size: 11px;
-          letter-spacing: 0;
-          background: rgba(59, 130, 246, 0.10);
-          padding: 1px 6px;
-          border-radius: 5px;
-          text-transform: none;
-      }
-      .admin-sidebar__group-title .close-school {
-          margin-left: auto;
-          width: 18px; height: 18px;
-          display: flex; align-items: center; justify-content: center;
-          border-radius: 5px;
-          border: none; background: transparent;
-          color: #9ca3af; cursor: pointer; font-size: 11px;
-      }
-      .admin-sidebar__group-title .close-school:hover { background: rgba(239, 68, 68, 0.10); color: #dc2626; }
-
-      .admin-sidebar__footer {
-          margin-top: 16px;
-          padding-top: 12px;
-          border-top: 1px dashed rgba(30, 44, 80, 0.10);
-          color: #9ca3af;
-          font-size: 11px;
-          line-height: 1.5;
-      }
-
-      /* 折叠态（仅图标） */
-      .admin-sidebar.collapsed {
-          width: 68px;
-          padding: 16px 8px;
-      }
-      .admin-sidebar.collapsed .admin-sidebar__brand-text,
-      .admin-sidebar.collapsed .admin-sidebar__item-label,
-      .admin-sidebar.collapsed .admin-sidebar__footer,
-      .admin-sidebar.collapsed .admin-sidebar__badge,
-      .admin-sidebar.collapsed .admin-sidebar__chevron,
-      .admin-sidebar.collapsed .admin-sidebar__subnav,
-      .admin-sidebar.collapsed .admin-sidebar__group-title {
-          display: none;
-      }
-      .admin-sidebar.collapsed .admin-sidebar__item {
-          justify-content: center;
-          gap: 0;
-          padding: 12px 0;
-      }
-      .admin-sidebar.collapsed .admin-sidebar__brand {
-          justify-content: center;
-      }
-      /* 折叠态下 hover/展开时，二级菜单以浮层形式出现在右侧 */
-      .admin-sidebar.collapsed .admin-sidebar__item.has-subnav {
-          position: relative;
-      }
-      .admin-sidebar.collapsed .admin-sidebar__item.has-subnav:hover .admin-sidebar__subnav,
-      .admin-sidebar.collapsed .admin-sidebar__item.has-subnav.expanded .admin-sidebar__subnav {
-          display: flex;
-          position: absolute;
-          left: calc(100% + 6px);
-          top: 0;
-          margin: 0;
-          padding: 6px 6px 6px 14px;
-          width: 200px;
-          background: rgba(255, 255, 255, 0.96);
-          backdrop-filter: blur(10px);
-          box-shadow: 0 6px 22px rgba(30, 44, 80, 0.15);
-          border-radius: 12px;
-          border-left: 1px solid rgba(30, 44, 80, 0.10);
-          z-index: 50;
-      }
-
-      .admin-main {
-          flex: 1;
-          min-width: 0;  /* 重要：让 flex item 在内容超长时允许截断而非撑爆父容器 */
-      }
-      .admin-view { display: block; }
-      .admin-view.hidden { display: none; }
-
-      /* 平台总览 / 跳转卡 — 视觉一致的大卡片 */
-      .admin-kpi-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-          gap: 16px;
-          margin-bottom: 20px;
-      }
-      .admin-kpi-card {
-          background: rgba(255, 255, 255, 0.65);
-          backdrop-filter: blur(10px);
-          -webkit-backdrop-filter: blur(10px);
-          border-radius: 16px;
-          padding: 18px;
-          box-shadow: 0 4px 14px rgba(30, 44, 80, 0.08);
-          border: 1px solid rgba(255, 255, 255, 0.5);
-      }
-      .admin-kpi-label {
-          font-size: 12px;
-          color: #6b7280;
-          margin-bottom: 6px;
-      }
-      .admin-kpi-value {
-          font-size: 28px;
-          font-weight: 700;
-          color: #1f2937;
-          line-height: 1.1;
-      }
-      .admin-kpi-sub {
-          font-size: 12px;
-          color: #9ca3af;
-          margin-top: 4px;
-      }
-      .admin-card {
-          background: rgba(255, 255, 255, 0.65);
-          backdrop-filter: blur(10px);
-          -webkit-backdrop-filter: blur(10px);
-          border-radius: 18px;
-          padding: 20px;
-          box-shadow: 0 6px 18px rgba(30, 44, 80, 0.08);
-          margin-bottom: 16px;
-      }
-      .admin-card h3 {
-          font-size: 16px;
-          font-weight: 700;
-          color: #1f2937;
-          margin-bottom: 12px;
-          display: flex; align-items: center; gap: 8px;
-      }
-      .admin-link-card {
-          display: flex; align-items: center; gap: 14px;
-          padding: 14px 16px;
-          border-radius: 12px;
-          background: rgba(255, 255, 255, 0.55);
-          text-decoration: none;
-          color: inherit;
-          transition: background 0.15s, transform 0.1s;
-          border: 1px solid rgba(59, 130, 246, 0.18);
-      }
-      .admin-link-card:hover { background: rgba(59, 130, 246, 0.08); transform: translateX(2px); }
-      .admin-link-card .icon {
-          width: 44px; height: 44px;
-          border-radius: 12px;
-          display: flex; align-items: center; justify-content: center;
-          color: #fff;
-          font-size: 18px;
-          flex-shrink: 0;
-      }
-      .admin-link-card .meta { flex: 1; }
-      .admin-link-card .title { font-weight: 600; color: #1f2937; }
-      .admin-link-card .desc { font-size: 12px; color: #6b7280; margin-top: 2px; }
-      .admin-link-card .arrow { color: #9ca3af; }
-
-      /* 响应式：移动端折叠侧边栏 */
-      @media (max-width: 1023px) {
-          .admin-layout { flex-direction: column; padding: 12px; }
-          .admin-sidebar {
-              position: relative;
-              top: 0;
-              width: 100% !important;
-              max-height: none;
-              margin-bottom: 12px;
-          }
-          .admin-sidebar.collapsed { width: 100% !important; padding: 8px 12px; }
-          .admin-sidebar.collapsed .admin-sidebar__brand-text,
-          .admin-sidebar.collapsed .admin-sidebar__item-label,
-          .admin-sidebar.collapsed .admin-sidebar__badge,
-          .admin-sidebar.collapsed .admin-sidebar__footer { display: initial; }
-          .admin-sidebar.collapsed .admin-sidebar__item { justify-content: flex-start; gap: 12px; padding: 10px 12px; }
-          .admin-sidebar.collapsed .admin-sidebar__brand { justify-content: flex-start; }
-          /* 移动端把 5 个项目改为横向滚动条 */
-          .admin-sidebar__nav {
-              flex-direction: row;
-              overflow-x: auto;
-              gap: 8px;
-              padding-bottom: 4px;
-          }
-          .admin-sidebar__nav .admin-sidebar__item {
-              flex-shrink: 0;
-              padding: 8px 14px;
-          }
-          /* 移动端二级菜单改为顶部水平滑动子菜单 */
-          .admin-sidebar__subnav {
-              flex-direction: row;
-              padding: 4px 0;
-              border-left: none;
-              border-top: 1px dashed rgba(30, 44, 80, 0.12);
-              margin: 4px 0 0 0;
-              overflow-x: auto;
-          }
-          .admin-sidebar__subitem { flex-shrink: 0; width: auto; }
-          .admin-sidebar__group-title { padding: 8px 0 2px 0; }
-          .admin-sidebar__brand .admin-sidebar__collapse-btn { display: none; }
-      }
-    </style>
-    <style>
-      /* ====== 平台超管顶部：当前用户 + token 倒计时徽章（P-IdleCountdown） ======
-         玻璃深色导航上：默认用半透明白底（与「平台超管」徽章视觉一致），
-         临近过期（≤5 分钟）切换为告警色 + 脉动，提示用户即将自动登出。 */
-      #adminIdleBadge {
-          background-color: rgba(255, 255, 255, 0.20);
-          transition: background-color 0.2s ease, color 0.2s ease;
-      }
-      #adminIdleBadge.admin-idle-warn {
-          background-color: rgba(239, 68, 68, 0.85); /* red-500 */
-          color: #fff;
-      }
-      @keyframes admin-idle-pulse {
-          0%, 100% { opacity: 1; }
-          50%      { opacity: 0.55; }
-      }
-      #adminIdleBadge.admin-idle-warn {
-          animation: admin-idle-pulse 1.2s ease-in-out infinite;
-      }
-    </style>
-    <style>
-        /* ====== 预设主题选择卡片 ====== */
-        #themePresets {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-            gap: 14px;
-        }
-        .theme-swatch {
-            position: relative;
-            border: none;
-            padding: 0;
-            background: none;
-            cursor: pointer;
-            text-align: left;
-            outline: none;
-            -webkit-tap-highlight-color: transparent;
-        }
-        .theme-swatch .swatch-wall {
-            position: relative;
-            display: block;
-            height: 88px;
-            border-radius: 14px;
-            overflow: hidden;
-            box-shadow: 0 2px 10px rgba(30, 44, 80, 0.12), inset 0 0 0 1px rgba(255, 255, 255, 0.55);
-            transition: transform .22s cubic-bezier(.2,.8,.3,1.1), box-shadow .22s ease;
-        }
-        .theme-swatch .swatch-aurora {
-            position: absolute;
-            inset: -18%;
-            filter: blur(10px) saturate(160%);
-            transition: transform .5s ease;
-        }
-        .theme-swatch:hover .swatch-wall { transform: translateY(-2px) scale(1.02); box-shadow: 0 8px 22px rgba(30, 44, 80, 0.20), inset 0 0 0 1px rgba(255,255,255,.6); }
-        .theme-swatch:hover .swatch-aurora { transform: scale(1.08) rotate(1.5deg); }
-        /* 迷你玻璃导航条：预览玻璃质感 */
-        .theme-swatch .swatch-glassbar {
-            position: absolute;
-            left: 10px; right: 10px; top: 10px;
-            height: 20px;
-            border-radius: 7px;
-            backdrop-filter: blur(6px) saturate(150%);
-            -webkit-backdrop-filter: blur(6px) saturate(150%);
-            border: 1px solid rgba(255,255,255,0.28);
-            box-shadow: inset 0 1px 0 rgba(255,255,255,0.25);
-            display: flex; align-items: center; gap: 4px; padding: 0 7px;
-        }
-        .theme-swatch .swatch-glassbar i { font-size: 8px; color: rgba(255,255,255,0.9); }
-        .theme-swatch .swatch-glassbar .bar-line { height: 4px; border-radius: 2px; background: rgba(255,255,255,0.65); }
-        /* 迷你白玻璃卡片 */
-        .theme-swatch .swatch-card {
-            position: absolute;
-            left: 10px; right: 34px; top: 40px; bottom: 10px;
-            border-radius: 9px;
-            background: rgba(255,255,255,0.55);
-            backdrop-filter: blur(5px);
-            -webkit-backdrop-filter: blur(5px);
-            border: 1px solid rgba(255,255,255,0.7);
-            box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);
-        }
-        /* 强调色圆点（右下角，模拟按钮） */
-        .theme-swatch .swatch-accent {
-            position: absolute;
-            right: 10px; bottom: 10px;
-            width: 18px; height: 18px;
-            border-radius: 50%;
-            box-shadow: 0 1px 4px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.5);
-        }
-        /* 选中态 */
-        .theme-swatch.selected .swatch-wall {
-            box-shadow: 0 0 0 2.5px var(--sw-accent, #1a73e8), 0 8px 22px rgba(30,44,80,0.22);
-        }
-        .theme-swatch .swatch-check {
-            position: absolute;
-            top: -6px; right: -6px;
-            width: 22px; height: 22px;
-            border-radius: 50%;
-            background: var(--sw-accent, #1a73e8);
-            color: #fff;
-            display: none;
-            align-items: center; justify-content: center;
-            font-size: 11px;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.25);
-            z-index: 2;
-        }
-        .theme-swatch.selected .swatch-check { display: flex; }
-        .theme-swatch .swatch-meta { display: block; padding: 7px 2px 0; }
-        .theme-swatch .swatch-name { font-size: 13px; font-weight: 600; color: #1f2937; line-height: 1.2; }
-        .theme-swatch .swatch-desc { font-size: 11px; color: #9ca3af; margin-top: 1px; }
-    </style>
+    <link rel="stylesheet" href="/css/admin-schools.css">
     <!-- 玻璃折射滤镜 -->
     <svg width="0" height="0" style="position:absolute"><defs>
         <filter id="lg-refraction" x="-20%" y="-20%" width="140%" height="140%">
@@ -1449,16 +928,25 @@
         import { initLoginStyleDesigner } from '/js/modules/loginStyleDesigner.js';
         import { initSuperAdminAccount } from '/js/modules/SuperAdminAccount.js';
         import { initBackupManager } from '/js/modules/backupManager.js';
-        // P-Refactor: 顶部会话徽章 + idle 倒计时抽离到独立模块
-        import { initAdminSessionBadge } from '/js/modules/adminSessionBadge.js';
+        // ====== P-Refactor: 控制台框架模块（js/modules/adminSchools/，全部 ESM 统一装配）======
+        // 会话徽章 + idle 倒计时
+        import { initAdminSessionBadge } from '/js/modules/adminSchools/sessionBadge.js';
+        // 共享依赖上下文：authService / getApiBaseUrl 注入，各视图统一经 adminFetch 取数
+        import { initAdminContext } from '/js/modules/adminSchools/context.js';
+        // 侧边栏导航：DOM 收纳 / 一级二级视图切换 / hash 路由 / 退出登录
+        import { initAdminSidebar } from '/js/modules/adminSchools/sidebar.js';
+        // 总览 KPI / 回收站徽章 / 超管计数 定时刷新
+        import { initKpiPoller } from '/js/modules/adminSchools/views/kpiPoller.js';
+        // 「账号与权限」三子视图（平台超管 / 学校用户 / 审计日志）
+        import { initAccountsView } from '/js/modules/adminSchools/views/accountsView.js';
+        // 「备份运维」两子视图（全部 / 按学校 + 恢复模态）
+        import { initBackupView } from '/js/modules/adminSchools/views/backupView.js';
 
         const API_BASE = getApiBaseUrl();
 
-        // P-Sidebar: 暴露 authService 与 getApiBaseUrl 到 window，供页尾普通 <script>
-        // （侧边栏退出登录按钮、账号与权限内嵌视图）跨作用域调用——
-        // 普通 script 无法访问 module 的 import 作用域变量。
-        window.authService = authService;
-        window.getApiBaseUrl = getApiBaseUrl;
+        // P-Refactor: 依赖注入——authService / getApiBaseUrl 注入共享上下文，
+        // adminSchools/ 目录各 ESM 模块统一经 adminFetch 取数（window.* 暴露已全部移除）。
+        initAdminContext({ authService, getApiBaseUrl });
 
         // 🔐 权限守卫（安全加固 2026-07-31）：
         // 原逻辑仅依赖 localStorage 的 isAuthenticated() + 本地 user 对象判断平台超管，
@@ -2950,15 +2438,6 @@
             document.querySelectorAll('[data-subnav="schools"] .admin-sidebar__subitem[data-subview]').forEach(s => {
                 s.classList.toggle('active', s.getAttribute('data-subview') === subName);
             });
-        }
-        // 暴露给 initAdminSidebar（switchTo）与其它作用域使用
-        window.switchSchoolsSubview = switchSchoolsSubview;
-
-        // P-Refactor 时序竞态修复：adminSidebar.js 是普通 script（先于本 module 执行），
-        // 它可能因 switchSchoolsSubview 尚未就绪而跳过了初始 schools 视图的渲染。
-        // 此处暴露完成后，立即回调 adminSidebar.js 注册的就绪回调，补做一次视图重放。
-        if (typeof window.__adminSidebarOnModuleReady === 'function') {
-            window.__adminSidebarOnModuleReady();
         }
 
         document.getElementById('closeDetail').addEventListener('click', () => {
@@ -4623,6 +4102,18 @@
         document.getElementById('searchInput').addEventListener('input', renderSchools);
         bindRecycleBinControls();
         loadSchools();
+
+        // ====== P-Refactor: 控制台框架装配（全 ESM，页面状态就绪后按依赖顺序初始化）======
+        // 原 adminSidebar.js（普通 script + window 通信 + __adminSidebarOnModuleReady 补丁）
+        // 已重构为参数注入；装配点置于 module 末尾，天然无时序竞态。
+        const accountsView = initAccountsView();
+        const backupView = initBackupView();
+        initKpiPoller();
+        initAdminSidebar({
+            switchSchoolsSubview, // 本 module 内定义（函数声明提升，此处状态已全部就绪）
+            switchAccountsSubview: accountsView.switchAccountsSubview,
+            switchBackupSubview: backupView.switchBackupSubview,
+        });
     </script>
     <!-- 学校租户预览窗口（RBAC 收敛）：超管以 iframe 预览该校网页，不进入该校业务数据 -->
     <div id="previewSchoolModal" class="hidden fixed inset-0 z-[100]">
@@ -4666,7 +4157,7 @@
     </div><!-- /.admin-layout -->
 
     <!-- P-Sidebar: 主区视图（除「学校管理」外均为新增入口卡片）。
-         视图切换由下方 adminSidebarSwitch() 控制；其它视图主要承载「跳转 / 入口提示」，
+         视图切换由 js/modules/adminSchools/sidebar.js（switchTo）控制；其它视图主要承载「跳转 / 入口提示」，
          完整编辑能力仍在「学校管理」视图内的 detailPanel（5 个 Tab）。 -->
     <section id="adminViewOverview" class="admin-view" data-view="overview">
         <div class="container mx-auto px-4 py-6 max-w-7xl">
@@ -5140,7 +4631,6 @@
         </div>
     </section>
 
-    <!-- P-Sidebar: 侧边栏 + 视图管理 + 账号权限 + 备份运维（已抽离到 /js/modules/adminSidebar.js，P-Refactor） -->
-    <script src="/js/modules/adminSidebar.js"></script>
+    <!-- P-Refactor: 侧边栏/账号权限/备份运维已并入 js/modules/adminSchools/（ESM），由上方 module script 统一装配 -->
 </body>
 </html>
