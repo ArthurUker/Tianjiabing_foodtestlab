@@ -70,9 +70,10 @@ export async function backfillSchoolCustomization(prisma, log = console.log) {
   //   2) school_<code>_old_<ts> —— 影子恢复切换时 RENAME 出来的旧 schema 残留（restoreService.js）。
   // 此前逻辑仅用「school_/school- 前缀」正则放行，导致 recycle_* 被误判为"非法 schema 名"而 throw，
   // 阻断整个部署。现改为按 School 表推导活跃集合，非活跃 schema 明确跳过。
-  const schoolRows = await prisma.$queryRawUnsafe(
-    `SELECT "code" FROM public."School" WHERE "status" = 'active'`
-  )
+  const schoolRows = await prisma.school.findMany({
+    where: { status: 'active' },
+    select: { code: true }
+  })
   const activeSchemas = new Set(['public', ...schoolRows.map((r) => schemaNameOf(r.code)).filter(Boolean)])
 
   for (const { table_schema } of rows) {
@@ -151,7 +152,10 @@ export async function syncAllTenantSchemas(prisma, { adminPassword = '', skipGen
   }
 
   // P1/P2: 仅同步启用中的学校,已停用(逻辑删除)学校不再纳入批量同步
-  const rows = await prisma.$queryRawUnsafe(`SELECT "code" FROM public."School" WHERE "status" = 'active'`)
+  const rows = await prisma.school.findMany({
+    where: { status: 'active' },
+    select: { code: true }
+  })
   const codes = rows.map((r) => r.code).filter(Boolean)
   if (codes.length) {
     log(`\n② 同步 ${codes.length} 个租户 schema 与 schema.prisma 对齐（含控制台 UI 新建的租户）...`)

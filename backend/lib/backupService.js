@@ -84,8 +84,10 @@ function cleanDatabaseUrl() {
  *   否则主库故障时停用学校的数据无灾难恢复保障——P0 审查修复）。单校备份按 code 直接备份不受影响。
  */
 export async function listSchoolCodes(prisma, { includeDisabled = false } = {}) {
-  const where = includeDisabled ? '' : `WHERE status = 'active'`
-  const rows = await prisma.$queryRawUnsafe(`SELECT code FROM public."School" ${where}`)
+  const rows = await prisma.school.findMany({
+    where: includeDisabled ? {} : { status: 'active' },
+    select: { code: true }
+  })
   return rows.map((r) => r.code).filter(Boolean)
 }
 
