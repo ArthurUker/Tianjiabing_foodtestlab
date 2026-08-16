@@ -137,15 +137,17 @@ export async function provisionSchool({
   const tenantUrl = `${baseUrl}?schema=${encodeURIComponent(schema)}`
   log(`→ 推送表结构到 ${schema} ...`)
   // ② 推送业务表到该 schema（异步非阻塞，避免阻塞事件循环，TD-SpawnSync）
-  // NB-05: --accept-data-loss 仅首次 provision（无数据）时相对安全；
-  // reprovision 场景去掉该 flag，避免列类型不兼容时静默丢数据。
-  const isReprovision = !created
-  const pushArgs = ['prisma', 'db', 'push', '--skip-generate']
-  if (isReprovision) {
-    log('⚠️ reprovision: 跳过 --accept-data-loss，避免静默丢数据')
-  } else {
-    pushArgs.push('--accept-data-loss')
-  }
+  // 关于 --accept-data-loss 的决策（修正 NB-05 的过保守行为）：
+  //   - 本同步链路（tenantSync / db:sync / 启动自愈）的用途是「增量对齐」——把 schema.prisma
+  //     新增的列 / 索引 / 唯一约束推到租户 schema，防 P2022 漂移。这类增量用 --accept-data-loss
+  //     是安全的：加唯一约束若遇重复值只会【报错】而不会丢数据；加列/加索引天然无损。
+  //   - 【破坏性变更】（改列类型/删列）不得依赖本处 db push，必须走 prisma migration，
+  //     并在 migration 内用 DO 块遍历租户 schema 无损处理（参见
+  //     20260814040000_json_fields_to_jsonb/migration.sql 的先例）。
+  //   - 此前 reprovision（schema 已存在）去掉 --accept-data-loss，导致「新增唯一约束」这类
+  //     安全增量被 prisma 保守地判为 data loss 而报错，使 4 个租户同步失败、部署中止。
+  //     现统一带上该 flag（新建与 reprovision 一致），安全边界由「破坏性变更走 migration」约定兜底。
+  const pushArgs = ['prisma', 'db', 'push', '--skip-generate', '--accept-data-loss']
   const pushOutput = await runPrismaPush(pushArgs, tenantUrl, schema)
   log(`✅ ${schema} 表结构就绪 (${pushOutput.split('\n').slice(-3).join(' | ')})`)
 
