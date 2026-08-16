@@ -455,11 +455,11 @@ export function createAuthMiddleware(userManager, prisma) {
     let visible = null
     if (rootPrisma) {
       try {
-        const rows = await rootPrisma.$queryRawUnsafe(
-          `SELECT "visible_types" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`,
-          schoolCode || ''
-        )
-        const raw = rows?.[0]?.visible_types
+        const row = await rootPrisma.schoolCustomization.findUnique({
+          where: { school_code: schoolCode || '' },
+          select: { visible_types: true }
+        })
+        const raw = row?.visible_types
         if (raw) {
           const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
           if (Array.isArray(parsed) && parsed.length) {

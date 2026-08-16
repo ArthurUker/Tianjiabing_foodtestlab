@@ -80,12 +80,12 @@ function makeGuestEnabledGuard(prisma) {
             return res.status(400).json({ error: '❌ 缺少学校代码（schoolCode）' })
         }
         try {
-            const rows = await prisma.$queryRawUnsafe(
-                `SELECT "guest_enabled" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`,
-                schoolCode
-            )
+            const row = await prisma.schoolCustomization.findUnique({
+                where: { school_code: schoolCode },
+                select: { guest_enabled: true }
+            })
             // fail-closed：记录不存在 或 guest_enabled 非 true 一律视为关闭，拒绝放行
-            const enabled = rows?.[0]?.guest_enabled === true
+            const enabled = row?.guest_enabled === true
             if (!enabled) {
                 return res.status(403).json({ error: '❌ 该校未开放访客入口，请联系管理员' })
             }
