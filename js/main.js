@@ -26,9 +26,12 @@ import { GuestDashboard } from './modules/GuestDashboard.js';
 // 6. ✨ 引入会话管理服务
 // N1/N2/N3: 检测频率/日历/月报模块
 import { showTodayDetectionHint, renderFrequencyCards, initFrequencySettings } from './modules/FrequencyModule.js';
+// P0-quickAccess: 快速访问模式检测 + CSS 注入收敛为单一事实来源（原 index.html ~330 行散落逻辑）
+import { isQuickAccessMode, injectQuickAccessStyle } from './modules/quickAccess.js';
 
-// P2-10 阶段B：移除 window.renderQuickAccessData 全局函数。
-// 快速访问模式的表格渲染由 index.html 内联脚本自身兜底完成，无需全局暴露。
+// P0-quickAccess: 表格渲染由 Tableware/GenericTest 内建 quickAccess 分支处理；
+// dashboard 卡片由 Dashboard.js loadDashboardData 处理；登出按钮由 Router.setupLogoutButton 绑定。
+// 原 index.html 868-1100 三块兜底脚本已删除（与上述实现重复且含 XSS）。
 
 console.log('✅ main.js 模块加载开始');
 
@@ -136,16 +139,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
         document.body.classList.add('loaded');
         
-        // 🎯 检查是否为快速访问模式 (从 URL 参数或 localStorage 读取)
-        const urlParams = new URLSearchParams(window.location.search);
-        const isQuickAccessParam = urlParams.get('quickAccess') === 'true';
-        
-        // 也检查 localStorage (备选方案) - 使用单例实例
-        const isQuickAccessStorage = guestAuthService.isQuickAccessMode();
-        
-        const isQuickAccessMode = isQuickAccessParam || isQuickAccessStorage;
-        console.log('🔍 URL参数quickAccess:', isQuickAccessParam);
-        console.log('🔍 localStorage is_quick_access:', isQuickAccessStorage);
+        // 🎯 检查是否为快速访问模式（P0-quickAccess: 统一收敛至 quickAccess.js 单一来源）
+        const isQuickAccessMode = isQuickAccessMode();
         console.log('🔍 最终快速访问模式:', isQuickAccessMode);
         
         // ✨ 如果是快速访问模式但还没有访客信息，则自动创建临时访客
@@ -187,54 +182,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
         
         // 🎯 快速访问模式：隐藏管理功能菜单 (必须在 UIHelper.setupNavigation 之后执行)
+        // P0-quickAccess: CSS 注入收敛至 quickAccess.js（幂等，含完整隐藏规则 + 输入禁用样式）
         if (isQuickAccessMode) {
-            console.log('✨ ========== 快速访问模式激活 - 开始隐藏菜单与编辑功能 ==========');
-            
-            // 方法1: 使用内联 CSS 样式 (使用 !important)
-            const style = document.createElement('style');
-            style.textContent = `
-                button[data-target="export-data"],
-                button[data-target="backup-restore"],
-                button[data-admin-only],
-                div[data-admin-only],
-                #btnExportDashboard,
-                #btnAddAtpPoint,
-                #btnImportPathogen,
-                #btnDownloadTemplate,
-                #fileInput,
-                #pathogenFileInput,
-                .btn-delete,
-                .btn-edit,
-                .btn-remove-point,
-                #tablewareTestForm button[type="submit"],
-                #pesticideTestForm button[type="submit"],
-                #oilTestForm button[type="submit"],
-                #leanMeatTestForm button[type="submit"] {
-                    display: none !important;
-                }
-                div.text-xs.text-gray-400.font-semibold {
-                    display: none !important;
-                }
-                /* 禁用录入表单操作 */
-                #tablewareTestForm input,
-                #tablewareTestForm select,
-                #tablewareTestForm textarea,
-                #pesticideTestForm input,
-                #pesticideTestForm select,
-                #pesticideTestForm textarea,
-                #oilTestForm input,
-                #oilTestForm select,
-                #oilTestForm textarea,
-                #leanMeatTestForm input,
-                #leanMeatTestForm select,
-                #leanMeatTestForm textarea {
-                    background-color: #f5f5f5 !important;
-                    cursor: not-allowed !important;
-                    opacity: 0.8 !important;
-                }
-            `;
-            document.head.appendChild(style);
-            
+            injectQuickAccessStyle();
             console.log('✅ 访客模式：已通过CSS隐藏录入/编辑/删除功能');
         }
 
