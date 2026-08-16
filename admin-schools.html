@@ -2651,6 +2651,12 @@
         let currentSchoolCode = null;
 
         async function openDetail(code) {
+            // 从当前学校切换到另一所学校前，若存在未保存修改，先确认（用户取消则中止）
+            const detailPanelEl = document.getElementById('detailPanel');
+            if (detailPanelEl && !detailPanelEl.classList.contains('hidden') && currentSchoolCode && currentSchoolCode !== code) {
+                if (!leaveDetail()) return;
+            }
+
             currentSchoolCode = code;
             const school = allSchools.find(s => s.code === code);
             if (!school) return;
@@ -2884,6 +2890,21 @@
         //   list —— 工具栏 + 学校列表卡片（默认）
         //   recycle —— 回收站面板
         //   basic/custom/login/users/backup —— 选中学校后的 5 个 Tab（共用 detailPanel）
+        //
+        // 离开学校详情：未保存确认 + 清理状态（收起分组 / 重置选中 / 还原主题）。
+        // 返回 false 表示用户取消离开，调用方应中止切换并保持原详情不变。
+        function leaveDetail() {
+            if (customDirty && !confirm('「界面定制」有未保存的修改，确定离开吗？修改将丢失。')) return false;
+            if (loginStyleDesigner.hasUnsaved() && !confirm('「登录样式」有未保存的修改，确定离开吗？修改将丢失。')) return false;
+            const grp = document.getElementById('sidebarSchoolConfigGroup');
+            if (grp) grp.classList.add('hidden');
+            currentSchoolCode = null;
+            customDirty = false;      // 离开即丢弃未保存修改，清除脏标记
+            logoStyle = null; logoStyleDirty = false;
+            applyAdminTheme(null);    // 还原管理后台默认主题
+            return true;
+        }
+
         function switchSchoolsSubview(subName) {
             const detailSubviews = ['basic', 'custom', 'login', 'users', 'backup'];
             const isDetail = detailSubviews.includes(subName);
@@ -2892,6 +2913,11 @@
             const listCard = document.getElementById('schoolsListCard');
             const recyclePanel = document.getElementById('recycleBinPanel');
             const detailPanel = document.getElementById('detailPanel');
+
+            // 从详情切到 list/recycle 时，先做未保存确认 + 清理（用户取消则保持原详情不变）
+            if (!isDetail && detailPanel && !detailPanel.classList.contains('hidden')) {
+                if (!leaveDetail()) return;
+            }
 
             if (toolbar) toolbar.classList.toggle('hidden', subName !== 'list');
             if (listCard) listCard.classList.toggle('hidden', subName !== 'list');
@@ -2919,20 +2945,12 @@
         window.switchSchoolsSubview = switchSchoolsSubview;
 
         document.getElementById('closeDetail').addEventListener('click', () => {
-            if (customDirty && !confirm('「界面定制」有未保存的修改，确定关闭吗？修改将丢失。')) return;
-            if (loginStyleDesigner.hasUnsaved() && !confirm('「登录样式」有未保存的修改，确定关闭吗？修改将丢失。')) return;
-            // 收起左侧「当前学校」配置分组 + 回到列表 subview
-            const grp = document.getElementById('sidebarSchoolConfigGroup');
-            if (grp) grp.classList.add('hidden');
             switchSchoolsSubview('list');
-            currentSchoolCode = null;
-            // XR-04：离开配置页，管理后台还原默认主题（顶部 logo 始终显示平台统一盾牌，无需还原）
-            applyAdminTheme(null);
         });
 
-        // 「返回列表」按钮（详情面板顶部）：与关闭详情等价，但不触发主题还原外的多余逻辑
+        // 「返回列表」按钮（详情面板顶部）：与关闭详情等价
         document.getElementById('backToSchoolsList')?.addEventListener('click', () => {
-            document.getElementById('closeDetail').click();
+            switchSchoolsSubview('list');
         });
 
         // 主题色联动
