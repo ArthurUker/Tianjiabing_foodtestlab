@@ -152,14 +152,13 @@ export async function provisionSchool({
   log(`✅ ${schema} 表结构就绪 (${pushOutput.split('\n').slice(-3).join(' | ')})`)
 
   // ③ 系统记录（public，幂等）
-  await prisma.$executeRawUnsafe(
-    `INSERT INTO public."School" ("id","code","name","status","created_at","updated_at")
-     VALUES ($1,$2,$3,'active',now(),now())
-     ON CONFLICT ("code") DO UPDATE SET "updated_at" = now()`,
-    `sch_${code}`,
-    code,
-    displayName
-  )
+  // 原 SQL: ON CONFLICT DO UPDATE SET updated_at = now() —— 已存在时仅刷新 updated_at，不覆盖 name。
+  // upsert update:{} 等价（@updatedAt 自动刷新）；create 时 id 由 @default(cuid()) 自动生成。
+  await prisma.school.upsert({
+    where: { code },
+    create: { code, name: displayName, status: 'active' },
+    update: {}
+  })
   // BS-02：开通即写入安全默认值（仅首次创建生效，不覆盖已有记录）。
   // 各字段 JSON 形态与前端 js/utils/schoolCustomization.js 解析逻辑一致：
   //   对象类（field_labels/field_rules/field_options/field_order/custom_fields/theme_config）→ {}
