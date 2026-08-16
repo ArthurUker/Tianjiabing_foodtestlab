@@ -1,43 +1,36 @@
-/**
- * admin-schools 控制台 · 共享依赖上下文（P-Refactor）。
- *
- * 页面主 module script 在认证守卫通过后调用 initAdminContext() 注入
- * authService / getApiBaseUrl；本目录其余模块统一经由 adminFetch / getApiBase /
- * getAuthToken 获取服务与令牌，消除此前散落在各视图里的 window.* 全局依赖与
- * 7 处重复的取 token 样板代码。
- */
-let authService = null;
-let apiBaseUrlFn = null;
+// ====== adminSchools 页面共享上下文（依赖注入 + 统一请求）======
+// 页面装配时注入 authService / getApiBaseUrl（替代原 window 全局暴露）。
+// 各视图统一使用 adminFetch / apiBase / authHeaders，不再自行拼 token。
 
-export function initAdminContext({ authService: svc, getApiBaseUrl }) {
-    authService = svc || null;
-    apiBaseUrlFn = typeof getApiBaseUrl === 'function' ? getApiBaseUrl : null;
+let authService = null;
+let getApiBaseUrl = null;
+
+export function initAdminContext({ authService: a, getApiBaseUrl: b }) {
+    authService = a;
+    getApiBaseUrl = b;
 }
 
 export function getAuthService() {
     return authService;
 }
 
-export function getApiBase() {
-    return apiBaseUrlFn ? apiBaseUrlFn() : '';
+// 原页面顶层 const API_BASE 的函数化形态（模块加载早于注入，不能做顶层常量）
+export function apiBase() {
+    return getApiBaseUrl ? getApiBaseUrl() : '';
 }
 
-export function getAuthToken() {
-    if (authService && typeof authService.getToken === 'function') return authService.getToken();
-    return (authService && authService.token) || '';
+// 统一 JSON 请求头（原内联 authHeaders 的等价收敛）
+export function authHeaders() {
+    const token = authService ? authService.getToken() : null;
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    return headers;
 }
 
-/**
- * 带认证头的 API 请求帮手。
- * 统一行为：Content-Type + Authorization Bearer；调用方可通过 options.headers 覆盖。
- */
-export function adminFetch(path, options = {}) {
-    return fetch(getApiBase() + path, {
-        ...options,
-        headers: {
-            'Content-Type': 'application/json',
-            Authorization: 'Bearer ' + getAuthToken(),
-            ...(options.headers || {}),
-        },
-    });
+// fetch + 自动拼 API 根地址并注入 Authorization（GET 也带 Content-Type，与原页面行为一致）
+export async function adminFetch(url, options = {}) {
+    const token = authService ? authService.getToken() : null;
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    return fetch(getApiBaseUrl() + url, Object.assign({}, options, { headers: Object.assign({}, headers, options.headers || {}) }));
 }
