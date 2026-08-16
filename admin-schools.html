@@ -1442,9 +1442,11 @@
 
         const API_BASE = getApiBaseUrl();
 
-        // P-Sidebar: 暴露 authService 到 window，供页尾普通 <script>（侧边栏退出登录按钮）
-        // 跨作用域调用——普通 script 无法访问 module 的 import 作用域变量。
+        // P-Sidebar: 暴露 authService 与 getApiBaseUrl 到 window，供页尾普通 <script>
+        // （侧边栏退出登录按钮、账号与权限内嵌视图）跨作用域调用——
+        // 普通 script 无法访问 module 的 import 作用域变量。
         window.authService = authService;
+        window.getApiBaseUrl = getApiBaseUrl;
 
         // 🔐 权限守卫（安全加固 2026-07-31）：
         // 原逻辑仅依赖 localStorage 的 isAuthenticated() + 本地 user 对象判断平台超管，
@@ -4635,7 +4637,15 @@
                     <button data-preview-close class="px-2 py-1 text-gray-500 hover:text-gray-700 hover:bg-gray-200 rounded-lg transition text-lg leading-none">&times;</button>
                 </div>
             </div>
-            <iframe id="previewSchoolFrame" class="flex-1 w-full border-0" title="学校租户预览" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+<!-- 预览 iframe 加载的是【同源受信任】的学校登录页（/学校代码/login.html）。
+                 login.html 需访问 localStorage 读取 school_customization_*（学校定制主题/logo）才能正确渲染。
+                 因此不能移除 allow-same-origin（否则 iframe 变 opaque origin，访问 localStorage 抛
+                 SecurityError 导致登录页崩溃）；而 allow-scripts + allow-same-origin 组合又会被 Chromium
+                 警告"沙箱可被逃逸"。
+                 结论：该沙箱组合本就无效（脚本可移除自身 sandbox），仅产生控制台噪音；
+                 此处加载的是自己写的受信任登录页，无需沙箱，故移除整个 sandbox 属性，
+                 既消除警告，又保留预览功能（localStorage 正常访问）。 -->
+            <iframe id="previewSchoolFrame" class="flex-1 w-full border-0" title="学校租户预览"></iframe>
         </div>
     </div>
     <!-- 手动复制/打开 降级对话框（剪贴板 API 不可用时） -->
@@ -5084,7 +5094,7 @@
             try {
                 // 优先使用 module 内 authService 与 getApiBaseUrl（由 module script 暴露）
                 const svc = window.authService;
-                const apiBase = (typeof window.getApiBaseUrl === 'function' ? window.getApiBaseUrl() : (window.API_BASE || '/api'));
+                const apiBase = (typeof window.getApiBaseUrl === 'function' ? window.getApiBaseUrl() : '');
                 const token = svc && typeof svc.getToken === 'function' ? svc.getToken() : '';
                 const res = await fetch(`${apiBase}/api/user/super-admin`, {
                     headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }
@@ -5126,7 +5136,7 @@
             if (sel.options.length <= 1) {
                 try {
                     const svc = window.authService;
-                    const apiBase = (typeof window.getApiBaseUrl === 'function' ? window.getApiBaseUrl() : (window.API_BASE || '/api'));
+                    const apiBase = (typeof window.getApiBaseUrl === 'function' ? window.getApiBaseUrl() : '');
                     const token = svc && typeof svc.getToken === 'function' ? svc.getToken() : '';
                     const res = await fetch(`${apiBase}/api/admin/schools?limit=200`, {
                         headers: { Authorization: 'Bearer ' + token }
@@ -5161,7 +5171,7 @@
             tbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-400 py-6">加载中…</td></tr>';
             try {
                 const svc = window.authService;
-                const apiBase = (typeof window.getApiBaseUrl === 'function' ? window.getApiBaseUrl() : (window.API_BASE || '/api'));
+                const apiBase = (typeof window.getApiBaseUrl === 'function' ? window.getApiBaseUrl() : '');
                 const token = svc && typeof svc.getToken === 'function' ? svc.getToken() : '';
                 const res = await fetch(`${apiBase}/api/admin/schools/${encodeURIComponent(schoolCode)}/users`, {
                     headers: { Authorization: 'Bearer ' + token }
@@ -5210,7 +5220,7 @@
             tbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-400 py-6">加载中…</td></tr>';
             try {
                 const svc = window.authService;
-                const apiBase = (typeof window.getApiBaseUrl === 'function' ? window.getApiBaseUrl() : (window.API_BASE || '/api'));
+                const apiBase = (typeof window.getApiBaseUrl === 'function' ? window.getApiBaseUrl() : '');
                 const token = svc && typeof svc.getToken === 'function' ? svc.getToken() : '';
                 const start = document.getElementById('auStartDate')?.value;
                 const end = document.getElementById('auEndDate')?.value;
