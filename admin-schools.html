@@ -658,9 +658,19 @@
                         <i class="fas fa-history"></i><span class="admin-sidebar__subitem-label">审计日志</span>
                     </button>
                 </div>
-                <button class="admin-sidebar__item" data-view="backup" type="button">
+                <!-- 备份运维：二级菜单（全部 / 按学校），平台级全库运维内嵌展示 -->
+                <button class="admin-sidebar__item has-subnav" data-view="backup" type="button">
                     <i class="fas fa-database"></i><span class="admin-sidebar__item-label">备份运维</span>
+                    <i class="fas fa-chevron-right admin-sidebar__chevron"></i>
                 </button>
+                <div class="admin-sidebar__subnav" data-subnav="backup">
+                    <button class="admin-sidebar__subitem active" data-subview="all" type="button">
+                        <i class="fas fa-hdd"></i><span class="admin-sidebar__subitem-label">全部备份</span>
+                    </button>
+                    <button class="admin-sidebar__subitem" data-subview="by-school" type="button">
+                        <i class="fas fa-filter"></i><span class="admin-sidebar__subitem-label">按学校</span>
+                    </button>
+                </div>
                 <button class="admin-sidebar__item" data-view="reports" type="button">
                     <i class="fas fa-file-alt"></i><span class="admin-sidebar__item-label">测试报告</span>
                 </button>
@@ -4861,24 +4871,130 @@
 
     <section id="adminViewBackup" class="admin-view hidden" data-view="backup">
         <div class="container mx-auto px-4 py-6 max-w-7xl">
-            <div class="admin-card">
-                <h3><i class="fas fa-database text-teal-500"></i>备份运维入口</h3>
-                <p class="text-sm text-gray-600 mb-3">
-                    备份、验证、影子恢复等运维操作集中在「学校管理」→ 选中目标学校 → 「备份运维」Tab 内。
-                    <br>本视图提供常用快捷入口。
-                </p>
-                <button id="btnGoSchoolsToBackup" type="button" class="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition shadow">
-                    <i class="fas fa-arrow-right mr-1"></i>前往「学校管理」选择学校
-                </button>
+
+            <!-- ===== 子视图：全部 ===== -->
+            <div class="admin-subview" data-subview="all">
+                <!-- KPI -->
+                <div class="admin-kpi-grid">
+                    <div class="admin-kpi-card">
+                        <div class="admin-kpi-label"><i class="fas fa-hdd mr-1"></i>备份总数</div>
+                        <div id="bkKpiTotal" class="admin-kpi-value">-</div>
+                        <div class="admin-kpi-sub">含全库 + 单校</div>
+                    </div>
+                    <div class="admin-kpi-card">
+                        <div class="admin-kpi-label"><i class="fas fa-shield-alt mr-1"></i>校验通过</div>
+                        <div id="bkKpiVerified" class="admin-kpi-value">-</div>
+                        <div class="admin-kpi-sub">verify_status=pass</div>
+                    </div>
+                    <div class="admin-kpi-card">
+                        <div class="admin-kpi-label"><i class="fas fa-exclamation-triangle mr-1"></i>失败/未验证</div>
+                        <div id="bkKpiFailed" class="admin-kpi-value">-</div>
+                        <div class="admin-kpi-sub">需关注</div>
+                    </div>
+                    <div class="admin-kpi-card">
+                        <div class="admin-kpi-label"><i class="fas fa-clock mr-1"></i>最近一次</div>
+                        <div id="bkKpiLatest" class="admin-kpi-value" style="font-size:18px">-</div>
+                        <div class="admin-kpi-sub">最近成功备份</div>
+                    </div>
+                </div>
+
+                <div class="admin-card">
+                    <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
+                        <div>
+                            <h3><i class="fas fa-database text-teal-500"></i>备份列表（全部）</h3>
+                            <p class="text-xs text-gray-500">每日 02:00 全库定时备份（systemd timer）+ 手动触发；备份经 AES-256-GCM 信封加密落系统盘</p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button id="bkRunAll" type="button" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition shadow">
+                                <i class="fas fa-hdd mr-1"></i>立即备份全部
+                            </button>
+                            <button id="bkRefreshAll" type="button" class="px-3 py-1.5 text-sm bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition">
+                                <i class="fas fa-sync mr-1"></i>刷新
+                            </button>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full text-sm">
+                            <thead class="bg-gray-50 text-gray-600">
+                                <tr>
+                                    <th class="text-left px-3 py-2">时间</th>
+                                    <th class="text-left px-3 py-2">类型</th>
+                                    <th class="text-left px-3 py-2">学校</th>
+                                    <th class="text-left px-3 py-2">大小</th>
+                                    <th class="text-left px-3 py-2">校验</th>
+                                    <th class="text-right px-3 py-2">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="bkListAll" class="divide-y divide-gray-100">
+                                <tr><td colspan="6" class="text-center text-gray-400 py-6">加载中…</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="flex items-center justify-end gap-2 mt-3 text-xs text-gray-600">
+                        <button id="bkPrevAll" class="px-2 py-1 border rounded disabled:opacity-50" disabled><i class="fas fa-angle-left"></i></button>
+                        <span id="bkPagerAll">—</span>
+                        <button id="bkNextAll" class="px-2 py-1 border rounded disabled:opacity-50" disabled><i class="fas fa-angle-right"></i></button>
+                    </div>
+                </div>
             </div>
 
-            <div class="admin-card">
-                <h3><i class="fas fa-shield-alt text-blue-500"></i>说明</h3>
-                <ul class="text-sm text-gray-700 list-disc list-inside space-y-1">
-                    <li>单租户备份：进入学校详情「备份运维」Tab 后点击「立即备份」（打包 schema_dumps + media）。</li>
-                    <li>影子恢复：将该学校 schema 重命名 <code class="bg-gray-100 px-1 rounded">school_&lt;code&gt;_old_&lt;ts&gt;</code> 暂存，再以目标备份重建 <code class="bg-gray-100 px-1 rounded">school_&lt;code&gt;</code>。</li>
-                    <li>完整灾难恢复流程见 <code class="bg-gray-100 px-1 rounded">/docs/ops/disaster-recovery.md</code>。</li>
-                </ul>
+            <!-- ===== 子视图：按学校 ===== -->
+            <div class="admin-subview hidden" data-subview="by-school">
+                <div class="admin-card">
+                    <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
+                        <div>
+                            <h3><i class="fas fa-filter text-teal-500"></i>按学校筛选</h3>
+                            <p class="text-xs text-gray-500">选定学校后展示其备份列表与立即备份按钮</p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <select id="bkSchoolSelect" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80">
+                                <option value="">— 请选择学校 —</option>
+                            </select>
+                            <button id="bkRunSingle" type="button" class="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition shadow disabled:opacity-50" disabled>
+                                <i class="fas fa-plus mr-1"></i>立即备份该校
+                            </button>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full text-sm">
+                            <thead class="bg-gray-50 text-gray-600">
+                                <tr>
+                                    <th class="text-left px-3 py-2">时间</th>
+                                    <th class="text-left px-3 py-2">大小</th>
+                                    <th class="text-left px-3 py-2">校验</th>
+                                    <th class="text-right px-3 py-2">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="bkListBySchool" class="divide-y divide-gray-100">
+                                <tr><td colspan="4" class="text-center text-gray-400 py-6">请先选择学校</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="flex items-center justify-end gap-2 mt-3 text-xs text-gray-600">
+                        <button id="bkPrevSch" class="px-2 py-1 border rounded disabled:opacity-50" disabled><i class="fas fa-angle-left"></i></button>
+                        <span id="bkPagerSch">—</span>
+                        <button id="bkNextSch" class="px-2 py-1 border rounded disabled:opacity-50" disabled><i class="fas fa-angle-right"></i></button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ===== 影子恢复模态（共享） ===== -->
+            <div id="bkRestoreModal" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center" style="z-index: 9999;">
+                <div class="bg-white rounded-xl shadow-2xl w-full max-w-md p-5">
+                    <div class="flex items-center justify-between mb-3">
+                        <h4 class="text-base font-semibold text-gray-800"><i class="fas fa-undo mr-1 text-red-500"></i>影子恢复</h4>
+                        <button id="bkRestoreClose" type="button" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
+                    </div>
+                    <p class="text-sm text-gray-600 mb-3">
+                        恢复前会把该学校 schema RENAME 成 <code class="bg-gray-100 px-1 rounded">school_&lt;code&gt;_old_&lt;ts&gt;</code> 暂存，再以目标备份重建。
+                        <br>恢复为不可逆操作，请确认后输入 <code class="bg-gray-100 px-1 rounded">RESTORE</code>：
+                    </p>
+                    <input id="bkRestoreConfirm" type="text" placeholder="RESTORE" class="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono">
+                    <div class="mt-3 flex justify-end gap-2">
+                        <button id="bkRestoreCancel" type="button" class="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200">取消</button>
+                        <button id="bkRestoreDo" type="button" class="px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50" disabled>确认恢复</button>
+                    </div>
+                </div>
             </div>
         </div>
     </section>
@@ -4974,6 +5090,14 @@
                 }
             }
 
+            // backup 视图：按指定 subview 渲染主区（默认 all）
+            if (viewName === 'backup') {
+                const subName = opts.subview || 'all';
+                if (typeof window.switchBackupSubview === 'function') {
+                    window.switchBackupSubview(subName);
+                }
+            }
+
             // 滚动到顶部
             window.scrollTo({ top: 0, behavior: 'smooth' });
             // URL hash 同步（轻量、可分享）
@@ -4999,6 +5123,13 @@
         document.querySelectorAll('[data-subnav="accounts"] .admin-sidebar__subitem[data-subview]').forEach((sub) => {
             sub.addEventListener('click', () => {
                 switchTo('accounts', { subview: sub.getAttribute('data-subview') });
+            });
+        });
+
+        // 二级菜单点击（备份运维：全部 / 按学校）
+        document.querySelectorAll('[data-subnav="backup"] .admin-sidebar__subitem[data-subview]').forEach((sub) => {
+            sub.addEventListener('click', () => {
+                switchTo('backup', { subview: sub.getAttribute('data-subview') });
             });
         });
 
@@ -5050,7 +5181,8 @@
             } catch (e) {}
         }
 
-        // 快捷按钮：跳转学校管理（保留 backup 入口，因 adminViewBackup 仍持有 btnGoSchoolsToBackup）
+        // 快捷按钮：跳转学校管理（保留 backup 入口兼容老 DOM）
+        // 注：btnGoSchoolsToBackup DOM 已不存在（adminViewBackup 重构为内嵌），此处?.绑定安全 noop。
         const goSchools = (subview) => {
             // 是否已选中学校：以左侧「当前学校」分组是否可见为准（跨 script 作用域，避免引用 module 内变量）
             const grp = document.getElementById('sidebarSchoolConfigGroup');
@@ -5270,6 +5402,368 @@
         function escapeHtml(s) {
             return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
         }
+
+        // ============================================================
+        // 「备份运维」内嵌实现（全部 / 按学校）—— 直接调 /api/admin/backups
+        // ============================================================
+        const BACKUP_PAGE_SIZE = 15;
+        const bkState = { all: { page: 1, total: 0 }, bySchool: { page: 1, total: 0 } };
+        let bkSchoolsLoaded = false;
+
+        function bkFetch(path, opts = {}) {
+            const svc = window.authService;
+            const apiBase = (typeof window.getApiBaseUrl === 'function' ? window.getApiBaseUrl() : '');
+            const token = svc && typeof svc.getToken === 'function' ? svc.getToken() : '';
+            return fetch(`${apiBase}/api/admin/backups${path}`, {
+                ...opts,
+                headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, ...(opts.headers || {}) },
+            });
+        }
+
+        function bkFmtSize(n) {
+            if (n == null) return '-';
+            const num = Number(n);
+            if (isNaN(num) || num <= 0) return '0 B';
+            const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.min(units.length - 1, Math.floor(Math.log(num) / Math.log(1024)));
+            return (num / Math.pow(1024, i)).toFixed(1) + ' ' + units[i];
+        }
+
+        function bkFmtTime(s) {
+            if (!s) return '-';
+            try { return new Date(s).toLocaleString('zh-CN', { hour12: false }); } catch (_) { return String(s); }
+        }
+
+        function bkStatusBadge(s) {
+            const t = String(s || '');
+            if (t === 'pass' || t === 'verified') {
+                return '<span class="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs"><i class="fas fa-check"></i>已验证</span>';
+            }
+            if (t === 'fail' || t === 'failed') {
+                return '<span class="inline-flex items-center gap-1 px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs"><i class="fas fa-times"></i>失败</span>';
+            }
+            if (t === 'pending' || t === 'running') {
+                return '<span class="inline-flex items-center gap-1 px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded-full text-xs"><i class="fas fa-clock"></i>' + escapeHtml(t) + '</span>';
+            }
+            return '<span class="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs">' + escapeHtml(t || '-') + '</span>';
+        }
+
+        function bkRowTpl(r, withSchool) {
+            const id = String(r.id || '');
+            const size = bkFmtSize(r.fileSize);
+            const verified = bkStatusBadge(r.verifyStatus || r.status);
+            const download = `
+                <button class="text-blue-600 hover:underline" data-act="download-enc" data-id="${id}"><i class="fas fa-lock mr-1"></i>AES</button>
+                <button class="ml-3 text-blue-600 hover:underline" data-act="download-plain" data-id="${id}"><i class="fas fa-file mr-1"></i>明文</button>`;
+            return `
+                <tr>
+                    <td class="px-3 py-2 text-gray-700 whitespace-nowrap">${escapeHtml(bkFmtTime(r.createdAt))}</td>
+                    ${withSchool ? `<td class="px-3 py-2"><span class="inline-flex px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-xs">${escapeHtml(String(r.scope || 'all'))}</span></td><td class="px-3 py-2 font-mono text-gray-800">${escapeHtml(String(r.schoolCode || '-'))}</td>` : `<td class="px-3 py-2"><span class="inline-flex px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full text-xs">${escapeHtml(String(r.scope || 'all'))}</span></td>`}
+                    <td class="px-3 py-2 text-gray-600">${escapeHtml(size)}</td>
+                    <td class="px-3 py-2">${verified}</td>
+                    <td class="px-3 py-2 text-right whitespace-nowrap">
+                        <button class="text-sm text-blue-600 hover:underline" data-act="verify" data-id="${id}">验证</button>
+                        <span class="mx-1 text-gray-300">|</span>
+                        ${download}
+                        <span class="mx-1 text-gray-300">|</span>
+                        <button class="text-sm text-red-600 hover:underline" data-act="restore" data-id="${id}" data-code="${escapeHtml(String(r.schoolCode || ''))}">恢复</button>
+                    </td>
+                </tr>`;
+        }
+
+        function bkUpdatePager(prefix, total) {
+            const st = bkState[prefix === 'All' ? 'all' : 'bySchool'];
+            const page = st.page;
+            const pageSize = BACKUP_PAGE_SIZE;
+            const totalPages = Math.max(1, Math.ceil(total / pageSize));
+            const pager = document.getElementById('bkPager' + prefix);
+            const prev = document.getElementById('bkPrev' + prefix);
+            const next = document.getElementById('bkNext' + prefix);
+            if (pager) pager.textContent = `第 ${page}/${totalPages} 页  · 共 ${total} 条`;
+            if (prev) prev.disabled = page <= 1;
+            if (next) next.disabled = page >= totalPages;
+        }
+
+        async function bkLoadAll() {
+            const tbody = document.getElementById('bkListAll');
+            if (!tbody) return;
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center text-gray-400 py-6">加载中…</td></tr>';
+            const page = bkState.all.page;
+            try {
+                const res = await bkFetch(`?page=${page}&pageSize=${BACKUP_PAGE_SIZE}`);
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const j = await res.json();
+                const list = j.data || [];
+                bkState.all.total = j.total || 0;
+                if (list.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-gray-400 py-6">暂无备份</td></tr>';
+                    bkUpdatePager('All', 0);
+                    bkRefreshKpi([]);
+                    return;
+                }
+                tbody.innerHTML = list.map((r) => bkRowTpl(r, true)).join('');
+                bkUpdatePager('All', bkState.all.total);
+                bkRefreshKpi(list);
+            } catch (e) {
+                tbody.innerHTML = `<tr><td colspan="6" class="text-center text-red-500 py-6">加载失败：${escapeHtml(String(e.message || e))}</td></tr>`;
+            }
+        }
+
+        async function bkLoadBySchool(schoolCode) {
+            const tbody = document.getElementById('bkListBySchool');
+            if (!tbody) return;
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-gray-400 py-6">加载中…</td></tr>';
+            const page = bkState.bySchool.page;
+            try {
+                const res = await bkFetch(`?schoolCode=${encodeURIComponent(schoolCode)}&page=${page}&pageSize=${BACKUP_PAGE_SIZE}`);
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const j = await res.json();
+                const list = j.data || [];
+                bkState.bySchool.total = j.total || 0;
+                if (list.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" class="text-center text-gray-400 py-6">该学校暂无备份</td></tr>';
+                    bkUpdatePager('Sch', 0);
+                    return;
+                }
+                tbody.innerHTML = list.map((r) => {
+                    const id = String(r.id || '');
+                    return `
+                        <tr>
+                            <td class="px-3 py-2 text-gray-700 whitespace-nowrap">${escapeHtml(bkFmtTime(r.createdAt))}</td>
+                            <td class="px-3 py-2 text-gray-600">${escapeHtml(bkFmtSize(r.fileSize))}</td>
+                            <td class="px-3 py-2">${bkStatusBadge(r.verifyStatus || r.status)}</td>
+                            <td class="px-3 py-2 text-right whitespace-nowrap">
+                                <button class="text-sm text-blue-600 hover:underline" data-act="verify" data-id="${id}">验证</button>
+                                <span class="mx-1 text-gray-300">|</span>
+                                <button class="text-sm text-blue-600 hover:underline" data-act="download-enc" data-id="${id}"><i class="fas fa-lock mr-1"></i>AES</button>
+                                <button class="ml-3 text-blue-600 hover:underline" data-act="download-plain" data-id="${id}"><i class="fas fa-file mr-1"></i>明文</button>
+                                <span class="mx-1 text-gray-300">|</span>
+                                <button class="text-sm text-red-600 hover:underline" data-act="restore" data-id="${id}" data-code="${escapeHtml(schoolCode)}">恢复</button>
+                            </td>
+                        </tr>`;
+                }).join('');
+                bkUpdatePager('Sch', bkState.bySchool.total);
+            } catch (e) {
+                tbody.innerHTML = `<tr><td colspan="4" class="text-center text-red-500 py-6">加载失败：${escapeHtml(String(e.message || e))}</td></tr>`;
+            }
+        }
+
+        function bkRefreshKpi(list) {
+            try {
+                const total = bkState.all.total || list.length;
+                const verified = list.filter((r) => ['pass', 'verified'].includes(String(r.verifyStatus || ''))).length;
+                const failed = list.filter((r) => {
+                    const s = String(r.verifyStatus || r.status || '');
+                    return ['fail', 'failed', 'pending', 'running'].includes(s);
+                }).length;
+                const latest = list.length ? list[0] : null;
+                const elT = document.getElementById('bkKpiTotal');
+                const elV = document.getElementById('bkKpiVerified');
+                const elF = document.getElementById('bkKpiFailed');
+                const elL = document.getElementById('bkKpiLatest');
+                if (elT) elT.textContent = total;
+                if (elV) elV.textContent = verified;
+                if (elF) elF.textContent = failed;
+                if (elL) elL.textContent = latest ? bkFmtTime(latest.createdAt) : '-';
+            } catch (_) { /* 静默 */ }
+        }
+
+        async function bkEnsureSchoolsLoaded() {
+            const sel = document.getElementById('bkSchoolSelect');
+            if (!sel) return;
+            if (bkSchoolsLoaded && sel.options.length > 1) return;
+            try {
+                const svc = window.authService;
+                const apiBase = (typeof window.getApiBaseUrl === 'function' ? window.getApiBaseUrl() : '');
+                const token = svc && typeof svc.getToken === 'function' ? svc.getToken() : '';
+                const res = await fetch(`${apiBase}/api/admin/schools?limit=200`, { headers: { Authorization: 'Bearer ' + token } });
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const j = await res.json();
+                const list = j.data?.schools || j.schools || j.data || [];
+                if (Array.isArray(list)) {
+                    list.forEach((s) => {
+                        const opt = document.createElement('option');
+                        opt.value = s.code || s.schoolCode || s.id;
+                        opt.textContent = `${s.code || ''} - ${s.fullName || s.full_name || s.shortName || s.short_name || ''}`;
+                        sel.appendChild(opt);
+                    });
+                    bkSchoolsLoaded = true;
+                }
+            } catch (e) {
+                console.warn('[bk] 加载学校列表失败:', e);
+            }
+        }
+
+        // 子视图切换
+        function switchBackupSubview(subName) {
+            document.querySelectorAll('#adminViewBackup .admin-subview').forEach((s) => {
+                s.classList.toggle('hidden', s.getAttribute('data-subview') !== subName);
+            });
+            document.querySelectorAll('[data-subnav="backup"] .admin-sidebar__subitem[data-subview]').forEach((s) => {
+                s.classList.toggle('active', s.getAttribute('data-subview') === subName);
+            });
+            if (subName === 'all') {
+                bkLoadAll();
+            } else if (subName === 'by-school') {
+                bkEnsureSchoolsLoaded();
+            }
+        }
+        window.switchBackupSubview = switchBackupSubview;
+
+        // 操作按钮：全部 / 单校的复合事件委托
+        async function bkAction(act, id, extra) {
+            try {
+                if (act === 'verify') {
+                    const res = await bkFetch(`/${id}/verify`, { method: 'POST' });
+                    const j = await res.json();
+                    if (res.ok && j.success) {
+                        alert('验证完成 ✅\n\n' + (j.checks || []).map(([k, v]) => `${k}: ${v}`).join('\n'));
+                    } else {
+                        alert('验证失败 ❌\n\n' + ((j.checks || []).map(([k, v]) => `${k}: ${v}`).join('\n') || j.error));
+                    }
+                    if (document.getElementById('adminViewBackup') && !document.getElementById('adminViewBackup').classList.contains('hidden')) {
+                        bkReloadCurrent();
+                    }
+                } else if (act === 'download-enc' || act === 'download-plain') {
+                    const fmt = act === 'download-enc' ? 'encrypted' : 'plain';
+                    const apiBase = (typeof window.getApiBaseUrl === 'function' ? window.getApiBaseUrl() : '');
+                    const svc = window.authService;
+                    const token = svc && typeof svc.getToken === 'function' ? svc.getToken() : '';
+                    const url = `${apiBase}/api/admin/backups/${id}/download?format=${fmt}`;
+                    const r = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+                    if (!r.ok) {
+                        const j = await r.json().catch(() => ({}));
+                        throw new Error(j.error || `HTTP ${r.status}`);
+                    }
+                    const blob = await r.blob();
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = `backup-${id}.${fmt === 'encrypted' ? 'aes' : 'sql.gz'}`;
+                    a.click();
+                    URL.revokeObjectURL(a.href);
+                } else if (act === 'run-all') {
+                    if (!confirm('立即备份所有学校？这会创建一份新的备份记录。')) return;
+                    const res = await bkFetch('/run', { method: 'POST', body: JSON.stringify({ scope: 'all' }) });
+                    const j = await res.json();
+                    if (!res.ok || !j.success) throw new Error(j.error || `HTTP ${res.status}`);
+                    alert(`备份完成 ✅ 文件：${j.data?.file || '-'}`);
+                    bkLoadAll();
+                } else if (act === 'run-single') {
+                    const code = extra || '';
+                    if (!code) return;
+                    if (!confirm(`立即备份学校 ${code}？`)) return;
+                    const res = await bkFetch('/run', { method: 'POST', body: JSON.stringify({ scope: 'single', schoolCode: code }) });
+                    const j = await res.json();
+                    if (!res.ok || !j.success) throw new Error(j.error || `HTTP ${res.status}`);
+                    alert(`备份完成 ✅ 文件：${j.data?.file || '-'}`);
+                    bkLoadBySchool(code);
+                } else if (act === 'restore') {
+                    bkOpenRestore(id, extra);
+                }
+            } catch (e) {
+                alert('操作失败：' + (e.message || e));
+            }
+        }
+        function bkReloadCurrent() {
+            const active = document.querySelector('#adminViewBackup .admin-subview:not(.hidden)');
+            if (!active) return;
+            const sub = active.getAttribute('data-subview');
+            if (sub === 'all') bkLoadAll();
+            if (sub === 'by-school') {
+                const code = document.getElementById('bkSchoolSelect').value;
+                if (code) bkLoadBySchool(code);
+            }
+        }
+
+        // 模态
+        let bkRestoreTarget = null;
+        function bkOpenRestore(id, schoolCode) {
+            bkRestoreTarget = { id, schoolCode };
+            const modal = document.getElementById('bkRestoreModal');
+            const input = document.getElementById('bkRestoreConfirm');
+            const doBtn = document.getElementById('bkRestoreDo');
+            if (input) { input.value = ''; }
+            if (doBtn) doBtn.disabled = true;
+            if (modal) modal.classList.remove('hidden');
+            setTimeout(() => { try { input.focus(); } catch (_) {} }, 50);
+        }
+        function bkCloseRestore() {
+            const modal = document.getElementById('bkRestoreModal');
+            if (modal) modal.classList.add('hidden');
+            bkRestoreTarget = null;
+        }
+
+        // 按钮绑定
+        document.getElementById('bkRefreshAll')?.addEventListener('click', bkLoadAll);
+        document.getElementById('bkRunAll')?.addEventListener('click', () => bkAction('run-all'));
+        document.getElementById('bkPrevAll')?.addEventListener('click', () => {
+            if (bkState.all.page > 1) { bkState.all.page--; bkLoadAll(); }
+        });
+        document.getElementById('bkNextAll')?.addEventListener('click', () => {
+            const max = Math.ceil(bkState.all.total / BACKUP_PAGE_SIZE);
+            if (bkState.all.page < max) { bkState.all.page++; bkLoadAll(); }
+        });
+
+        document.getElementById('bkSchoolSelect')?.addEventListener('change', (e) => {
+            const code = e.target.value;
+            const addBtn = document.getElementById('bkRunSingle');
+            if (addBtn) addBtn.disabled = !code;
+            if (code) {
+                bkState.bySchool.page = 1;
+                bkLoadBySchool(code);
+            } else {
+                const tbody = document.getElementById('bkListBySchool');
+                if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="text-center text-gray-400 py-6">请先选择学校</td></tr>';
+                bkUpdatePager('Sch', 0);
+            }
+        });
+        document.getElementById('bkRunSingle')?.addEventListener('click', () => {
+            const code = document.getElementById('bkSchoolSelect').value;
+            bkAction('run-single', null, code);
+        });
+        document.getElementById('bkPrevSch')?.addEventListener('click', () => {
+            const code = document.getElementById('bkSchoolSelect').value;
+            if (code && bkState.bySchool.page > 1) { bkState.bySchool.page--; bkLoadBySchool(code); }
+        });
+        document.getElementById('bkNextSch')?.addEventListener('click', () => {
+            const code = document.getElementById('bkSchoolSelect').value;
+            const max = Math.ceil(bkState.bySchool.total / BACKUP_PAGE_SIZE);
+            if (code && bkState.bySchool.page < max) { bkState.bySchool.page++; bkLoadBySchool(code); }
+        });
+
+        // 列表内操作（事件委托）：两个列表共用同一处理
+        ['bkListAll', 'bkListBySchool'].forEach((id) => {
+            document.getElementById(id)?.addEventListener('click', (e) => {
+                const btn = e.target.closest('[data-act]');
+                if (!btn) return;
+                bkAction(btn.getAttribute('data-act'), btn.getAttribute('data-id'), btn.getAttribute('data-code'));
+            });
+        });
+
+        // 模态按钮
+        document.getElementById('bkRestoreClose')?.addEventListener('click', bkCloseRestore);
+        document.getElementById('bkRestoreCancel')?.addEventListener('click', bkCloseRestore);
+        document.getElementById('bkRestoreConfirm')?.addEventListener('input', (e) => {
+            const doBtn = document.getElementById('bkRestoreDo');
+            if (doBtn) doBtn.disabled = e.target.value.trim() !== 'RESTORE';
+        });
+        document.getElementById('bkRestoreDo')?.addEventListener('click', async () => {
+            if (!bkRestoreTarget) return;
+            const { id, schoolCode } = bkRestoreTarget;
+            try {
+                const res = await bkFetch(`/${id}/restore`, { method: 'POST', body: JSON.stringify({ schoolCode }) });
+                const j = await res.json();
+                if (res.ok && j.success) {
+                    alert('恢复完成 ✅\n\n' + (j.checks || []).map(([k, v]) => `${k}: ${v}`).join('\n'));
+                    bkCloseRestore();
+                    bkReloadCurrent();
+                } else {
+                    alert('恢复失败 ❌\n\n' + ((j.checks || []).map(([k, v]) => `${k}: ${v}`).join('\n') || j.error));
+                }
+            } catch (e) {
+                alert('恢复异常：' + (e.message || e));
+            }
+        });
 
         // KPI 数据填充：从原页面渲染后的 DOM 推断（最小侵入）。
         // 学校列表 tbody id = schoolTbody；回收站是独立 table（在 recycleBinList 内），
