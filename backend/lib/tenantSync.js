@@ -49,11 +49,12 @@ function runPrismaGenerate() {
 }
 
 /**
- * 对【活跃】持有 SchoolCustomization 表的 schema（public + 各 active 租户）执行：
+ * 对【活跃 / 正常】持有 SchoolCustomization 表的 schema（public + 各未删除租户）执行：
  *   ADD COLUMN IF NOT EXISTS 已知定制列 + 把历史 NULL 回填为安全默认值。
  * 列名为本模块常量（来自 schema.prisma，安全）；schema 名经 information_schema 取得，
- * 并以 public."School"（status='active'）为单一事实源推导活跃集合；
- * recycle_*（回收站）与 school_*_old_*（影子恢复残留）明确跳过，其余非白名单名称视为注入风险拒绝执行。
+ * 并以 public."School"（status ≠ 'deleted'）为单一事实源推导集合；
+ * recycle_*（回收站）、school_*_old_*（影子恢复残留）、school_<code> 历史孤儿 schema
+ * 明确跳过（不 throw），其余非白名单名称（含空格/引号/分号等可注入 DDL 字符）拒绝执行。
  */
 export async function backfillSchoolCustomization(prisma, log = console.log) {
   const rows = await prisma.$queryRawUnsafe(
@@ -64,27 +65,31 @@ export async function backfillSchoolCustomization(prisma, log = console.log) {
     return
   }
 
-  // 活跃 schema 白名单：public + 全部 status='active' 学校的 schema（以 public."School" 为单一事实源）。
-  // 数据库里还可能存在两类【非活跃】schema，它们同样持有 SchoolCustomization 表，但不该回填：
-  //   1) recycle_<code>_<ts> —— 学校彻底删除后 RENAME 进回收站的 schema（schoolRoutes.js 路径B）；
-  //   2) school_<code>_old_<ts> —— 影子恢复切换时 RENAME 出来的旧 schema 残留（restoreService.js）。
-  // 此前逻辑仅用「school_/school- 前缀」正则放行，导致 recycle_* 被误判为"非法 schema 名"而 throw，
-  // 阻断整个部署。现改为按 School 表推导活跃集合，非活跃 schema 明确跳过。
+  // 活跃 / 正常 schema 白名单：public + 全部【未删除】学校的 schema（status ≠ 'deleted'，含 active/disabled）。
+  // 已删除学校的 schema 已被 RENAME 进 recycle_*/old_*，由下方其他规则覆盖。
+  // 数据库里还可能出现历史孤儿 schema：学校已在 public."School" 物理删除，但 schema 未被 RENAME
+  // （典型场景：旧版本删校流程缺 RENAME 步骤；运维/测试遗留下空表 schema）。
+  // 此类 schema 内部所有业务表均为空，【跳过回填】（不 throw，避免再次阻断部署），
+  // 但 console.warn 提示运维可手动 DROP SCHEMA ... CASCADE 清理。
   const schoolRows = await prisma.school.findMany({
-    where: { status: 'active' },
+    where: { status: { not: 'deleted' } },
     select: { code: true }
   })
   const activeSchemas = new Set(['public', ...schoolRows.map((r) => schemaNameOf(r.code)).filter(Boolean)])
 
   for (const { table_schema } of rows) {
     if (activeSchemas.has(table_schema)) {
-      // 活跃 schema：继续回填（下方原逻辑）
+      // 活跃 / 正常 schema：继续回填（下方原逻辑）
     } else if (/^recycle_[a-z0-9_]+$/.test(table_schema) || /^school_[a-z0-9_]+_old_[0-9]+$/.test(table_schema)) {
-      // 回收站 / 影子恢复残留：系统自身产生的合法非活跃 schema，跳过回填（已删除/已被新 schema 替代）
+      // 回收站 / 影子恢复残留：系统自身产生的合法非活跃 schema，跳过回填
       log(`[SKIP] 跳过非活跃 schema 回填: ${table_schema}`)
       continue
+    } else if (/^school_[a-z0-9_]+$/.test(table_schema)) {
+      // 历史孤儿：跳过回填（不 throw），console.warn 提示运维清理
+      console.warn(`[WARN] 跳过孤儿 schema 回填: ${table_schema}（在 public."School" 中找不到对应学校，建议手动 DROP SCHEMA "${table_schema}" CASCADE 清理）`)
+      continue
     } else {
-      // 其余任何非白名单名称仍视为注入风险，拒绝执行（防 SQL 注入，DS-05）
+      // 其余任何非白名单名称（含空格/引号/分号等可注入 DDL 字符）仍视为注入风险，拒绝执行
       throw new Error(`非法 schema 名: "${table_schema}"（回填 SchoolCustomization 中止以避免注入）`)
     }
     for (const c of OBJ_COLS) {
