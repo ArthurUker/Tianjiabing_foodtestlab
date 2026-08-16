@@ -2424,9 +2424,24 @@
                     return;
                 }
                 const rows = items.map((it) => {
-                    const statusBadge = it.expired
-                        ? '<span class="px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs">已过期</span>'
-                        : `<span class="px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full text-xs">剩余 ${it.keepDays} 天</span>`;
+                    // 按 status（active/restored/purged）+ 过期状态渲染徽章与操作按钮，
+                    // 避免对已恢复/已清除/已过期记录显示「恢复」按钮（后端此时会返回 409）。
+                    let statusBadge;
+                    let actions;
+                    if (it.status === 'restored') {
+                        statusBadge = '<span class="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full text-xs">已恢复</span>';
+                        actions = '<span class="text-xs text-gray-400">—</span>';
+                    } else if (it.status === 'purged') {
+                        statusBadge = '<span class="px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full text-xs" title="该校数据已物理删除，不可恢复">已彻底删除</span>';
+                        actions = '<span class="text-xs text-gray-400">—</span>';
+                    } else if (it.expired) {
+                        statusBadge = '<span class="px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs">已过期</span>';
+                        actions = `<button class="px-2 py-1 text-xs bg-red-50 text-red-700 rounded hover:bg-red-100 transition btn-recycle-purge" data-id="${escapeHtml(it.id)}" title="清除（不可恢复）"><i class="fas fa-eraser mr-1"></i>清除</button>`;
+                    } else {
+                        statusBadge = `<span class="px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full text-xs">剩余 ${it.keepDays} 天</span>`;
+                        actions = `<button class="px-2 py-1 text-xs bg-green-50 text-green-700 rounded hover:bg-green-100 transition btn-recycle-restore" data-id="${escapeHtml(it.id)}" title="恢复学校及数据"><i class="fas fa-undo mr-1"></i>恢复</button>
+                            <button class="px-2 py-1 text-xs bg-red-50 text-red-700 rounded hover:bg-red-100 transition btn-recycle-purge" data-id="${escapeHtml(it.id)}" title="清除（不可恢复）"><i class="fas fa-eraser mr-1"></i>清除</button>`;
+                    }
                     return `
                     <tr class="border-b border-gray-100">
                         <td class="py-2 font-mono text-xs">${escapeHtml(it.original_code)}</td>
@@ -2434,10 +2449,7 @@
                         <td class="py-2 text-xs text-gray-500">${it.deleted_at ? new Date(it.deleted_at).toLocaleString() : ''}</td>
                         <td class="py-2">${statusBadge}</td>
                         <td class="py-2">
-                            <div class="flex items-center gap-1">
-                                <button class="px-2 py-1 text-xs bg-green-50 text-green-700 rounded hover:bg-green-100 transition btn-recycle-restore" data-id="${escapeHtml(it.id)}" title="恢复学校及数据"><i class="fas fa-undo mr-1"></i>恢复</button>
-                                <button class="px-2 py-1 text-xs bg-red-50 text-red-700 rounded hover:bg-red-100 transition btn-recycle-purge" data-id="${escapeHtml(it.id)}" title="清除（不可恢复）"><i class="fas fa-eraser mr-1"></i>清除</button>
-                            </div>
+                            <div class="flex items-center gap-1">${actions}</div>
                         </td>
                     </tr>`;
                 }).join('');
