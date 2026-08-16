@@ -9,9 +9,11 @@ import {
 // 返回给客户端前剔除 field_options 中的表管理字段键与历史 cascade 简化版残留，
 // 避免录入端 fields.js 用文本数组覆盖 value/label 分离的下拉。
 function sanitizeFieldOptionsForClient(fo) {
-    // 兼容 JSON 字符串存储（列类型为 text）：parse → 清理 → stringify
+    // 兼容历史 JSON 字符串存储（text 列时期 / double-encode 脏数据）：parse → 清理 → stringify。
+    // 迁移 Model API 后正常数据已是对象，此分支仅在历史脏数据时命中，加日志观测，延后清理。
     if (typeof fo === 'string') {
         try {
+            console.warn('[customization] sanitizeFieldOptionsForClient 命中字符串兼容分支（历史脏数据），观测中')
             const parsed = JSON.parse(fo)
             return JSON.stringify(sanitizeFieldOptionsForClient(parsed))
         } catch (_) { return fo }
