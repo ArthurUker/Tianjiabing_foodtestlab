@@ -5084,6 +5084,103 @@
                         <button id="bkNextSch" class="px-2 py-1 border rounded disabled:opacity-50" disabled><i class="fas fa-angle-right"></i></button>
                     </div>
                 </div>
+
+                <!-- ===== 功能说明卡片（验证 / AES / 明文 / 恢复）=====
+                     为操作列的四个动作提供业务级语义说明，弥补列表 UI 无法承载的
+                     「这按钮干嘛的 / 何时用 / 有何风险」三类信息。卡片可折叠，
+                     默认展开便于首次理解，再次进入记住折叠状态由浏览器 <details> 接管。 -->
+                <div class="admin-card mt-4">
+                    <details open>
+                        <summary class="cursor-pointer select-none flex items-center gap-2 text-sm font-semibold text-gray-700 hover:text-gray-900 transition">
+                            <i class="fas fa-info-circle text-blue-500"></i>
+                            <span>操作说明（验证 / AES / 明文 / 恢复）</span>
+                            <span class="ml-auto text-xs text-gray-400 font-normal">点击折叠</span>
+                        </summary>
+                        <div class="grid md:grid-cols-2 gap-3 mt-4">
+
+                            <!-- 验证 -->
+                            <div class="rounded-xl border border-blue-200/70 bg-blue-50/60 p-3">
+                                <div class="flex items-center gap-2 mb-2">
+                                    <span class="inline-flex w-7 h-7 rounded-lg bg-blue-500 text-white items-center justify-center text-xs">
+                                        <i class="fas fa-shield-alt"></i>
+                                    </span>
+                                    <h4 class="text-sm font-bold text-gray-800">验证</h4>
+                                    <span class="ml-auto text-[10px] text-gray-400 font-mono">verify</span>
+                                </div>
+                                <p class="text-xs text-gray-700 leading-relaxed">
+                                    对备份文件的完整性 + 解密可行性做只读校验：解密 header、检查 schema 转储和 media 文件存在、比对 tar 包大小与头部记录是否一致。
+                                </p>
+                                <p class="text-xs text-blue-700 mt-2">
+                                    <i class="fas fa-check mr-1"></i>何时用：恢复前必做（确保备份可读）；定期巡检（凌晨备份后人工抽样）。
+                                </p>
+                                <p class="text-[11px] text-gray-500 mt-1">
+                                    <i class="fas fa-shield-halved mr-1"></i>零风险，不修改任何数据。
+                                </p>
+                            </div>
+
+                            <!-- AES -->
+                            <div class="rounded-xl border border-indigo-200/70 bg-indigo-50/60 p-3">
+                                <div class="flex items-center gap-2 mb-2">
+                                    <span class="inline-flex w-7 h-7 rounded-lg bg-indigo-500 text-white items-center justify-center text-xs">
+                                        <i class="fas fa-lock"></i>
+                                    </span>
+                                    <h4 class="text-sm font-bold text-gray-800">AES（加密）下载</h4>
+                                    <span class="ml-auto text-[10px] text-gray-400 font-mono">encrypted</span>
+                                </div>
+                                <p class="text-xs text-gray-700 leading-relaxed">
+                                    下载包含 AES-256-GCM 信封加密的 tar 包（密钥派生自全局 secret）。文件可被异地备份服务导入。
+                                </p>
+                                <p class="text-xs text-indigo-700 mt-2">
+                                    <i class="fas fa-check mr-1"></i>何时用：异地归档、长期保留、需要保密物理介质的场景。
+                                </p>
+                                <p class="text-[11px] text-gray-500 mt-1">
+                                    <i class="fas fa-shield-halved mr-1"></i>解密需要服务端 secret；丢 secret = 永久无法恢复。
+                                </p>
+                            </div>
+
+                            <!-- 明文 -->
+                            <div class="rounded-xl border border-sky-200/70 bg-sky-50/60 p-3">
+                                <div class="flex items-center gap-2 mb-2">
+                                    <span class="inline-flex w-7 h-7 rounded-lg bg-sky-500 text-white items-center justify-center text-xs">
+                                        <i class="fas fa-file"></i>
+                                    </span>
+                                    <h4 class="text-sm font-bold text-gray-800">明文下载</h4>
+                                    <span class="ml-auto text-[10px] text-gray-400 font-mono">plain</span>
+                                </div>
+                                <p class="text-xs text-gray-700 leading-relaxed">
+                                    已解密的 tar.gz（含 schema_dumps.sql + media/）。可直接 tar -tzf 浏览结构、grep 业务数据、离线分析。
+                                </p>
+                                <p class="text-xs text-sky-700 mt-2">
+                                    <i class="fas fa-check mr-1"></i>何时用：诊断具体某学校的表数据、研发核对业务逻辑、应急抢救单一记录。
+                                </p>
+                                <p class="text-[11px] text-amber-700 mt-1">
+                                    <i class="fas fa-triangle-exclamation mr-1"></i>含敏感数据，离线存储需相应加密措施。
+                                </p>
+                            </div>
+
+                            <!-- 恢复 -->
+                            <div class="rounded-xl border border-red-200/70 bg-red-50/60 p-3">
+                                <div class="flex items-center gap-2 mb-2">
+                                    <span class="inline-flex w-7 h-7 rounded-lg bg-red-500 text-white items-center justify-center text-xs">
+                                        <i class="fas fa-undo"></i>
+                                    </span>
+                                    <h4 class="text-sm font-bold text-gray-800">影子恢复</h4>
+                                    <span class="ml-auto text-[10px] text-gray-400 font-mono">restore</span>
+                                </div>
+                                <p class="text-xs text-gray-700 leading-relaxed">
+                                    把当前 <code class="px-1 bg-white rounded">school_&lt;code&gt;</code> schema 重命名成 <code class="px-1 bg-white rounded">school_&lt;code&gt;_old_&lt;ts&gt;</code> 暂存，再用目标备份新建同名 schema、写回数据。
+                                </p>
+                                <p class="text-xs text-red-700 mt-2">
+                                    <i class="fas fa-check mr-1"></i>何时用：误删数据回滚 / 学校迁移 / 灾难恢复。
+                                </p>
+                                <p class="text-[11px] text-red-700 mt-1">
+                                    <i class="fas fa-triangle-exclamation mr-1"></i>不可逆操作（写入数据库），需输入 <code class="px-1 bg-white rounded">RESTORE</code> 二次确认。
+                                </p>
+                            </div>
+
+                        </div>
+                    </details>
+                </div>
             </div>
 
             <!-- ===== 影子恢复模态（共享） ===== -->
