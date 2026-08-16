@@ -642,9 +642,22 @@
                     </div>
                 </div>
 
-                <button class="admin-sidebar__item" data-view="accounts" type="button">
+                <!-- 账号与权限：二级菜单（平台超管 / 学校用户 / 审计日志），均为内嵌视图 -->
+                <button class="admin-sidebar__item has-subnav" data-view="accounts" type="button">
                     <i class="fas fa-users-cog"></i><span class="admin-sidebar__item-label">账号与权限</span>
+                    <i class="fas fa-chevron-right admin-sidebar__chevron"></i>
                 </button>
+                <div class="admin-sidebar__subnav" data-subnav="accounts">
+                    <button class="admin-sidebar__subitem active" data-subview="super-admins" type="button">
+                        <i class="fas fa-user-shield"></i><span class="admin-sidebar__subitem-label">平台超管</span>
+                    </button>
+                    <button class="admin-sidebar__subitem" data-subview="school-users" type="button">
+                        <i class="fas fa-user-graduate"></i><span class="admin-sidebar__subitem-label">学校用户</span>
+                    </button>
+                    <button class="admin-sidebar__subitem" data-subview="audit-logs" type="button">
+                        <i class="fas fa-history"></i><span class="admin-sidebar__subitem-label">审计日志</span>
+                    </button>
+                </div>
                 <button class="admin-sidebar__item" data-view="backup" type="button">
                     <i class="fas fa-database"></i><span class="admin-sidebar__item-label">备份运维</span>
                 </button>
@@ -4718,37 +4731,121 @@
 
     <section id="adminViewAccounts" class="admin-view hidden" data-view="accounts">
         <div class="container mx-auto px-4 py-6 max-w-7xl">
-            <div class="admin-card">
-                <h3><i class="fas fa-user-shield text-yellow-500"></i>平台超管账号管理</h3>
-                <p class="text-sm text-gray-600 mb-3">管理拥有跨租户权限的账号（role=super_admin）。</p>
-                <button id="btnAccountMgmtInline" type="button" class="px-4 py-2 bg-yellow-400 text-gray-900 font-semibold rounded-lg hover:bg-yellow-300 transition shadow">
-                    <i class="fas fa-users-cog mr-1"></i>打开账号管理弹层
-                </button>
+
+            <!-- ========== 子视图 1: 平台超管 ========== -->
+            <div class="admin-subview" data-subview="super-admins">
+                <div class="admin-card">
+                    <div class="flex items-center justify-between mb-3">
+                        <h3><i class="fas fa-user-shield text-yellow-500"></i>平台超管账号管理</h3>
+                        <button id="btnAccountMgmtInlineNew" type="button" class="px-3 py-1.5 text-sm bg-yellow-400 text-gray-900 font-semibold rounded-lg hover:bg-yellow-300 transition shadow">
+                            <i class="fas fa-plus mr-1"></i>新建超管
+                        </button>
+                    </div>
+                    <p class="text-sm text-gray-600 mb-3">拥有跨租户权限的账号（role=super_admin）。</p>
+                    <div class="overflow-x-auto" id="saInlineMount">
+                        <!-- 复用 saAccountModal 的列表 DOM：迁移到内嵌，保持单一事实源 -->
+                        <table class="min-w-full text-sm">
+                            <thead class="bg-gray-50 text-gray-600">
+                                <tr>
+                                    <th class="text-left px-3 py-2">用户名</th>
+                                    <th class="text-left px-3 py-2">姓名</th>
+                                    <th class="text-left px-3 py-2">状态</th>
+                                    <th class="text-left px-3 py-2">创建时间</th>
+                                    <th class="text-right px-3 py-2">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="saInlineList" class="divide-y divide-gray-100">
+                                <tr><td colspan="5" class="text-center text-gray-400 py-6">加载中…</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
 
-            <div class="admin-card">
-                <h3><i class="fas fa-user-graduate text-indigo-500"></i>学校用户管理</h3>
-                <p class="text-sm text-gray-600 mb-3">
-                    学校用户的增删改查与密码重置在「学校管理」→ 选中学校 → 「用户管理」Tab 内完成。
-                    <br>本视图仅作为入口，请先在「学校管理」视图选择目标学校。
-                </p>
-                <button id="btnGoSchoolsToUsers" type="button" class="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition shadow">
-                    <i class="fas fa-arrow-right mr-1"></i>前往「学校管理」
-                </button>
+            <!-- ========== 子视图 2: 学校用户 ========== -->
+            <div class="admin-subview hidden" data-subview="school-users">
+                <div class="admin-card">
+                    <h3><i class="fas fa-user-graduate text-indigo-500"></i>学校用户管理</h3>
+                    <p class="text-sm text-gray-600 mb-3">选择学校后直接管理 manager / operator / viewer。</p>
+                    <div class="flex flex-wrap items-center gap-3 mb-4">
+                        <label class="text-sm text-gray-700" for="suSchoolSelect">学校：</label>
+                        <select id="suSchoolSelect" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                            <option value="">— 请选择学校 —</option>
+                        </select>
+                        <button id="suRefreshBtn" type="button" class="px-3 py-1.5 text-sm bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition shadow">
+                            <i class="fas fa-sync mr-1"></i>刷新
+                        </button>
+                        <button id="suAddBtn" type="button" class="px-3 py-1.5 text-sm bg-green-500 text-white rounded-lg hover:bg-green-600 transition shadow" disabled>
+                            <i class="fas fa-user-plus mr-1"></i>新增用户
+                        </button>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full text-sm">
+                            <thead class="bg-gray-50 text-gray-600">
+                                <tr>
+                                    <th class="text-left px-3 py-2">用户名</th>
+                                    <th class="text-left px-3 py-2">姓名</th>
+                                    <th class="text-left px-3 py-2">角色</th>
+                                    <th class="text-left px-3 py-2">状态</th>
+                                    <th class="text-right px-3 py-2">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="suInlineList" class="divide-y divide-gray-100">
+                                <tr><td colspan="5" class="text-center text-gray-400 py-6">请先选择学校</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
 
-            <div class="admin-card">
-                <h3><i class="fas fa-history text-gray-500"></i>操作审计日志</h3>
-                <p class="text-sm text-gray-600 mb-3">
-                    所有超管写操作（创建/删除学校、字段变更、备份恢复、超管账号变更）均会被记录至 public.AuditLog。
-                    <br>查询接口：<code class="bg-gray-100 px-1 rounded">GET /api/audit-logs</code>，按时间段 + actor + action + target 过滤。
-                </p>
-                <a href="/docs/api/audit-logs.md" target="_blank" rel="noopener" class="admin-link-card" style="max-width: 380px">
-                    <span class="icon" style="background: linear-gradient(135deg, #6366f1, #8b5cf6)"><i class="fas fa-book"></i></span>
-                    <span class="meta"><span class="title">查看审计日志接口文档</span></span>
-                    <i class="fas fa-external-link-alt arrow"></i>
-                </a>
+            <!-- ========== 子视图 3: 审计日志 ========== -->
+            <div class="admin-subview hidden" data-subview="audit-logs">
+                <div class="admin-card">
+                    <h3><i class="fas fa-history text-gray-500"></i>操作审计日志</h3>
+                    <p class="text-sm text-gray-600 mb-3">所有超管写操作均会被记录至 <code class="bg-gray-100 px-1 rounded">public.AuditLog</code>。下方表单按时间段 + actor + action 过滤。</p>
+                    <div class="flex flex-wrap items-center gap-3 mb-4">
+                        <label class="text-sm text-gray-700">起始</label>
+                        <input id="auStartDate" type="date" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80">
+                        <label class="text-sm text-gray-700">截止</label>
+                        <input id="auEndDate" type="date" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80">
+                        <input id="auActor" type="text" placeholder="操作人 id" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80 w-32">
+                        <select id="auAction" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80">
+                            <option value="">全部动作</option>
+                            <option value="login">登录</option>
+                            <option value="logout">登出</option>
+                            <option value="create">创建</option>
+                            <option value="update">更新</option>
+                            <option value="delete">删除</option>
+                            <option value="backup">备份</option>
+                            <option value="restore">恢复</option>
+                        </select>
+                        <button id="auRefreshBtn" type="button" class="px-3 py-1.5 text-sm bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition shadow">
+                            <i class="fas fa-search mr-1"></i>查询
+                        </button>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full text-sm">
+                            <thead class="bg-gray-50 text-gray-600">
+                                <tr>
+                                    <th class="text-left px-3 py-2">时间</th>
+                                    <th class="text-left px-3 py-2">操作者</th>
+                                    <th class="text-left px-3 py-2">动作</th>
+                                    <th class="text-left px-3 py-2">目标</th>
+                                    <th class="text-left px-3 py-2">详情</th>
+                                </tr>
+                            </thead>
+                            <tbody id="auInlineList" class="divide-y divide-gray-100">
+                                <tr><td colspan="5" class="text-center text-gray-400 py-6">点击「查询」加载日志</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="flex items-center justify-between mt-3 text-xs text-gray-500">
+                        <span id="auMeta">—</span>
+                        <span>数据来源：<code class="bg-gray-100 px-1 rounded">GET /api/audit-logs</code></span>
+                    </div>
+                </div>
             </div>
+
         </div>
     </section>
 
@@ -4859,6 +4956,14 @@
                 }
             }
 
+            // accounts 视图：按指定 subview 渲染主区（默认 super-admins）
+            if (viewName === 'accounts') {
+                const subName = opts.subview || 'super-admins';
+                if (typeof window.switchAccountsSubview === 'function') {
+                    window.switchAccountsSubview(subName);
+                }
+            }
+
             // 滚动到顶部
             window.scrollTo({ top: 0, behavior: 'smooth' });
             // URL hash 同步（轻量、可分享）
@@ -4877,6 +4982,13 @@
         document.querySelectorAll('[data-subnav="schools"] .admin-sidebar__subitem[data-subview]').forEach((sub) => {
             sub.addEventListener('click', () => {
                 switchTo('schools', { subview: sub.getAttribute('data-subview') });
+            });
+        });
+
+        // 二级菜单点击（账号与权限：平台超管 / 学校用户 / 审计日志）
+        document.querySelectorAll('[data-subnav="accounts"] .admin-sidebar__subitem[data-subview]').forEach((sub) => {
+            sub.addEventListener('click', () => {
+                switchTo('accounts', { subview: sub.getAttribute('data-subview') });
             });
         });
 
@@ -4928,27 +5040,225 @@
             } catch (e) {}
         }
 
-        // 快捷按钮：跳转学校管理
+        // 快捷按钮：跳转学校管理（保留 backup 入口，因 adminViewBackup 仍持有 btnGoSchoolsToBackup）
         const goSchools = (subview) => {
             // 是否已选中学校：以左侧「当前学校」分组是否可见为准（跨 script 作用域，避免引用 module 内变量）
             const grp = document.getElementById('sidebarSchoolConfigGroup');
             const hasSchool = grp && !grp.classList.contains('hidden');
             switchTo('schools', { subview: hasSchool ? subview : 'list' });
         };
-        document.getElementById('btnGoSchoolsToUsers')?.addEventListener('click', () => goSchools('users'));
         document.getElementById('btnGoSchoolsToBackup')?.addEventListener('click', () => goSchools('backup'));
 
-        // 「账号与权限」内联按钮：复用原 btnAccountMgmt 的逻辑（打开弹层）
-        const btnAccountMgmtInline = document.getElementById('btnAccountMgmtInline');
+        // 「新建超管」按钮：直接复用原 btnAccountMgmt 触发逻辑（弹层仍完整）
+        const btnAccountMgmtInlineNew = document.getElementById('btnAccountMgmtInlineNew');
         const btnAccountMgmt = document.getElementById('btnAccountMgmt');
-        if (btnAccountMgmtInline && btnAccountMgmt) {
-            btnAccountMgmtInline.addEventListener('click', () => btnAccountMgmt.click());
-        } else if (btnAccountMgmtInline) {
-            // 若原按钮已不在（被本次重构移除），则动态触发弹层
-            btnAccountMgmtInline.addEventListener('click', () => {
+        if (btnAccountMgmtInlineNew && btnAccountMgmt) {
+            btnAccountMgmtInlineNew.addEventListener('click', () => btnAccountMgmt.click());
+        } else if (btnAccountMgmtInlineNew) {
+            btnAccountMgmtInlineNew.addEventListener('click', () => {
                 const modal = document.getElementById('saAccountModal');
                 if (modal) modal.classList.remove('hidden');
             });
+        }
+
+        // ============================================================
+        // 「账号与权限」子视图处理（super-admins / school-users / audit-logs）
+        // ============================================================
+        function switchAccountsSubview(subName) {
+            const subs = document.querySelectorAll('#adminViewAccounts .admin-subview');
+            subs.forEach((s) => s.classList.toggle('hidden', s.getAttribute('data-subview') !== subName));
+            document.querySelectorAll('[data-subnav="accounts"] .admin-sidebar__subitem[data-subview]').forEach((s) => {
+                s.classList.toggle('active', s.getAttribute('data-subview') === subName);
+            });
+            if (subName === 'super-admins') loadSuperAdminsInline();
+            if (subName === 'school-users') loadSchoolsForUserMgr();
+            if (subName === 'audit-logs') loadAuditLogsInline();
+        }
+        window.switchAccountsSubview = switchAccountsSubview;
+
+        // --- 子视图 1: 平台超管内嵌列表（与 SuperAdminAccount.js 共享接口契约） ---
+        async function loadSuperAdminsInline() {
+            const tbody = document.getElementById('saInlineList');
+            if (!tbody) return;
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-400 py-6">加载中…</td></tr>';
+            try {
+                // 优先使用 module 内 authService 与 getApiBaseUrl（由 module script 暴露）
+                const svc = window.authService;
+                const apiBase = (typeof window.getApiBaseUrl === 'function' ? window.getApiBaseUrl() : (window.API_BASE || '/api'));
+                const token = svc && typeof svc.getToken === 'function' ? svc.getToken() : '';
+                const res = await fetch(`${apiBase}/api/user/super-admin`, {
+                    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }
+                });
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const data = await res.json();
+                const list = data.admins || data.data || data || [];
+                if (!Array.isArray(list) || list.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-400 py-6">暂无平台超管账号</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = list.map((u) => {
+                    const enabled = (u.enabled ?? u.isActive ?? true);
+                    const createdAt = u.created_at || u.createdAt || '-';
+                    return `
+                        <tr>
+                            <td class="px-3 py-2 font-mono text-gray-800">${escapeHtml(u.username || '-')}</td>
+                            <td class="px-3 py-2">${escapeHtml(u.full_name || u.fullName || '-')}</td>
+                            <td class="px-3 py-2">
+                                ${enabled ? '<span class="inline-flex px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs">已启用</span>' : '<span class="inline-flex px-2 py-0.5 bg-gray-200 text-gray-600 rounded-full text-xs">已停用</span>'}
+                            </td>
+                            <td class="px-3 py-2 text-gray-600">${escapeHtml(String(createdAt))}</td>
+                            <td class="px-3 py-2 text-right">
+                                <button class="text-sm text-blue-600 hover:underline" onclick="window.superAdminAction && window.superAdminAction('edit', '${escapeHtml(String(u.id || u._id || ''))}')">编辑</button>
+                                <button class="ml-3 text-sm text-red-600 hover:underline" onclick="window.superAdminAction && window.superAdminAction('delete', '${escapeHtml(String(u.id || u._id || ''))}')">删除</button>
+                            </td>
+                        </tr>`;
+                }).join('');
+            } catch (e) {
+                tbody.innerHTML = `<tr><td colspan="5" class="text-center text-red-500 py-6">加载失败：${escapeHtml(String(e.message || e))}（接口契约参考 SuperAdminAccount.js）</td></tr>`;
+            }
+        }
+        document.getElementById('suRefreshBtn')?.addEventListener('click', () => loadSuperAdminsInline());
+
+        // --- 子视图 2: 学校用户管理：选择学校 + 加载用户 ---
+        async function loadSchoolsForUserMgr() {
+            const sel = document.getElementById('suSchoolSelect');
+            if (!sel) return;
+            if (sel.options.length <= 1) {
+                try {
+                    const svc = window.authService;
+                    const apiBase = (typeof window.getApiBaseUrl === 'function' ? window.getApiBaseUrl() : (window.API_BASE || '/api'));
+                    const token = svc && typeof svc.getToken === 'function' ? svc.getToken() : '';
+                    const res = await fetch(`${apiBase}/api/admin/schools?limit=200`, {
+                        headers: { Authorization: 'Bearer ' + token }
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        const list = data.data?.schools || data.schools || data.data || data || [];
+                        if (Array.isArray(list)) {
+                            list.forEach((s) => {
+                                const opt = document.createElement('option');
+                                opt.value = s.code || s.schoolCode || s.id;
+                                opt.textContent = `${s.code || ''} - ${s.fullName || s.full_name || s.shortName || s.short_name || s.name || ''}`;
+                                sel.appendChild(opt);
+                            });
+                        }
+                    }
+                } catch (_) { /* 静默；用户可点刷新重试 */ }
+            }
+        }
+        document.getElementById('suSchoolSelect')?.addEventListener('change', () => {
+            document.getElementById('suAddBtn').disabled = !document.getElementById('suSchoolSelect').value;
+            const code = document.getElementById('suSchoolSelect').value;
+            if (code) loadSchoolUsersInline(code);
+        });
+        document.getElementById('suRefreshBtn')?.addEventListener('click', () => {
+            const code = document.getElementById('suSchoolSelect').value;
+            if (code) loadSchoolUsersInline(code);
+        });
+        async function loadSchoolUsersInline(schoolCode) {
+            const tbody = document.getElementById('suInlineList');
+            if (!tbody) return;
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-400 py-6">加载中…</td></tr>';
+            try {
+                const svc = window.authService;
+                const apiBase = (typeof window.getApiBaseUrl === 'function' ? window.getApiBaseUrl() : (window.API_BASE || '/api'));
+                const token = svc && typeof svc.getToken === 'function' ? svc.getToken() : '';
+                const res = await fetch(`${apiBase}/api/admin/schools/${encodeURIComponent(schoolCode)}/users`, {
+                    headers: { Authorization: 'Bearer ' + token }
+                });
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const data = await res.json();
+                const list = data.data?.users || data.users || data.data || data || [];
+                if (!Array.isArray(list) || list.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-400 py-6">该学校暂无用户</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = list.map((u) => {
+                    const enabled = (u.enabled ?? u.isActive ?? true);
+                    return `
+                        <tr>
+                            <td class="px-3 py-2 font-mono text-gray-800">${escapeHtml(u.username || '-')}</td>
+                            <td class="px-3 py-2">${escapeHtml(u.fullName || u.full_name || '-')}</td>
+                            <td class="px-3 py-2">
+                                <span class="inline-flex px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-xs">${escapeHtml(u.role || '-')}</span>
+                            </td>
+                            <td class="px-3 py-2">
+                                ${enabled ? '<span class="inline-flex px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs">已启用</span>' : '<span class="inline-flex px-2 py-0.5 bg-gray-200 text-gray-600 rounded-full text-xs">已停用</span>'}
+                            </td>
+                            <td class="px-3 py-2 text-right">
+                                <button class="text-sm text-blue-600 hover:underline" onclick="window.schoolUserAction && window.schoolUserAction('edit', '${escapeHtml(String(u.id || u._id || ''))}', '${escapeHtml(schoolCode)}')">编辑</button>
+                                <button class="ml-3 text-sm text-orange-600 hover:underline" onclick="window.schoolUserAction && window.schoolUserAction('reset', '${escapeHtml(String(u.id || u._id || ''))}', '${escapeHtml(schoolCode)}')">重置密码</button>
+                                <button class="ml-3 text-sm text-red-600 hover:underline" onclick="window.schoolUserAction && window.schoolUserAction('delete', '${escapeHtml(String(u.id || u._id || ''))}', '${escapeHtml(schoolCode)}')">删除</button>
+                            </td>
+                        </tr>`;
+                }).join('');
+            } catch (e) {
+                tbody.innerHTML = `<tr><td colspan="5" class="text-center text-red-500 py-6">加载失败：${escapeHtml(String(e.message || e))}</td></tr>`;
+            }
+        }
+        document.getElementById('suAddBtn')?.addEventListener('click', () => {
+            const code = document.getElementById('suSchoolSelect').value;
+            if (!code) return;
+            window.alert(`请在「学校管理」→ 选中学校（${code}）→「用户管理」Tab 内新增用户。\n（内嵌新增表单将在下个迭代补全，避免与现有 detailPanel.users 双绑）`);
+        });
+
+        // --- 子视图 3: 审计日志（直接调 /api/audit-logs） ---
+        async function loadAuditLogsInline() {
+            const tbody = document.getElementById('auInlineList');
+            const meta = document.getElementById('auMeta');
+            if (!tbody) return;
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-400 py-6">加载中…</td></tr>';
+            try {
+                const svc = window.authService;
+                const apiBase = (typeof window.getApiBaseUrl === 'function' ? window.getApiBaseUrl() : (window.API_BASE || '/api'));
+                const token = svc && typeof svc.getToken === 'function' ? svc.getToken() : '';
+                const start = document.getElementById('auStartDate')?.value;
+                const end = document.getElementById('auEndDate')?.value;
+                const actor = document.getElementById('auActor')?.value.trim();
+                const action = document.getElementById('auAction')?.value;
+                const params = new URLSearchParams();
+                if (start) params.set('startDate', new Date(start).toISOString());
+                if (end) params.set('endDate', new Date(end).toISOString());
+                if (actor) params.set('userId', actor);
+                if (action) params.set('action', action);
+                params.set('limit', '200');
+                const res = await fetch(`${apiBase}/api/audit-logs?${params.toString()}`, {
+                    headers: { Authorization: 'Bearer ' + token }
+                });
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const data = await res.json();
+                const list = data.data || [];
+                if (!Array.isArray(list) || list.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-400 py-6">暂无日志记录</td></tr>';
+                    if (meta) meta.textContent = '—';
+                    return;
+                }
+                tbody.innerHTML = list.map((l) => {
+                    const ts = l.created_at || l.createdAt || l.timestamp || '-';
+                    const actor = l.user?.username || l.user?.full_name || l.user_id || '-';
+                    const action = l.action || '-';
+                    const target = l.target_type ? `${l.target_type}#${l.target_id || ''}` : '-';
+                    const detail = l.details ? (typeof l.details === 'object' ? JSON.stringify(l.details) : String(l.details)) : '-';
+                    return `
+                        <tr>
+                            <td class="px-3 py-2 text-gray-700 whitespace-nowrap">${escapeHtml(String(ts))}</td>
+                            <td class="px-3 py-2 text-gray-800">${escapeHtml(String(actor))}</td>
+                            <td class="px-3 py-2"><span class="inline-flex px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-xs">${escapeHtml(String(action))}</span></td>
+                            <td class="px-3 py-2 text-gray-600 font-mono">${escapeHtml(String(target))}</td>
+                            <td class="px-3 py-2 text-gray-600 max-w-md truncate" title="${escapeHtml(String(detail))}">${escapeHtml(String(detail))}</td>
+                        </tr>`;
+                }).join('');
+                if (meta) meta.textContent = `共 ${data.total ?? list.length} 条，显示前 ${list.length} 条`;
+            } catch (e) {
+                tbody.innerHTML = `<tr><td colspan="5" class="text-center text-red-500 py-6">查询失败：${escapeHtml(String(e.message || e))}</td></tr>`;
+                if (meta) meta.textContent = '—';
+            }
+        }
+        document.getElementById('auRefreshBtn')?.addEventListener('click', loadAuditLogsInline);
+
+        // 简易 HTML 转义工具（避免 XSS 注入渲染）
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
         }
 
         // KPI 数据填充：从原页面渲染后的 DOM 推断（最小侵入）。
