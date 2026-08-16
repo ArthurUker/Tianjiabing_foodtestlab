@@ -164,6 +164,87 @@
           min-width: 20px;
           text-align: center;
       }
+      .admin-sidebar__chevron {
+          width: 16px;
+          text-align: center;
+          font-size: 11px;
+          color: #9ca3af;
+          transition: transform 0.18s;
+          flex-shrink: 0;
+      }
+      .admin-sidebar__item.expanded .admin-sidebar__chevron { transform: rotate(90deg); color: #1e3a8a; }
+
+      /* ====== 二级菜单（subnav）====== */
+      .admin-sidebar__subnav {
+          display: none;                 /* 默认收起；切换一级菜单时由 JS 控制 */
+          flex-direction: column;
+          gap: 2px;
+          padding: 4px 0 6px 12px;
+          border-left: 1px dashed rgba(30, 44, 80, 0.12);
+          margin: 2px 10px 4px 22px;
+      }
+      .admin-sidebar__subnav.expanded { display: flex; }
+      .admin-sidebar__subitem {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 7px 10px;
+          border-radius: 8px;
+          border: none;
+          background: transparent;
+          color: #4b5563;
+          font-size: 13px;
+          cursor: pointer;
+          text-align: left;
+          transition: background 0.15s, color 0.15s;
+          width: 100%;
+          white-space: nowrap;
+          overflow: hidden;
+      }
+      .admin-sidebar__subitem:hover {
+          background: rgba(59, 130, 246, 0.08);
+          color: #1e40af;
+      }
+      .admin-sidebar__subitem.active {
+          background: rgba(59, 130, 246, 0.12);
+          color: #1e3a8a;
+          font-weight: 600;
+      }
+      .admin-sidebar__subitem i { width: 16px; text-align: center; font-size: 12px; flex-shrink: 0; }
+      .admin-sidebar__subitem-label {
+          overflow: hidden; text-overflow: ellipsis; flex: 1;
+      }
+      /* 学校分组标题：分隔「当前学校」配置项 */
+      .admin-sidebar__group-title {
+          font-size: 10px;
+          font-weight: 700;
+          color: #9ca3af;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          padding: 10px 10px 4px 10px;
+          display: flex; align-items: center; gap: 6px;
+          white-space: nowrap;
+          overflow: hidden;
+      }
+      .admin-sidebar__group-title .code {
+          color: #1e3a8a;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+          font-size: 11px;
+          letter-spacing: 0;
+          background: rgba(59, 130, 246, 0.10);
+          padding: 1px 6px;
+          border-radius: 5px;
+          text-transform: none;
+      }
+      .admin-sidebar__group-title .close-school {
+          margin-left: auto;
+          width: 18px; height: 18px;
+          display: flex; align-items: center; justify-content: center;
+          border-radius: 5px;
+          border: none; background: transparent;
+          color: #9ca3af; cursor: pointer; font-size: 11px;
+      }
+      .admin-sidebar__group-title .close-school:hover { background: rgba(239, 68, 68, 0.10); color: #dc2626; }
 
       .admin-sidebar__footer {
           margin-top: 16px;
@@ -182,7 +263,10 @@
       .admin-sidebar.collapsed .admin-sidebar__brand-text,
       .admin-sidebar.collapsed .admin-sidebar__item-label,
       .admin-sidebar.collapsed .admin-sidebar__footer,
-      .admin-sidebar.collapsed .admin-sidebar__badge {
+      .admin-sidebar.collapsed .admin-sidebar__badge,
+      .admin-sidebar.collapsed .admin-sidebar__chevron,
+      .admin-sidebar.collapsed .admin-sidebar__subnav,
+      .admin-sidebar.collapsed .admin-sidebar__group-title {
           display: none;
       }
       .admin-sidebar.collapsed .admin-sidebar__item {
@@ -192,6 +276,26 @@
       }
       .admin-sidebar.collapsed .admin-sidebar__brand {
           justify-content: center;
+      }
+      /* 折叠态下 hover/展开时，二级菜单以浮层形式出现在右侧 */
+      .admin-sidebar.collapsed .admin-sidebar__item.has-subnav {
+          position: relative;
+      }
+      .admin-sidebar.collapsed .admin-sidebar__item.has-subnav:hover .admin-sidebar__subnav,
+      .admin-sidebar.collapsed .admin-sidebar__item.has-subnav.expanded .admin-sidebar__subnav {
+          display: flex;
+          position: absolute;
+          left: calc(100% + 6px);
+          top: 0;
+          margin: 0;
+          padding: 6px 6px 6px 14px;
+          width: 200px;
+          background: rgba(255, 255, 255, 0.96);
+          backdrop-filter: blur(10px);
+          box-shadow: 0 6px 22px rgba(30, 44, 80, 0.15);
+          border-radius: 12px;
+          border-left: 1px solid rgba(30, 44, 80, 0.10);
+          z-index: 50;
       }
 
       .admin-main {
@@ -301,6 +405,17 @@
               flex-shrink: 0;
               padding: 8px 14px;
           }
+          /* 移动端二级菜单改为顶部水平滑动子菜单 */
+          .admin-sidebar__subnav {
+              flex-direction: row;
+              padding: 4px 0;
+              border-left: none;
+              border-top: 1px dashed rgba(30, 44, 80, 0.12);
+              margin: 4px 0 0 0;
+              overflow-x: auto;
+          }
+          .admin-sidebar__subitem { flex-shrink: 0; width: auto; }
+          .admin-sidebar__group-title { padding: 8px 0 2px 0; }
           .admin-sidebar__brand .admin-sidebar__collapse-btn { display: none; }
       }
     </style>
@@ -487,10 +602,45 @@
                 <button class="admin-sidebar__item active" data-view="overview" type="button">
                     <i class="fas fa-chart-pie"></i><span class="admin-sidebar__item-label">平台总览</span>
                 </button>
-                <button class="admin-sidebar__item" data-view="schools" type="button">
+
+                <!-- 学校管理：含二级菜单（学校列表 / 回收站 / 当前学校配置） -->
+                <button class="admin-sidebar__item has-subnav" data-view="schools" type="button">
                     <i class="fas fa-school"></i><span class="admin-sidebar__item-label">学校管理</span>
                     <span id="adminSidebarBadgeSchools" class="admin-sidebar__badge" hidden></span>
+                    <i class="fas fa-chevron-right admin-sidebar__chevron"></i>
                 </button>
+                <div class="admin-sidebar__subnav" data-subnav="schools">
+                    <button class="admin-sidebar__subitem active" data-subview="list" type="button">
+                        <i class="fas fa-list"></i><span class="admin-sidebar__subitem-label">学校列表</span>
+                    </button>
+                    <button class="admin-sidebar__subitem" data-subview="recycle" type="button">
+                        <i class="fas fa-trash-restore"></i><span class="admin-sidebar__subitem-label">回收站</span>
+                    </button>
+                    <div id="sidebarSchoolConfigGroup" class="hidden">
+                        <div class="admin-sidebar__group-title">
+                            <i class="fas fa-cog"></i>
+                            <span>当前学校</span>
+                            <span id="sidebarSchoolConfigCode" class="code"></span>
+                            <button id="sidebarCloseSchool" class="close-school" type="button" title="关闭该校详情，返回列表"><i class="fas fa-times"></i></button>
+                        </div>
+                        <button class="admin-sidebar__subitem" data-subview="basic" type="button">
+                            <i class="fas fa-info-circle"></i><span class="admin-sidebar__subitem-label">基本信息</span>
+                        </button>
+                        <button class="admin-sidebar__subitem" data-subview="custom" type="button">
+                            <i class="fas fa-palette"></i><span class="admin-sidebar__subitem-label">界面定制</span>
+                        </button>
+                        <button class="admin-sidebar__subitem" data-subview="login" type="button">
+                            <i class="fas fa-sign-in-alt"></i><span class="admin-sidebar__subitem-label">登录样式</span>
+                        </button>
+                        <button class="admin-sidebar__subitem" data-subview="users" type="button">
+                            <i class="fas fa-users"></i><span class="admin-sidebar__subitem-label">用户管理</span>
+                        </button>
+                        <button class="admin-sidebar__subitem" data-subview="backup" type="button">
+                            <i class="fas fa-database"></i><span class="admin-sidebar__subitem-label">备份运维</span>
+                        </button>
+                    </div>
+                </div>
+
                 <button class="admin-sidebar__item" data-view="accounts" type="button">
                     <i class="fas fa-users-cog"></i><span class="admin-sidebar__item-label">账号与权限</span>
                 </button>
@@ -502,7 +652,7 @@
                 </button>
             </nav>
             <div class="admin-sidebar__footer">
-                <div class="admin-sidebar__hint">点击「学校管理」选择学校 →<br>在详情面板切换 5 个 Tab</div>
+                <div class="admin-sidebar__hint">点击「学校管理」→ 二级菜单切换<br>学校列表 / 回收站 / 学校配置</div>
                 <button id="btnSidebarLogout" type="button"
                         class="mt-3 w-full text-sm px-3 py-1.5 bg-red-500/90 text-white rounded-lg hover:bg-red-500 transition shadow"
                         title="退出登录（返回平台超管登录页）">
@@ -516,17 +666,14 @@
         <!-- 通知区 -->
         <div id="notice" class="hidden mb-4 p-3 rounded-lg text-sm"></div>
 
-        <!-- 工具栏 -->
-        <div class="glass rounded-2xl p-4 mb-6 flex flex-wrap items-center justify-between gap-3">
+        <!-- 工具栏（学校列表 subview 内显示） -->
+        <div id="schoolsToolbar" class="glass rounded-2xl p-4 mb-6 flex flex-wrap items-center justify-between gap-3">
             <div class="flex items-center gap-3">
                 <button id="btnShowCreate" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium flex items-center">
                     <i class="fas fa-plus mr-2"></i>新增学校
                 </button>
                 <button id="refreshBtn" class="px-3 py-2 text-blue-600 hover:bg-blue-50 rounded-lg transition flex items-center text-sm">
                     <i class="fas fa-sync mr-1"></i>刷新
-                </button>
-                <button id="btnRecycleBin" class="px-3 py-2 text-orange-600 hover:bg-orange-50 rounded-lg transition flex items-center text-sm" title="查看已彻底删除的学校（90 天内可恢复）">
-                    <i class="fas fa-trash-restore mr-1"></i>回收站
                 </button>
             </div>
             <div class="flex items-center gap-2">
@@ -546,7 +693,7 @@
         </div>
 
         <!-- 学校列表 -->
-        <div class="glass rounded-2xl p-5 mb-6">
+        <div id="schoolsListCard" class="glass rounded-2xl p-5 mb-6">
             <h2 class="font-semibold text-gray-700 mb-3"><i class="fas fa-list mr-2 text-blue-600"></i>学校列表</h2>
             <div class="overflow-x-auto">
                 <table class="glass-table">
@@ -569,37 +716,27 @@
             </div>
         </div>
 
-        <!-- 学校详情面板（默认隐藏） -->
+        <!-- 学校详情面板（默认隐藏；5 个 Tab 由左侧二级菜单驱动） -->
         <div id="detailPanel" class="glass rounded-2xl p-5 hidden">
-            <div class="flex items-center justify-between mb-4">
-                <h2 class="font-semibold text-gray-700">
-                    <i class="fas fa-cog mr-2 text-blue-600"></i>
-                    <span id="detailTitle">学校管理</span>
-                </h2>
-                <div class="flex items-center gap-3">
+            <div class="flex items-center justify-between mb-4 gap-3">
+                <div class="flex items-center gap-3 min-w-0">
+                    <button id="backToSchoolsList" type="button" class="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-600 text-sm hover:bg-gray-50 transition shrink-0" title="返回学校列表">
+                        <i class="fas fa-arrow-left mr-1"></i>返回列表
+                    </button>
+                    <h2 class="font-semibold text-gray-700 truncate min-w-0">
+                        <i class="fas fa-cog mr-2 text-blue-600"></i>
+                        <span id="detailTitle">学校管理</span>
+                    </h2>
+                </div>
+                <div class="flex items-center gap-3 shrink-0">
                     <button id="btnReprovision" class="px-3 py-1.5 rounded-lg border border-orange-400 text-orange-600 text-sm hover:bg-orange-50 transition"><i class="fas fa-sync-alt mr-1"></i>重新初始化</button>
-                    <button id="closeDetail" class="text-gray-400 hover:text-gray-600 text-xl"><i class="fas fa-times"></i></button>
+                    <button id="closeDetail" class="text-gray-400 hover:text-gray-600 text-xl" title="关闭详情"><i class="fas fa-times"></i></button>
                 </div>
             </div>
 
-            <!-- Tab 导航 -->
-            <div class="flex border-b border-gray-200 mb-4 gap-1">
-                <button class="tab-btn active px-4 py-2 font-medium text-blue-600 border-b-2 border-blue-500" data-tab="basic">
-                    <i class="fas fa-info-circle mr-1"></i>基本信息
-                </button>
-                <button class="tab-btn px-4 py-2 font-medium text-gray-500 hover:text-blue-500 border-b-2 border-transparent" data-tab="custom">
-                    <i class="fas fa-palette mr-1"></i>界面定制
-                </button>
-                <button class="tab-btn px-4 py-2 font-medium text-gray-500 hover:text-blue-500 border-b-2 border-transparent" data-tab="login">
-                    <i class="fas fa-sign-in-alt mr-1"></i>登录样式
-                </button>
-                <button class="tab-btn px-4 py-2 font-medium text-gray-500 hover:text-blue-500 border-b-2 border-transparent" data-tab="users">
-                    <i class="fas fa-users mr-1"></i>用户管理
-                </button>
-                <button class="tab-btn px-4 py-2 font-medium text-gray-500 hover:text-blue-500 border-b-2 border-transparent" data-tab="backup">
-                    <i class="fas fa-database mr-1"></i>运维备份
-                </button>
-            </div>
+            <!-- 5 个 Tab（tab-content）由左侧二级菜单（subview=basic/custom/login/users/backup）切换，
+                 原 tab-btn 导航已移除，避免与左侧二级菜单双入口重复。 -->
+            <div class="border-b border-gray-200 mb-4"></div>
 
             <!-- Tab: 基本信息 -->
             <div id="tab-basic" class="tab-content">
@@ -2502,15 +2639,12 @@
         }
 
         function bindRecycleBinControls() {
-            const openBtn = document.getElementById('btnRecycleBin');
+            // 「回收站」入口已改由左侧二级菜单（subview=recycle）驱动；
+            // 此处仅保留面板内「关闭」按钮 → 返回学校列表。
             const closeBtn = document.getElementById('btnCloseRecycleBin');
-            const panel = document.getElementById('recycleBinPanel');
-            if (!openBtn || !panel) return;
-            openBtn.addEventListener('click', () => {
-                panel.classList.remove('hidden');
-                loadRecycleBin();
-            });
-            closeBtn.addEventListener('click', () => panel.classList.add('hidden'));
+            if (closeBtn) {
+                closeBtn.addEventListener('click', () => switchSchoolsSubview('list'));
+            }
         }
 
         // ====== 学校详情面板 ======
@@ -2520,6 +2654,12 @@
             currentSchoolCode = code;
             const school = allSchools.find(s => s.code === code);
             if (!school) return;
+
+            // 联动左侧二级菜单：显示「当前学校」配置分组并填入学校代码
+            const grp = document.getElementById('sidebarSchoolConfigGroup');
+            const codeLabel = document.getElementById('sidebarSchoolConfigCode');
+            if (grp) grp.classList.remove('hidden');
+            if (codeLabel) codeLabel.textContent = code;
 
             document.getElementById('detailPanel').classList.remove('hidden');
             document.getElementById('detailTitle').textContent = `${school.name || school.code} (${code})`;
@@ -2541,10 +2681,10 @@
             // 顶部 logo 保持平台统一盾牌，不显示该校校徽（避免超管误读为该校页面）
             applyAdminTheme({ themeColor: school.theme_color });
 
-            // 切到基本信息 Tab
+            // 切到基本信息 Tab（经 switchSchoolsSubview 同步左侧二级菜单与主区显隐）
             customDirty = false; logoStyle = null; logoStyleDirty = false;  // 切换学校时重置，避免沿用上校的未保存编辑
             await loadCustomization();   // 预载 theme_config（含 logo_style），使基本信息页「校徽排版」可用
-            switchTab('basic');
+            switchSchoolsSubview('basic');
         }
 
         function updateLogoPreview(url) {
@@ -2702,15 +2842,12 @@
             });
         });
 
-        // Tab 切换
-        document.querySelectorAll('.tab-btn').forEach(btn => {
-            btn.addEventListener('click', () => switchTab(btn.dataset.tab));
-        });
+        // Tab 切换（由左侧二级菜单 + 详情面板「返回列表」驱动，原 .tab-btn 已移除）
+        let currentDetailTab = 'basic';
 
         function switchTab(tab) {
             // 离开「界面定制」时若有未保存修改，提醒用户
-            const activeTabEl = document.querySelector('.tab-btn.active');
-            const fromTab = activeTabEl?.dataset.tab;
+            const fromTab = currentDetailTab;
             if (fromTab === 'custom' && tab !== 'custom' && customDirty) {
                 if (!confirm('「界面定制」有未保存的修改，确定离开吗？离开后修改将丢失。')) return;
             }
@@ -2719,15 +2856,10 @@
                 if (!confirm('「登录样式」有未保存的修改，确定离开吗？离开后修改将丢失。')) return;
             }
 
-            document.querySelectorAll('.tab-btn').forEach(b => {
-                if (b.dataset.tab === tab) {
-                    b.classList.add('active', 'text-blue-600', 'border-blue-500');
-                    b.classList.remove('text-gray-500', 'border-transparent');
-                } else {
-                    b.classList.remove('active', 'text-blue-600', 'border-blue-500');
-                    b.classList.add('text-gray-500', 'border-transparent');
-                }
-            });
+            currentDetailTab = tab;
+
+            // 左侧二级菜单激活态由 switchSchoolsSubview 统一同步（此处不处理）
+
             document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
             document.getElementById('tab-' + tab).classList.remove('hidden');
 
@@ -2747,13 +2879,60 @@
             if (tab === 'backup') backupManager.load();
         }
 
+        // ====== 学校管理二级菜单（subview）======
+        // 控制 schools 视图内的三类子视图：
+        //   list —— 工具栏 + 学校列表卡片（默认）
+        //   recycle —— 回收站面板
+        //   basic/custom/login/users/backup —— 选中学校后的 5 个 Tab（共用 detailPanel）
+        function switchSchoolsSubview(subName) {
+            const detailSubviews = ['basic', 'custom', 'login', 'users', 'backup'];
+            const isDetail = detailSubviews.includes(subName);
+
+            const toolbar = document.getElementById('schoolsToolbar');
+            const listCard = document.getElementById('schoolsListCard');
+            const recyclePanel = document.getElementById('recycleBinPanel');
+            const detailPanel = document.getElementById('detailPanel');
+
+            if (toolbar) toolbar.classList.toggle('hidden', subName !== 'list');
+            if (listCard) listCard.classList.toggle('hidden', subName !== 'list');
+
+            if (recyclePanel) {
+                recyclePanel.classList.toggle('hidden', subName !== 'recycle');
+                if (subName === 'recycle' && typeof loadRecycleBin === 'function') loadRecycleBin();
+            }
+
+            if (detailPanel) {
+                if (isDetail) {
+                    detailPanel.classList.remove('hidden');
+                    switchTab(subName);
+                } else {
+                    detailPanel.classList.add('hidden');
+                }
+            }
+
+            // 同步左侧二级菜单激活态（list / recycle / 5 个 detail 项，互斥高亮）
+            document.querySelectorAll('[data-subnav="schools"] .admin-sidebar__subitem[data-subview]').forEach(s => {
+                s.classList.toggle('active', s.getAttribute('data-subview') === subName);
+            });
+        }
+        // 暴露给 initAdminSidebar（switchTo）与其它作用域使用
+        window.switchSchoolsSubview = switchSchoolsSubview;
+
         document.getElementById('closeDetail').addEventListener('click', () => {
             if (customDirty && !confirm('「界面定制」有未保存的修改，确定关闭吗？修改将丢失。')) return;
             if (loginStyleDesigner.hasUnsaved() && !confirm('「登录样式」有未保存的修改，确定关闭吗？修改将丢失。')) return;
-            document.getElementById('detailPanel').classList.add('hidden');
+            // 收起左侧「当前学校」配置分组 + 回到列表 subview
+            const grp = document.getElementById('sidebarSchoolConfigGroup');
+            if (grp) grp.classList.add('hidden');
+            switchSchoolsSubview('list');
             currentSchoolCode = null;
             // XR-04：离开配置页，管理后台还原默认主题（顶部 logo 始终显示平台统一盾牌，无需还原）
             applyAdminTheme(null);
+        });
+
+        // 「返回列表」按钮（详情面板顶部）：与关闭详情等价，但不触发主题还原外的多余逻辑
+        document.getElementById('backToSchoolsList')?.addEventListener('click', () => {
+            document.getElementById('closeDetail').click();
         });
 
         // 主题色联动
@@ -4630,27 +4809,58 @@
             wrap.appendChild(schoolsContainer);
         }
 
-        function switchTo(viewName) {
+        function switchTo(viewName, opts = {}) {
             // 隐藏所有视图
             document.querySelectorAll('.admin-view').forEach((v) => v.classList.add('hidden'));
             // 显示目标视图
             const target = document.querySelector('.admin-view[data-view="' + viewName + '"]');
             if (target) target.classList.remove('hidden');
-            // 更新菜单激活态
+            // 更新一级菜单激活态
             items.forEach((it) => {
                 it.classList.toggle('active', it.getAttribute('data-view') === viewName);
             });
+
+            // 控制二级菜单展开/收起：仅当前一级菜单的 subnav 展开，其余收起
+            document.querySelectorAll('.admin-sidebar__subnav').forEach((sn) => {
+                const parentView = sn.getAttribute('data-subnav');
+                const isCurrent = parentView === viewName;
+                sn.classList.toggle('expanded', isCurrent);
+                const parentItem = document.querySelector('.admin-sidebar__item[data-view="' + parentView + '"]');
+                if (parentItem) parentItem.classList.toggle('expanded', isCurrent);
+            });
+
+            // schools 视图：按指定 subview 渲染主区（默认 list）
+            if (viewName === 'schools') {
+                const subName = opts.subview || 'list';
+                if (typeof window.switchSchoolsSubview === 'function') {
+                    window.switchSchoolsSubview(subName);
+                }
+            }
+
             // 滚动到顶部
             window.scrollTo({ top: 0, behavior: 'smooth' });
             // URL hash 同步（轻量、可分享）
             try {
-                history.replaceState(null, '', '#view=' + viewName);
+                const hash = opts.subview ? '#view=' + viewName + '&subview=' + opts.subview : '#view=' + viewName;
+                history.replaceState(null, '', hash);
             } catch (e) { /* file:// 等场景下 history.replaceState 可能抛错 */ }
         }
 
-        // 菜单点击
+        // 一级菜单点击
         items.forEach((it) => {
             it.addEventListener('click', () => switchTo(it.getAttribute('data-view')));
+        });
+
+        // 二级菜单点击（学校管理：学校列表 / 回收站 / 5 个学校配置）
+        document.querySelectorAll('[data-subnav="schools"] .admin-sidebar__subitem[data-subview]').forEach((sub) => {
+            sub.addEventListener('click', () => {
+                switchTo('schools', { subview: sub.getAttribute('data-subview') });
+            });
+        });
+
+        // 「当前学校」分组关闭按钮：等价于关闭详情、返回列表
+        document.getElementById('sidebarCloseSchool')?.addEventListener('click', () => {
+            document.getElementById('closeDetail')?.click();
         });
 
         // 快速入口卡（总览里的 4 张卡）跳转
@@ -4697,20 +4907,14 @@
         }
 
         // 快捷按钮：跳转学校管理
-        const goSchools = (tab) => {
-            switchTo('schools');
-            // 若指定 tab，尝试打开 detailPanel 并切到该 tab（仅当有已选中行时）
-            if (tab) {
-                setTimeout(() => {
-                    try {
-                        const tabBtn = document.querySelector(`[data-tab="${tab}"]`);
-                        if (tabBtn && !tabBtn.closest('.hidden')) tabBtn.click();
-                    } catch (e) { /* 静默失败，让用户手动切 tab */ }
-                }, 300);
-            }
+        const goSchools = (subview) => {
+            // 是否已选中学校：以左侧「当前学校」分组是否可见为准（跨 script 作用域，避免引用 module 内变量）
+            const grp = document.getElementById('sidebarSchoolConfigGroup');
+            const hasSchool = grp && !grp.classList.contains('hidden');
+            switchTo('schools', { subview: hasSchool ? subview : 'list' });
         };
-        document.getElementById('btnGoSchoolsToUsers')?.addEventListener('click', () => goSchools('tab-users'));
-        document.getElementById('btnGoSchoolsToBackup')?.addEventListener('click', () => goSchools('tab-backup'));
+        document.getElementById('btnGoSchoolsToUsers')?.addEventListener('click', () => goSchools('users'));
+        document.getElementById('btnGoSchoolsToBackup')?.addEventListener('click', () => goSchools('backup'));
 
         // 「账号与权限」内联按钮：复用原 btnAccountMgmt 的逻辑（打开弹层）
         const btnAccountMgmtInline = document.getElementById('btnAccountMgmtInline');

@@ -365,6 +365,16 @@ if [ ! -d "$REPO_ROOT/.git" ]; then
   ok "克隆完成"
 else
   git -C "$REPO_ROOT" fetch origin "$DEPLOY_BRANCH"
+  # 防误杀工作区：先 stash 未提交改动，再 reset；reset 完让用户手动 pop 恢复。
+  # 历史教训：未加这段时 `git reset --hard origin/main` 会把工作区正在调试的改动永久冲掉，
+  # 且因 reset --hard 不写 reflog，无法找回。
+  if ! git -C "$REPO_ROOT" diff --quiet HEAD 2>/dev/null || \
+     [ -n "$(git -C "$REPO_ROOT" ls-files --others --exclude-standard 2>/dev/null)" ]; then
+    log "检测到工作区有未提交改动，自动 stash 暂存以防 reset --hard 冲掉..."
+    git -C "$REPO_ROOT" stash push -u -m "deploy-autostash $(date -u +%FT%TZ)" \
+      || fail "git stash push 失败（请手动处理工作区改动后再跑部署）"
+    ok "已自动 stash；本次部署完成后需手动 'git stash pop' 恢复（在 $REPO_ROOT）"
+  fi
   git -C "$REPO_ROOT" checkout "$DEPLOY_BRANCH"
   git -C "$REPO_ROOT" reset --hard "origin/$DEPLOY_BRANCH"
   # 保留本地的 .env，不被 clean 删掉
@@ -755,6 +765,10 @@ $CADDY_ADDR {
     handle /health {
         reverse_proxy 127.0.0.1:$API_PORT
     }
+    # TD-CacheBust: HTML/JS/CSS 强制 no-cache，浏览器每次向服务器验证 ETag，
+    # 避免部署新版本前端后用户仍看到缓存的旧页面（如 admin-schools.html 二级菜单改版）。
+    @staticAssets path *.js *.css *.mjs *.html
+    header @staticAssets Cache-Control "no-cache, must-revalidate"
     handle {
         root * $REPO_ROOT/dist
         try_files {path} /index.html
