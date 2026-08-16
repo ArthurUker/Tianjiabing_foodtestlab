@@ -49,16 +49,15 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
     router.get('/api/school/config', authenticateUser, async (req, res) => {
         try {
             const code = req.user?.schoolCode || ''
-            // 系统表位于 public，使用显式 schema 前缀，确保不依赖 search_path
-            const schoolRows = await prisma.$queryRawUnsafe(
-                `SELECT "code","name","short_name","theme_color","logo_url","status" FROM public."School" WHERE "code" = $1 LIMIT 1`,
-                code
-            )
+            // 系统表位于 public，School 为固定 public schema 的 Model，直接用 Model API
+            const school = await prisma.school.findUnique({
+                where: { code },
+                select: { code: true, name: true, short_name: true, theme_color: true, logo_url: true, status: true }
+            })
             const customizationRow = await prisma.schoolCustomization.findUnique({
                 where: { school_code: code },
                 select: Object.fromEntries([...CUSTOMIZATION_COLUMNS, 'updated_at'].map(c => [c, true]))
             })
-            const school = schoolRows?.[0] || null
             const customization = customizationRow || null
             // 字段级联配置（FieldOption 表）：合并进 customization 返回（录入端经缓存统一消费）
             if (customization && code) {
@@ -95,24 +94,26 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
             if (!isValidSchoolCode(code)) {
                 return res.status(400).json({ error: '非法学校代码' })
             }
-            const schoolRows = await prisma.$queryRawUnsafe(
-                `SELECT "code","name","short_name","theme_color","logo_url","status" FROM public."School" WHERE "code" = $1 LIMIT 1`,
-                code
-            )
+            const school = await prisma.school.findUnique({
+                where: { code },
+                select: { code: true, name: true, short_name: true, theme_color: true, logo_url: true, status: true, updated_at: true }
+            })
             const customizationRow = await prisma.schoolCustomization.findUnique({
                 where: { school_code: code },
                 select: Object.fromEntries([...CUSTOMIZATION_COLUMNS, 'guest_enabled', 'updated_at'].map(c => [c, true]))
             })
-            const school = schoolRows?.[0] || null
             if (!school || school.status !== 'active') {
                 return res.status(404).json({ error: '学校不存在或未激活' })
             }
             const customization = customizationRow || null
             // 迁移 Model API：Json 字段返回对象/数组；下方兜底仅针对历史 double-encode 脏数据（jsonb 字符串）
             if (customization) {
+                // 历史 double-encode 脏数据兜底：数组字段 parse 失败降级 []，对象字段降级 {}（与 schema 类型对齐）
+                const JSON_ARRAY_FIELDS = new Set(['hidden_fields', 'test_types', 'visible_menu_items', 'canteens'])
                 for (const key of ['custom_fields', 'field_labels', 'hidden_fields', 'field_order', 'test_types', 'theme_config', 'field_rules', 'visible_menu_items', 'canteens', 'field_types']) {
                     if (typeof customization[key] === 'string') {
-                        try { customization[key] = JSON.parse(customization[key]) } catch (_) { customization[key] = {} }
+                        try { customization[key] = JSON.parse(customization[key]) }
+                        catch (_) { customization[key] = JSON_ARRAY_FIELDS.has(key) ? [] : {} }
                     }
                 }
                 try {
@@ -143,10 +144,10 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
     // 列出所有学校
     router.get('/api/admin/schools', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
         try {
-            const rows = await prisma.$queryRawUnsafe(
-                `SELECT "code","name","short_name","theme_color","logo_url","status","created_at"
-                 FROM public."School" ORDER BY "created_at" DESC`
-            )
+            const rows = await prisma.school.findMany({
+                select: { code: true, name: true, short_name: true, theme_color: true, logo_url: true, status: true, created_at: true },
+                orderBy: { created_at: 'desc' }
+            })
             res.json({ success: true, data: rows })
         } catch (error) {
             console.error('❌ Error listing schools:', error)
@@ -216,29 +217,43 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
             }
             // P1-1: 学校简称全校唯一（非空时查重，与 DB UNIQUE 约束 double-check，返回 409）
             if (shortName != null && String(shortName).trim() !== '') {
-                const dupShort = await prisma.$queryRawUnsafe(
-                    `SELECT 1 FROM public."School" WHERE "short_name" = $1 AND "code" <> $2 LIMIT 1`,
-                    String(shortName).trim(), code
-                )
-                if (dupShort.length) {
+                const dupShort = await prisma.school.findFirst({
+                    where: { short_name: String(shortName).trim(), code: { not: code } },
+                    select: { code: true }
+                })
+                if (dupShort) {
                     return res.status(409).json({ error: `学校简称「${shortName}」已被其他学校使用` })
                 }
             }
-            const exists = await prisma.$queryRawUnsafe(
-                `SELECT 1 FROM public."School" WHERE "code" = $1`, code
-            )
-            if (!exists.length) return res.status(404).json({ error: '学校不存在' })
-            const updated = await prisma.$queryRawUnsafe(
-                `UPDATE public."School"
-                 SET "name" = COALESCE($2, "name"),
-                     "short_name" = COALESCE($3, "short_name"),
-                     "theme_color" = COALESCE($4, "theme_color"),
-                     "logo_url" = COALESCE($5, "logo_url"),
-                     "updated_at" = now()
-                 WHERE "code" = $1
-                 RETURNING "code","name","short_name","theme_color","logo_url","status"`,
-                code, name ?? null, shortName ?? null, themeColor ?? null, logoUrl ?? null
-            )
+            const exists = await prisma.school.findUnique({
+                where: { code },
+                select: { code: true }
+            })
+            if (!exists) return res.status(404).json({ error: '学校不存在' })
+            // COALESCE 语义等价：仅当字段显式传入（非 undefined/null）时更新，否则保持原值
+            const updateData = {}
+            if (name != null) updateData.name = name
+            if (shortName != null) updateData.short_name = shortName
+            if (themeColor != null) updateData.theme_color = themeColor
+            if (logoUrl != null) updateData.logo_url = logoUrl
+            const schoolSelect = { code: true, name: true, short_name: true, theme_color: true, logo_url: true, status: true }
+            let updated
+            if (Object.keys(updateData).length > 0) {
+                updated = await prisma.school.update({
+                    where: { code },
+                    data: updateData,
+                    select: schoolSelect
+                })
+            } else {
+                // 无 School 字段需要更新（仅 logoStyle/systemTitle/canteens/guestEnabled 时）：
+                // 跳过 update，避免空 data 抛 Prisma 校验错误；直接返回当前记录。
+                // 原 SQL 会无条件刷新 updated_at，但"未改 School 字段则不动 School 行"更合理，
+                // 且前端版本判断依赖 max(School.updated_at, customization.updated_at)，不影响正确性。
+                updated = await prisma.school.findUnique({
+                    where: { code },
+                    select: schoolSelect
+                })
+            }
             // 校徽排版（logoStyle）与顶部状态栏标题（systemTitle）随基本信息一并保存：
             // 合并写入 SchoolCustomization.theme_config（logo_style / systemTitle），不影响其它定制。
             if (logoStyle !== undefined || systemTitle !== undefined) {
@@ -315,7 +330,7 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
                     data: { guest_enabled: guestEnabled }
                 })
             }
-            res.json({ success: true, data: updated[0] })
+            res.json({ success: true, data: updated })
         } catch (error) {
             console.error('❌ Error updating school:', error)
             res.status(500).json({ error: '更新学校信息失败' })
@@ -330,13 +345,18 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
             if (!['active', 'disabled'].includes(status)) {
                 return res.status(400).json({ error: '状态值无效（仅允许 active/disabled）' })
             }
-            const updated = await prisma.$queryRawUnsafe(
-                `UPDATE public."School" SET "status" = $2, "updated_at" = now()
-                 WHERE "code" = $1 RETURNING "code","name","status"`,
-                code, status
-            )
-            if (!updated.length) return res.status(404).json({ error: '学校不存在' })
-            res.json({ success: true, data: updated[0] })
+            let updated
+            try {
+                updated = await prisma.school.update({
+                    where: { code },
+                    data: { status },
+                    select: { code: true, name: true, status: true }
+                })
+            } catch (e) {
+                if (e?.code === 'P2025') return res.status(404).json({ error: '学校不存在' })
+                throw e
+            }
+            res.json({ success: true, data: updated })
         } catch (error) {
             res.status(500).json({ error: '更新学校状态失败' })
         }
@@ -347,14 +367,18 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
         try {
             const { code } = req.params
             if (!isValidSchoolCode(code)) return res.status(400).json({ error: '非法学校代码' })
-            const updated = await prisma.$queryRawUnsafe(
-                `UPDATE public."School" SET "status" = 'disabled', "updated_at" = now()
-                 WHERE "code" = $1 AND "status" <> 'disabled'
-                 RETURNING "code","name","status"`,
-                code
-            )
-            if (!updated.length) return res.status(404).json({ error: '学校不存在或已停用' })
-            res.json({ success: true, message: `学校 ${code} 已停用（逻辑删除，数据保留）`, data: updated[0] })
+            // updateMany 保持原 SQL 的原子条件（status <> 'disabled'），防止并发重复禁用。
+            // 注意：Prisma 的 updateMany 不会自动刷新 @updatedAt，需显式传 updated_at 以等价原 SQL 的 now()。
+            const result = await prisma.school.updateMany({
+                where: { code, status: { not: 'disabled' } },
+                data: { status: 'disabled', updated_at: new Date() }
+            })
+            if (result.count === 0) return res.status(404).json({ error: '学校不存在或已停用' })
+            const updated = await prisma.school.findUnique({
+                where: { code },
+                select: { code: true, name: true, status: true }
+            })
+            res.json({ success: true, message: `学校 ${code} 已停用（逻辑删除，数据保留）`, data: updated })
         } catch (error) {
             console.error('❌ Error deleting school:', error)
             res.status(500).json({ error: '删除学校失败' })
@@ -371,12 +395,11 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
             const { code } = req.params
             if (!isValidSchoolCode(code)) return res.status(400).json({ error: '非法学校代码' })
 
-            const rows = await prisma.$queryRawUnsafe(
-                `SELECT "code","name","short_name","theme_color","logo_url","status"
-                 FROM public."School" WHERE "code" = $1`, code
-            )
-            if (!rows.length) return res.status(404).json({ error: '学校不存在' })
-            const school = rows[0]
+            const school = await prisma.school.findUnique({
+                where: { code },
+                select: { code: true, name: true, short_name: true, theme_color: true, logo_url: true, status: true }
+            })
+            if (!school) return res.status(404).json({ error: '学校不存在' })
             if (school.status !== 'disabled') {
                 return res.status(409).json({ error: '必须先停用学校（软删除）后才能彻底删除' })
             }
@@ -403,7 +426,7 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
             // 事务：RENAME schema + 删 School 行 + 写回收站记录
             await prisma.$transaction(async (tx) => {
                 await tx.$executeRawUnsafe(`ALTER SCHEMA "school_${code}" RENAME TO "${recycleSchema}"`)
-                await tx.$executeRawUnsafe(`DELETE FROM public."School" WHERE "code" = $1`, code)
+                await tx.school.delete({ where: { code } })
                 await tx.$executeRawUnsafe(
                     `INSERT INTO public."recycle_bin"
                      (id, original_code, original_schema, recycle_schema, name, short_name, theme_color, logo_url,
@@ -467,12 +490,17 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
 
             await prisma.$transaction(async (tx) => {
                 await tx.$executeRawUnsafe(`ALTER SCHEMA "${bin.recycle_schema}" RENAME TO "${bin.original_schema}"`)
-                // 重建 School 行
-                await tx.$executeRawUnsafe(
-                    `INSERT INTO public."School" (id, code, name, short_name, theme_color, logo_url, status, created_at, updated_at)
-                     VALUES ($1,$2,$3,$4,$5,$6,'active',now(),now())`,
-                    crypto.randomUUID(), bin.original_code, bin.name, bin.short_name, bin.theme_color, bin.logo_url
-                )
+                // 重建 School 行（id/created_at/updated_at 由 Prisma 默认值自动生成）
+                await tx.school.create({
+                    data: {
+                        code: bin.original_code,
+                        name: bin.name,
+                        short_name: bin.short_name,
+                        theme_color: bin.theme_color,
+                        logo_url: bin.logo_url,
+                        status: 'active'
+                    }
+                })
                 // 重建 SchoolCustomization（如有快照）
                 // 迁移 Model API：Json 字段直接传对象/数组，Prisma 自动序列化，
                 // 消除 ::jsonb cast 与 double-encode（FIX-08/R01/R15 的根因）。
