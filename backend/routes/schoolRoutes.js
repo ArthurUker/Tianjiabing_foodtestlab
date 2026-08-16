@@ -19,6 +19,12 @@ const CUSTOMIZATION_COLUMNS = [
     'field_options', 'field_order', 'custom_fields', 'test_types', 'field_types'
 ]
 
+// 兼容辅助：回收站快照中 jsonb 字段曾被 raw SQL 序列化为字符串（历史 double-encode 数据），
+// 恢复时需还原为对象/数组再交给 Model API；parse 失败（脏数据）降级为 null。
+function safeParseJson(val) {
+    try { return JSON.parse(val) } catch (_) { return null }
+}
+
 const RECYCLE_KEEP_DAYS = 90 // 3 个月
 
 const SCHOOL_USER_ROLES = ['manager', 'operator', 'viewer']
@@ -29,6 +35,16 @@ const PHONE_RE = /^[0-9+\-\s]{5,20}$/
 export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisibleTypesCache, rateLimit, requirePlatformSuperAdmin }) {
     const router = express.Router()
 
+    // 确保 SchoolCustomization 记录存在（等价 ON CONFLICT DO NOTHING：已存在则忽略，不刷新 updated_at）。
+    // 捕获 P2002 唯一冲突（school_code 唯一索引）实现幂等，避免 findUnique+create 的并发竞态。
+    async function ensureCustomizationRow(code) {
+        try {
+            await prisma.schoolCustomization.create({ data: { school_code: code } })
+        } catch (e) {
+            if (e?.code !== 'P2002') throw e
+        }
+    }
+
     // ====== School Config（外观 / 字段个性化，直连 public 系统表，不受 search_path 影响）======
     router.get('/api/school/config', authenticateUser, async (req, res) => {
         try {
@@ -38,12 +54,12 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
                 `SELECT "code","name","short_name","theme_color","logo_url","status" FROM public."School" WHERE "code" = $1 LIMIT 1`,
                 code
             )
-            const customRows = await prisma.$queryRawUnsafe(
-                `SELECT "visible_types","visible_menu_items","canteens","field_labels","hidden_fields","theme_config","field_rules","field_options","field_order","custom_fields","test_types","field_types","updated_at" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`,
-                code
-            )
+            const customizationRow = await prisma.schoolCustomization.findUnique({
+                where: { school_code: code },
+                select: Object.fromEntries([...CUSTOMIZATION_COLUMNS, 'updated_at'].map(c => [c, true]))
+            })
             const school = schoolRows?.[0] || null
-            const customization = customRows?.[0] || null
+            const customization = customizationRow || null
             // 字段级联配置（FieldOption 表）：合并进 customization 返回（录入端经缓存统一消费）
             if (customization && code) {
                 try {
@@ -83,16 +99,16 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
                 `SELECT "code","name","short_name","theme_color","logo_url","status" FROM public."School" WHERE "code" = $1 LIMIT 1`,
                 code
             )
-            const customRows = await prisma.$queryRawUnsafe(
-                `SELECT "visible_types","visible_menu_items","canteens","field_labels","hidden_fields","theme_config","field_rules","field_options","field_order","custom_fields","test_types","field_types","guest_enabled","updated_at" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`,
-                code
-            )
+            const customizationRow = await prisma.schoolCustomization.findUnique({
+                where: { school_code: code },
+                select: Object.fromEntries([...CUSTOMIZATION_COLUMNS, 'guest_enabled', 'updated_at'].map(c => [c, true]))
+            })
             const school = schoolRows?.[0] || null
             if (!school || school.status !== 'active') {
                 return res.status(404).json({ error: '学校不存在或未激活' })
             }
-            const customization = customRows?.[0] || null
-            // Q4: JSONB 列经 $queryRawUnsafe 返回为字符串,须还原为对象供前端直接消费
+            const customization = customizationRow || null
+            // 迁移 Model API：Json 字段返回对象/数组；下方兜底仅针对历史 double-encode 脏数据（jsonb 字符串）
             if (customization) {
                 for (const key of ['custom_fields', 'field_labels', 'hidden_fields', 'field_order', 'test_types', 'theme_config', 'field_rules', 'visible_menu_items', 'canteens', 'field_types']) {
                     if (typeof customization[key] === 'string') {
@@ -238,16 +254,14 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
                 if (systemTitle !== undefined && systemTitle !== null && typeof systemTitle !== 'string') {
                     return res.status(400).json({ error: 'systemTitle 必须为字符串' })
                 }
-                await prisma.$queryRawUnsafe(
-                    `INSERT INTO public."SchoolCustomization" ("id","school_code","updated_at")
-                     VALUES ($1,$2,now()) ON CONFLICT ("school_code") DO NOTHING`,
-                    crypto.randomUUID(), code
-                )
-                const tcRows = await prisma.$queryRawUnsafe(
-                    `SELECT "theme_config" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`, code
-                )
-                let tc = {}
-                try { tc = JSON.parse(tcRows?.[0]?.theme_config || '{}') } catch (_) {}
+                await ensureCustomizationRow(code)
+                const tcRow = await prisma.schoolCustomization.findUnique({
+                    where: { school_code: code },
+                    select: { theme_config: true }
+                })
+                let tc = tcRow?.theme_config
+                if (typeof tc === 'string') tc = safeParseJson(tc) // 历史 double-encode 脏数据兜底
+                if (tc === null || typeof tc !== 'object' || Array.isArray(tc)) tc = {}
                 if (logoStyle !== undefined) {
                     if (logoStyle === null) delete tc.logo_style
                     else tc.logo_style = logoStyle
@@ -257,10 +271,10 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
                     if (t === '') delete tc.systemTitle
                     else if (t.length <= 50 && !/[\u0000-\u001f\u007f\u2028\u2029]/.test(t)) tc.systemTitle = t
                 }
-                await prisma.$queryRawUnsafe(
-                    `UPDATE public."SchoolCustomization" SET "theme_config" = $1::jsonb, "updated_at" = now() WHERE "school_code" = $2`,
-                    JSON.stringify(tc), code
-                )
+                await prisma.schoolCustomization.update({
+                    where: { school_code: code },
+                    data: { theme_config: tc }
+                })
             }
             // 学校食堂信息：写入 SchoolCustomization.canteens，并同步 field_options.canteen，
             // 使录入表单（tableware/pesticide/oil/leanMeat）的食堂下拉自动应用
@@ -270,43 +284,36 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
                 }
                 const safeCanteens = Array.isArray(canteens) ? canteens.map(c => c.trim()).filter(Boolean) : []
                 if (safeCanteens.length > 50) return res.status(400).json({ error: '食堂数量过多（≤50）' })
-                await prisma.$queryRawUnsafe(
-                    `INSERT INTO public."SchoolCustomization" ("id","school_code","updated_at")
-                     VALUES ($1,$2,now()) ON CONFLICT ("school_code") DO NOTHING`,
-                    crypto.randomUUID(), code
-                )
-                await prisma.$queryRawUnsafe(
-                    `UPDATE public."SchoolCustomization" SET "canteens" = $1::jsonb, "updated_at" = now() WHERE "school_code" = $2`,
-                    JSON.stringify(safeCanteens), code
-                )
+                await ensureCustomizationRow(code)
+                await prisma.schoolCustomization.update({
+                    where: { school_code: code },
+                    data: { canteens: safeCanteens }
+                })
                 // 同步 field_options.canteen（让录入表单下拉自动应用）
-                const foRows = await prisma.$queryRawUnsafe(
-                    `SELECT "field_options" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`, code
-                )
-                let fo = {}
-                try { fo = JSON.parse(foRows?.[0]?.field_options || '{}') } catch (_) { fo = {} }
+                const foRow = await prisma.schoolCustomization.findUnique({
+                    where: { school_code: code },
+                    select: { field_options: true }
+                })
+                let fo = foRow?.field_options
+                if (typeof fo === 'string') fo = safeParseJson(fo) // 历史 double-encode 脏数据兜底
                 if (!fo || typeof fo !== 'object' || Array.isArray(fo)) fo = {}
                 if (safeCanteens.length) fo.canteen = safeCanteens
                 else delete fo.canteen
-                await prisma.$queryRawUnsafe(
-                    `UPDATE public."SchoolCustomization" SET "field_options" = $1::jsonb, "updated_at" = now() WHERE "school_code" = $2`,
-                    JSON.stringify(fo), code
-                )
+                await prisma.schoolCustomization.update({
+                    where: { school_code: code },
+                    data: { field_options: fo }
+                })
             }
             // RBAC 收敛：访客功能开关（guest_enabled）由平台超管按校配置，写入 SchoolCustomization
             if (guestEnabled !== undefined) {
                 if (typeof guestEnabled !== 'boolean') {
                     return res.status(400).json({ error: 'guestEnabled 必须为布尔值' })
                 }
-                await prisma.$queryRawUnsafe(
-                    `INSERT INTO public."SchoolCustomization" ("id","school_code","updated_at")
-                     VALUES ($1,$2,now()) ON CONFLICT ("school_code") DO NOTHING`,
-                    crypto.randomUUID(), code
-                )
-                await prisma.$queryRawUnsafe(
-                    `UPDATE public."SchoolCustomization" SET "guest_enabled" = $1, "updated_at" = now() WHERE "school_code" = $2`,
-                    guestEnabled, code
-                )
+                await ensureCustomizationRow(code)
+                await prisma.schoolCustomization.update({
+                    where: { school_code: code },
+                    data: { guest_enabled: guestEnabled }
+                })
             }
             res.json({ success: true, data: updated[0] })
         } catch (error) {
@@ -381,10 +388,12 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
             if (existing.length) return res.status(409).json({ error: '该校已在回收站中，请先恢复或清除' })
 
             // 快照定制配置（School 行删除会级联删除 SchoolCustomization，恢复时需重建）
-            const customizationRows = await prisma.$queryRawUnsafe(
-                `SELECT ${CUSTOMIZATION_COLUMNS.join(',')} FROM public."SchoolCustomization" WHERE "school_code" = $1`, code
-            )
-            const customizationSnapshot = customizationRows.length ? JSON.stringify(customizationRows[0]) : null
+            // 迁移 Model API：Json 字段直接返回对象/数组，无需 JSON.parse，快照不再 double-encode
+            const customizationRow = await prisma.schoolCustomization.findUnique({
+                where: { school_code: code },
+                select: Object.fromEntries(CUSTOMIZATION_COLUMNS.map(c => [c, true]))
+            })
+            const customizationSnapshot = customizationRow ? JSON.stringify(customizationRow) : null
 
             const recycleSchema = `recycle_${code}_${Date.now().toString(36)}`
             const now = new Date()
@@ -465,19 +474,16 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
                     crypto.randomUUID(), bin.original_code, bin.name, bin.short_name, bin.theme_color, bin.logo_url
                 )
                 // 重建 SchoolCustomization（如有快照）
-                // FIX-08/R01/R15: CUSTOMIZATION_COLUMNS 全部是 jsonb 列，需 JSON.stringify + ::jsonb cast。
+                // 迁移 Model API：Json 字段直接传对象/数组，Prisma 自动序列化，
+                // 消除 ::jsonb cast 与 double-encode（FIX-08/R01/R15 的根因）。
                 if (customization) {
-                    const colNames = CUSTOMIZATION_COLUMNS.map(c => `"${c}"`).join(',')
-                    const placeholders = CUSTOMIZATION_COLUMNS.map((_, i) => `$${i + 2}::jsonb`).join(',')
-                    await tx.$executeRawUnsafe(
-                        `INSERT INTO public."SchoolCustomization" (id, school_code, ${colNames}, updated_at)
-                         VALUES ($1,$2,${placeholders},now())`,
-                        crypto.randomUUID(), bin.original_code,
-                        ...CUSTOMIZATION_COLUMNS.map((c) => {
-                            const val = customization[c] ?? null
-                            return val === null ? null : JSON.stringify(val)
-                        })
-                    )
+                    const data = { school_code: bin.original_code }
+                    for (const c of CUSTOMIZATION_COLUMNS) {
+                        const val = customization[c] ?? null
+                        // 兼容旧快照（raw SQL 曾把 jsonb 存为字符串）与脏数据：字符串先还原为对象/数组
+                        data[c] = val === null ? null : (typeof val === 'string' ? safeParseJson(val) : val)
+                    }
+                    await tx.schoolCustomization.create({ data })
                 }
                 await tx.$executeRawUnsafe(`UPDATE public."recycle_bin" SET "status" = 'restored' WHERE "id" = $1`, id)
             })
@@ -514,12 +520,12 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
     router.get('/api/admin/schools/:code/customization', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
         try {
             const { code } = req.params
-            const rows = await prisma.$queryRawUnsafe(
-                `SELECT ${CUSTOMIZATION_COLUMNS.map(c => `"${c}"`).join(',')},"guest_enabled","updated_at"
-                 FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`, code
-            )
+            const row = await prisma.schoolCustomization.findUnique({
+                where: { school_code: code },
+                select: Object.fromEntries([...CUSTOMIZATION_COLUMNS, 'guest_enabled', 'updated_at'].map(c => [c, true]))
+            })
             // 级联配置（FieldOption 表）：合并进 data 一并返回，管理端级联编辑器据此渲染
-            const data = rows[0] || null
+            const data = row || null
             if (data) {
                 try {
                     data.field_cascade = await buildFieldCascade(createTenantClient(prisma, code))
@@ -546,19 +552,16 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
                 return res.status(400).json({ error: '定制配置校验失败', details: errors })
             }
 
-            // 确保 SchoolCustomization 记录存在
-            await prisma.$queryRawUnsafe(
-                `INSERT INTO public."SchoolCustomization" ("id","school_code","updated_at")
-                 VALUES ($1,$2,now()) ON CONFLICT ("school_code") DO NOTHING`,
-                crypto.randomUUID(), code
-            )
+            // 确保 SchoolCustomization 记录存在（等价 ON CONFLICT DO NOTHING）
+            await ensureCustomizationRow(code)
 
             // BS-06: 乐观锁（向后兼容——不传 expected_updated_at 时保持旧行为）
             if (Object.prototype.hasOwnProperty.call(body, 'expected_updated_at') && body.expected_updated_at) {
-                const cur = await prisma.$queryRawUnsafe(
-                    `SELECT "updated_at" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`, code
-                )
-                const currentUpdatedAt = cur?.[0]?.updated_at ? new Date(cur[0].updated_at).toISOString() : null
+                const cur = await prisma.schoolCustomization.findUnique({
+                    where: { school_code: code },
+                    select: { updated_at: true }
+                })
+                const currentUpdatedAt = cur?.updated_at ? new Date(cur.updated_at).toISOString() : null
                 const expected = new Date(body.expected_updated_at).toISOString()
                 if (currentUpdatedAt && expected !== currentUpdatedAt) {
                     return res.status(409).json({
@@ -569,28 +572,23 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
                 }
             }
 
-            // 动态拼 SET 子句：仅更新 body 中出现的字段（列名来自固定白名单，无注入面）
-            const sets = []
-            const params = [code]
+            // 仅更新 body 中出现的字段：Json 字段直接传对象/数组（Prisma 自动序列化），无需 ::jsonb cast
+            const data = {}
             for (const col of CUSTOMIZATION_COLUMNS) {
                 if (!Object.prototype.hasOwnProperty.call(normalized, col)) continue
-                params.push(normalized[col] === null ? null : JSON.stringify(normalized[col]))
-                // CUSTOMIZATION_COLUMNS 全是 jsonb 列，需 ::jsonb cast；null 也安全
-                sets.push(`"${col}" = $${params.length}::jsonb`)
+                data[col] = normalized[col] // 对象/数组/null，Prisma 自动 JSON 序列化
             }
-            // guest_enabled 为 boolean 列（非 jsonb），单独处理，不加 ::jsonb cast
+            // guest_enabled 为 boolean 列（非 jsonb），单独处理
             if (Object.prototype.hasOwnProperty.call(normalized, 'guest_enabled')) {
-                params.push(normalized.guest_enabled)
-                sets.push(`"guest_enabled" = $${params.length}`)
+                data.guest_enabled = normalized.guest_enabled
             }
-            if (sets.length === 0) {
+            if (Object.keys(data).length === 0) {
                 return res.status(400).json({ error: '未提供任何可更新的定制字段' })
             }
-            await prisma.$queryRawUnsafe(
-                `UPDATE public."SchoolCustomization" SET ${sets.join(', ')}, "updated_at" = now()
-                 WHERE "school_code" = $1`,
-                ...params
-            )
+            const updated = await prisma.schoolCustomization.update({
+                where: { school_code: code },
+                data
+            })
 
             // BS-11: 审计（失败不阻断主流程）。
             try {
@@ -615,10 +613,7 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
             // REG-01/NB-18: 清除访客 visible_types 缓存，使新配置立即对访客生效
             try { clearGuestVisibleTypesCache(code) } catch (e) { console.warn('⚠️ clearGuestVisibleTypesCache failed:', e.message) }
 
-            const after = await prisma.$queryRawUnsafe(
-                `SELECT "updated_at" FROM public."SchoolCustomization" WHERE "school_code" = $1 LIMIT 1`, code
-            )
-            res.json({ success: true, message: '定制配置已更新', updated_at: after?.[0]?.updated_at ?? null })
+            res.json({ success: true, message: '定制配置已更新', updated_at: updated?.updated_at ?? null })
         } catch (error) {
             console.error('❌ Error updating customization:', error)
             res.status(500).json({ error: '更新定制配置失败' })
