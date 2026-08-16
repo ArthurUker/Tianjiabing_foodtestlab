@@ -4,137 +4,551 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>帮助中心 - 食品安全检验系统</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- 系统样式：与 login / index / admin-schools 共用同一份玻璃主题 -->
+    <link rel="stylesheet" href="/css/tailwind.css">
+    <!-- 折射滤镜 SVG 资源（must come before .glass usage） -->
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+        <filter id="lg-refraction">
+            <feTurbulence type="fractalNoise" baseFrequency="0.012 0.018" numOctaves="2" seed="7"></feTurbulence>
+            <feDisplacementMap in="SourceGraphic" scale="2"></feDisplacementMap>
+        </filter>
+    </svg>
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
     <style>
-        [x-cloak] { display: none; }
+        /* ====== 帮助中心 — 与系统视觉对齐（P-RedesignHelp）======
+           设计语言：渐变全屏背景 + 玻璃面板（透明模糊 + 厚阴影 + 高饱和）
+           + 渐变色块 KPI/CTA + 4px 章节色条引导。
+           这里只写帮助页特有的布局，不重复 tailwind.input.css 已有的 .glass / .glass-dark。 */
+
+        /* 顶部背景：与 login / index 同一渐变系统，渐隐到局部 */
+        body {
+            background:
+                radial-gradient(1200px 600px at 10% -10%, rgba(255, 182, 193, 0.55), transparent 60%),
+                radial-gradient(1000px 600px at 110% 10%, rgba(176, 224, 230, 0.55), transparent 60%),
+                radial-gradient(900px 700px at 50% 110%, rgba(255, 218, 185, 0.40), transparent 60%),
+                linear-gradient(180deg, #fef3f4 0%, #f5f7fb 40%, #eaf3fb 100%);
+            background-attachment: fixed;
+            min-height: 100vh;
+        }
+
+        /* 让 .glass 在渐变背景上更具层次：增强背景透出感（仍读 .glass，只补微调） */
+        .help-card { padding: 1.5rem; }
+        @media (min-width: 768px) { .help-card { padding: 2rem 2.25rem; } }
+
+        /* 章节色条：每章节用 4px 左侧色条 + 渐变色块图标 + 大标题 */
+        .help-section { position: relative; overflow: hidden; }
+        .help-section::before {
+            content: "";
+            position: absolute;
+            left: 0; top: 0; bottom: 0;
+            width: 4px;
+            border-radius: 1.7rem 0 0 1.7rem;
+        }
+        .help-section.is-blue::before    { background: linear-gradient(180deg, #3b82f6, #6366f1); }
+        .help-section.is-green::before   { background: linear-gradient(180deg, #10b981, #22c55e); }
+        .help-section.is-yellow::before  { background: linear-gradient(180deg, #eab308, #f59e0b); }
+        .help-section.is-red::before     { background: linear-gradient(180deg, #ef4444, #f43f5e); }
+
+        .help-section-icon {
+            width: 44px; height: 44px;
+            border-radius: 12px;
+            color: #fff;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 18px;
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.10);
+        }
+        .is-blue   .help-section-icon { background: linear-gradient(135deg, #3b82f6, #6366f1); }
+        .is-green  .help-section-icon { background: linear-gradient(135deg, #10b981, #22c55e); }
+        .is-yellow .help-section-icon { background: linear-gradient(135deg, #eab308, #f59e0b); }
+        .is-red    .help-section-icon { background: linear-gradient(135deg, #ef4444, #f43f5e); }
+
+        /* Q 子卡：玻璃半透 + 圆角 + 柔和悬停上浮 */
+        .help-q {
+            background: rgba(255, 255, 255, 0.65);
+            border: 1px solid rgba(255, 255, 255, 0.85);
+            border-radius: 14px;
+            padding: 14px 16px;
+            transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+        }
+        .help-q:hover {
+            background: rgba(255, 255, 255, 0.80);
+            transform: translateY(-2px);
+            box-shadow: 0 10px 26px rgba(30, 44, 80, 0.10);
+        }
+        .help-q h4 {
+            font-weight: 600;
+            color: #1f2937;
+            font-size: 15px;
+            margin-bottom: 4px;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .help-q h4::before {
+            content: "Q";
+            font-size: 11px; font-weight: 700;
+            color: #fff;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            width: 22px; height: 22px;
+            border-radius: 50%;
+            display: inline-flex; align-items: center; justify-content: center;
+            flex-shrink: 0;
+        }
+        .help-q p {
+            color: #4b5563;
+            font-size: 14px;
+            line-height: 1.7;
+            padding-left: 30px;
+        }
+        .help-q p strong { color: #1e40af; }
+
+        /* 左侧导航：chip 风格 + 当前激活态（与全站侧栏激活态语言一致） */
+        .help-nav-item {
+            display: flex; align-items: center; gap: 10px;
+            padding: 10px 14px;
+            border-radius: 12px;
+            color: #4b5563;
+            font-weight: 500;
+            font-size: 14px;
+            transition: background 0.15s ease, color 0.15s ease;
+            cursor: pointer;
+            border: 1px solid transparent;
+        }
+        .help-nav-item:hover { background: rgba(99, 102, 241, 0.08); color: #1e3a8a; }
+        .help-nav-item.active {
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(139, 92, 246, 0.10));
+            color: #1e3a8a;
+            font-weight: 600;
+            border-color: rgba(99, 102, 241, 0.20);
+            box-shadow: inset 3px 0 0 #6366f1;
+        }
+        .help-nav-item .dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        /* KPI mini 卡 */
+        .help-kpi {
+            background: rgba(255, 255, 255, 0.65);
+            border: 1px solid rgba(255, 255, 255, 0.78);
+            border-radius: 16px;
+            padding: 14px 16px;
+            display: flex; align-items: center; gap: 12px;
+            transition: transform 0.18s ease, box-shadow 0.18s ease;
+        }
+        .help-kpi:hover { transform: translateY(-2px); box-shadow: 0 10px 26px rgba(30, 44, 80, 0.08); }
+        .help-kpi-icon {
+            width: 38px; height: 38px;
+            border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            color: #fff;
+            font-size: 15px;
+            flex-shrink: 0;
+        }
+        .help-kpi-label { font-size: 12px; color: #6b7280; }
+        .help-kpi-value { font-size: 18px; font-weight: 700; color: #1f2937; line-height: 1.1; margin-top: 2px; }
+
+        /* 搜索框 */
+        .help-search {
+            background: rgba(255, 255, 255, 0.65);
+            border: 1px solid rgba(255, 255, 255, 0.85);
+            border-radius: 14px;
+            padding: 10px 14px 10px 40px;
+            font-size: 14px;
+            width: 100%;
+            color: #1f2937;
+            transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+        }
+        .help-search:focus {
+            outline: none;
+            background: rgba(255, 255, 255, 0.85);
+            border-color: rgba(99, 102, 241, 0.45);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.10);
+        }
+        .help-search-wrap { position: relative; }
+        .help-search-wrap i {
+            position: absolute; left: 14px; top: 50%;
+            transform: translateY(-50%);
+            color: #9ca3af;
+            font-size: 14px;
+            pointer-events: none;
+        }
+
+        /* 章节高亮定位目标 */
+        .help-anchor {
+            scroll-margin-top: 96px;
+        }
+
+        /* 快捷 CTA 卡（联系我们内） */
+        .help-cta {
+            display: flex; align-items: center; gap: 14px;
+            padding: 14px 16px;
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.70);
+            border: 1px solid rgba(99, 102, 241, 0.18);
+            text-decoration: none;
+            color: inherit;
+            transition: background 0.15s ease, transform 0.1s;
+        }
+        .help-cta:hover { background: rgba(99, 102, 241, 0.08); transform: translateX(2px); }
+        .help-cta .icon {
+            width: 44px; height: 44px;
+            border-radius: 12px;
+            display: flex; align-items: center; justify-content: center;
+            color: #fff;
+            font-size: 18px;
+            flex-shrink: 0;
+        }
+        .help-cta .meta { flex: 1; }
+        .help-cta .title { font-weight: 600; color: #1f2937; }
+        .help-cta .desc { font-size: 12px; color: #6b7280; margin-top: 2px; }
+        .help-cta .arrow { color: #9ca3af; }
+
+        /* 响应式 */
+        @media (max-width: 1023px) {
+            .help-grid { grid-template-columns: 1fr !important; }
+            .help-aside { position: relative !important; top: 0 !important; max-height: none !important; }
+        }
+
+        /* 「无结果」占位 */
+        .help-empty {
+            padding: 32px 16px;
+            text-align: center;
+            color: #9ca3af;
+        }
+        .help-empty i { font-size: 32px; margin-bottom: 8px; }
+
+        /* 帮助页专属版心宽一点：多列 FAQ 时不显挤 */
+        .help-wrap { max-width: 1180px; }
     </style>
 </head>
-<body class="bg-gray-50 min-h-screen">
-    <nav class="bg-white shadow-sm sticky top-0 z-50">
-        <div class="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
-            <div class="flex items-center gap-3">
-                <i class="fas fa-question-circle text-blue-600"></i>
-                <h1 class="text-lg font-bold text-gray-800">帮助中心</h1>
-            </div>
-            <a id="backToLoginLink" href="./login.html" class="text-sm text-blue-600 hover:text-blue-800 transition">
+<body>
+
+    <!-- 顶部玻璃深色 nav，与 admin-schools / index 同语言 -->
+    <nav class="glass-dark sticky top-3 z-50 mx-3 mt-3 px-5 py-3 flex items-center justify-between"
+         style="border-radius: 1.7rem;">
+        <a href="./login.html" class="flex items-center gap-3 text-white">
+            <span class="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center shadow">
+                <i class="fas fa-life-ring text-white"></i>
+            </span>
+            <span class="text-lg font-bold">帮助中心</span>
+        </a>
+        <div class="flex items-center gap-2">
+            <a id="backToLoginLink" href="./login.html"
+               class="text-sm px-3 py-1.5 bg-white/20 text-white font-semibold rounded-lg hover:bg-white/30 transition shadow"
+               title="返回登录页（携带学校上下文）">
                 <i class="fas fa-arrow-left mr-1"></i>返回登录
             </a>
         </div>
     </nav>
 
-    <main class="max-w-3xl mx-auto px-4 py-8 space-y-6">
-        <!-- 账号与登录 -->
-        <section class="bg-white rounded-lg shadow-sm overflow-hidden">
-            <header class="px-5 py-3 bg-blue-50 border-b border-blue-100 flex items-center gap-2">
-                <i class="fas fa-user-lock text-blue-600"></i>
-                <h2 class="font-semibold text-gray-800">账号与登录</h2>
-            </header>
-            <div class="divide-y divide-gray-100">
-                <div class="px-5 py-4">
-                    <h3 class="font-medium text-gray-800 mb-1">忘记密码怎么办？</h3>
-                    <p class="text-sm text-gray-600 leading-relaxed">
-                        请联系您所在学校的<strong>学校管理员</strong>或<strong>平台超管</strong>重置密码。
-                        管理员在「用户管理」页面可为用户重置初始密码，重置后首次登录需修改密码。
+    <main class="help-wrap mx-auto px-4 py-8">
+
+        <!-- Hero：标题 + 简介 + 搜索 -->
+        <section class="glass help-card help-anchor mb-6" id="helpTop">
+            <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+                <div class="flex-1">
+                    <h1 class="text-2xl md:text-3xl font-bold text-gray-800 mb-2">
+                        欢迎使用<span class="bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">食品安全检验系统</span>
+                    </h1>
+                    <p class="text-sm md:text-base text-gray-600 leading-relaxed max-w-2xl">
+                        这里汇总了账号登录、日常使用、检测规范与异常处理的常见问题。
+                        如果下方内容仍未解决您的问题，请联系学校管理员或平台技术支持。
                     </p>
                 </div>
-                <div class="px-5 py-4">
-                    <h3 class="font-medium text-gray-800 mb-1">新账号无法登录？</h3>
-                    <p class="text-sm text-gray-600 leading-relaxed">
-                        请确认：① 使用的是学校提供的专属登录链接（地址形如 /&lt;学校代码&gt;/login.html）；
-                        ② 账号由管理员创建且状态为「启用」；③ 密码输入正确（密码至少 8 位，含字母和数字）。
-                    </p>
+                <div class="md:w-80">
+                    <div class="help-search-wrap">
+                        <i class="fas fa-search"></i>
+                        <input id="helpSearch" type="text"
+                               class="help-search"
+                               placeholder="搜索问题或关键字…"
+                               aria-label="搜索帮助内容">
+                    </div>
                 </div>
-                <div class="px-5 py-4">
-                    <h3 class="font-medium text-gray-800 mb-1">账号被临时锁定？</h3>
-                    <p class="text-sm text-gray-600 leading-relaxed">
-                        连续多次输入错误密码会触发临时锁定（约 15 分钟自动解锁）。
-                        请稍后再试，或联系管理员确认账号状态。
-                    </p>
+            </div>
+
+            <!-- 4 个 KPI mini 卡：章节数 / Q 总数 / 最后更新 / 联系入口 -->
+            <div class="help-kpi-grid mt-5 grid gap-3" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));">
+                <div class="help-kpi">
+                    <span class="help-kpi-icon" style="background: linear-gradient(135deg, #3b82f6, #6366f1);">
+                        <i class="fas fa-layer-group"></i>
+                    </span>
+                    <div>
+                        <div class="help-kpi-label">帮助章节</div>
+                        <div class="help-kpi-value" id="kpiSections">4</div>
+                    </div>
                 </div>
+                <div class="help-kpi">
+                    <span class="help-kpi-icon" style="background: linear-gradient(135deg, #10b981, #22c55e);">
+                        <i class="fas fa-comments"></i>
+                    </span>
+                    <div>
+                        <div class="help-kpi-label">常见问题</div>
+                        <div class="help-kpi-value" id="kpiQuestions">10</div>
+                    </div>
+                </div>
+                <div class="help-kpi">
+                    <span class="help-kpi-icon" style="background: linear-gradient(135deg, #eab308, #f59e0b);">
+                        <i class="fas fa-calendar-check"></i>
+                    </span>
+                    <div>
+                        <div class="help-kpi-label">最后更新</div>
+                        <div class="help-kpi-value" id="kpiUpdated">2026.08</div>
+                    </div>
+                </div>
+                <a href="#helpContact" class="help-kpi" style="text-decoration:none;">
+                    <span class="help-kpi-icon" style="background: linear-gradient(135deg, #ef4444, #f43f5e);">
+                        <i class="fas fa-headset"></i>
+                    </span>
+                    <div>
+                        <div class="help-kpi-label">联系支持</div>
+                        <div class="help-kpi-value">立即跳转 <i class="fas fa-arrow-right text-xs ml-1"></i></div>
+                    </div>
+                </a>
             </div>
         </section>
 
-        <!-- 系统使用 -->
-        <section class="bg-white rounded-lg shadow-sm overflow-hidden">
-            <header class="px-5 py-3 bg-green-50 border-b border-green-100 flex items-center gap-2">
-                <i class="fas fa-clipboard-check text-green-600"></i>
-                <h2 class="font-semibold text-gray-800">系统使用</h2>
-            </header>
-            <div class="divide-y divide-gray-100">
-                <div class="px-5 py-4">
-                    <h3 class="font-medium text-gray-800 mb-1">如何录入检测记录？</h3>
-                    <p class="text-sm text-gray-600 leading-relaxed">
-                        登录后从左侧导航选择对应检测模块（餐具洁净度 / 果蔬农残 / 食用油 / 肉蛋农残 / 病原体），
-                        点击「新增」填写表单并保存。数据支持离线缓存，联网后自动同步。
-                    </p>
-                </div>
-                <div class="px-5 py-4">
-                    <h3 class="font-medium text-gray-800 mb-1">如何导出数据？</h3>
-                    <p class="text-sm text-gray-600 leading-relaxed">
-                        在「数据导出」模块选择检测类型与日期范围，可导出 PDF 或 Excel。
-                        访客账号默认无导出权限，需提交申请经审批后开通。
-                    </p>
-                </div>
-                <div class="px-5 py-4">
-                    <h3 class="font-medium text-gray-800 mb-1">数据备份与恢复？</h3>
-                    <p class="text-sm text-gray-600 leading-relaxed">
-                        在「数据备份与恢复」模块可查看本地缓存状态、从服务器同步数据、暂停同步或清空本地缓存。
-                        建议定期检查同步状态，确保本地数据已上传服务器。
-                    </p>
-                </div>
-            </div>
-        </section>
+        <!-- 两栏：左侧导航 + 右侧 FAQ -->
+        <div class="help-grid grid gap-6" style="grid-template-columns: 260px 1fr;">
 
-        <!-- 检测规范 -->
-        <section class="bg-white rounded-lg shadow-sm overflow-hidden">
-            <header class="px-5 py-3 bg-yellow-50 border-b border-yellow-100 flex items-center gap-2">
-                <i class="fas fa-flask text-yellow-600"></i>
-                <h2 class="font-semibold text-gray-800">检测频率与月报</h2>
-            </header>
-            <div class="divide-y divide-gray-100">
-                <div class="px-5 py-4">
-                    <h3 class="font-medium text-gray-800 mb-1">检测频率是什么？</h3>
-                    <p class="text-sm text-gray-600 leading-relaxed">
-                        系统支持为各检测项目设置每周目标检测频率，当某周实际检测次数低于目标时会提示风险警告，
-                        用于防范检测频率下降。检测日历会按周安排各项目检测计划，每日登录自动提示今日检测项目。
-                    </p>
+            <!-- 左侧 sticky 导航 -->
+            <aside class="help-aside glass help-card" style="position: sticky; top: 96px; align-self: flex-start;">
+                <h3 class="text-sm font-bold text-gray-700 mb-3 px-1">
+                    <i class="fas fa-compass text-indigo-500 mr-1"></i>章节导航
+                </h3>
+                <nav class="flex flex-col gap-1">
+                    <a href="#section-account" class="help-nav-item active" data-section="account">
+                        <span class="dot" style="background:#3b82f6;"></span>
+                        <i class="fas fa-user-lock"></i><span>账号与登录</span>
+                    </a>
+                    <a href="#section-system" class="help-nav-item" data-section="system">
+                        <span class="dot" style="background:#10b981;"></span>
+                        <i class="fas fa-clipboard-check"></i><span>系统使用</span>
+                    </a>
+                    <a href="#section-test" class="help-nav-item" data-section="test">
+                        <span class="dot" style="background:#eab308;"></span>
+                        <i class="fas fa-flask"></i><span>检测规范</span>
+                    </a>
+                    <a href="#helpContact" class="help-nav-item" data-section="contact">
+                        <span class="dot" style="background:#ef4444;"></span>
+                        <i class="fas fa-headset"></i><span>联系我们</span>
+                    </a>
+                </nav>
+                <div class="mt-4 pt-3 border-t border-gray-200/60 text-xs text-gray-500 leading-relaxed px-1">
+                    点击章节平滑滚动；亦可使用顶部搜索框按关键字过滤。
                 </div>
-                <div class="px-5 py-4">
-                    <h3 class="font-medium text-gray-800 mb-1">月报怎么看？</h3>
-                    <p class="text-sm text-gray-600 leading-relaxed">
-                        系统每月自动生成检测月报并在主界面展示，包含各项目检测次数统计、与上月对比（上升/下降）
-                        以及检测频率趋势图，方便食安员掌握检测频次变化。
-                    </p>
-                </div>
-            </div>
-        </section>
+            </aside>
 
-        <!-- 联系我们 -->
-        <section class="bg-white rounded-lg shadow-sm overflow-hidden">
-            <header class="px-5 py-3 bg-red-50 border-b border-red-100 flex items-center gap-2">
-                <i class="fas fa-headset text-red-500"></i>
-                <h2 class="font-semibold text-gray-800">联系我们</h2>
-            </header>
-            <div class="px-5 py-4">
-                <p class="text-sm text-gray-600 leading-relaxed">
-                    如以上内容无法解决您的问题，请联系<strong>学校管理员</strong>或<strong>平台技术支持</strong>获取帮助。
-                </p>
+            <!-- 右侧 FAQ 主区 -->
+            <div class="help-main flex flex-col gap-6">
+
+                <!-- 账号与登录 -->
+                <section class="glass help-card help-section is-blue help-anchor" id="section-account" data-section="account">
+                    <header class="flex items-center gap-3 mb-4">
+                        <span class="help-section-icon"><i class="fas fa-user-lock"></i></span>
+                        <div>
+                            <h2 class="text-lg font-bold text-gray-800">账号与登录</h2>
+                            <p class="text-xs text-gray-500">登录、密码与账号状态相关问题</p>
+                        </div>
+                    </header>
+                    <div class="grid gap-3">
+                        <article class="help-q">
+                            <h4>忘记密码怎么办？</h4>
+                            <p>请联系您所在学校的<strong>学校管理员</strong>或<strong>平台超管</strong>重置密码。
+                                管理员在「用户管理」页面可为用户重置初始密码，重置后首次登录需修改密码。</p>
+                        </article>
+                        <article class="help-q">
+                            <h4>新账号无法登录？</h4>
+                            <p>请确认：① 使用的是学校提供的专属登录链接（地址形如 <code>/&lt;学校代码&gt;/login.html</code>）；
+                                ② 账号由管理员创建且状态为「启用」；
+                                ③ 密码输入正确（密码至少 8 位，含字母和数字）。</p>
+                        </article>
+                        <article class="help-q">
+                            <h4>账号被临时锁定？</h4>
+                            <p>连续多次输入错误密码会触发临时锁定（约 15 分钟自动解锁）。
+                                请稍后再试，或联系管理员确认账号状态。</p>
+                        </article>
+                    </div>
+                </section>
+
+                <!-- 系统使用 -->
+                <section class="glass help-card help-section is-green help-anchor" id="section-system" data-section="system">
+                    <header class="flex items-center gap-3 mb-4">
+                        <span class="help-section-icon"><i class="fas fa-clipboard-check"></i></span>
+                        <div>
+                            <h2 class="text-lg font-bold text-gray-800">系统使用</h2>
+                            <p class="text-xs text-gray-500">检测录入、数据导出、备份与同步</p>
+                        </div>
+                    </header>
+                    <div class="grid gap-3">
+                        <article class="help-q">
+                            <h4>如何录入检测记录？</h4>
+                            <p>登录后从左侧导航选择对应检测模块（餐具洁净度 / 果蔬农残 / 食用油 / 肉蛋农残 / 病原体），
+                                点击「新增」填写表单并保存。数据支持离线缓存，联网后自动同步。</p>
+                        </article>
+                        <article class="help-q">
+                            <h4>如何导出数据？</h4>
+                            <p>在「数据导出」模块选择检测类型与日期范围，可导出 PDF 或 Excel。
+                                访客账号默认无导出权限，需提交申请经审批后开通。</p>
+                        </article>
+                        <article class="help-q">
+                            <h4>数据备份与恢复？</h4>
+                            <p>在「数据备份与恢复」模块可查看本地缓存状态、从服务器同步数据、暂停同步或清空本地缓存。
+                                建议定期检查同步状态，确保本地数据已上传服务器。</p>
+                        </article>
+                    </div>
+                </section>
+
+                <!-- 检测规范 -->
+                <section class="glass help-card help-section is-yellow help-anchor" id="section-test" data-section="test">
+                    <header class="flex items-center gap-3 mb-4">
+                        <span class="help-section-icon"><i class="fas fa-flask"></i></span>
+                        <div>
+                            <h2 class="text-lg font-bold text-gray-800">检测频率与月报</h2>
+                            <p class="text-xs text-gray-500">检测计划与月度报告说明</p>
+                        </div>
+                    </header>
+                    <div class="grid gap-3">
+                        <article class="help-q">
+                            <h4>检测频率是什么？</h4>
+                            <p>系统支持为各检测项目设置每周目标检测频率，当某周实际检测次数低于目标时会提示风险警告，
+                                用于防范检测频率下降。检测日历会按周安排各项目检测计划，每日登录自动提示今日检测项目。</p>
+                        </article>
+                        <article class="help-q">
+                            <h4>月报怎么看？</h4>
+                            <p>系统每月自动生成检测月报并在主界面展示，包含各项目检测次数统计、与上月对比（上升/下降）
+                                以及检测频率趋势图，方便食安员掌握检测频次变化。</p>
+                        </article>
+                    </div>
+                </section>
+
+                <!-- 联系我们 -->
+                <section class="glass help-card help-section is-red help-anchor" id="helpContact" data-section="contact">
+                    <header class="flex items-center gap-3 mb-4">
+                        <span class="help-section-icon"><i class="fas fa-headset"></i></span>
+                        <div>
+                            <h2 class="text-lg font-bold text-gray-800">联系我们</h2>
+                            <p class="text-xs text-gray-500">仍未解决？选择合适的方式联系我们</p>
+                        </div>
+                    </header>
+                    <div class="grid gap-3">
+                        <a href="./login.html" class="help-cta">
+                            <span class="icon" style="background: linear-gradient(135deg, #3b82f6, #6366f1);">
+                                <i class="fas fa-user-tie"></i>
+                            </span>
+                            <span class="meta">
+                                <span class="title">联系学校管理员</span>
+                                <span class="desc">各学校账号、人员、权限相关的首选联系人</span>
+                            </span>
+                            <i class="fas fa-chevron-right arrow"></i>
+                        </a>
+                        <a href="javascript:void(0)" class="help-cta" id="contactSupport">
+                            <span class="icon" style="background: linear-gradient(135deg, #ef4444, #f43f5e);">
+                                <i class="fas fa-headset"></i>
+                            </span>
+                            <span class="meta">
+                                <span class="title">联系平台技术支持</span>
+                                <span class="desc">系统故障、数据异常、跨学校问题等复杂情况</span>
+                            </span>
+                            <i class="fas fa-chevron-right arrow"></i>
+                        </a>
+                    </div>
+                </section>
+
+                <!-- 搜索无结果占位（默认隐藏） -->
+                <div id="helpEmpty" class="help-empty glass help-card" hidden>
+                    <i class="fas fa-search"></i>
+                    <p class="mt-2">没有匹配的问题，换个关键字试试看？</p>
+                </div>
+
             </div>
-        </section>
+        </div>
+
+        <!-- 底部版本 -->
+        <footer class="text-center text-xs text-gray-500 mt-10 py-4">
+            <p>© 2026 食品安全检验系统 · 系统版本 3.1.0 · 帮助中心 v2.0</p>
+        </footer>
     </main>
 
-    <footer class="max-w-3xl mx-auto px-4 py-6 text-center text-xs text-gray-400">
-        <p>© 2026 食品安全检验系统 · 系统版本 3.1.0</p>
-    </footer>
-
     <script>
-        // FIX-03: 帮助页"返回登录"按校构建，避免落到根 /login.html（无学校上下文 → "未识别入口"）。
-        // 登录页跳转时携带 ?school=，此处据此生成 /<code>/login.html?school=<code>。
         (function () {
+            // ===== FIX-03: 「返回登录」按校构建回链（保留原修复） =====
             var school = new URLSearchParams(window.location.search).get('school');
             var link = document.getElementById('backToLoginLink');
             if (link && school) {
                 link.href = '/' + encodeURIComponent(school) + '/login.html?school=' + encodeURIComponent(school);
+            }
+
+            // ===== P-RedesignHelp: 章节点击平滑滚动 + 滚动同步激活 =====
+            var navItems = document.querySelectorAll('.help-nav-item');
+            var sections = ['account', 'system', 'test', 'contact'].map(function (id) {
+                if (id === 'contact') return document.getElementById('helpContact');
+                return document.getElementById('section-' + id);
+            }).filter(Boolean);
+
+            navItems.forEach(function (it) {
+                it.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    var targetId = it.getAttribute('href').slice(1);
+                    var target = document.getElementById(targetId);
+                    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    // 即时激活态（避免等滚动事件）
+                    navItems.forEach(function (n) { n.classList.remove('active'); });
+                    it.classList.add('active');
+                });
+            });
+
+            // IntersectionObserver 同步激活态：哪个章节进入视口最高就激活哪一项
+            var observer = new IntersectionObserver(function (entries) {
+                entries.forEach(function (entry) {
+                    if (entry.isIntersecting && entry.intersectionRatio > 0.15) {
+                        var key = entry.target.getAttribute('data-section');
+                        navItems.forEach(function (n) {
+                            n.classList.toggle('active', n.getAttribute('data-section') === key);
+                        });
+                    }
+                });
+            }, { threshold: [0.15, 0.4, 0.6], rootMargin: '-100px 0px -50% 0px' });
+            sections.forEach(function (s) { if (s) observer.observe(s); });
+
+            // ===== 实时搜索过滤 =====
+            var searchEl = document.getElementById('helpSearch');
+            var qEls = Array.from(document.querySelectorAll('.help-q'));
+            var sectionEls = Array.from(document.querySelectorAll('.help-section'));
+            var emptyEl = document.getElementById('helpEmpty');
+
+            function normalize(s) { return (s || '').toLowerCase(); }
+
+            function applyFilter(keyword) {
+                var k = normalize(keyword.trim());
+                var visibleSections = 0;
+                sectionEls.forEach(function (sec) {
+                    var qs = sec.querySelectorAll('.help-q');
+                    var any = false;
+                    qs.forEach(function (q) {
+                        var match = k === '' || normalize(q.textContent).indexOf(k) !== -1;
+                        q.style.display = match ? '' : 'none';
+                        if (match) any = true;
+                    });
+                    sec.style.display = any ? '' : 'none';
+                    if (any) visibleSections++;
+                });
+                // 空结果提示
+                if (emptyEl) emptyEl.hidden = !(k && visibleSections === 0);
+            }
+
+            if (searchEl) {
+                searchEl.addEventListener('input', function (e) { applyFilter(e.target.value); });
+            }
+
+            // ===== 联系支持：温和占位（无后端支持接口前不做实际行为，留有未来 hook 点） =====
+            var cs = document.getElementById('contactSupport');
+            if (cs) {
+                cs.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    alert('请通过学校 IT 部门或超管联系平台技术支持。\n（系统暂未开放直接提交工单接口）');
+                });
             }
         })();
     </script>
