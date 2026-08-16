@@ -1,0 +1,311 @@
+    /* ============================================================
+       视觉系统对齐主站「食品安全检验管理系统」
+       （tailwind.input.css 中定义的 .glass / .glass-panel / 主背景渐变）：
+       - 主背景：暖色 aurora 渐变（黄 → 粉 → 紫 → 蓝），与主站一致
+       - glass / glass-panel：与主站完全相同的圆角、阴影、内发光、模糊
+       - 品牌色：蓝 #2563eb；语义色：红 #dc2626 / 黄 #ca8a04 / 绿 #16a34a
+       ============================================================ */
+    :root {
+      --c-bg: #f1f5f9;
+      --c-panel: #ffffff;
+      --c-border: #e2e8f0;
+      --c-text: #0f172a;
+      --c-muted: #64748b;
+      --c-brand: #2563eb;
+      --c-brand-strong: #1d4ed8;
+      --c-warn: #ca8a04;
+      --c-danger: #dc2626;
+      --c-ok: #16a34a;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; min-height: 100vh; }
+
+    /* 主背景：与主站相同的暖色 aurora 渐变（黄→粉→紫→蓝），支持无障碍降级 */
+    body {
+      font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: var(--c-text);
+      background-color: #fff7ed; /* 兜底色 */
+      background-image:
+        radial-gradient(at 12% 8%, rgba(253, 224, 71, 0.45) 0px, transparent 55%),
+        radial-gradient(at 88% 14%, rgba(244, 114, 182, 0.42) 0px, transparent 50%),
+        radial-gradient(at 78% 92%, rgba(168, 85, 247, 0.38) 0px, transparent 55%),
+        radial-gradient(at 14% 90%, rgba(96, 165, 250, 0.38) 0px, transparent 55%),
+        linear-gradient(180deg, #fff5f7 0%, #f3e8ff 50%, #e0f2fe 100%);
+      background-attachment: fixed;
+      min-height: 100vh;
+    }
+
+    /* ============ 顶部 hero（玻璃感标题条，与主站 nav 一致） ============ */
+    header.hero {
+      position: sticky; top: 0; z-index: 50;
+      padding: 16px 24px;
+      color: #fff;
+      background: linear-gradient(90deg,
+        rgba(99, 102, 241, 0.92) 0%,
+        rgba(168, 85, 247, 0.92) 50%,
+        rgba(236, 72, 153, 0.92) 100%);
+      box-shadow: 0 6px 18px rgba(60, 30, 90, 0.18);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px;
+    }
+    header.hero h1 { margin: 0; font-size: 18px; display: flex; align-items: center; gap: 10px; }
+    header.hero .badge {
+      background: rgba(255, 255, 255, 0.22);
+      border: 1px solid rgba(255, 255, 255, 0.4);
+      color: #fff; font-size: 12px; padding: 4px 10px;
+      border-radius: 999px; font-weight: 500;
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+
+    /* ============ 主布局容器 ============ */
+    main {
+      max-width: 1200px; margin: 0 auto; padding: 24px 16px 64px;
+      display: grid; grid-template-columns: 380px 1fr; gap: 24px;
+      align-items: start;
+    }
+    @media (max-width: 900px) {
+      main { grid-template-columns: 1fr; }
+    }
+
+    /* ============ 玻璃面板（白底+圆角+阴影+内发光，与主站 .glass-panel 一致） ============ */
+    .panel {
+      background: rgba(255, 255, 255, 0.78);
+      border: 1px solid rgba(255, 255, 255, 0.7);
+      border-radius: 1rem;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.85),
+        0 8px 24px rgba(40, 60, 100, 0.10);
+      padding: 20px;
+      margin-bottom: 20px;
+      backdrop-filter: blur(8px) saturate(160%);
+      -webkit-backdrop-filter: blur(8px) saturate(160%);
+    }
+    .panel h2 {
+      margin: 0 0 14px; font-size: 16px; font-weight: 700;
+      display: flex; align-items: center; gap: 8px;
+      color: #1e293b;
+    }
+    .panel h2 i {
+      width: 28px; height: 28px;
+      display: inline-flex; align-items: center; justify-content: center;
+      background: linear-gradient(135deg, #6366f1 0%, #ec4899 100%);
+      color: #fff; border-radius: 8px; font-size: 14px;
+    }
+
+    /* ============ 上传区（玻璃感虚线框） ============ */
+    .upload-zone {
+      border: 2px dashed #cbd5e1;
+      border-radius: 0.9rem;
+      padding: 28px 16px;
+      text-align: center;
+      cursor: pointer;
+      background: rgba(255, 255, 255, 0.55);
+      transition: all 0.25s ease;
+      display: block;
+    }
+    .upload-zone:hover {
+      border-color: var(--c-brand);
+      background: rgba(219, 234, 254, 0.45);
+      transform: translateY(-1px);
+    }
+    .upload-zone.dragover {
+      border-color: var(--c-brand);
+      background: rgba(219, 234, 254, 0.65);
+      box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+    }
+    .upload-zone input { display: none; }
+    .upload-zone i { font-size: 36px; color: var(--c-brand); margin-bottom: 10px; }
+    .upload-zone p { margin: 0; font-size: 13px; color: var(--c-muted); }
+    .upload-zone p strong { color: var(--c-text); }
+
+    /* ============ 按钮（主站风格：圆角、品牌色渐变、白底描边） ============ */
+    button.btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      gap: 6px;
+      padding: 10px 18px;
+      border: 1px solid rgba(99, 102, 241, 0.25);
+      border-radius: 0.7rem;
+      background: rgba(255, 255, 255, 0.9);
+      cursor: pointer;
+      font-size: 13px; font-weight: 500;
+      color: var(--c-text);
+      transition: all 0.18s ease;
+      box-shadow: 0 1px 2px rgba(40, 60, 100, 0.05);
+    }
+    button.btn:hover {
+      border-color: var(--c-brand);
+      color: var(--c-brand);
+      transform: translateY(-1px);
+      box-shadow: 0 3px 8px rgba(40, 60, 100, 0.10);
+    }
+    button.btn.primary {
+      background: linear-gradient(135deg, #6366f1 0%, #ec4899 100%);
+      color: #fff; border-color: transparent;
+      box-shadow: 0 4px 14px rgba(168, 85, 247, 0.35);
+    }
+    button.btn.primary:hover {
+      background: linear-gradient(135deg, #4f46e5 0%, #db2777 100%);
+      color: #fff;
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(168, 85, 247, 0.45);
+    }
+    button.btn:disabled {
+      opacity: 0.4; cursor: not-allowed;
+      transform: none !important;
+      box-shadow: none !important;
+    }
+    .toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+
+    /* ============ SOP 列表 ============ */
+    .sop { font-size: 13px; line-height: 1.7; color: #334155; }
+    .sop ol { margin: 0; padding-left: 20px; }
+    .sop li { margin-bottom: 6px; }
+    .sop li strong {
+      color: var(--c-brand);
+      font-weight: 600;
+    }
+
+    /* ============ 阈值表 ============ */
+    .threshold-list {
+      font-size: 12px; width: 100%;
+      border-collapse: collapse; margin-top: 4px;
+    }
+    .threshold-list td {
+      padding: 6px 10px;
+      border-bottom: 1px solid var(--c-border);
+    }
+    .threshold-list td.pass { color: var(--c-ok); font-weight: 500; }
+    .threshold-list td.warn { color: var(--c-warn); font-weight: 500; }
+    .threshold-list td.fail { color: var(--c-danger); font-weight: 500; }
+
+    /* ============ 画布 ============ */
+    .canvas-wrap {
+      position: relative;
+      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+      border-radius: 0.8rem;
+      overflow: hidden;
+      min-height: 360px;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.2);
+    }
+    .canvas-wrap canvas {
+      max-width: 100%; max-height: 600px; display: block;
+    }
+    .canvas-wrap.placeholder i {
+      color: #475569; font-size: 64px;
+      opacity: 0.6;
+    }
+
+    /* ============ 结果卡 / 指标卡（玻璃感小卡） ============ */
+    .result-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+      margin-top: 14px;
+    }
+    .result-card {
+      background: rgba(255, 255, 255, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.7);
+      border-radius: 0.6rem;
+      padding: 10px 14px;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.85),
+        0 2px 6px rgba(40, 60, 100, 0.06);
+    }
+    .result-card .label { font-size: 11px; color: var(--c-muted); }
+    .result-card .value {
+      font-size: 18px; font-weight: 700; color: var(--c-text);
+      font-family: "SF Mono", "JetBrains Mono", monospace;
+      line-height: 1.3; margin-top: 2px;
+    }
+    .result-card.main .value {
+      background: linear-gradient(135deg, #6366f1 0%, #ec4899 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      font-size: 26px;
+    }
+    .result-card.pass .value { color: var(--c-ok); }
+    .result-card.warn .value { color: var(--c-warn); }
+    .result-card.fail .value { color: var(--c-danger); }
+
+    /* ============ QC 提示条 ============ */
+    .qc-notes { margin-top: 10px; }
+    .qc-note {
+      padding: 10px 12px; border-radius: 0.5rem;
+      margin-bottom: 6px; font-size: 12px;
+      border-left: 4px solid;
+      line-height: 1.6;
+    }
+    .qc-note.warn { background: #fef9c3; color: #854d0e; border-color: var(--c-warn); }
+    .qc-note.error { background: #fee2e2; color: #7f1d1d; border-color: var(--c-danger); }
+    .qc-note.info { background: #dbeafe; color: #1e3a8a; border-color: var(--c-brand); }
+
+    /* ============ FIX-17 人工判定覆盖按钮 ============ */
+    #manualOverrideSection {
+      margin-top: 12px; padding: 12px;
+      background: rgba(255, 255, 255, 0.7);
+      border: 1px dashed rgba(99, 102, 241, 0.5);
+      border-radius: 0.75rem;
+    }
+    .manual-level-btn {
+      padding: 6px 12px; border-radius: 0.5rem;
+      border: 1px solid #e2e8f0; background: #fff;
+      color: #334155; font-size: 12px; font-weight: 600;
+      cursor: pointer; transition: all 0.15s ease;
+    }
+    .manual-level-btn:hover { border-color: var(--c-brand); color: var(--c-brand); }
+    .manual-level-btn.active {
+      background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+      border-color: transparent; color: #fff;
+      box-shadow: 0 2px 6px rgba(99, 102, 241, 0.4);
+    }
+    .manual-level-btn.reset { border-style: dashed; color: #64748b; }
+
+    /* ============ 明细表 ============ */
+    .distance-table {
+      width: 100%; font-size: 12px; margin-top: 8px;
+      border-collapse: collapse;
+    }
+    .distance-table td, .distance-table th {
+      padding: 6px 10px; text-align: left;
+      border-bottom: 1px solid var(--c-border);
+    }
+    .distance-table tr.best {
+      background: linear-gradient(90deg, rgba(99, 102, 241, 0.12), rgba(236, 72, 153, 0.12));
+      font-weight: 600;
+    }
+
+    details { font-size: 12px; margin-top: 10px; }
+    details summary {
+      cursor: pointer; color: var(--c-muted);
+      padding: 6px 0; font-weight: 500;
+      list-style-position: inside;
+    }
+    details summary:hover { color: var(--c-brand); }
+
+    .legend {
+      display: flex; gap: 14px; flex-wrap: wrap;
+      font-size: 12px; margin-top: 6px;
+    }
+    .legend span { display: inline-flex; align-items: center; gap: 5px; }
+    .legend .swatch {
+      display: inline-block; width: 14px; height: 14px;
+      border-radius: 3px;
+      border: 1px solid rgba(0, 0, 0, 0.08);
+    }
+
+    /* ============ 响应式 ============ */
+    @media (max-width: 768px) {
+      header.hero { padding: 12px 16px; gap: 8px; flex-wrap: wrap; }
+      header.hero h1 { font-size: 15px; }
+      .result-grid { grid-template-columns: repeat(2, 1fr); }
+      .result-card { padding: 8px 10px; }
+      .result-card .value { font-size: 15px; }
+      .result-card.main .value { font-size: 22px; }
+      .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      .table-scroll table { min-width: 480px; }
+      button.btn { padding: 10px 16px; font-size: 14px; }
+      .upload-zone { padding: 22px 14px; }
+    }
