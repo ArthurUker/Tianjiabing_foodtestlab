@@ -218,8 +218,10 @@ ok "后端内存上限 MemoryMax=${MEM_LIMIT_MB}M（NODE_OPTIONS --max-old-space
 
 # ------------------------- 1.6 外网出站连通性预检 -------------------------
 log "检查外网出站连通性（apt / git / npm / nvm / caddy 源都依赖外网）"
-if ! curl -sI --max-time 8 https://github.com >/dev/null 2>&1; then
-  fail "无法访问 github.com。请检查服务器出站网络 / 安全组（部署需访问 GitHub）。"
+# NB-07：不要用 `curl -sI https://github.com` —— 在国内云上常被 GitHub 抗爬虫风控挡返回超时，
+# 而 `git` 协议（smart HTTP）实际可达。改用 `git ls-remote` 真实探测目标仓库 head。
+if ! git -C "$REPO_ROOT" ls-remote --heads origin >/dev/null 2>&1; then
+  fail "无法访问 origin GitHub 仓库（git ls-remote 失败）。请检查服务器出站网络 / 安全组 / DNS。"
 fi
 if ! curl -sI --max-time 8 https://registry.npmjs.org >/dev/null 2>&1; then
   fail "无法访问 registry.npmjs.org，npm 依赖安装将失败。"
