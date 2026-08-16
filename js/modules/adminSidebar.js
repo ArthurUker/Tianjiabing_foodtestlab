@@ -904,4 +904,26 @@
 
         // 调试用：暴露切换函数
         window.adminSidebarSwitch = switchTo;
+
+        // ===== P-Refactor 时序竞态修复 =====
+        // 背景：本文件是普通 <script>（同步执行，先于 module script），而
+        //       window.switchSchoolsSubview 由 module script 在文档解析完成后才暴露。
+        //       若初始视图是 'schools'（如 URL hash=#view=schools 时刷新页面），
+        //       switchTo('schools') 会因 switchSchoolsSubview 尚未就绪而被跳过，
+        //       导致学校列表/回收站/详情面板的显隐状态初始化错误。
+        // 修复：注册一个 module 就绪回调，module script 暴露 switchSchoolsSubview 后
+        //       由它调用本回调，重放一次「当前视图 + 子视图」切换，纠正状态。
+        window.__adminSidebarOnModuleReady = function () {
+            // 仅当当前激活视图是 schools 且上次切换因时序被跳过时，才补调
+            const activeView = document.querySelector('.admin-view:not(.hidden)');
+            const viewName = activeView ? activeView.getAttribute('data-view') : null;
+            if (viewName === 'schools') {
+                // 重放默认子视图（list）；若 URL 带 subview 则按 subview
+                const subMatch = (location.hash || '').match(/subview=([a-z-]+)/);
+                const subName = subMatch ? subMatch[1] : 'list';
+                if (typeof window.switchSchoolsSubview === 'function') {
+                    window.switchSchoolsSubview(subName);
+                }
+            }
+        };
     })();

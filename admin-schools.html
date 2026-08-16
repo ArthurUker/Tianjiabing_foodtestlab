@@ -2954,6 +2954,13 @@
         // 暴露给 initAdminSidebar（switchTo）与其它作用域使用
         window.switchSchoolsSubview = switchSchoolsSubview;
 
+        // P-Refactor 时序竞态修复：adminSidebar.js 是普通 script（先于本 module 执行），
+        // 它可能因 switchSchoolsSubview 尚未就绪而跳过了初始 schools 视图的渲染。
+        // 此处暴露完成后，立即回调 adminSidebar.js 注册的就绪回调，补做一次视图重放。
+        if (typeof window.__adminSidebarOnModuleReady === 'function') {
+            window.__adminSidebarOnModuleReady();
+        }
+
         document.getElementById('closeDetail').addEventListener('click', () => {
             switchSchoolsSubview('list');
         });
