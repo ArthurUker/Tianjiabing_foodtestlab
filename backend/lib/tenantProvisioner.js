@@ -162,22 +162,29 @@ export async function provisionSchool({
   )
   // BS-02：开通即写入安全默认值（仅首次创建生效，不覆盖已有记录）。
   // 各字段 JSON 形态与前端 js/utils/schoolCustomization.js 解析逻辑一致：
-  //   对象类（field_labels/field_rules/field_options/field_order/custom_fields/theme_config）→ '{}'
-  //   数组类（hidden_fields/test_types）→ '[]'
+  //   对象类（field_labels/field_rules/field_options/field_order/custom_fields/theme_config）→ {}
+  //   数组类（hidden_fields/test_types）→ []
   //   visible_types → 默认五大模块全开，避免开通即白屏
-  // P1-4：visible_types 列为 jsonb（schema.prisma Json 类型），$3 为 text 参数（Prisma 传参），
-  // 赋 jsonb 列必须显式 $3::jsonb（否则 PG 42804）。'{}'/'[]' 为 SQL 字面量，自动 cast 无需处理。
-  const DEFAULT_VISIBLE_TYPES = JSON.stringify(['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'])
-  await prisma.$executeRawUnsafe(
-    `INSERT INTO public."SchoolCustomization"
-       ("id","school_code","theme_config","field_labels","hidden_fields","field_rules",
-        "field_options","field_order","custom_fields","test_types","visible_types","updated_at")
-     VALUES ($1,$2,'{}','{}','[]','{}','{}','{}','{}','[]',$3::jsonb,now())
-     ON CONFLICT ("school_code") DO NOTHING`,
-    `sc_${code}`,
-    code,
-    DEFAULT_VISIBLE_TYPES
-  )
+  // 迁移 Model API：Json 字段直接传对象/数组，Prisma 自动序列化，无需 ::jsonb cast（PG 42804）。
+  const DEFAULT_VISIBLE_TYPES = ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen']
+  try {
+    await prisma.schoolCustomization.create({
+      data: {
+        school_code: code,
+        theme_config: {},
+        field_labels: {},
+        hidden_fields: [],
+        field_rules: {},
+        field_options: {},
+        field_order: {},
+        custom_fields: {},
+        test_types: [],
+        visible_types: DEFAULT_VISIBLE_TYPES,
+      }
+    })
+  } catch (e) {
+    if (e?.code !== 'P2002') throw e // 已存在则忽略（等价 ON CONFLICT DO NOTHING）
+  }
   log(`✅ 系统记录 public."School"/"SchoolCustomization" 就绪`)
 
   // ④ 租户内首个 manager（幂等：该用户名已存在则跳过）
