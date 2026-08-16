@@ -48,6 +48,26 @@
       }
     </style>
     <style>
+      /* ====== 平台超管顶部：当前用户 + token 倒计时徽章（P-IdleCountdown） ======
+         玻璃深色导航上：默认用半透明白底（与「平台超管」徽章视觉一致），
+         临近过期（≤5 分钟）切换为告警色 + 脉动，提示用户即将自动登出。 */
+      #adminIdleBadge {
+          background-color: rgba(255, 255, 255, 0.20);
+          transition: background-color 0.2s ease, color 0.2s ease;
+      }
+      #adminIdleBadge.admin-idle-warn {
+          background-color: rgba(239, 68, 68, 0.85); /* red-500 */
+          color: #fff;
+      }
+      @keyframes admin-idle-pulse {
+          0%, 100% { opacity: 1; }
+          50%      { opacity: 0.55; }
+      }
+      #adminIdleBadge.admin-idle-warn {
+          animation: admin-idle-pulse 1.2s ease-in-out infinite;
+      }
+    </style>
+    <style>
         /* ====== 预设主题选择卡片 ====== */
         #themePresets {
             display: grid;
@@ -161,6 +181,22 @@
                 </span>
                 <h1 class="text-xl font-bold truncate min-w-0">学校管理控制台</h1>
                 <span class="text-xs px-2 py-0.5 bg-white/20 rounded-full shrink-0">平台超管</span>
+                <!-- P-IdleCountdown: 当前登录用户徽章 + token 失效倒计时徽章
+                     倒计时基于 30 分钟无活动空闲计时（与 SessionManager.sessionTimeout 同语义），
+                     用户任意操作自动重置；归零后调用 authService.logout() 跳转平台超管登录页。 -->
+                <span id="adminUserBadge"
+                      class="ml-3 text-xs px-2.5 py-1 bg-white/20 rounded-full flex items-center gap-1.5 max-w-[200px] shrink-0"
+                      title="当前登录用户">
+                    <i class="fas fa-user-circle" aria-hidden="true"></i>
+                    <span id="adminUserName" class="truncate">-</span>
+                </span>
+                <span id="adminIdleBadge"
+                      class="ml-2 text-xs px-2.5 py-1 bg-white/20 rounded-full flex items-center gap-1.5 shrink-0"
+                      title="无任何操作 30 分钟后自动登出；任意操作均会重置计时。">
+                    <i class="far fa-clock" aria-hidden="true"></i>
+                    <span>剩余</span>
+                    <span id="adminIdleCountdown" class="font-mono tabular-nums">30:00</span>
+                </span>
             </div>
             <div class="flex items-center shrink-0">
                 <!-- P6 临时止损:移除"返回主界面"链接(原指向根 ./index.html,会触发根页面认证拦截踢人循环)。
@@ -1012,6 +1048,110 @@
         // ✅ 校验通过：用服务端返回的用户对象（不再用本地可能被篡改的 user）
         document.documentElement.style.display = '';
         const currentUser = _verified;
+
+        // ====== P-IdleCountdown: 顶部导航 — 当前用户名 + token 失效倒计时 ======
+        // 语义：与 SessionManager.sessionTimeout(30 分钟无活动自动登出) 同口径；
+        //       任意用户操作（点击 / 键盘 / 滚动 / 触摸）均重置计时，归零后强制登出。
+        // 安全：仅在 UI 提示当前会话状态，不引入新的计时存储；倒计时归零调用
+        //       authService.logout() 走标准登出链路（清本地态 + 跳转登录页），避免与现有
+        //       401 刷新拦截器 / SyncToBackend 心跳产生行为分叉。
+        (function renderAdminHeaderBadges() {
+            const nameEl = document.getElementById('adminUserName');
+            if (nameEl) {
+                // 防御性取值：后端 verify-token 返回的 user 字段可能不完整（不同分支返回不同字段）
+                const display = (currentUser && (currentUser.fullName || currentUser.username)) || '未知用户';
+                nameEl.textContent = display;
+                nameEl.title = display;
+            }
+        })();
+
+        function startAdminIdleCountdown() {
+            const IDLE_TIMEOUT_MS = 30 * 60 * 1000;     // 30 分钟无操作自动登出
+            const WARN_THRESHOLD_MS = 5 * 60 * 1000;    // 剩余 ≤5 分钟切换告警态
+            const TICK_INTERVAL_MS = 1000;              // UI 刷新粒度（1 秒）
+
+            const badgeEl = document.getElementById('adminIdleBadge');
+            const textEl  = document.getElementById('adminIdleCountdown');
+            if (!badgeEl || !textEl) return;
+
+            // 上次活动时间戳（页面级 module 作用域内；刷新页面等价于会话重置，自然重置计时）
+            let lastActivityAt = Date.now();
+            let loggedOut = false;
+
+            const resetActivity = () => {
+                if (loggedOut) return;
+                lastActivityAt = Date.now();
+                // 用户刚刚操作了 → 立即清掉告警态，UI 体感即时反馈
+                if (badgeEl.classList.contains('admin-idle-warn')) {
+                    badgeEl.classList.remove('admin-idle-warn');
+                }
+            };
+
+            const formatRemaining = (ms) => {
+                const total = Math.max(0, Math.floor(ms / 1000));
+                const mm = Math.floor(total / 60);
+                const ss = total % 60;
+                return String(mm).padStart(2, '0') + ':' + String(ss).padStart(2, '0');
+            };
+
+            const doLogout = (reason) => {
+                if (loggedOut) return;
+                loggedOut = true;
+                // 记录原因：登录页可读取并展示，避免用户感到「莫名其妙被踢」
+                try { sessionStorage.setItem('admin_idle_logout_reason', reason || '1'); } catch (e) { /* 忽略 */ }
+                // 走标准登出：清本地态（不影响后续标签页共用的 localStorage refresh token 时按其语义处理）
+                authService.logout().finally(() => {
+                    window.location.replace('./super-admin-login.html');
+                });
+            };
+
+            const tick = () => {
+                if (loggedOut) return;
+                const remaining = IDLE_TIMEOUT_MS - (Date.now() - lastActivityAt);
+                if (remaining <= 0) {
+                    textEl.textContent = '00:00';
+                    doLogout('长时间无操作，会话已自动登出');
+                    return;
+                }
+                textEl.textContent = formatRemaining(remaining);
+                if (remaining <= WARN_THRESHOLD_MS) {
+                    if (!badgeEl.classList.contains('admin-idle-warn')) {
+                        badgeEl.classList.add('admin-idle-warn');
+                    }
+                }
+            };
+
+            // 1) 用户活动事件：覆盖鼠标 / 键盘 / 滚动 / 触摸 / 点击。
+            //    passive: true 提升滚动性能；capture: true 让事件尽早被处理，
+            //    即便内层 stopPropagation 也会被记为一次活动（操作发生的事实优先于业务取消）。
+            const ACTIVITY_EVENTS = ['mousedown', 'keydown', 'scroll', 'touchstart', 'click', 'wheel'];
+            ACTIVITY_EVENTS.forEach((evt) => {
+                window.addEventListener(evt, resetActivity, { passive: true, capture: true });
+            });
+
+            // 2) 启动 UI 刷新：秒级粒度使用 setInterval 即可（无须 RAF），1 秒误差可接受。
+            tick();
+            const _intervalId = setInterval(tick, TICK_INTERVAL_MS);
+
+            // 3) 页面隐藏（标签页后台 / 窗口最小化）时暂停秒级刷新以省电：
+            //    恢复时立即走一次 tick 把显示补齐到当前剩余值（逻辑时长仍按真实流逝计算）。
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') {
+                    tick();
+                    // 注意：不清 _intervalId——它在整个页面生命周期内保持运行即可。
+                }
+            });
+
+            // 标记初始化完成，方便排查
+            console.log('⏱️ 平台超管 idle 倒计时已启动（30 分钟无活动自动登出）');
+            // 便于调试 / 单元测试：暴露只读访问器（无副作用）
+            window.__adminIdleTimer = {
+                get remainingMs() { return Math.max(0, IDLE_TIMEOUT_MS - (Date.now() - lastActivityAt)); },
+                get lastActivityAt() { return lastActivityAt; },
+                _intervalId
+            };
+        }
+        startAdminIdleCountdown();
 
         // ====== 工具函数 ======
         const notice = document.getElementById('notice');
