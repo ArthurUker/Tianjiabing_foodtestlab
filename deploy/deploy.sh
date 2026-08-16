@@ -663,10 +663,20 @@ if [ -d "$CADDY_SITES_DIR" ]; then
     fi
   done
 fi
-# 后端端口占用预检（轻量，ss 不存在则跳过）
+# 后端端口占用预检（轻量，ss 不存在则跳过）。
+# 必须排除本系统自身的服务：重跑部署时，§8 刚 restart 的 $APP_NAME 仍监听自己的
+# API_PORT，若不排除会被误判为"其它用户的服务"而中止部署（历史 bug）。
 if command -v ss >/dev/null 2>&1; then
-  if ss -ltn 2>/dev/null | grep -q ":$API_PORT "; then
-    fail "后端端口 $API_PORT 已被占用（可能是其它用户的服务），请换一个 API_PORT"
+  _own_pid=$(systemctl show "$APP_NAME" -p MainPID --value 2>/dev/null || echo 0)
+  _occupying_pids=$(ss -ltnp 2>/dev/null | grep ":$API_PORT " | grep -oE 'pid=[0-9]+' | cut -d= -f2 | sort -u)
+  _foreign=""
+  for _pid in $_occupying_pids; do
+    [ "$_pid" = "$_own_pid" ] && continue
+    _foreign="$_pid"
+    break
+  done
+  if [ -n "$_foreign" ]; then
+    fail "后端端口 $API_PORT 已被其它进程占用（PID: $_foreign），请换一个 API_PORT"
   fi
 fi
 
