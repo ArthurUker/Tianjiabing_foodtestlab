@@ -48,6 +48,263 @@
       }
     </style>
     <style>
+      /* ====== P-Sidebar: 平台超管控制台 — 左侧功能菜单 + 主区多视图布局 ======
+         - 两栏布局：固定宽侧栏 240px（可折叠到 64px 仅图标），主区自适应；
+         - 玻璃深色：与现有顶部 nav 视觉一致；
+         - 移动端 (<1024px)：侧栏整体可被收纳，默认图标态 + 浮层 nav。 */
+      .admin-layout {
+          display: flex;
+          gap: 20px;
+          max-width: 1280px;
+          margin: 0 auto;
+          padding: 20px 16px;
+          align-items: flex-start;
+      }
+      .admin-sidebar {
+          position: sticky;
+          top: 80px;
+          width: 240px;
+          flex-shrink: 0;
+          background: rgba(255, 255, 255, 0.55);
+          backdrop-filter: blur(14px) saturate(150%);
+          -webkit-backdrop-filter: blur(14px) saturate(150%);
+          border-radius: 18px;
+          box-shadow: 0 6px 22px rgba(30, 44, 80, 0.10);
+          padding: 16px 12px;
+          max-height: calc(100vh - 100px);
+          overflow-y: auto;
+          transition: width 0.25s ease, padding 0.25s ease;
+      }
+      .admin-sidebar__brand {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 6px 6px 14px 6px;
+          border-bottom: 1px solid rgba(30, 44, 80, 0.08);
+          margin-bottom: 12px;
+      }
+      .admin-sidebar__brand-icon {
+          width: 36px; height: 36px;
+          border-radius: 10px;
+          background: linear-gradient(135deg, rgba(59, 130, 246, 0.85), rgba(99, 102, 241, 0.85));
+          display: flex; align-items: center; justify-content: center;
+          color: #fff; font-size: 16px;
+          box-shadow: 0 2px 8px rgba(59, 130, 246, 0.28);
+      }
+      .admin-sidebar__brand-text {
+          font-weight: 700;
+          color: #1f2937;
+          font-size: 14px;
+          flex: 1;
+          white-space: nowrap;
+          overflow: hidden;
+      }
+      .admin-sidebar__collapse-btn {
+          width: 28px; height: 28px;
+          border-radius: 8px;
+          border: none;
+          background: rgba(0, 0, 0, 0.04);
+          color: #6b7280;
+          cursor: pointer;
+          transition: background 0.15s;
+          flex-shrink: 0;
+      }
+      .admin-sidebar__collapse-btn:hover { background: rgba(0, 0, 0, 0.08); }
+
+      .admin-sidebar__nav {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+      }
+      .admin-sidebar__item {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 10px 12px;
+          border-radius: 10px;
+          border: none;
+          background: transparent;
+          color: #374151;
+          font-size: 14px;
+          cursor: pointer;
+          text-align: left;
+          transition: background 0.15s, color 0.15s, transform 0.1s;
+          width: 100%;
+          white-space: nowrap;
+          overflow: hidden;
+      }
+      .admin-sidebar__item:hover {
+          background: rgba(59, 130, 246, 0.08);
+          color: #1e40af;
+      }
+      .admin-sidebar__item.active {
+          background: linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(99, 102, 241, 0.12));
+          color: #1e3a8a;
+          font-weight: 600;
+          box-shadow: inset 3px 0 0 #3b82f6;
+      }
+      .admin-sidebar__item i {
+          width: 20px;
+          text-align: center;
+          font-size: 15px;
+          flex-shrink: 0;
+      }
+      .admin-sidebar__item-label {
+          flex: 1;
+          overflow: hidden;
+          text-overflow: ellipsis;
+      }
+      .admin-sidebar__badge {
+          background: #ef4444;
+          color: #fff;
+          font-size: 11px;
+          padding: 1px 7px;
+          border-radius: 10px;
+          font-weight: 600;
+          min-width: 20px;
+          text-align: center;
+      }
+
+      .admin-sidebar__footer {
+          margin-top: 16px;
+          padding-top: 12px;
+          border-top: 1px dashed rgba(30, 44, 80, 0.10);
+          color: #9ca3af;
+          font-size: 11px;
+          line-height: 1.5;
+      }
+
+      /* 折叠态（仅图标） */
+      .admin-sidebar.collapsed {
+          width: 68px;
+          padding: 16px 8px;
+      }
+      .admin-sidebar.collapsed .admin-sidebar__brand-text,
+      .admin-sidebar.collapsed .admin-sidebar__item-label,
+      .admin-sidebar.collapsed .admin-sidebar__footer,
+      .admin-sidebar.collapsed .admin-sidebar__badge {
+          display: none;
+      }
+      .admin-sidebar.collapsed .admin-sidebar__item {
+          justify-content: center;
+          gap: 0;
+          padding: 12px 0;
+      }
+      .admin-sidebar.collapsed .admin-sidebar__brand {
+          justify-content: center;
+      }
+
+      .admin-main {
+          flex: 1;
+          min-width: 0;  /* 重要：让 flex item 在内容超长时允许截断而非撑爆父容器 */
+      }
+      .admin-view { display: block; }
+      .admin-view.hidden { display: none; }
+
+      /* 平台总览 / 跳转卡 — 视觉一致的大卡片 */
+      .admin-kpi-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+          gap: 16px;
+          margin-bottom: 20px;
+      }
+      .admin-kpi-card {
+          background: rgba(255, 255, 255, 0.65);
+          backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(10px);
+          border-radius: 16px;
+          padding: 18px;
+          box-shadow: 0 4px 14px rgba(30, 44, 80, 0.08);
+          border: 1px solid rgba(255, 255, 255, 0.5);
+      }
+      .admin-kpi-label {
+          font-size: 12px;
+          color: #6b7280;
+          margin-bottom: 6px;
+      }
+      .admin-kpi-value {
+          font-size: 28px;
+          font-weight: 700;
+          color: #1f2937;
+          line-height: 1.1;
+      }
+      .admin-kpi-sub {
+          font-size: 12px;
+          color: #9ca3af;
+          margin-top: 4px;
+      }
+      .admin-card {
+          background: rgba(255, 255, 255, 0.65);
+          backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(10px);
+          border-radius: 18px;
+          padding: 20px;
+          box-shadow: 0 6px 18px rgba(30, 44, 80, 0.08);
+          margin-bottom: 16px;
+      }
+      .admin-card h3 {
+          font-size: 16px;
+          font-weight: 700;
+          color: #1f2937;
+          margin-bottom: 12px;
+          display: flex; align-items: center; gap: 8px;
+      }
+      .admin-link-card {
+          display: flex; align-items: center; gap: 14px;
+          padding: 14px 16px;
+          border-radius: 12px;
+          background: rgba(255, 255, 255, 0.55);
+          text-decoration: none;
+          color: inherit;
+          transition: background 0.15s, transform 0.1s;
+          border: 1px solid rgba(59, 130, 246, 0.18);
+      }
+      .admin-link-card:hover { background: rgba(59, 130, 246, 0.08); transform: translateX(2px); }
+      .admin-link-card .icon {
+          width: 44px; height: 44px;
+          border-radius: 12px;
+          display: flex; align-items: center; justify-content: center;
+          color: #fff;
+          font-size: 18px;
+          flex-shrink: 0;
+      }
+      .admin-link-card .meta { flex: 1; }
+      .admin-link-card .title { font-weight: 600; color: #1f2937; }
+      .admin-link-card .desc { font-size: 12px; color: #6b7280; margin-top: 2px; }
+      .admin-link-card .arrow { color: #9ca3af; }
+
+      /* 响应式：移动端折叠侧边栏 */
+      @media (max-width: 1023px) {
+          .admin-layout { flex-direction: column; padding: 12px; }
+          .admin-sidebar {
+              position: relative;
+              top: 0;
+              width: 100% !important;
+              max-height: none;
+              margin-bottom: 12px;
+          }
+          .admin-sidebar.collapsed { width: 100% !important; padding: 8px 12px; }
+          .admin-sidebar.collapsed .admin-sidebar__brand-text,
+          .admin-sidebar.collapsed .admin-sidebar__item-label,
+          .admin-sidebar.collapsed .admin-sidebar__badge,
+          .admin-sidebar.collapsed .admin-sidebar__footer { display: initial; }
+          .admin-sidebar.collapsed .admin-sidebar__item { justify-content: flex-start; gap: 12px; padding: 10px 12px; }
+          .admin-sidebar.collapsed .admin-sidebar__brand { justify-content: flex-start; }
+          /* 移动端把 5 个项目改为横向滚动条 */
+          .admin-sidebar__nav {
+              flex-direction: row;
+              overflow-x: auto;
+              gap: 8px;
+              padding-bottom: 4px;
+          }
+          .admin-sidebar__nav .admin-sidebar__item {
+              flex-shrink: 0;
+              padding: 8px 14px;
+          }
+          .admin-sidebar__brand .admin-sidebar__collapse-btn { display: none; }
+      }
+    </style>
+    <style>
       /* ====== 平台超管顶部：当前用户 + token 倒计时徽章（P-IdleCountdown） ======
          玻璃深色导航上：默认用半透明白底（与「平台超管」徽章视觉一致），
          临近过期（≤5 分钟）切换为告警色 + 脉动，提示用户即将自动登出。 */
@@ -202,19 +459,58 @@
                 <!-- P6 临时止损:移除"返回主界面"链接(原指向根 ./index.html,会触发根页面认证拦截踢人循环)。
                      本控制台即平台超管最高层入口,不存在更"主"的界面;若后续确认需"回到列表首屏"语义,另行实现。 -->
                 <!-- 临时测试工具:浏览器测试报告上报页（测试人员入口，超管可见 → 新窗口打开，避免离开控制台） -->
-                <a href="/test-report.html" target="_blank" rel="noopener" class="ml-3 text-sm px-3 py-1.5 bg-emerald-400 text-white font-semibold hover:bg-emerald-300 rounded-lg transition shadow" title="在新窗口打开测试报告上报页（token 自动复用，无需重复登录）">
-                    <i class="fas fa-clipboard-check mr-1"></i>测试报告
-                </a>
-                <!-- 临时测试工具:测试结果汇总报告页（docs/test-results/latest/index.html，由生成脚本产出，超管可查看汇总） -->
-                <a href="/docs/test-results/latest/index.html" target="_blank" class="ml-3 text-sm px-3 py-1.5 bg-indigo-400 text-white font-semibold hover:bg-indigo-300 rounded-lg transition shadow" title="查看测试结果汇总报告（docs/test-results/latest/）">
-                    <i class="fas fa-chart-bar mr-1"></i>汇总报告
-                </a>
-                <button id="btnAccountMgmt" type="button" class="ml-3 text-sm px-3 py-1.5 bg-yellow-400 text-gray-900 font-semibold hover:bg-yellow-300 rounded-lg transition shadow">
-                    <i class="fas fa-user-shield mr-1"></i>账号管理
+                <!-- P-Sidebar: 顶部右侧入口精简（移到左侧菜单 — 账号与权限 / 测试报告）。
+                     仅保留退出登录快捷按钮，避免顶部冗余；侧边栏承担全局功能入口的角色。 -->
+                <button id="btnLogoutTop"
+                        type="button"
+                        class="ml-3 text-sm px-3 py-1.5 bg-red-500 text-white font-semibold hover:bg-red-400 rounded-lg transition shadow"
+                        title="退出登录（返回平台超管登录页）">
+                    <i class="fas fa-sign-out-alt mr-1"></i>退出登录
                 </button>
             </div>
         </div>
     </nav>
+
+    <!-- P-Sidebar: 侧边栏 + 主区两栏布局。侧边栏承载功能分类菜单，主区按选中视图渲染。
+         详情面板（detailPanel）跨视图共享——用户先在「学校管理」选择学校进入详情，
+         切到「账号与权限」「备份运维」等视图时已打开的详情仍可见（侧边栏固定宽度，主区滚动）。 -->
+    <div class="admin-layout">
+        <aside id="adminSidebar" class="admin-sidebar" aria-label="平台超管功能导航">
+            <div class="admin-sidebar__brand">
+                <span class="admin-sidebar__brand-icon"><i class="fas fa-shield-alt text-yellow-300"></i></span>
+                <span class="admin-sidebar__brand-text">超管控制台</span>
+                <button id="adminSidebarToggle" class="admin-sidebar__collapse-btn" type="button" title="折叠/展开菜单" aria-label="折叠/展开菜单">
+                    <i class="fas fa-angle-double-left"></i>
+                </button>
+            </div>
+            <nav class="admin-sidebar__nav">
+                <button class="admin-sidebar__item active" data-view="overview" type="button">
+                    <i class="fas fa-chart-pie"></i><span class="admin-sidebar__item-label">平台总览</span>
+                </button>
+                <button class="admin-sidebar__item" data-view="schools" type="button">
+                    <i class="fas fa-school"></i><span class="admin-sidebar__item-label">学校管理</span>
+                    <span id="adminSidebarBadgeSchools" class="admin-sidebar__badge" hidden></span>
+                </button>
+                <button class="admin-sidebar__item" data-view="accounts" type="button">
+                    <i class="fas fa-users-cog"></i><span class="admin-sidebar__item-label">账号与权限</span>
+                </button>
+                <button class="admin-sidebar__item" data-view="backup" type="button">
+                    <i class="fas fa-database"></i><span class="admin-sidebar__item-label">备份运维</span>
+                </button>
+                <button class="admin-sidebar__item" data-view="reports" type="button">
+                    <i class="fas fa-file-alt"></i><span class="admin-sidebar__item-label">测试报告</span>
+                </button>
+            </nav>
+            <div class="admin-sidebar__footer">
+                <div class="admin-sidebar__hint">点击「学校管理」选择学校 →<br>在详情面板切换 5 个 Tab</div>
+                <button id="btnSidebarLogout" type="button"
+                        class="mt-3 w-full text-sm px-3 py-1.5 bg-red-500/90 text-white rounded-lg hover:bg-red-500 transition shadow"
+                        title="退出登录（返回平台超管登录页）">
+                    <i class="fas fa-sign-out-alt mr-1"></i>退出登录
+                </button>
+            </div>
+        </aside>
+        <main class="admin-main">
 
     <div class="container mx-auto px-4 py-6 max-w-7xl">
         <!-- 通知区 -->
@@ -4123,5 +4419,345 @@
             </div>
         </div>
     </div>
+
+        </main><!-- /.admin-main -->
+    </div><!-- /.admin-layout -->
+
+    <!-- P-Sidebar: 主区视图（除「学校管理」外均为新增入口卡片）。
+         视图切换由下方 adminSidebarSwitch() 控制；其它视图主要承载「跳转 / 入口提示」，
+         完整编辑能力仍在「学校管理」视图内的 detailPanel（5 个 Tab）。 -->
+    <section id="adminViewOverview" class="admin-view" data-view="overview">
+        <div class="container mx-auto px-4 py-6 max-w-7xl">
+            <div class="admin-kpi-grid">
+                <div class="admin-kpi-card">
+                    <div class="admin-kpi-label"><i class="fas fa-school mr-1"></i>学校总数</div>
+                    <div id="kpiTotalSchools" class="admin-kpi-value">-</div>
+                    <div class="admin-kpi-sub">含启用、停用与回收站</div>
+                </div>
+                <div class="admin-kpi-card">
+                    <div class="admin-kpi-label"><i class="fas fa-check-circle mr-1"></i>活跃学校</div>
+                    <div id="kpiActiveSchools" class="admin-kpi-value">-</div>
+                    <div class="admin-kpi-sub">status = active</div>
+                </div>
+                <div class="admin-kpi-card">
+                    <div class="admin-kpi-label"><i class="fas fa-trash-restore mr-1"></i>回收站</div>
+                    <div id="kpiRecycleSchools" class="admin-kpi-value">-</div>
+                    <div class="admin-kpi-sub">已删除但未彻底清除</div>
+                </div>
+                <div class="admin-kpi-card">
+                    <div class="admin-kpi-label"><i class="fas fa-user-shield mr-1"></i>平台超管</div>
+                    <div id="kpiSuperAdmins" class="admin-kpi-value">-</div>
+                    <div class="admin-kpi-sub">role = super_admin</div>
+                </div>
+            </div>
+
+            <div class="admin-card">
+                <h3><i class="fas fa-bolt text-blue-500"></i>快速入口</h3>
+                <div class="grid md:grid-cols-2 gap-3">
+                    <a class="admin-link-card" href="javascript:void(0)" data-goto="schools">
+                        <span class="icon" style="background: linear-gradient(135deg, #3b82f6, #6366f1)"><i class="fas fa-school"></i></span>
+                        <span class="meta">
+                            <span class="title">学校管理</span>
+                            <span class="desc">查看 / 新增 / 启用 / 停用学校，并进入 5 Tab 详情</span>
+                        </span>
+                        <i class="fas fa-chevron-right arrow"></i>
+                    </a>
+                    <a class="admin-link-card" href="javascript:void(0)" data-goto="accounts">
+                        <span class="icon" style="background: linear-gradient(135deg, #eab308, #f59e0b)"><i class="fas fa-users-cog"></i></span>
+                        <span class="meta">
+                            <span class="title">账号与权限</span>
+                            <span class="desc">管理平台超管账号、查看学校用户</span>
+                        </span>
+                        <i class="fas fa-chevron-right arrow"></i>
+                    </a>
+                    <a class="admin-link-card" href="javascript:void(0)" data-goto="backup">
+                        <span class="icon" style="background: linear-gradient(135deg, #14b8a6, #06b6d4)"><i class="fas fa-database"></i></span>
+                        <span class="meta">
+                            <span class="title">备份运维</span>
+                            <span class="desc">立即备份、查看历史、影子恢复学校</span>
+                        </span>
+                        <i class="fas fa-chevron-right arrow"></i>
+                    </a>
+                    <a class="admin-link-card" href="javascript:void(0)" data-goto="reports">
+                        <span class="icon" style="background: linear-gradient(135deg, #10b981, #22c55e)"><i class="fas fa-file-alt"></i></span>
+                        <span class="meta">
+                            <span class="title">测试报告</span>
+                            <span class="desc">上报页 / 汇总报告</span>
+                        </span>
+                        <i class="fas fa-chevron-right arrow"></i>
+                    </a>
+                </div>
+            </div>
+
+            <!-- ✅ 学校列表卡片：总览视图里也保留一份（与「学校管理」视图复用同一份 DOM）。
+                 为避免双绑事件，使用 id="schoolsListContainerOverview" 占位 + JS 复制引用。 -->
+            <div id="schoolsListContainerOverview"></div>
+        </div>
+    </section>
+
+    <section id="adminViewAccounts" class="admin-view hidden" data-view="accounts">
+        <div class="container mx-auto px-4 py-6 max-w-7xl">
+            <div class="admin-card">
+                <h3><i class="fas fa-user-shield text-yellow-500"></i>平台超管账号管理</h3>
+                <p class="text-sm text-gray-600 mb-3">管理拥有跨租户权限的账号（role=super_admin）。</p>
+                <button id="btnAccountMgmtInline" type="button" class="px-4 py-2 bg-yellow-400 text-gray-900 font-semibold rounded-lg hover:bg-yellow-300 transition shadow">
+                    <i class="fas fa-users-cog mr-1"></i>打开账号管理弹层
+                </button>
+            </div>
+
+            <div class="admin-card">
+                <h3><i class="fas fa-user-graduate text-indigo-500"></i>学校用户管理</h3>
+                <p class="text-sm text-gray-600 mb-3">
+                    学校用户的增删改查与密码重置在「学校管理」→ 选中学校 → 「用户管理」Tab 内完成。
+                    <br>本视图仅作为入口，请先在「学校管理」视图选择目标学校。
+                </p>
+                <button id="btnGoSchoolsToUsers" type="button" class="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition shadow">
+                    <i class="fas fa-arrow-right mr-1"></i>前往「学校管理」
+                </button>
+            </div>
+
+            <div class="admin-card">
+                <h3><i class="fas fa-history text-gray-500"></i>操作审计日志</h3>
+                <p class="text-sm text-gray-600 mb-3">
+                    所有超管写操作（创建/删除学校、字段变更、备份恢复、超管账号变更）均会被记录至 public.AuditLog。
+                    <br>查询接口：<code class="bg-gray-100 px-1 rounded">GET /api/audit-logs</code>，按时间段 + actor + action + target 过滤。
+                </p>
+                <a href="/docs/api/audit-logs.md" target="_blank" rel="noopener" class="admin-link-card" style="max-width: 380px">
+                    <span class="icon" style="background: linear-gradient(135deg, #6366f1, #8b5cf6)"><i class="fas fa-book"></i></span>
+                    <span class="meta"><span class="title">查看审计日志接口文档</span></span>
+                    <i class="fas fa-external-link-alt arrow"></i>
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <section id="adminViewBackup" class="admin-view hidden" data-view="backup">
+        <div class="container mx-auto px-4 py-6 max-w-7xl">
+            <div class="admin-card">
+                <h3><i class="fas fa-database text-teal-500"></i>备份运维入口</h3>
+                <p class="text-sm text-gray-600 mb-3">
+                    备份、验证、影子恢复等运维操作集中在「学校管理」→ 选中目标学校 → 「备份运维」Tab 内。
+                    <br>本视图提供常用快捷入口。
+                </p>
+                <button id="btnGoSchoolsToBackup" type="button" class="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition shadow">
+                    <i class="fas fa-arrow-right mr-1"></i>前往「学校管理」选择学校
+                </button>
+            </div>
+
+            <div class="admin-card">
+                <h3><i class="fas fa-shield-alt text-blue-500"></i>说明</h3>
+                <ul class="text-sm text-gray-700 list-disc list-inside space-y-1">
+                    <li>单租户备份：进入学校详情「备份运维」Tab 后点击「立即备份」（打包 schema_dumps + media）。</li>
+                    <li>影子恢复：将该学校 schema 重命名 <code class="bg-gray-100 px-1 rounded">school_&lt;code&gt;_old_&lt;ts&gt;</code> 暂存，再以目标备份重建 <code class="bg-gray-100 px-1 rounded">school_&lt;code&gt;</code>。</li>
+                    <li>完整灾难恢复流程见 <code class="bg-gray-100 px-1 rounded">/docs/ops/disaster-recovery.md</code>。</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    <section id="adminViewReports" class="admin-view hidden" data-view="reports">
+        <div class="container mx-auto px-4 py-6 max-w-7xl">
+            <div class="admin-card">
+                <h3><i class="fas fa-file-alt text-emerald-500"></i>测试报告</h3>
+                <p class="text-sm text-gray-600 mb-4">测试报告上报页与汇总报告。</p>
+                <div class="space-y-3">
+                    <a href="/test-report.html" target="_blank" rel="noopener" class="admin-link-card block">
+                        <span class="icon" style="background: linear-gradient(135deg, #10b981, #34d399)"><i class="fas fa-clipboard-check"></i></span>
+                        <span class="meta">
+                            <span class="title">测试报告上报页</span>
+                            <span class="desc">填写并提交测试报告（token 自动复用）</span>
+                        </span>
+                        <i class="fas fa-external-link-alt arrow"></i>
+                    </a>
+                    <a href="/docs/test-results/latest/index.html" target="_blank" class="admin-link-card block">
+                        <span class="icon" style="background: linear-gradient(135deg, #6366f1, #818cf8)"><i class="fas fa-chart-bar"></i></span>
+                        <span class="meta">
+                            <span class="title">测试结果汇总报告</span>
+                            <span class="desc">docs/test-results/latest/（由生成脚本产出）</span>
+                        </span>
+                        <i class="fas fa-external-link-alt arrow"></i>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- P-Sidebar: 视图切换逻辑（侧边栏菜单 + 顶部「退出登录」按钮） -->
+    <script>
+    (function initAdminSidebar() {
+        const sidebar = document.getElementById('adminSidebar');
+        const items = sidebar ? sidebar.querySelectorAll('.admin-sidebar__item') : [];
+        const views = document.querySelectorAll('.admin-view');
+        const main = document.querySelector('.admin-main');
+
+        // 【DOM 收纳】
+        // 1) adminViewOverview/Accounts/Backup/Reports 等新视图节点最初是在 <main> 之外追加的，
+        //    把它们统一挪进 <main>，保证侧边栏布局正确包裹所有视图；
+        // 2) 把原有的 .container.mx-auto... 包成 adminViewSchools，与新视图并列。
+        if (main) {
+            document.querySelectorAll('.admin-view').forEach((v) => {
+                if (v.parentNode !== main) main.appendChild(v);
+            });
+        }
+        const schoolsContainer = document.querySelector('#adminViewSchools') ||
+            document.querySelector('.container.mx-auto.px-4.py-6.max-w-7xl');
+        if (schoolsContainer && !schoolsContainer.classList.contains('admin-view')) {
+            // 包裹 schoolsContainer 为 admin-view
+            const wrap = document.createElement('section');
+            wrap.className = 'admin-view';
+            wrap.id = 'adminViewSchools';
+            wrap.setAttribute('data-view', 'schools');
+            schoolsContainer.parentNode.insertBefore(wrap, schoolsContainer);
+            wrap.appendChild(schoolsContainer);
+        }
+
+        function switchTo(viewName) {
+            // 隐藏所有视图
+            document.querySelectorAll('.admin-view').forEach((v) => v.classList.add('hidden'));
+            // 显示目标视图
+            const target = document.querySelector('.admin-view[data-view="' + viewName + '"]');
+            if (target) target.classList.remove('hidden');
+            // 更新菜单激活态
+            items.forEach((it) => {
+                it.classList.toggle('active', it.getAttribute('data-view') === viewName);
+            });
+            // 滚动到顶部
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            // URL hash 同步（轻量、可分享）
+            try {
+                history.replaceState(null, '', '#view=' + viewName);
+            } catch (e) { /* file:// 等场景下 history.replaceState 可能抛错 */ }
+        }
+
+        // 菜单点击
+        items.forEach((it) => {
+            it.addEventListener('click', () => switchTo(it.getAttribute('data-view')));
+        });
+
+        // 快速入口卡（总览里的 4 张卡）跳转
+        document.querySelectorAll('[data-goto]').forEach((el) => {
+            el.addEventListener('click', (e) => {
+                e.preventDefault();
+                switchTo(el.getAttribute('data-goto'));
+            });
+        });
+
+        // 顶部右侧退出登录按钮（与侧边栏底部共用同一逻辑）
+        function doLogout() {
+            if (!window.confirm('确定要退出登录吗？')) return;
+            authService.logout().finally(() => {
+                window.location.replace('./super-admin-login.html');
+            });
+        }
+        const btnLogoutTop = document.getElementById('btnLogoutTop');
+        if (btnLogoutTop) btnLogoutTop.addEventListener('click', doLogout);
+        const btnSidebarLogout = document.getElementById('btnSidebarLogout');
+        if (btnSidebarLogout) btnSidebarLogout.addEventListener('click', doLogout);
+
+        // 折叠/展开侧边栏
+        const toggleBtn = document.getElementById('adminSidebarToggle');
+        if (toggleBtn) {
+            toggleBtn.addEventListener('click', () => {
+                sidebar.classList.toggle('collapsed');
+                const collapsed = sidebar.classList.contains('collapsed');
+                toggleBtn.querySelector('i').className = collapsed ? 'fas fa-angle-double-right' : 'fas fa-angle-double-left';
+                try { localStorage.setItem('admin_sidebar_collapsed', collapsed ? '1' : '0'); } catch (e) {}
+            });
+            try {
+                if (localStorage.getItem('admin_sidebar_collapsed') === '1') {
+                    sidebar.classList.add('collapsed');
+                    toggleBtn.querySelector('i').className = 'fas fa-angle-double-right';
+                }
+            } catch (e) {}
+        }
+
+        // 快捷按钮：跳转学校管理
+        const goSchools = (tab) => {
+            switchTo('schools');
+            // 若指定 tab，尝试打开 detailPanel 并切到该 tab（仅当有已选中行时）
+            if (tab) {
+                setTimeout(() => {
+                    try {
+                        const tabBtn = document.querySelector(`[data-tab="${tab}"]`);
+                        if (tabBtn && !tabBtn.closest('.hidden')) tabBtn.click();
+                    } catch (e) { /* 静默失败，让用户手动切 tab */ }
+                }, 300);
+            }
+        };
+        document.getElementById('btnGoSchoolsToUsers')?.addEventListener('click', () => goSchools('tab-users'));
+        document.getElementById('btnGoSchoolsToBackup')?.addEventListener('click', () => goSchools('tab-backup'));
+
+        // 「账号与权限」内联按钮：复用原 btnAccountMgmt 的逻辑（打开弹层）
+        const btnAccountMgmtInline = document.getElementById('btnAccountMgmtInline');
+        const btnAccountMgmt = document.getElementById('btnAccountMgmt');
+        if (btnAccountMgmtInline && btnAccountMgmt) {
+            btnAccountMgmtInline.addEventListener('click', () => btnAccountMgmt.click());
+        } else if (btnAccountMgmtInline) {
+            // 若原按钮已不在（被本次重构移除），则动态触发弹层
+            btnAccountMgmtInline.addEventListener('click', () => {
+                const modal = document.getElementById('saAccountModal');
+                if (modal) modal.classList.remove('hidden');
+            });
+        }
+
+        // KPI 数据填充：从原页面渲染后的统计中推断（最小侵入）
+        function refreshKpi() {
+            try {
+                const rows = document.querySelectorAll('#schoolTableBody tr');
+                let total = rows.length;
+                let active = 0, recycled = 0;
+                rows.forEach((tr) => {
+                    const txt = tr.textContent || '';
+                    if (txt.includes('启用')) active++;
+                    if (txt.includes('回收') || txt.includes('已删')) recycled++;
+                });
+                if (document.getElementById('kpiTotalSchools')) document.getElementById('kpiTotalSchools').textContent = total;
+                if (document.getElementById('kpiActiveSchools')) document.getElementById('kpiActiveSchools').textContent = active;
+                if (document.getElementById('kpiRecycleSchools')) document.getElementById('kpiRecycleSchools').textContent = recycled;
+            } catch (e) { /* 静默 */ }
+        }
+        // 初次刷新 + 列表刷新后定时刷新 KPI（用 MutationObserver 太重，简单 setInterval 即可）
+        setTimeout(refreshKpi, 1500);
+        setInterval(refreshKpi, 8000);
+
+        // 回收站数量徽标
+        function refreshRecycleBadge() {
+            try {
+                const recycleCount = document.querySelectorAll('#recycleBinList li').length ||
+                                     (document.querySelector('#recycleCount')?.textContent || '0');
+                const badge = document.getElementById('adminSidebarBadgeSchools');
+                if (!badge) return;
+                const n = parseInt(recycleCount, 10);
+                if (n > 0) {
+                    badge.textContent = n;
+                    badge.removeAttribute('hidden');
+                } else {
+                    badge.setAttribute('hidden', '');
+                }
+            } catch (e) {}
+        }
+        setTimeout(refreshRecycleBadge, 2000);
+        setInterval(refreshRecycleBadge, 8000);
+
+        // 顶部 super_admin 统计（软实现，从 super_admin 弹层渲染后的列表行推断）
+        function refreshSuperAdminKpi() {
+            try {
+                const rows = document.querySelectorAll('#saAccountList tr, [data-sa-row]');
+                if (document.getElementById('kpiSuperAdmins')) {
+                    document.getElementById('kpiSuperAdmins').textContent = rows.length || '?';
+                }
+            } catch (e) {}
+        }
+        setInterval(refreshSuperAdminKpi, 8000);
+
+        // 启动：按 URL hash 恢复视图
+        const hashMatch = (location.hash || '').match(/view=([a-z]+)/);
+        const initialView = hashMatch ? hashMatch[1] : 'overview';
+        switchTo(initialView);
+
+        // 调试用：暴露切换函数
+        window.adminSidebarSwitch = switchTo;
+    })();
+    </script>
 </body>
 </html>
