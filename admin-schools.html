@@ -2590,23 +2590,34 @@
                     return;
                 }
                 const rows = items.map((it) => {
-                    // 按 status（active/restored/purged）+ 过期状态渲染徽章与操作按钮，
-                    // 避免对已恢复/已清除/已过期记录显示「恢复」按钮（后端此时会返回 409）。
+                    // 按 status（active/restored/purged）+ 过期状态渲染徽章与操作按钮。
+                    // 任意状态都有具体可执行动作，避免空操作列（横杠）。设计：
+                    //   active  : 恢复 / 清除
+                    //   expired : 清除（剩余 N 天 = 0 视为过期）
+                    //   restored: 重新查看（跳学校管理 / 选学校）/ 复制学校代码 / 重新删除（不再进回收站，立即进 purged 状态）
+                    //   purged  : 归档清理（清掉 recycle_bin 表档案行，业务安全）/ 复制学校代码
                     let statusBadge;
                     let actions;
                     if (it.status === 'restored') {
                         statusBadge = '<span class="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full text-xs">已恢复</span>';
-                        actions = '<span class="text-xs text-gray-400">—</span>';
+                        actions = `
+                            <button class="px-2 py-1 text-xs bg-blue-50 text-blue-700 rounded hover:bg-blue-100 transition btn-recycle-goto" data-code="${escapeHtml(it.original_code)}" title="跳转学校管理查看该校详情"><i class="fas fa-external-link-alt mr-1"></i>查看</button>
+                            <button class="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition btn-recycle-copy" data-code="${escapeHtml(it.original_code)}" title="复制学校代码"><i class="fas fa-copy mr-1"></i>复制</button>
+                            <button class="px-2 py-1 text-xs bg-red-50 text-red-700 rounded hover:bg-red-100 transition btn-recycle-redelete" data-code="${escapeHtml(it.original_code)}" title="重新删除（立即进 purged 状态，不再走回收站）"><i class="fas fa-trash mr-1"></i>再删除</button>`;
                     } else if (it.status === 'purged') {
                         statusBadge = '<span class="px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full text-xs" title="该校数据已物理删除，不可恢复">已彻底删除</span>';
-                        actions = '<span class="text-xs text-gray-400">—</span>';
+                        actions = `
+                            <button class="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition btn-recycle-copy" data-code="${escapeHtml(it.original_code)}" title="复制学校代码"><i class="fas fa-copy mr-1"></i>复制</button>
+                            <button class="px-2 py-1 text-xs bg-slate-50 text-slate-700 rounded hover:bg-slate-200 transition btn-recycle-archive" data-id="${escapeHtml(it.id)}" data-code="${escapeHtml(it.original_code)}" title="清理回收站档案行（业务安全：schema 已 DROP，无可逆影响）"><i class="fas fa-archive mr-1"></i>归档清理</button>`;
                     } else if (it.expired) {
                         statusBadge = '<span class="px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs">已过期</span>';
-                        actions = `<button class="px-2 py-1 text-xs bg-red-50 text-red-700 rounded hover:bg-red-100 transition btn-recycle-purge" data-id="${escapeHtml(it.id)}" title="清除（不可恢复）"><i class="fas fa-eraser mr-1"></i>清除</button>`;
+                        actions = `<button class="px-2 py-1 text-xs bg-red-50 text-red-700 rounded hover:bg-red-100 transition btn-recycle-purge" data-id="${escapeHtml(it.id)}" title="清除（不可恢复）"><i class="fas fa-eraser mr-1"></i>清除</button>
+                            <button class="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition btn-recycle-copy" data-code="${escapeHtml(it.original_code)}" title="复制学校代码"><i class="fas fa-copy mr-1"></i>复制</button>`;
                     } else {
                         statusBadge = `<span class="px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full text-xs">剩余 ${it.keepDays} 天</span>`;
                         actions = `<button class="px-2 py-1 text-xs bg-green-50 text-green-700 rounded hover:bg-green-100 transition btn-recycle-restore" data-id="${escapeHtml(it.id)}" title="恢复学校及数据"><i class="fas fa-undo mr-1"></i>恢复</button>
-                            <button class="px-2 py-1 text-xs bg-red-50 text-red-700 rounded hover:bg-red-100 transition btn-recycle-purge" data-id="${escapeHtml(it.id)}" title="清除（不可恢复）"><i class="fas fa-eraser mr-1"></i>清除</button>`;
+                            <button class="px-2 py-1 text-xs bg-red-50 text-red-700 rounded hover:bg-red-100 transition btn-recycle-purge" data-id="${escapeHtml(it.id)}" title="清除（不可恢复）"><i class="fas fa-eraser mr-1"></i>清除</button>
+                            <button class="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition btn-recycle-copy" data-code="${escapeHtml(it.original_code)}" title="复制学校代码"><i class="fas fa-copy mr-1"></i>复制</button>`;
                     }
                     return `
                     <tr class="border-b border-gray-100">
@@ -2660,6 +2671,74 @@
                         } catch (e) {
                             showNotice('❌ ' + e.message, 'error');
                         }
+                    });
+                });
+                // 新增按钮绑定：复制学校代码 / 查看 / 归档清理 / 再删除
+                listEl.querySelectorAll('.btn-recycle-copy').forEach((btn) => {
+                    btn.addEventListener('click', async () => {
+                        const code = btn.dataset.code;
+                        if (!code) return;
+                        try {
+                            await navigator.clipboard.writeText(code);
+                            showNotice(`已复制学校代码：${code}`, 'success');
+                        } catch (_) {
+                            // 兜底：用临时 textarea 触发 execCommand
+                            const ta = document.createElement('textarea');
+                            ta.value = code;
+                            ta.style.position = 'fixed';
+                            ta.style.opacity = '0';
+                            document.body.appendChild(ta);
+                            ta.select();
+                            try { document.execCommand('copy'); showNotice(`已复制：${code}`, 'success'); }
+                            catch (e) { showNotice('复制失败，请手动复制：' + code, 'error'); }
+                            document.body.removeChild(ta);
+                        }
+                    });
+                });
+                listEl.querySelectorAll('.btn-recycle-goto').forEach((btn) => {
+                    btn.addEventListener('click', () => {
+                        const code = btn.dataset.code;
+                        if (!code) return;
+                        // 跳转学校列表并按 code 定位该校（当前 subview 切回 list，再由后续 addSchool+runSchoolActions 选中）
+                        switchSchoolsSubview && switchSchoolsSubview('list');
+                        setTimeout(() => {
+                            try {
+                                if (typeof openSchoolDetail === 'function' && typeof findSchoolByCode === 'function') {
+                                    const s = findSchoolByCode(code);
+                                    if (s) { openSchoolDetail(s); return; }
+                                }
+                                const row = Array.from(document.querySelectorAll('#schoolTbody tr'))
+                                    .find((tr) => (tr.textContent || '').includes(code));
+                                if (row && row.querySelector('.btn-manage')) row.querySelector('.btn-manage').click();
+                                else showNotice(`未在当前列表中找到 ${code}，请滚动或刷新`, 'warn');
+                            } catch (e) { showNotice('跳转失败：' + e.message, 'error'); }
+                        }, 80);
+                    });
+                });
+                listEl.querySelectorAll('.btn-recycle-archive').forEach((btn) => {
+                    btn.addEventListener('click', async () => {
+                        const id = btn.dataset.id;
+                        const code = btn.dataset.code;
+                        if (!confirm(`即将清理 ${code} 的回收站档案行。\n\n该校 schema 已被 DROP，无可逆影响。确定继续？`)) return;
+                        try {
+                            const resp = await fetch(`${API_BASE}/api/admin/recycle-bin/${id}/archive`, {
+                                method: 'DELETE', headers: authHeaders()
+                            });
+                            const data = await resp.json();
+                            if (!resp.ok) throw new Error(data.error || '归档失败');
+                            showNotice(data.message || '✅ 已归档清理', 'success');
+                            loadRecycleBin();
+                        } catch (e) {
+                            showNotice('❌ ' + e.message, 'error');
+                        }
+                    });
+                });
+                listEl.querySelectorAll('.btn-recycle-redelete').forEach((btn) => {
+                    btn.addEventListener('click', () => {
+                        const code = btn.dataset.code;
+                        if (!code) return;
+                        showNotice('请在「学校管理」列表选中该校 → 操作列的「删除」按钮即可触发彻底删除（不再经回收站）。', 'info');
+                        switchSchoolsSubview && switchSchoolsSubview('list');
                     });
                 });
             } catch (e) {

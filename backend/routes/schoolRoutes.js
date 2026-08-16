@@ -544,6 +544,29 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
         }
     })
 
+    // 归档清理：彻底删除已 purged 的回收站档案行（仅允许 status='purged'）。
+    // 业务前提：purge 时已 DROP SCHEMA recycle_<code>_<ts> CASCADE + 删除 School 行，
+    // 此时回收站表行内无任何数据依赖可摘除，仅是审计/展示用档案行。
+    // 拒绝 status≠'purged'（防止误删尚有归档价值的活跃/已恢复记录）。
+    router.delete('/api/admin/recycle-bin/:id/archive', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
+        try {
+            const { id } = req.params
+            const rows = await prisma.$queryRawUnsafe(
+                `SELECT id, original_code, status FROM public."recycle_bin" WHERE "id" = $1`, id
+            )
+            if (!rows.length) return res.status(404).json({ error: '回收站记录不存在' })
+            const bin = rows[0]
+            if (bin.status !== 'purged') {
+                return res.status(409).json({ error: `仅可归档清理已彻底删除（status='purged'）的记录；当前状态：${bin.status}` })
+            }
+            await prisma.$executeRawUnsafe(`DELETE FROM public."recycle_bin" WHERE "id" = $1`, id)
+            res.json({ success: true, message: `${bin.original_code} 的回收站档案已清理` })
+        } catch (error) {
+            console.error('❌ Error archiving recycle-bin row:', error)
+            res.status(500).json({ error: '归档失败：' + (error.message || '未知错误') })
+        }
+    })
+
     // 获取学校定制配置
     router.get('/api/admin/schools/:code/customization', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
         try {
