@@ -4859,9 +4859,38 @@
                             </tbody>
                         </table>
                     </div>
-                    <div class="flex items-center justify-between mt-3 text-xs text-gray-500">
-                        <span id="auMeta">—</span>
-                        <span>数据来源：<code class="bg-gray-100 px-1 rounded">GET /api/audit-logs</code></span>
+                    <!-- 审计日志分页器 — 视觉与功能参考检测模块（Tableware.js / GenericTest.js）：
+                         - 左：「显示 X-Y 条，共 Z 条」统计
+                         - 中：< 上一页 / 页码按钮 / 下一页 >
+                         - 右：每页 N 条 + 跳转 N 页
+                         - 数据来源标注右对齐 -->
+                    <div id="auTablePaginationContainer" class="flex flex-wrap justify-between items-center mt-4 mb-2 gap-2">
+                        <div class="flex items-center text-sm text-gray-600"><span id="auPaginationInfo">—</span></div>
+                        <div class="flex items-center space-x-1">
+                            <button id="auPrevPageBtn" type="button" class="px-3 py-1 bg-gray-100 rounded disabled:opacity-50" disabled>
+                                <i class="fas fa-chevron-left"></i>
+                            </button>
+                            <div id="auPageButtonsContainer" class="flex items-center space-x-1"></div>
+                            <button id="auNextPageBtn" type="button" class="px-3 py-1 bg-gray-100 rounded disabled:opacity-50" disabled>
+                                <i class="fas fa-chevron-right"></i>
+                            </button>
+                        </div>
+                        <form id="auPageJumpForm" class="flex items-center ml-2">
+                            <label class="text-sm text-gray-600 mr-2">跳转</label>
+                            <input type="number" id="auPageJumpInput" min="1" class="border border-gray-300 rounded w-16 px-2 py-1 text-sm" placeholder="页">
+                            <button type="submit" class="ml-1 px-2 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600 transition"><i class="fas fa-arrow-right"></i></button>
+                        </form>
+                        <div class="flex items-center ml-2">
+                            <label class="text-sm text-gray-600 mr-2">每页:</label>
+                            <select id="auRecordsPerPageSelect" class="border border-gray-300 rounded px-2 py-1 text-sm">
+                                <option value="10">10</option>
+                                <option value="20">20</option>
+                                <option value="50" selected>50</option>
+                                <option value="100">100</option>
+                                <option value="200">200</option>
+                            </select>
+                        </div>
+                        <div class="text-xs text-gray-500">来源 <code class="bg-gray-100 px-1 rounded">GET /api/audit-logs</code></div>
                     </div>
                 </div>
             </div>
@@ -5344,35 +5373,50 @@
             window.alert(`请在「学校管理」→ 选中学校（${code}）→「用户管理」Tab 内新增用户。\n（内嵌新增表单将在下个迭代补全，避免与现有 detailPanel.users 双绑）`);
         });
 
-        // --- 子视图 3: 审计日志（直接调 /api/audit-logs） ---
+        // --- 子视图 3: 审计日志（直接调 /api/audit-logs，参考检测模块分页器设计） ---
+        // 分页状态机（与 Tableware.js / GenericTest.js 一致的页码滑动窗口模式）
+        const auState = { page: 1, perPage: 50, total: 0, totalPages: 1 };
+
+        function auGetParams() {
+            const start = document.getElementById('auStartDate')?.value;
+            const end = document.getElementById('auEndDate')?.value;
+            const actor = document.getElementById('auActor')?.value.trim();
+            const action = document.getElementById('auAction')?.value;
+            const params = new URLSearchParams();
+            if (start) params.set('startDate', new Date(start).toISOString());
+            if (end) params.set('endDate', new Date(end).toISOString());
+            if (actor) params.set('userId', actor);
+            if (action) params.set('action', action);
+            // 后端 auditRoutes 用 offset+limit 而非 page+limit（取 auditRoutes.js:117 契约）
+            params.set('offset', String((auState.page - 1) * auState.perPage));
+            params.set('limit', String(auState.perPage));
+            return params;
+        }
+
         async function loadAuditLogsInline() {
             const tbody = document.getElementById('auInlineList');
-            const meta = document.getElementById('auMeta');
             if (!tbody) return;
             tbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-400 py-6">加载中…</td></tr>';
             try {
                 const svc = window.authService;
                 const apiBase = (typeof window.getApiBaseUrl === 'function' ? window.getApiBaseUrl() : '');
                 const token = svc && typeof svc.getToken === 'function' ? svc.getToken() : '';
-                const start = document.getElementById('auStartDate')?.value;
-                const end = document.getElementById('auEndDate')?.value;
-                const actor = document.getElementById('auActor')?.value.trim();
-                const action = document.getElementById('auAction')?.value;
-                const params = new URLSearchParams();
-                if (start) params.set('startDate', new Date(start).toISOString());
-                if (end) params.set('endDate', new Date(end).toISOString());
-                if (actor) params.set('userId', actor);
-                if (action) params.set('action', action);
-                params.set('limit', '200');
+                const params = auGetParams();
                 const res = await fetch(`${apiBase}/api/audit-logs?${params.toString()}`, {
                     headers: { Authorization: 'Bearer ' + token }
                 });
                 if (!res.ok) throw new Error('HTTP ' + res.status);
                 const data = await res.json();
                 const list = data.data || [];
+                auState.total = Number(data.total ?? data.totalCount ?? list.length);
+                auState.totalPages = Math.max(1, Math.ceil(auState.total / auState.perPage));
+                if (auState.page > auState.totalPages) {
+                    auState.page = auState.totalPages;
+                    return loadAuditLogsInline();
+                }
                 if (!Array.isArray(list) || list.length === 0) {
                     tbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-400 py-6">暂无日志记录</td></tr>';
-                    if (meta) meta.textContent = '—';
+                    auUpdatePagination();
                     return;
                 }
                 tbody.innerHTML = list.map((l) => {
@@ -5390,13 +5434,86 @@
                             <td class="px-3 py-2 text-gray-600 max-w-md truncate" title="${escapeHtml(String(detail))}">${escapeHtml(String(detail))}</td>
                         </tr>`;
                 }).join('');
-                if (meta) meta.textContent = `共 ${data.total ?? list.length} 条，显示前 ${list.length} 条`;
+                auUpdatePagination();
             } catch (e) {
                 tbody.innerHTML = `<tr><td colspan="5" class="text-center text-red-500 py-6">查询失败：${escapeHtml(String(e.message || e))}</td></tr>`;
-                if (meta) meta.textContent = '—';
+                auUpdatePagination();
             }
         }
-        document.getElementById('auRefreshBtn')?.addEventListener('click', loadAuditLogsInline);
+
+        // 更新分页器：参考 Tableware.js updatePagination 的页码滑动窗口
+        function auUpdatePagination() {
+            const info = document.getElementById('auPaginationInfo');
+            const total = auState.total;
+            const start = total === 0 ? 0 : (auState.page - 1) * auState.perPage + 1;
+            const end = Math.min(start + auState.perPage - 1, total);
+            if (info) info.textContent = total > 0 ? `显示 ${start}-${end} 条，共 ${total} 条（${auState.totalPages} 页）` : '暂无记录';
+
+            const container = document.getElementById('auPageButtonsContainer');
+            if (container) {
+                const pages = auState.totalPages;
+                let startPage = Math.max(1, auState.page - 2);
+                let endPage = Math.min(pages, startPage + 4);
+                if (endPage - startPage < 4 && pages > 4) startPage = Math.max(1, endPage - 4);
+                let html = '';
+                for (let i = startPage; i <= endPage; i++) {
+                    const active = i === auState.page;
+                    html += `<button type="button" class="au-page-btn px-3 py-1 ${active ? 'bg-blue-500 text-white' : 'bg-gray-100 hover:bg-gray-200'} rounded" data-page="${i}">${i}</button>`;
+                }
+                container.innerHTML = html;
+            }
+            const prev = document.getElementById('auPrevPageBtn');
+            const next = document.getElementById('auNextPageBtn');
+            if (prev) prev.disabled = auState.page <= 1;
+            if (next) next.disabled = auState.page >= auState.totalPages;
+        }
+
+        // 事件绑定（容器一次性委托，避免重复绑定）
+        const auPager = document.getElementById('auTablePaginationContainer');
+        if (auPager && !auPager.dataset.listenerAttached) {
+            auPager.addEventListener('click', (e) => {
+                const pageBtn = e.target.closest('.au-page-btn');
+                if (pageBtn) {
+                    auState.page = parseInt(pageBtn.dataset.page, 10) || 1;
+                    loadAuditLogsInline();
+                    return;
+                }
+                if (e.target.closest('#auPrevPageBtn') && auState.page > 1) {
+                    auState.page--;
+                    loadAuditLogsInline();
+                }
+                if (e.target.closest('#auNextPageBtn') && auState.page < auState.totalPages) {
+                    auState.page++;
+                    loadAuditLogsInline();
+                }
+            });
+            auPager.dataset.listenerAttached = 'true';
+        }
+        const auJumpForm = document.getElementById('auPageJumpForm');
+        if (auJumpForm && !auJumpForm.dataset.listenerAttached) {
+            auJumpForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const input = document.getElementById('auPageJumpInput');
+                const target = Math.max(1, Math.min(auState.totalPages, parseInt(input.value, 10) || 1));
+                auState.page = target;
+                input.value = '';
+                loadAuditLogsInline();
+            });
+            auJumpForm.dataset.listenerAttached = 'true';
+        }
+        const auPerPage = document.getElementById('auRecordsPerPageSelect');
+        if (auPerPage && !auPerPage.dataset.listenerAttached) {
+            auPerPage.addEventListener('change', (e) => {
+                auState.perPage = parseInt(e.target.value, 10) || 50;
+                auState.page = 1;
+                loadAuditLogsInline();
+            });
+            auPerPage.dataset.listenerAttached = 'true';
+        }
+        document.getElementById('auRefreshBtn')?.addEventListener('click', () => {
+            auState.page = 1;
+            loadAuditLogsInline();
+        });
 
         // 简易 HTML 转义工具（避免 XSS 注入渲染）
         function escapeHtml(s) {
