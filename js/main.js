@@ -33,11 +33,9 @@ import { isQuickAccessMode, injectQuickAccessStyle } from './modules/quickAccess
 // dashboard 卡片由 Dashboard.js loadDashboardData 处理；登出按钮由 Router.setupLogoutButton 绑定。
 // 原 index.html 868-1100 三块兜底脚本已删除（与上述实现重复且含 XSS）。
 
-console.log('✅ main.js 模块加载开始');
 
 // P2-10 阶段B：导航处理函数改为模块内函数（不再挂 window，由事件委托调用）
 function handleNavigation(target) {
-    console.log('🔧 handleNavigation 被调用，目标:', target);
     
     if (!target) return;
     
@@ -65,14 +63,11 @@ function handleNavigation(target) {
         targetSection.classList.remove('hidden');
         // 切换到对应模块后，页面回到默认顶部（避免沿用上一模块的滚动位置）
         window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
-        console.log('✅ 导航成功，显示:', target);
         
         // 特殊处理：初始化需要动态渲染的模块（P2-10：直接调用 import 的 initAuditLog，不再走 window）
         if (target === 'audit-log') {
             try {
-                console.log('🔧 审计日志模块初始化中...');
                 initAuditLog();
-                console.log('✅ 审计日志模块初始化成功');
             } catch (error) {
                 console.error('❌ 审计日志模块初始化失败:', error);
             }
@@ -134,34 +129,28 @@ document.addEventListener('app:navigate', (e) => {
 });
 
 document.addEventListener('DOMContentLoaded', async () => {
-    console.log('✅ DOMContentLoaded 事件触发');
     
     try {
         document.body.classList.add('loaded');
         
         // 🎯 检查是否为快速访问模式（P0-quickAccess: 统一收敛至 quickAccess.js 单一来源）
         const isQuickAccessMode = isQuickAccessMode();
-        console.log('🔍 最终快速访问模式:', isQuickAccessMode);
         
         // ✨ 如果是快速访问模式但还没有访客信息，则自动创建临时访客
         if (isQuickAccessMode && !guestAuthService.isLoggedIn()) {
-            console.log('⚡ 快速访问模式已激活 - 自动创建临时访客信息');
             await guestAuthService.quickAccessAsViewer();
         }
         
         // ✨ 在快速访问模式下初始化示例数据
         if (isQuickAccessMode) {
-            console.log('📊 初始化快速访问模式的示例数据...');
             initializeSampleData();
         }
         
         // 0. 🔐 初始化路由与认证系统 (必须最先执行)
-        console.log('🔧 Router 初始化中...');
         await router.init();
         router.setupAll();
 
         // 1. UI 初始化 (它会自动处理侧边栏点击切换)
-        console.log('🔧 UIHelper.setupNavigation 调用中...');
         
         // 使用 Promise 确保导航设置在下一个微任务中执行
         Promise.resolve().then(() => {
@@ -175,7 +164,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 } else {
                     UIHelper.setupNavigation();
                 }
-                console.log('✅ UIHelper.setupNavigation 完成');
             } catch (error) {
                 console.error('❌ UIHelper.setupNavigation 失败:', error);
             }
@@ -185,24 +173,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         // P0-quickAccess: CSS 注入收敛至 quickAccess.js（幂等，含完整隐藏规则 + 输入禁用样式）
         if (isQuickAccessMode) {
             injectQuickAccessStyle();
-            console.log('✅ 访客模式：已通过CSS隐藏录入/编辑/删除功能');
         }
 
 
         // 2. 业务模块初始化
-        console.log('🔧 initTableware 调用中...');
         initTableware();
-        console.log('✅ initTableware 完成');
         
-        console.log('🔧 initPathogen 调用中...');
         initPathogen();
-        console.log('✅ initPathogen 完成');
         
-        console.log('🔧 GenericTestModule 初始化中...');
         new GenericTestModule({ moduleName: 'pesticide', formId: 'pesticideTestForm', tableId: 'pesticideRecords' });
         new GenericTestModule({ moduleName: 'oil', formId: 'oilTestForm', tableId: 'oilRecords' });
         new GenericTestModule({ moduleName: 'leanMeat', formId: 'leanMeatTestForm', tableId: 'leanMeatRecords' });
-        console.log('✅ GenericTestModule 完成');
 
         // ✨ 按校个性化：将 SchoolCustomization 应用到静态录入表单（标签/显隐/必填规则）。
         // 若用户直接打开 index.html（localStorage 无缓存），ensureSchoolConfig 会自动调公开端点兜底拉取。
@@ -222,7 +203,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
             applyCustomizationToAllForms(customization);
             applySchoolCustomizationToTitles(customization);
-            console.log('✅ 学校个性化配置已应用到录入表单', schoolCode || '(无 schoolCode，跳过)');
             // 主页顶部标题/校徽按校动态显示（README 品牌中立化要求）
             await applySchoolBranding(schoolCode);
             // RK3/RK36：配置就绪后再消费 visible_types，使导航/内容区反映该校可见模块；
@@ -285,12 +265,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         // 3. 看板初始化
-        console.log('🔧 initDashboard 调用中...');
         try {
-            console.log('📝 initDashboard 是否存在:', typeof initDashboard);
             const result = initDashboard();
-            console.log('📊 initDashboard 返回值:', result);
-            console.log('✅ initDashboard 完成');
             // 看板由 initDashboard 动态重建，必须在构建完成后再次应用小标题覆盖
             applySchoolCustomizationToTitles(customization);
 
@@ -301,7 +277,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     console.warn('⚠️ Dashboard标题未更新，强制纠正...');
                     if (typeof createDashboardStructure === 'function') {
                         createDashboardStructure();
-                        console.log('✅ Dashboard已强制重新初始化');
                     }
                 }
             }, 500);
@@ -331,20 +306,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // 4. 看板快速导出功能 (仅非快速访问模式)
         if (!isQuickAccessMode) {
-            console.log('🔧 绑定导出按钮事件...');
             document.getElementById('btnExportDashboard')?.addEventListener('click', () => {
                 ExportService.generatePDF('dashboard', '食品安全日报');
             });
-            console.log('✅ 导出按钮事件绑定完成');
         }
 
         // 5. 初始化数据导出报告模块 (仅非快速访问模式)
         if (!isQuickAccessMode) {
-            console.log('🔧 ExportService 初始化中...');
             try {
                 const exportService = new ExportService();
                 exportService.init();
-                console.log('✅ ExportService 初始化成功');
             } catch (error) {
                 console.error('❌ ExportService 初始化失败:', error);
             }
@@ -352,11 +323,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // 5b. ✨ 初始化数据备份与恢复模块 (仅非快速访问模式)
         if (!isQuickAccessMode) {
-            console.log('🔧 BackupRestoreService 初始化中...');
             try {
                 const backupRestore = new BackupRestoreService();
                 backupRestore.init();
-                console.log('✅ BackupRestoreService 初始化成功');
             } catch (error) {
                 console.error('❌ BackupRestoreService 初始化失败:', error);
             }
@@ -364,13 +333,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // 6. ✨ 初始化用户管理模块 (仅管理员可访问)
         if (!isQuickAccessMode) {
-            console.log('🔧 UserManagement 初始化中...');
             try {
                 if (router.isAdmin() || permissionService.hasRole('manager')) {
                     initUserManagement();
-                    console.log('✅ UserManagement 初始化成功');
-                } else {
-                    console.log('⚠️ 当前用户无权访问用户管理模块');
                 }
             } catch (error) {
                 console.error('❌ UserManagement 初始化失败:', error);
@@ -381,13 +346,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         // P15: 原仅 router.isAdmin() 导致 manager 登录见空白页;放宽为与用户管理同条件
         // P2-10：动态导航通过 import 的 initAuditLog 直接调用，无需挂 window
         if (!isQuickAccessMode) {
-            console.log('🔧 AuditLog 初始化中...');
             try {
                 if (router.isAdmin() || permissionService.hasRole('manager')) {
                     initAuditLog();
-                    console.log('✅ AuditLog 初始化成功');
-                } else {
-                    console.log('⚠️ 当前用户无权访问审计日志模块');
                 }
             } catch (error) {
                 console.error('❌ AuditLog 初始化失败:', error);
@@ -395,37 +356,27 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         // 8. ✨ 初始化会话管理 (针对所有用户)
-        console.log('🔧 SessionManager 初始化中...');
         try {
             sessionManager.init();
-            console.log('✅ SessionManager 初始化成功');
         } catch (error) {
             console.error('❌ SessionManager 初始化失败:', error);
         }
 
         // 10. ✨ 初始化访客中心 (仅访客登录用户可访问)
-        console.log('🔧 GuestDashboard 初始化中...');
         try {
             // 🎯 关键修复：只有当访客已登录且管理员未登录时，才显示访客仪表板
             const isAdminLoggedIn = router.getToken ? router.getToken() : authService.getToken();
             const isGuestLoggedIn = guestAuthService.isLoggedIn();
             
             // DS-16: 仅打印是否持有 token 的布尔值，严禁输出 token 内容
-            console.log('🔍 管理员已登录:', !!isAdminLoggedIn);
-            console.log('🔍 访客状态:', isGuestLoggedIn);
             
             if (isGuestLoggedIn && !isAdminLoggedIn) {
-                console.log('✅ 检测到访客登录，初始化访客仪表板...');
                 
                 // 检查是否为快速访问模式
                 const isQuickAccess = guestAuthService.isQuickAccessMode();
-                if (isQuickAccess) {
-                    console.log('📊 快速访问模式 - 进入只读数据查看');
-                }
                 
                 const guestDashboard = new GuestDashboard();
                 await guestDashboard.init();
-                console.log('✅ GuestDashboard 初始化成功');
                 
                 // 显示访客菜单
                 document.querySelectorAll('.guest-menu-section').forEach(el => {
@@ -438,36 +389,27 @@ document.addEventListener('DOMContentLoaded', async () => {
                 
                 if (adminDashboard) {
                     adminDashboard.classList.add('hidden');
-                    console.log('✅ 已隐藏管理员仪表板');
                 }
                 
                 if (guestDashboardEl) {
                     guestDashboardEl.classList.remove('hidden');
-                    console.log('✅ 已显示访客仪表板');
                 }
                 
                 // 隐藏管理员菜单项
                 document.querySelectorAll('[data-admin-only]').forEach(el => {
                     el.classList.add('hidden');
                 });
-                console.log('✅ 已隐藏管理员菜单项');
-            } else {
-                console.log('⚠️ 当前用户非访客身份，跳过 GuestDashboard 初始化');
             }
         } catch (error) {
             console.error('❌ GuestDashboard 初始化失败:', error);
         }
 
         // ✨ 导航已在初始化开始时设置，无需重复调用
-        console.log('✅✅✅ 所有模块初始化完成！');
         
         // ✨ 快速访问模式：后备数据渲染器
-        console.log('🔍 DEBUG: isQuickAccessMode =', isQuickAccessMode);
         
         if (isQuickAccessMode) {
-            console.log('🎯 快速访问模式 - 启用后备数据渲染');
             setTimeout(() => {
-                console.log('🎯 后备渲染器：2秒后检查表格并填充数据');
                 
                 // 专门处理餐具洁净度
                 const tbody = document.getElementById('tablewareRecords');
@@ -477,7 +419,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                         try {
                             const parsed = JSON.parse(cacheData);
                             const records = parsed.data || [];
-                            console.log(`🎯 餐具洁净度: 发现${records.length}条记录`);
                             
                             if (records.length > 0) {
                                 let html = '';
@@ -500,7 +441,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                                     </tr>`;
                                 });
                                 tbody.innerHTML = html;
-                                console.log(`✅ 餐具洁净度: 已渲染${records.length}条记录`);
                             } else {
                                 tbody.innerHTML = `<tr><td colspan="7" class="text-center py-6">暂无数据</td></tr>`;
                             }
@@ -514,8 +454,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     console.warn(`⚠️ tablewareRecords 元素不存在`);
                 }
             }, 2000);  // 2秒延迟
-        } else {
-            console.log('🔍 DEBUG: 快速访问模式未启用');
         }
 
     } catch (error) {
