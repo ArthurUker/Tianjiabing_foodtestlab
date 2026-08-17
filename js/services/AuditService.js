@@ -95,6 +95,7 @@ export class AuditService {
             const params = new URLSearchParams()
             params.set('limit', String(limit))
             params.set('offset', String(offset))
+            if (filters.username) params.set('username', filters.username)
             if (filters.user_id) params.set('userId', filters.user_id)
             if (filters.action) params.set('action', filters.action)
             // 注：后端 GET 当前仅支持 userId/action 过滤，日期区间透传以备扩展。
@@ -109,6 +110,27 @@ export class AuditService {
             return { success: true, data: json.data || [], total: json.total || 0 }
         } catch (error) {
             console.error('[AuditService] 查询审计日志异常:', error)
+            return { success: false, message: error.message }
+        }
+    }
+
+    /**
+     * 获取可筛选的用户列表（审计页用户下拉框数据源）
+     * @returns {Promise<{success:boolean, data?:{users:Array, deletedIds:Array}, message?:string}>}
+     */
+    async getUsers() {
+        try {
+            const token = getAuthToken()
+            if (!token) return { success: false, message: '未登录' }
+
+            const resp = await fetch(`${this.apiBaseUrl}/api/audit-logs/users`, {
+                headers: { Authorization: `Bearer ${token}` },
+            })
+            const json = await resp.json()
+            if (!resp.ok) return { success: false, message: json.error || '查询失败' }
+            return { success: true, data: json.data }
+        } catch (error) {
+            console.error('[AuditService] 获取用户列表异常:', error)
             return { success: false, message: error.message }
         }
     }

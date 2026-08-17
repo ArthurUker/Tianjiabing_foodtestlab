@@ -10,7 +10,6 @@
       #loginStylePreview.ls-graphical [data-ls-edit].ls-editing { background: #fff; box-shadow: 0 0 0 2px #6366f1; cursor: text; }
       #loginStylePreview.ls-graphical .ls-resize-handle { position: absolute; top: 0; right: -6px; width: 12px; height: 100%; cursor: ew-resize; border-radius: 6px; }
       #loginStylePreview.ls-graphical .ls-resize-handle::after { content: ""; position: absolute; top: 50%; right: 4px; transform: translateY(-50%); width: 4px; height: 40px; border-radius: 4px; background: rgba(99,102,241,.85); }
-    <script src="/js/utils/themePresets.js"></script>
       /* ====== 统一编辑弹层（字段规则 / 类型统计）====== */
       .sc-popover{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 12px 32px rgba(0,0,0,.16);padding:14px;}
       /* TD-PopoverAutoSize: 字段管理弹窗宽度按视口自适应（由 JS 在打开时设置 --sp-width）；

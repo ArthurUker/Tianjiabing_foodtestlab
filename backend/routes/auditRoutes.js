@@ -114,7 +114,7 @@ export function createAuditRoutes(userManager, prisma) {
      */
     router.get('/', authenticateUser, async (req, res) => {
         try {
-            const { userId, action, limit = 100, offset = 0 } = req.query
+            const { userId, username, action, limit = 100, offset = 0 } = req.query
 
             // 普通用户只能查看自己的日志，管理员可以查看所有
             let where = {}
@@ -123,6 +123,7 @@ export function createAuditRoutes(userManager, prisma) {
                 where.user_id = req.user.userId
             } else {
                 if (userId) where.user_id = userId
+                if (username) where.user = { username }
             }
 
             if (action) where.action = action
@@ -280,6 +281,40 @@ export function createAuditRoutes(userManager, prisma) {
         } catch (error) {
             console.error('❌ Error exporting audit logs:', error)
             res.status(400).json({ error: clientErr(error, '❌ 导出失败') })
+        }
+    })
+
+    /**
+     * 获取审计日志可筛选的用户列表（供前端用户下拉框）
+     * GET /api/audit-logs/users
+     * - admin/manager：当前租户全部用户 + 审计中出现过但已被删除的 user_id；
+     * - 其他角色：仅返回本人（防止枚举用户名）。
+     * 注意：静态路由需置于 /:logId 动态路由之前。
+     */
+    router.get('/users', authenticateUser, async (req, res) => {
+        try {
+            const isAdmin = req.user.role === 'admin' || req.user.role === 'manager'
+            const users = await req.db.user.findMany({
+                where: isAdmin ? undefined : { id: req.user.userId },
+                select: { id: true, username: true, full_name: true, role: true },
+                orderBy: { username: 'asc' },
+            })
+
+            // 审计中出现过、但用户已被删除的 user_id（补全历史记录可筛选项）
+            let deletedIds = []
+            if (isAdmin) {
+                const groups = await req.db.auditLog.groupBy({ by: ['user_id'] })
+                const knownIds = new Set(users.map((u) => u.id))
+                deletedIds = groups
+                    .map((g) => g.user_id)
+                    .filter((id) => id && !knownIds.has(id))
+                    .sort()
+            }
+
+            res.json({ success: true, data: { users, deletedIds } })
+        } catch (error) {
+            console.error('❌ Error fetching audit users:', error)
+            res.status(400).json({ error: clientErr(error, '❌ 查询失败') })
         }
     })
 

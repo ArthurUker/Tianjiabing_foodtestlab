@@ -14,8 +14,9 @@ class AuditLog {
         this.pageSize = 15;
         this.totalCount = 0;
         this.filterDate = '';     // 筛选特定日期，空=全部
-        this.filterUser = '';     // 筛选特定用户名
+        this.filterUser = '';     // 筛选特定用户名（或已删除用户的 user_id）
         this.filterAction = '';   // 筛选操作类型
+        this.userOptions = [];    // 用户下拉框选项 { value, type: 'username'|'user_id', label }
         this.isLoading = false;
     }
 
@@ -23,6 +24,7 @@ class AuditLog {
         console.log('🔧 ' + this.moduleName + ' 初始化中...');
         this.renderUI();
         this.bindEvents();
+        this.loadUsers();
         this.loadLogs();
         console.log('✅ ' + this.moduleName + ' 初始化完成');
         return true;
@@ -57,8 +59,9 @@ class AuditLog {
                     <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">用户</label>
-                            <input type="text" id="userFilter" placeholder="输入用户名..."
-                                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <select id="userFilter" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="">全部用户</option>
+                            </select>
                         </div>
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">操作类型</label>
@@ -187,6 +190,38 @@ class AuditLog {
     }
 
     /**
+     * 加载可筛选的用户列表（下拉框）
+     */
+    async loadUsers() {
+        const result = await auditService.getUsers();
+        if (!result.success || !result.data) return;
+
+        this.userOptions = [];
+        for (const u of result.data.users || []) {
+            this.userOptions.push({
+                value: u.username,
+                type: 'username',
+                label: u.full_name ? `${u.username}（${u.full_name}）` : u.username,
+            });
+        }
+        // 审计中出现过但已被删除的用户（用 id 前缀展示，保证历史记录仍可筛选）
+        for (const id of result.data.deletedIds || []) {
+            this.userOptions.push({
+                value: id,
+                type: 'user_id',
+                label: `${id.slice(0, 8)}…（已删除）`,
+            });
+        }
+
+        const sel = document.getElementById('userFilter');
+        if (!sel) return;
+        sel.innerHTML = '<option value="">全部用户</option>' +
+            this.userOptions.map(o =>
+                `<option value="${this.escapeHtml(o.value)}">${this.escapeHtml(o.label)}</option>`
+            ).join('');
+    }
+
+    /**
      * 从后端加载日志
      */
     async loadLogs() {
@@ -200,7 +235,12 @@ class AuditLog {
 
             // 构建筛选条件
             const filters = {};
-            if (this.filterUser) filters.user_id = this.filterUser;
+            if (this.filterUser) {
+                // 已删除用户存的是 user_id，其余为 username
+                const opt = this.userOptions.find(o => o.value === this.filterUser);
+                if (opt && opt.type === 'user_id') filters.user_id = opt.value;
+                else filters.username = this.filterUser;
+            }
             if (this.filterAction) filters.action = this.filterAction;
             if (this.filterDate) {
                 // 如果是日期，则查询该日期范围内的记录
