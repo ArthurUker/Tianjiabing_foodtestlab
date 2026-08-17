@@ -323,6 +323,16 @@ export class GuestAuthService {
     }
 
     /**
+     * 提交「查看病原体数据」申请（pathogen_access）。
+     * 注意：仅申请只读的病原体查看权限，审批通过绝不开放导出。
+     * @param {string} request_reason - 申请原因
+     * @returns {Promise<{success: boolean, request?: object, error?: string}>}
+     */
+    async submitPathogenRequest(request_reason) {
+        return this.submitExportRequest('pathogen_access', request_reason, {});
+    }
+
+    /**
      * 获取访客的申请记录
      * @returns {Promise<{success: boolean, requests?: array, error?: string}>}
      */
