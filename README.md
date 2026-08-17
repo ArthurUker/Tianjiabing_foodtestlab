@@ -1061,6 +1061,7 @@ curl http://<公网IP>:8080/health            # 经 Caddy（验证反代与安�
 | 更新返回 409 | 乐观锁版本冲突，前端需拉取最新数据后重试 |
 | 访客无法登录/注册 | `guest_enabled` 开关未开启（平台超管按校配置） |
 | 构建时 OOM | 低内存机开启 `ENABLE_SWAP` 或调低 `SERVICE_MEMORY_MAX` |
+| 改了前端代码但线上"像没改" | **`dist/` 未重建**（Caddy 只 serve `dist/`，见 §12.6 教训5）；或改后未 `commit+push` 就被部署脚本 reset 覆盖（§12.6 教训6）；先硬刷，再 `grep`/比对 `dist/` 是否已含改动 |
 
 ### 12.6 排查方法论教训（高频误判清单）
 
@@ -1070,6 +1071,8 @@ curl http://<公网IP>:8080/health            # 经 Caddy（验证反代与安�
 2. **`grep` 找不到路由 ≠ 路由不存在**：后端路由可能用变量拼接注册（如 `/api/records/:tableName`）、或挂在 `app.use` 前缀下、或分散在不同模块文件中。grep 为空时须确认搜索范围覆盖全部路由文件、并尝试按"参数化路由名"再搜。曾因 grep 遗漏误判"`/api/records/:type` 返回 404"（实际路由存在且正常）。
 3. **`$queryRawUnsafe` 返回 JSONB 列是字符串**：PostgreSQL 经 Prisma 原生 SQL 查询时，`jsonb`/`text` 列的 JSON 内容返回为字符串，需 `JSON.parse` 后再供前端消费；前端读取配置时同样要对外层与内层 JSON 字段分别 parse。
 4. **systemd 服务 `Restart=on-failure` 会自动拉起进程**：`kill` 手动启动的进程后，systemd 管理的服务会 5 秒内自动重启并重新占用端口。排查"双进程/端口占用"时先 `systemctl status <svc>` 确认是否由 systemd 管理；部署/重启统一用 `systemctl restart`，勿手动 `nohup`。
+5. **改前端代码后必须重建 `dist/`，否则线上看不到修复**：生产 Caddy 直接 `serve dist/`（见 `deploy.sh` §7 与 Caddy 站点片段 `root * $REPO_ROOT/dist`），**不读源码 `js/`、`admin-schools.html` 等**。前端是纯拷贝无打包（`scripts/build-static.js`），改源码后**只在本地/服务器工作区改而不跑 `node scripts/build-static.js`，线上永远走旧 `dist/`**，表现就是"改了但现象完全没变"。判断方法：对比 `dist/` 与源文件时间戳 / `grep` 关键词是否进入 `dist/`。**流程**：① 改源码 → ② `node scripts/build-static.js` 重建 → ③ 浏览器 `Ctrl+Shift+R` 硬刷（Caddy 已设 `no-cache`，但浏览器磁盘缓存仍可能命中）。注意 `dist/` 被 `.gitignore` 忽略、**不入库**，部署机从 GitHub 拉代码**不会**带入 `dist/`。
+6. **部署前未 `git commit`+`push`，部署脚本会用 GitHub 旧代码覆盖修复**：`deploy.sh` §4 执行 `git fetch origin <branch> && git reset --hard origin/<branch> && git clean -fd`，**任何只存在于本地工作区（未提交/未推送）的修复都会被覆盖丢失**。部署前必须先 `git add` + `git commit` + `git push`，确认 `git status --short` 干净（仅 `.env` 例外，`clean` 已加 `-e .env` 保留）。若工作区有改动未提交，脚本会先 `git stash push -u` 再 reset，**须手动 `git stash pop` 恢复**——很容易遗漏。曾多次因"改完没 commit 就部署"，导致修复被 GitHub 旧代码冲掉而失败。**上线 checklist**：源码改动全部 commit+push → 构建 `dist/`（或由部署流程重建）→ 部署 → 验证。
 
 ---
 

@@ -185,6 +185,10 @@
     <!-- P-WidthFill: 外层容器 max-w 跟随主区宽度自适应（不再 1280px 限制），
          让 schools 视图的列表 / 工具栏 / KPI 卡在大屏下自然铺满可用宽度；
          内容过宽时由 inner grid 的 minmax 自动控制单卡最小宽度，避免拉伸难看。 -->
+    <!-- P-Fix: 显式声明为 .admin-view，使 sidebar.js switchTo 能正常对其加 .hidden，
+         避免「schools 容器」未被动态收纳时（CSS 选择器失配 → 兜底失败），跨视图切换
+         会让顶部工具栏 / 学校列表 / 回收站 / 详情面板遗留在主区不再隐藏。 -->
+    <section id="adminViewSchools" class="admin-view" data-view="schools">
     <div class="container mx-auto px-4 py-6 max-w-[2000px]">
         <!-- 通知区 -->
         <div id="notice" class="hidden mb-4 p-3 rounded-lg text-sm"></div>
@@ -718,6 +722,7 @@
             </div>
         </div>
     </div>
+    </section><!-- /.admin-view#adminViewSchools -->
 
     <!-- 新增学校对话框 -->
     <div id="createModal" class="fixed inset-0 bg-black/40 z-50 hidden items-center justify-center p-4">
@@ -1569,6 +1574,17 @@
                     <h2 id="adminReportsTitle" class="reports-bar__title">数据上报</h2>
                 </div>
                 <div class="reports-bar__right">
+                    <!-- P-ReportsSync: 同步按钮，仅在 submit subview 显示。
+                         test-report.html 被 iframe 内嵌时自身顶部 nav 被隐藏（避免与 admin-schools 顶部 nav 重复），
+                         同步入口迁到此处。点击直接调用后端 /api/test-results/sync（与 test-report.html
+                         内部 syncNow 调用同一接口），UI 反馈（loading/成功/失败）由本按钮管理。 -->
+                    <button id="adminReportsSync" type="button"
+                            class="reports-bar__btn"
+                            title="重新生成汇总报告并重建部署目录"
+                            hidden>
+                        <i class="fas fa-cloud-upload-alt mr-1"></i>
+                        <span id="adminReportsSyncText">同步</span>
+                    </button>
                     <button id="adminReportsReload" type="button"
                             class="reports-bar__btn"
                             title="重新载入当前页">

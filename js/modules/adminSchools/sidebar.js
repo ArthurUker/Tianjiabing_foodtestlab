@@ -17,12 +17,16 @@
  * @param {Function} [views.switchReportsSubview]  测试报告（由本模块内置处理，见 switchTo 中的 reports 分支）
  * @returns {{ switchTo: (viewName: string, opts?: { subview?: string }) => void }}
  */
-import { getAuthService } from './context.js';
+import { getAuthService, adminFetch } from './context.js';
+import { showNotice } from './ui.js';
 
 /**
  * 「测试报告」视图的默认 subview 切换器。
  * 在主区两个 iframe（submit / summary）之间切换，并同步顶栏图标/标题/描述
  * 与「新窗口打开」链接指向。无依赖注入，按惯例 mount 于 adminViewReports。
+ *
+ * P-ReportsSync: submit subview 时显示「同步」按钮（汇总报告由 /api/test-results/sync 生成），
+ * summary subview 时隐藏（汇总报告本身已是最新的生成产物，无需再触发生成）。
  */
 function switchDefaultReports(subName) {
     const target = subName === 'summary' ? 'summary' : 'submit';
@@ -47,6 +51,10 @@ function switchDefaultReports(subName) {
     if (titleEl) titleEl.textContent = meta.title;
     if (descEl) descEl.textContent = meta.desc;
     if (openEl) openEl.setAttribute('href', meta.openHref);
+    // P-ReportsSync: submit subview 显示「同步」按钮，summary 隐藏。
+    // 同步按钮的 click handler 由 initAdminSidebar 装配时一次性注册，无需在此重复绑定。
+    const syncBtn = document.getElementById('adminReportsSync');
+    if (syncBtn) syncBtn.hidden = (target !== 'submit');
     // 更新左侧二级菜单 active 态（保持 hash 切换、键盘可达也一致生效）
     document.querySelectorAll('[data-subnav="reports"] .admin-sidebar__subitem').forEach((sub) => {
         sub.classList.toggle('active', sub.getAttribute('data-subview') === target);
@@ -72,8 +80,15 @@ export function initAdminSidebar({
             if (v.parentNode !== main) main.appendChild(v);
         });
     }
+    // 包裹 schoolsContainer 为 admin-view。fallback 选择器需兼容两类容器宽度：
+    //   - legacy 写法：.max-w-7xl（旧版 sidebar 依赖）
+    //   - 现行写法：.max-w-[2000px]（与 adminViewOverview/Accounts/Backup/Reports 统一宽度，P-Fix）
+    // 缺其中任一者会导致 schools 容器未被收纳、跨视图切换遗留显示（用户反馈现象）。
     const schoolsContainer = document.querySelector('#adminViewSchools') ||
-        document.querySelector('.container.mx-auto.px-4.py-6.max-w-7xl');
+        document.querySelector(
+            '.container.mx-auto.px-4.py-6.max-w-7xl, ' +
+            '.container.mx-auto.px-4.py-6.max-w-\\[2000px\\]'
+        );
     if (schoolsContainer && !schoolsContainer.classList.contains('admin-view')) {
         // 包裹 schoolsContainer 为 admin-view
         const wrap = document.createElement('section');
@@ -193,6 +208,43 @@ export function initAdminSidebar({
             if (active) {
                 // 给 URL 追加时间戳后再去掉，避免缓存；iframe.contentWindow.location.reload() 会重新加载
                 try { active.contentWindow.location.reload(); } catch (e) { active.src = active.src; }
+            }
+        });
+    }
+
+    // P-ReportsSync: 「同步」按钮 → 调用后端 /api/test-results/sync 重新生成汇总报告 + 重建 dist。
+    // 独立于 test-report.html 内的 syncNow：因 iframe 内嵌模式下 test-report.html 的顶部 nav 被隐藏，
+    // 同步入口迁到 admin-schools 控制台顶部条上。两端共享同一后端接口，结果一致；
+    // admin-schools 端自管 loading/成功/失败反馈（避免跨 iframe 状态同步的脆弱性）。
+    const btnReportsSync = document.getElementById('adminReportsSync');
+    if (btnReportsSync) {
+        const syncIcon = btnReportsSync.querySelector('i');
+        const syncText = document.getElementById('adminReportsSyncText');
+        btnReportsSync.addEventListener('click', async () => {
+            if (btnReportsSync.disabled) return;
+            btnReportsSync.disabled = true;
+            const origIconClass = syncIcon ? syncIcon.className : '';
+            const origText = syncText ? syncText.textContent : '';
+            if (syncIcon) syncIcon.className = 'fas fa-spinner fa-spin mr-1';
+            if (syncText) syncText.textContent = '同步中...';
+            try {
+                const r = await adminFetch('/api/test-results/sync', { method: 'POST' });
+                const j = await r.json().catch(() => ({}));
+                if (!r.ok || !j.success) {
+                    throw new Error(j.error || `HTTP ${r.status}`);
+                }
+                showNotice(j.message || '同步完成，汇总报告已更新', 'success');
+                // 同步完成后自动刷新 submit iframe，让测试人员看到自己刚保存的最新结果
+                try {
+                    const iframe = document.getElementById('reportsIframeSubmit');
+                    if (iframe) iframe.contentWindow.location.reload();
+                } catch (_) { /* 跨域或被卸载时静默 */ }
+            } catch (e) {
+                showNotice('同步失败：' + (e.message || e), 'error');
+            } finally {
+                btnReportsSync.disabled = false;
+                if (syncIcon) syncIcon.className = origIconClass;
+                if (syncText) syncText.textContent = origText;
             }
         });
     }
