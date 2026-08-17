@@ -268,7 +268,9 @@ class AuditLog {
                             <div class="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
                                 <i class="fas fa-user text-blue-600 text-xs"></i>
                             </div>
-                            <span class="text-gray-800">${this.escapeHtml(log.user_id)}</span>
+                            <span class="text-gray-800" title="${log.user_id ? 'user_id: ' + this.escapeHtml(log.user_id) : ''}">
+                                ${this.escapeHtml(log.user?.username || log.user?.full_name || log.user_id)}
+                            </span>
                         </div>
                     </td>
                     <td class="px-4 py-3">
