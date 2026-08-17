@@ -19,6 +19,17 @@ export function apiBase() {
     return getApiBaseUrl ? getApiBaseUrl() : '';
 }
 
+// backupView.js 直接调用 getApiBase() / getAuthToken()（见 backupView.js:16,233-234），
+// 这里补齐同名导出，避免模块因「缺少导出」而整体加载失败（Uncaught SyntaxError）。
+// getApiBase() 等价于 apiBase()；getAuthToken() 委托已注入的 authService.getToken()。
+export function getApiBase() {
+    return apiBase();
+}
+
+export function getAuthToken() {
+    return authService ? authService.getToken() : null;
+}
+
 // 统一 JSON 请求头（原内联 authHeaders 的等价收敛）
 export function authHeaders() {
     const token = authService ? authService.getToken() : null;
