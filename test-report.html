@@ -31,6 +31,13 @@
         @media (min-width: 640px) {
             .summary-bar-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
         }
+        /* P-ReportsIframeAdapt: 被 admin-schools iframe 内嵌时
+             - reportWrap 取消 max-w-6xl、缩小上下 padding，让卡片网格铺满更宽容器
+             - summary-row 在宽屏下展开更多列，让每张卡更舒展 */
+        html.iframed #reportWrap { max-width: none; margin-top: 14px; padding-left: 18px; padding-right: 18px; }
+        html.iframed .summary-row { grid-template-columns: 1fr; }
+        @media (min-width: 768px) { html.iframed .summary-row { grid-template-columns: 1fr 2fr 1fr; } }
+        @media (min-width: 1280px) { html.iframed .summary-row { grid-template-columns: minmax(220px, 1fr) minmax(0, 3fr) minmax(220px, 1fr); } }
         /* glass-panel：轻量玻璃面板（用于输入框/分组卡内部元素） */
         .glass-input {
             background: rgba(255,255,255,0.72);
@@ -112,8 +119,10 @@
     </style>
 </head>
 <body class="min-h-screen">
-    <!-- 顶部状态栏 -->
-    <nav class="glass-dark text-white sticky top-0 z-50">
+    <!-- 顶部状态栏
+         P-ReportsIframeAdapt: 被 admin-schools.html iframe 内嵌时整个 nav 都隐藏，
+         避免与 admin-schools 顶部 nav 视觉重复（iframe 内嵌检测见下方 enterApp）。 -->
+    <nav id="reportTopNav" class="glass-dark text-white sticky top-0 z-50">
         <div class="container mx-auto px-4 py-3 flex justify-between items-center gap-4 flex-wrap">
             <div class="flex items-center space-x-3 flex-1 min-w-0">
                 <span class="shrink-0 w-9 h-9 rounded-lg bg-white/20 flex items-center justify-center">
@@ -272,6 +281,18 @@
         }
 
         function apiHeaders() { return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authService.getToken()}` } }
+
+        // P-ReportsIframeAdapt: 检测是否被 admin-schools.html 通过 iframe 内嵌。
+        // 内嵌场景下：自身顶部 nav 与 admin-schools 顶部 nav 视觉重复 → 隐藏。
+        // 同时把 #reportWrap 限宽去掉、缩短顶端 padding，让内容铺满 iframe 宽度。
+        const IS_IFRAMED = (function () {
+            try { return window.self !== window.top } catch (_) { return true }
+        })()
+        if (IS_IFRAMED) {
+            document.documentElement.classList.add('iframed')
+            const nav = document.getElementById('reportTopNav')
+            if (nav) nav.style.display = 'none'
+        }
 
         function enterApp() {
             $('loginWrap').classList.add('hidden')

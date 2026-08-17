@@ -43,18 +43,17 @@
          - 两栏布局：固定宽侧栏 240px（可折叠到 64px 仅图标），主区自适应；
          - 玻璃深色：与现有顶部 nav 视觉一致；
          - 移动端 (<1024px)：侧栏整体可被收纳，默认图标态 + 浮层 nav；
-         - P-ReportsFill：测试报告视图（reports）激活时取消 max-width，
-           让 iframe 内嵌的报告能填满主区（汇总报告自身已有 max-width: 2000px + 卡片自适应网格）。 */
+         - P-ReportsFill / P-WidthFill：max-width 放宽到 2000px（不再 1280px 限制），
+           让所有视图在大屏（1920~2400px）下都能舒展展开，窄屏（<1400px）保持单列合理留白。
+           各视图内部的 .container mx-auto max-w-7xl 会自动把内容限定在 1280px 内做阅读舒适度，
+           但工具栏/KPI 卡/侧栏可以更宽。 */
       .admin-layout {
           display: flex;
           gap: 20px;
-          max-width: 1280px;
+          max-width: 2000px;
           margin: 0 auto;
           padding: 20px 16px;
           align-items: flex-start;
-      }
-      .admin-layout[data-active-view="reports"] {
-          max-width: none;
       }
       .admin-sidebar {
           position: sticky;

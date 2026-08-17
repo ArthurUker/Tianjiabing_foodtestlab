@@ -182,7 +182,10 @@
         </aside>
         <main class="admin-main">
 
-    <div class="container mx-auto px-4 py-6 max-w-7xl">
+    <!-- P-WidthFill: 外层容器 max-w 跟随主区宽度自适应（不再 1280px 限制），
+         让 schools 视图的列表 / 工具栏 / KPI 卡在大屏下自然铺满可用宽度；
+         内容过宽时由 inner grid 的 minmax 自动控制单卡最小宽度，避免拉伸难看。 -->
+    <div class="container mx-auto px-4 py-6 max-w-[2000px]">
         <!-- 通知区 -->
         <div id="notice" class="hidden mb-4 p-3 rounded-lg text-sm"></div>
 
@@ -1100,7 +1103,7 @@
          视图切换由 js/modules/adminSchools/sidebar.js（switchTo）控制；其它视图主要承载「跳转 / 入口提示」，
          完整编辑能力仍在「学校管理」视图内的 detailPanel（5 个 Tab）。 -->
     <section id="adminViewOverview" class="admin-view" data-view="overview">
-        <div class="container mx-auto px-4 py-6 max-w-7xl">
+        <div class="container mx-auto px-4 py-6 max-w-[2000px]">
             <div class="admin-kpi-grid">
                 <div class="admin-kpi-card">
                     <div class="admin-kpi-label"><i class="fas fa-school mr-1"></i>学校总数</div>
@@ -1169,7 +1172,7 @@
     </section>
 
     <section id="adminViewAccounts" class="admin-view hidden" data-view="accounts">
-        <div class="container mx-auto px-4 py-6 max-w-7xl">
+        <div class="container mx-auto px-4 py-6 max-w-[2000px]">
 
             <!-- ========== 子视图 1: 平台超管 ========== -->
             <div class="admin-subview" data-subview="super-admins">
@@ -1318,7 +1321,7 @@
     </section>
 
     <section id="adminViewBackup" class="admin-view hidden" data-view="backup">
-        <div class="container mx-auto px-4 py-6 max-w-7xl">
+        <div class="container mx-auto px-4 py-6 max-w-[2000px]">
 
             <!-- ===== 子视图：全部 ===== -->
             <div class="admin-subview" data-subview="all">
