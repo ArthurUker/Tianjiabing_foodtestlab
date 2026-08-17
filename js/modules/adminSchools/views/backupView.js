@@ -56,25 +56,35 @@ export function initBackupView() {
             return '<span class="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs">' + escapeHtml(t || '-') + '</span>';
         }
 
-        function bkRowTpl(r, withSchool) {
+        function bkRowTpl(r, withSchool, currentSchool) {
             const id = String(r.id || '');
             const size = bkFmtSize(r.fileSize);
             const verified = bkStatusBadge(r.verifyStatus || r.status);
             const download = `
                 <button class="text-blue-600 hover:underline" data-act="download-enc" data-id="${id}"><i class="fas fa-lock mr-1"></i>AES</button>
                 <button class="ml-3 text-blue-600 hover:underline" data-act="download-plain" data-id="${id}"><i class="fas fa-file mr-1"></i>明文</button>`;
-            // P-Fix: 只有单校备份（scope === 'single'）且 schoolCode 非空才允许行内显示"恢复"按钮。
-            //   全库备份（scope === 'all'）后端 adminBackupRoutes.js 显式 400「全库备份不支持直接恢复」，
-            //   原实现不论 scope 一律渲染恢复按钮 ⇒ 用户点后必 400。需要 UI 层先禁掉并给出 title 提示。
-            const isSingle = String(r.scope || '') === 'single';
-            const hasSchool = isSingle && r.schoolCode;
-            const restoreBtn = hasSchool
-                ? `<button class="text-sm text-red-600 hover:underline" data-act="restore" data-id="${id}" data-code="${escapeHtml(String(r.schoolCode || ''))}">恢复</button>`
-                : `<button class="text-sm text-gray-400 cursor-not-allowed" disabled title="${escapeHtml(String(r.scope || '') === 'all' ? '全库备份不支持直接恢复，请使用单校备份文件恢复' : '该备份无目标学校，无法恢复')}">恢复</button>`;
+            // 方案B（P-Fix 迭代）：恢复按钮可用性取决于是否有确定的恢复目标学校：
+            //   - 单校备份（scope='single'，schoolCode 非空）→ 可恢复（目标=本校）
+            //   - 全库备份（scope='all'）→ 仅在"按学校"子视图（有当前选中学校 currentSchool）可恢复
+            //     （目标=当前选中学校，后端 extractSchemaSegment 只提取该校段）；
+            //     在"全部"子视图无学校上下文则禁用。
+            const isAll = String(r.scope || '') === 'all';
+            const restoreTarget = isAll ? (currentSchool || '') : String(r.schoolCode || '');
+            let restoreBtn;
+            if (restoreTarget) {
+                restoreBtn = `<button class="text-sm text-red-600 hover:underline" data-act="restore" data-id="${id}" data-code="${escapeHtml(restoreTarget)}">恢复</button>`;
+            } else if (isAll) {
+                restoreBtn = `<button class="text-sm text-gray-400 cursor-not-allowed" disabled title="全库备份需在「按学校」视图选择目标学校后恢复">恢复</button>`;
+            } else {
+                restoreBtn = `<button class="text-sm text-gray-400 cursor-not-allowed" disabled title="该备份无目标学校，无法恢复">恢复</button>`;
+            }
+            const scopeBadge = isAll
+                ? '<span class="inline-flex px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-xs"><i class="fas fa-database mr-1"></i>全库</span>'
+                : `<span class="inline-flex px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full text-xs">${escapeHtml(String(r.scope || 'single'))}</span>`;
             return `
                 <tr>
                     <td class="px-3 py-2 text-gray-700 whitespace-nowrap">${escapeHtml(bkFmtTime(r.createdAt))}</td>
-                    ${withSchool ? `<td class="px-3 py-2"><span class="inline-flex px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-xs">${escapeHtml(String(r.scope || 'all'))}</span></td><td class="px-3 py-2 font-mono text-gray-800">${escapeHtml(String(r.schoolCode || '-'))}</td>` : `<td class="px-3 py-2"><span class="inline-flex px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full text-xs">${escapeHtml(String(r.scope || 'all'))}</span></td>`}
+                    ${withSchool ? `<td class="px-3 py-2">${scopeBadge}</td><td class="px-3 py-2 font-mono text-gray-800">${escapeHtml(isAll ? '全部学校' : String(r.schoolCode || '-'))}</td>` : `<td class="px-3 py-2">${scopeBadge}</td>`}
                     <td class="px-3 py-2 text-gray-600">${escapeHtml(size)}</td>
                     <td class="px-3 py-2">${verified}</td>
                     <td class="px-3 py-2 text-right whitespace-nowrap">
@@ -141,23 +151,7 @@ export function initBackupView() {
                     bkUpdatePager('Sch', 0);
                     return;
                 }
-                tbody.innerHTML = list.map((r) => {
-                    const id = String(r.id || '');
-                    return `
-                        <tr>
-                            <td class="px-3 py-2 text-gray-700 whitespace-nowrap">${escapeHtml(bkFmtTime(r.createdAt))}</td>
-                            <td class="px-3 py-2 text-gray-600">${escapeHtml(bkFmtSize(r.fileSize))}</td>
-                            <td class="px-3 py-2">${bkStatusBadge(r.verifyStatus || r.status)}</td>
-                            <td class="px-3 py-2 text-right whitespace-nowrap">
-                                <button class="text-sm text-blue-600 hover:underline" data-act="verify" data-id="${id}">验证</button>
-                                <span class="mx-1 text-gray-300">|</span>
-                                <button class="text-sm text-blue-600 hover:underline" data-act="download-enc" data-id="${id}"><i class="fas fa-lock mr-1"></i>AES</button>
-                                <button class="ml-3 text-blue-600 hover:underline" data-act="download-plain" data-id="${id}"><i class="fas fa-file mr-1"></i>明文</button>
-                                <span class="mx-1 text-gray-300">|</span>
-                                <button class="text-sm text-red-600 hover:underline" data-act="restore" data-id="${id}" data-code="${escapeHtml(schoolCode)}">恢复</button>
-                            </td>
-                        </tr>`;
-                }).join('');
+                tbody.innerHTML = list.map((r) => bkRowTpl(r, true, schoolCode)).join('');
                 bkUpdatePager('Sch', bkState.bySchool.total);
             } catch (e) {
                 tbody.innerHTML = `<tr><td colspan="4" class="text-center text-red-500 py-6">加载失败：${escapeHtml(String(e.message || e))}</td></tr>`;
@@ -306,6 +300,8 @@ export function initBackupView() {
             const modal = document.getElementById('bkRestoreModal');
             const input = document.getElementById('bkRestoreConfirm');
             const doBtn = document.getElementById('bkRestoreDo');
+            const codeEl = document.getElementById('bkRestoreTargetCode');
+            if (codeEl) codeEl.textContent = schoolCode || '-';
             if (input) { input.value = ''; }
             if (doBtn) doBtn.disabled = true;
             if (modal) modal.classList.remove('hidden');

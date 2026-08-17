@@ -88,7 +88,14 @@ export function createSchoolBackupRoutes({ prisma, authenticateUser }) {
       const skip = (Math.max(Number(page) || 1, 1) - 1) * take
       // 【强隔离】where 不可因 URL 上的 schoolCode/scope 改变——
       // 不论传 schoolCode 还是 scope，一律按当前学校 + 单校备份过滤。
-      const where = { school_code: schoolCode, scope: 'single' }
+      // 方案B：学校侧列表 = 本校单校备份 + 平台全库备份（全库备份对所有学校可见，
+      // 但后续 download 已隔离、restore 只恢复本校 schema 段，不触及其他学校数据）。
+      const where = {
+        OR: [
+          { school_code: schoolCode, scope: 'single' },
+          { scope: 'all' },
+        ],
+      }
 
       const [total, items] = await Promise.all([
         prisma.backupRun.count({ where }),
@@ -170,6 +177,11 @@ export function createSchoolBackupRoutes({ prisma, authenticateUser }) {
       if (!['plain', 'encrypted'].includes(format)) {
         return res.status(400).json({ success: false, error: 'format 仅支持 plain 或 encrypted' })
       }
+      // 方案B 隔离底线：全库备份物理文件包含【所有学校】数据，学校侧一律禁止下载
+      // （即使密文也禁止外泄其它租户数据；恢复走 restore 接口由服务端提取本校段）。
+      if (run.scope === 'all') {
+        return res.status(403).json({ success: false, error: '全库备份包含其他学校数据，学校侧禁止下载；如需恢复请使用"恢复"功能' })
+      }
       const aesPath = run.file_path
       const metaPath = aesPath.replace(/\.sql\.gz\.aes$/, '.meta.json')
 
@@ -241,10 +253,8 @@ export function createSchoolBackupRoutes({ prisma, authenticateUser }) {
       }
       // 【强隔离】targetSchoolCode 强制 = req.user.schoolCode，禁止改写到其他学校
       const targetSchoolCode = schoolCode
-      // 全库备份不让学校侧触发恢复（学校不可能拿到合法的全库备份，保险起见双重拒绝）
-      if (run.scope === 'all') {
-        return res.status(400).json({ success: false, error: '全库备份不支持在租户内恢复，请联系平台超管' })
-      }
+      // 方案B：全库备份允许学校侧恢复，但 runRestore 只提取【本校】schema 段，
+      // 其它学校的数据不会进入恢复流程（extractSchemaSegment 按 schema 精确切分）。
       const actor = {
         userId: req.user?.userId,
         username: req.user?.username,

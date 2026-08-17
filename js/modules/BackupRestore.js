@@ -66,7 +66,8 @@ export class BackupRestoreService {
                     </div>
                     <div class="bg-blue-50 border border-blue-200 p-4 rounded text-sm text-blue-800">
                         每日 02:00 自动全库备份由平台统一执行（<code class="bg-blue-100 px-1 rounded">systemd timer</code>）；
-                        学校管理员可手动触发本校单校备份、验证、下载（AES 加密包 / 受控明文）以及在紧急情况下恢复。
+                        列表中的「全库」备份对全校可见，但只能用于<b>本校恢复</b>（服务端仅提取本校数据段，不触及其它学校）。
+                        学校管理员可手动触发本校单校备份、验证、下载（AES 加密包 / 受控明文）以及紧急恢复。
                         恢复为影子恢复（先写临时 schema 校验通过后再原子切换），恢复过程必须输入确认词
                         <code class="bg-blue-100 px-1 rounded">RESTORE</code>。
                     </div>
@@ -286,18 +287,27 @@ export class BackupRestoreService {
         // 手动/定时区分：run_type 恒为 scheduled_*（backupService.js），手动触发信息在
         // created_by（后端拼接 "manual_<username>@<school>"），只能以 createdBy 判断。
         const trigger = /manual_/i.test(r.createdBy || '') ? '手动' : '定时';
+        // 方案B：全库备份（scope=all）记录现在对学校可见——
+        //   - 显示"全库"徽章；恢复走服务端 extractSchemaSegment 只提取本校段；
+        //   - 下载一律隐藏（后端 403：全库文件含其他学校数据，学校侧禁止下载）。
+        const isAll = String(r.scope || '') === 'all';
+        const scopeBadge = isAll
+            ? '<span class="inline-flex items-center px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-xs"><i class="fas fa-database mr-1"></i>全库</span>'
+            : `<span class="inline-flex items-center px-2 py-0.5 bg-gray-100 text-gray-700 rounded-full text-xs">${escapeHtml(trigger)}</span>`;
+        const downloadBtns = isAll ? '' : `
+                    <button class="text-sm text-blue-600 hover:underline" data-act="download-enc" data-id="${escapeHtml(id)}"><i class="fas fa-lock mr-1"></i>AES</button>
+                    <button class="ml-2 text-sm text-blue-600 hover:underline" data-act="download-plain" data-id="${escapeHtml(id)}"><i class="fas fa-file mr-1"></i>明文</button>`;
         return `
             <tr class="border-b hover:bg-gray-50">
                 <td class="px-3 py-2 text-gray-700 whitespace-nowrap">${escapeHtml(fmtTime(r.createdAt))}</td>
                 <td class="px-3 py-2 text-gray-600">${escapeHtml(size)}</td>
                 <td class="px-3 py-2">${verified}</td>
-                <td class="px-3 py-2"><span class="inline-flex items-center px-2 py-0.5 bg-gray-100 text-gray-700 rounded-full text-xs">${escapeHtml(trigger)}</span></td>
+                <td class="px-3 py-2">${scopeBadge}</td>
                 <td class="px-3 py-2 text-right whitespace-nowrap">
                     <button class="text-sm text-blue-600 hover:underline" data-act="verify" data-id="${escapeHtml(id)}">验证</button>
                     <span class="mx-1 text-gray-300">|</span>
-                    <button class="text-sm text-blue-600 hover:underline" data-act="download-enc" data-id="${escapeHtml(id)}"><i class="fas fa-lock mr-1"></i>AES</button>
-                    <button class="ml-2 text-sm text-blue-600 hover:underline" data-act="download-plain" data-id="${escapeHtml(id)}"><i class="fas fa-file mr-1"></i>明文</button>
-                    <span class="mx-1 text-gray-300">|</span>
+                    ${downloadBtns}
+                    ${isAll ? '' : '<span class="mx-1 text-gray-300">|</span>'}
                     <button class="text-sm text-red-600 hover:underline" data-act="restore" data-id="${escapeHtml(id)}">恢复</button>
                 </td>
             </tr>`;

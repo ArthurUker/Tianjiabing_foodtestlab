@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url'
 import { schemaNameOf, assertSafeSchemaName } from './tenantClient.js'
 import { verifyBackupFile } from './backupVerify.js'
 import { writeAdminOpsLog } from './auditLog.js'
-import { rewriteSchemaNames } from './restoreSqlUtils.js'
+import { rewriteSchemaNames, extractSchemaSegment } from './restoreSqlUtils.js'
 
 const TAG = '[restoreService]'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -106,7 +106,22 @@ export async function runRestore({ prisma, backup, targetSchoolCode, actor, log 
     // ── 2. STAGING：恢复到临时 schema ──
     // 清理可能残留的影子 schema（上次失败中断）
     await runPsql({ command: `DROP SCHEMA IF EXISTS "${restoreSchema}" CASCADE` })
-    const sql = rewriteSchemaNames(sqlText, schema, restoreSchema)
+    // 方案B：备份可能是全库（scope='all'，含多个租户 schema + public），
+    // 恢复时只提取【目标学校】的 schema 段，其它 schema 的表/数据不进入临时 schema，
+    // 保证学校侧恢复不触及其他学校数据（租户隔离底线）。
+    let sqlSource = sqlText
+    let expectedTables = null // 行数校验基线（null = 用 meta.tableCounts 全部）
+    if (backup.scope === 'all') {
+      const seg = extractSchemaSegment(sqlText, schema)
+      if (!seg.trim()) throw new Error(`全库备份中未找到 schema ${schema} 的段，无法恢复`)
+      sqlSource = seg
+      // 全库备份的 tableCounts 覆盖所有 schema，行数校验只需比对目标 schema 的表
+      const tc = meta.tableCounts || {}
+      expectedTables = Object.entries(tc).filter(([k]) => k.split('.')[0] === schema)
+      if (!expectedTables.length) throw new Error(`meta 中缺少 schema ${schema} 的表计数，拒绝恢复`)
+      step('PREPARING', `全库备份 → 仅提取 ${schema} 段（${expectedTables.length} 张表）`)
+    }
+    const sql = rewriteSchemaNames(sqlSource, schema, restoreSchema)
     const tmpFile = path.join(os.tmpdir(), `restore_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.sql`)
     await fsp.writeFile(tmpFile, sql, { mode: 0o600 })
     try {
@@ -114,12 +129,14 @@ export async function runRestore({ prisma, backup, targetSchoolCode, actor, log 
     } finally {
       await fsp.unlink(tmpFile).catch(() => {})
     }
-    step('STAGING', `已恢复 ${Object.keys(meta.tableCounts || {}).length} 张表到临时 schema ${restoreSchema}`)
+    const restoredCount = expectedTables ? expectedTables.length : Object.keys(meta.tableCounts || {}).length
+    step('STAGING', `已恢复 ${restoredCount} 张表到临时 schema ${restoreSchema}`)
 
     // ── 3. VALIDATING：行数对比（meta.tableCounts 基线 vs 影子 schema 实际行数）──
     let mismatches = []
-    if (meta.tableCounts && Object.keys(meta.tableCounts).length) {
-      for (const [k, expected] of Object.entries(meta.tableCounts)) {
+    const countEntries = expectedTables || Object.entries(meta.tableCounts || {})
+    if (countEntries.length) {
+      for (const [k, expected] of countEntries) {
         const table = k.split('.').pop() // 取表名（跳过源 schema 前缀）
         try {
           const [{ count }] = await prisma.$queryRawUnsafe(
@@ -134,7 +151,7 @@ export async function runRestore({ prisma, backup, targetSchoolCode, actor, log 
         throw new Error(`行数校验不一致（${mismatches.length} 处，如 ${mismatches.slice(0, 3).join('; ')}）`)
       }
     }
-    step('VALIDATING', `行数校验通过（${Object.keys(meta.tableCounts || {}).length} 张表全一致）`)
+    step('VALIDATING', `行数校验通过（${countEntries.length} 张表全一致）`)
 
     // ── 4. SWITCHING：单事务原子双 rename（零窗口）──
     const oldSchema = `${schema}_old_${Date.now()}`

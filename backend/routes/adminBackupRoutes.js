@@ -43,7 +43,9 @@ export function createAdminBackupRoutes({ prisma, authenticateUser, requirePlatf
       const take = Math.min(Math.max(Number(pageSize) || 20, 1), 100)
       const skip = (Math.max(Number(page) || 1, 1) - 1) * take
       const where = {}
-      if (schoolCode) where.school_code = schoolCode
+      // 方案B：指定学校时，同时返回该学校的单校备份与【全库备份】（全库备份覆盖所有租户，
+      // 各学校在"按学校"视图都应有记录可见；恢复时由 runRestore 提取本校 schema 段）。
+      if (schoolCode) where.OR = [{ school_code: schoolCode }, { scope: 'all' }]
       if (scope) where.scope = scope
 
       const [total, items] = await Promise.all([
@@ -193,9 +195,11 @@ export function createAdminBackupRoutes({ prisma, authenticateUser, requirePlatf
       if (!targetSchoolCode) {
         return res.status(400).json({ success: false, error: '缺少 targetSchoolCode' })
       }
-      // 全库备份不能直接单校恢复（无目标 schema 对应关系），需先下载后按单校备份恢复
-      if (run.scope === 'all') {
-        return res.status(400).json({ success: false, error: '全库备份不支持直接恢复，请使用单校备份文件恢复' })
+      // 方案B：全库备份现在支持单校恢复——runRestore 内部按 targetSchoolCode
+      // 提取该 schema 段（extractSchemaSegment），只恢复目标学校，不影响其他租户。
+      // 显式校验：恢复目标学校必须与该备份匹配（单校备份只能恢复本校；全库备份可恢复任意学校）。
+      if (run.scope !== 'all' && run.school_code !== targetSchoolCode) {
+        return res.status(400).json({ success: false, error: '该备份不属于目标学校，无法恢复' })
       }
       const actor = { userId: req.user?.userId, username: req.user?.username, role: req.user?.role, schoolCode: null, ip: req.ip }
       const result = await runRestore({
