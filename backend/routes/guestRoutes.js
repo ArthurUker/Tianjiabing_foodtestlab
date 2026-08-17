@@ -2,21 +2,27 @@
  * Guest Routes（访客自助服务，TD-Guest 收口）
  *
  * 端点：
- *   POST /api/guest/register              访客自注册（按 schoolCode 落到对应租户 schema）
+ *   POST /api/guest/register              访客自注册（仅 readonly；可登记「查看病原体」意向，需审批）
  *   POST /api/guest/login                 访客登录（签发 guest 作用域 JWT）
  *   POST /api/guest/verify-token          校验访客令牌
  *   POST /api/guest/quick-access          P0-07 快速访问：无需凭证，签发只读限权 JWT（2h）
  *   GET  /api/guest/stats                 BS-09 访客看板汇总统计（仅聚合，不返回记录明细）
- *   POST /api/guest-export-request/submit           提交导出申请
+ *   POST /api/guest-export-request/submit           提交申请（request_type: pathogen_access 查看病原体 / export 导出）
  *   GET  /api/guest-export-request/my-requests      查看我的申请
- *   GET  /api/guest-export-request/check-permission 查看导出权限状态
+ *   GET  /api/guest-export-request/check-permission 查看我的权限状态（can_view_pathogen / has_export_permission）
  *   GET  /api/guest-export-request/admin/pending     管理端：待审批列表（admin/manager）
- *   POST /api/guest-export-request/admin/:id/approve 管理端：批准（置 has_export_permission=true）
+ *   POST /api/guest-export-request/admin/:id/approve 管理端：批准（pathogen_access→置 can_view_pathogen=true，export→置 has_export_permission）
  *   POST /api/guest-export-request/admin/:id/reject  管理端：驳回
+ *
+ * 权限模型（本系统访客唯二可申请的权限）：
+ *   - 查看病原体数据（can_view_pathogen）：默认关闭，经 pathogen_access 申请、manager 审批后开启；
+ *     即便开启也仍属只读，且【绝不】开放导出权限。
+ *   - 数据导出（has_export_permission）：默认关闭，经 export 申请、manager 审批后开启。
+ *   二者相互独立，pathogen_access 审批通过不会授予导出权限。
  *
  * 租户隔离：register/login 按请求体 schoolCode 用 createTenantClient 落到对应 schema；
  * 其余需鉴权的端点从 JWT（req.user.schoolCode）取租户，与全局认证一致。
- * guest 令牌字段：{ role:'guest', schoolCode, guestId, guest_type, has_export_permission }。
+ * guest 令牌字段：{ role:'guest', schoolCode, guestId, guest_type, has_export_permission, can_view_pathogen }。
  */
 
 import express from 'express'
@@ -34,8 +40,11 @@ const guestLoginLimiter = rateLimit(20, 60 * 1000)      // 每分钟20次
 // TD-GuestGate: quick-access 无凭证签发只读 JWT，需额外限流防批量枚举学校代码拉取数据
 const quickAccessLimiter = rateLimit(30, 60 * 1000)     // 每分钟30次
 
-// NB-06: 访客类型白名单
+// NB-06: 访客类型白名单（自注册仅允许 readonly；export_applicant 为历史别名，保留兼容但不对外开放自注册）
 const VALID_GUEST_TYPES = new Set(['readonly', 'export_applicant'])
+
+// 申请类型白名单：pathogen_access = 申请查看病原体数据（只读，不授导出）；export = 申请数据导出
+const VALID_REQUEST_TYPES = new Set(['pathogen_access', 'export'])
 
 function serializeGuest(g) {
     return {
@@ -112,6 +121,9 @@ export function createGuestRoutes(userManager, prisma, jwtSecret) {
     }
 
     // 访客自注册（NB-12: 加注册限流；TD-GuestGate: 强制校验 guest_enabled 开关）
+    // 权限模型：自注册访客一律为 readonly，且不携带任何导出权限；
+    // 若勾选「希望查看病原体数据」仅登记意向（request_pathogen_view），真实权限 can_view_pathogen
+    // 默认关闭，须由学校 manager 经 pathogen_access 申请审批后才会置 true（且仍只读、绝不授导出）。
     router.post('/register', guestRegisterLimiter, checkGuestEnabled, async (req, res) => {
         let db = null  // H5: 提升到 try 外，避免 catch 块 ReferenceError
         try {
@@ -120,7 +132,10 @@ export function createGuestRoutes(userManager, prisma, jwtSecret) {
                 email,
                 password,
                 full_name,
+                // 自注册强制 readonly：即便前端误传 export_applicant 也一律降级为 readonly，
+                // 防止绕过「注册不授导出」的安全约束。
                 guest_type = 'readonly',
+                request_pathogen_view = false,
                 valid_days = 30,
                 schoolCode
             } = req.body
@@ -140,10 +155,9 @@ export function createGuestRoutes(userManager, prisma, jwtSecret) {
             if (!/^[a-zA-Z0-9_]{3,32}$/.test(username)) {
                 return res.status(400).json({ error: '❌ 用户名格式非法（需3-32位字母、数字或下划线）' })
             }
-            // NB-06: 访客类型白名单校验
-            if (!VALID_GUEST_TYPES.has(guest_type || 'readonly')) {
-                return res.status(400).json({ error: '❌ 非法的访客类型' })
-            }
+
+            // 自注册只接受 readonly（export_applicant 不允许自助注册）
+            const effectiveGuestType = (guest_type === 'export_applicant') ? 'readonly' : 'readonly'
 
             db = createTenantClient(prisma, schoolCode)
             const exists = await db.guest.findUnique({ where: { username } })
@@ -162,7 +176,14 @@ export function createGuestRoutes(userManager, prisma, jwtSecret) {
                     email: email || null,
                     password_hash: passwordHash,
                     full_name: full_name || null,
-                    guest_type,
+                    // 注册只读类型，绝不开放导出
+                    guest_type: effectiveGuestType,
+                    // 安全硬约束：自注册访客永远没有导出权限
+                    has_export_permission: false,
+                    // 病原体查看权限默认关闭，仅当登记意向时记录，后续须经审批才置 true
+                    can_view_pathogen: false,
+                    // 登记意向：true 仅表示「希望申请」，不表示已获权限
+                    request_pathogen_view: !!request_pathogen_view,
                     valid_until: validUntil,
                     status: 'active',
                     created_by: null
@@ -170,7 +191,13 @@ export function createGuestRoutes(userManager, prisma, jwtSecret) {
             })
 
             const token = makeGuestToken(guest, schoolCode, jwtSecret)
-            return res.status(201).json({ success: true, token, guest: serializeGuest(guest) })
+            return res.status(201).json({
+                success: true,
+                token,
+                guest: serializeGuest(guest),
+                // 向前端明确：是否登记了病原体查看意向，便于前端引导走审批流程
+                requestPathogenView: !!request_pathogen_view
+            })
         } catch (error) {
             // H5: 防御性处理——db 在 try 块中赋值，P2002 重复键冲突需要回查，
             // 若 db 在赋值前已抛异常（如 createTenantClient 失败），则 db 为 null。
