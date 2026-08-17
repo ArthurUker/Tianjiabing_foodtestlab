@@ -113,6 +113,10 @@ export function createAdminBackupRoutes({ prisma, authenticateUser, requirePlatf
       const run = await loadRun(req.params.id, res)
       if (!run) return
       const format = req.query.format || 'plain'
+      // 白名单校验：防 format=xxx 绕过明文限制落入解密分支（TD-School-Backup-Sync 审查修复）
+      if (!['plain', 'encrypted'].includes(format)) {
+        return res.status(400).json({ success: false, error: 'format 仅支持 plain 或 encrypted' })
+      }
       const aesPath = run.file_path
       const metaPath = aesPath.replace(/\.sql\.gz\.aes$/, '.meta.json')
 

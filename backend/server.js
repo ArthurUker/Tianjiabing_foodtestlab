@@ -22,6 +22,7 @@ import { createAuthMiddleware } from './middleware/authMiddleware.js'
 import { createTenantMiddleware } from './middleware/tenantMiddleware.js'
 import { createSyncRoutes } from './routes/syncRoutes.js'
 import { createAdminBackupRoutes } from './routes/adminBackupRoutes.js'
+import { createSchoolBackupRoutes } from './routes/schoolBackupRoutes.js'
 import { createTestResultRoutes } from './routes/testResultRoutes.js'
 import { createSchoolRoutes } from './routes/schoolRoutes.js'
 import { createRecordRoutes } from './routes/recordRoutes.js'
@@ -293,6 +294,12 @@ app.use('/api/sync', syncRoutes)
 // ====== Backup Management Routes（P1：运维备份控制台，仅平台超管）======
 const adminBackupRoutes = createAdminBackupRoutes({ prisma, authenticateUser, requirePlatformSuperAdmin })
 app.use('/api/admin/backups', adminBackupRoutes)
+
+// ====== School Backup Routes（TD-School-Backup-Sync：学校侧备份运维，强制本校隔离）======
+// 入口 /api/school/backups；与超管能力一致（list/run/download/verify/restore），
+// 但强制以 token 中 req.user.schoolCode 为作用域，禁止跨校读取/恢复。
+const schoolBackupRoutes = createSchoolBackupRoutes({ prisma, authenticateUser })
+app.use('/api/school/backups', schoolBackupRoutes)
 
 // ====== Test Result Routes（临时测试工具：测试结果上报，任意登录用户）======
 const testResultRoutes = createTestResultRoutes(userManager, prisma)

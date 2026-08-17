@@ -262,7 +262,14 @@ export function initBackupView() {
                     bkOpenRestore(id, extra);
                 }
             } catch (e) {
-                alert('操作失败：' + (e.message || e));
+                // P-Fix: 区分网络层（TypeError: Failed to fetch）和服务器层（HTTP 5xx/4xx），
+                //   服务器层把 j.error 透传给运维定位（[adminBackupRoutes] 后端 catch 已把 e.message 写入 j.error）。
+                const msg = e && e.message ? e.message : String(e || '未知错误');
+                const isNetwork = /Failed to fetch|NetworkError|TypeError/i.test(msg) && !/^HTTP\s\d+/.test(msg);
+                const hint = isNetwork
+                    ? '\n\n请检查：①网络连接 ②后端服务 8080 端口 ③浏览器代理/CORS 设置'
+                    : '\n\n如频繁出现，请查看后端日志或联系运维（[adminBackupRoutes] TAG 前缀过滤）。';
+                alert('操作失败：' + msg + hint);
             }
         }
         function bkReloadCurrent() {
@@ -351,15 +358,28 @@ export function initBackupView() {
         document.getElementById('bkRestoreDo')?.addEventListener('click', async () => {
             if (!bkRestoreTarget) return;
             const { id, schoolCode } = bkRestoreTarget;
+            // P-Fix: 后端 adminBackupRoutes.js 要求 body = { targetSchoolCode, confirmText: 'RESTORE' }，
+            //   原实现误传 schoolCode 且完全没传 confirmText ⇒ 连续 4 次 400 Bad Request。
+            //   这里双重校验：未输入 RESTORE 直接阻断，与 modal 输入框的 enable 逻辑保持一致。
+            const confirmEl = document.getElementById('bkRestoreConfirm');
+            const confirmText = confirmEl ? confirmEl.value : '';
+            if (confirmText !== 'RESTORE') {
+                alert('❌ 必须输入确认词 RESTORE（区分大小写、首尾不能有空格）才能执行恢复。');
+                if (confirmEl) confirmEl.focus();
+                return;
+            }
             try {
-                const res = await bkFetch(`/${id}/restore`, { method: 'POST', body: JSON.stringify({ schoolCode }) });
+                const res = await bkFetch(`/${id}/restore`, {
+                    method: 'POST',
+                    body: JSON.stringify({ targetSchoolCode: schoolCode, confirmText: 'RESTORE' }),
+                });
                 const j = await res.json();
                 if (res.ok && j.success) {
                     alert('恢复完成 ✅\n\n' + (j.checks || []).map(([k, v]) => `${k}: ${v}`).join('\n'));
                     bkCloseRestore();
                     bkReloadCurrent();
                 } else {
-                    alert('恢复失败 ❌\n\n' + ((j.checks || []).map(([k, v]) => `${k}: ${v}`).join('\n') || j.error));
+                    alert('恢复失败 ❌\n\n' + ((j.checks || []).map(([k, v]) => `${k}: ${v}`).join('\n') || (j.error || `HTTP ${res.status}`)));
                 }
             } catch (e) {
                 alert('恢复异常：' + (e.message || e));
