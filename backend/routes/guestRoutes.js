@@ -54,6 +54,7 @@ function serializeGuest(g) {
         full_name: g.full_name,
         guest_type: g.guest_type,
         has_export_permission: g.has_export_permission,
+        can_view_pathogen: g.can_view_pathogen || false,
         status: g.status,
         valid_until: g.valid_until
     }
@@ -69,6 +70,7 @@ function makeGuestToken(guest, schoolCode, jwtSecret) {
             guestId: guest.id,
             guest_type: guest.guest_type,
             has_export_permission: guest.has_export_permission,
+            can_view_pathogen: guest.can_view_pathogen || false,
             is_quick_access: false,
             iat: Math.floor(Date.now() / 1000)
         },
@@ -390,12 +392,16 @@ export function createGuestExportRequestRoutes(userManager, prisma, jwtSecret) {
         next()
     }
 
-    // 提交导出申请
+    // 提交申请（request_type: pathogen_access=查看病原体 / export=数据导出）
     router.post('/submit', authenticateUser, requireGuest, async (req, res) => {
         try {
             const { request_type, request_reason, request_data } = req.body
             if (!request_type) {
                 return res.status(400).json({ error: '❌ 缺少申请类型' })
+            }
+            // NB: 申请类型白名单校验，防止注入未知类型
+            if (!VALID_REQUEST_TYPES.has(request_type)) {
+                return res.status(400).json({ error: '❌ 非法的申请类型' })
             }
 
             const db = createTenantClient(prisma, req.user.schoolCode)
@@ -429,13 +435,15 @@ export function createGuestExportRequestRoutes(userManager, prisma, jwtSecret) {
         }
     })
 
-    // 导出权限状态
+    // 权限状态（同时返回病原体查看权限与导出权限，二者独立）
     router.get('/check-permission', authenticateUser, requireGuest, async (req, res) => {
         try {
             const db = createTenantClient(prisma, req.user.schoolCode)
             const guest = await db.guest.findUnique({ where: { id: req.user.guestId } })
             return res.json({
                 has_export_permission: guest?.has_export_permission || false,
+                can_view_pathogen: guest?.can_view_pathogen || false,
+                request_pathogen_view: guest?.request_pathogen_view || false,
                 valid_until: guest?.valid_until || null
             })
         } catch (error) {
@@ -458,7 +466,8 @@ export function createGuestExportRequestRoutes(userManager, prisma, jwtSecret) {
         }
     })
 
-    // 审批通过：置 guest.has_export_permission=true，记录审批人与时间 + 审计
+    // 审批通过：按 request_type 授予对应权限（pathogen_access→can_view_pathogen；export→has_export_permission）
+    // 安全约束：pathogen_access 审批通过【绝不】开放导出权限；二者相互独立。
     router.post('/admin/:requestId/approve', authenticateUser, authorizeRoles('admin', 'manager'), async (req, res) => {
         try {
             const { requestId } = req.params
@@ -467,6 +476,12 @@ export function createGuestExportRequestRoutes(userManager, prisma, jwtSecret) {
                 return res.status(404).json({ error: '❌ 申请不存在或已处理' })
             }
 
+            // 依据申请类型决定授予的字段（最小权限原则）
+            const isPathogen = request.request_type === 'pathogen_access'
+            const permissionPatch = isPathogen
+                ? { can_view_pathogen: true }                 // 查看病原体：仅开病原体只读，不碰导出
+                : { has_export_permission: true }             // 导出：仅开导出
+
             await req.db.$transaction(async (tx) => {
                 await tx.guestExportRequest.update({
                     where: { id: requestId },
@@ -474,20 +489,23 @@ export function createGuestExportRequestRoutes(userManager, prisma, jwtSecret) {
                 })
                 await tx.guest.update({
                     where: { id: request.guest_id },
-                    data: { has_export_permission: true },
+                    data: permissionPatch,
                 })
             })
 
             await writeTenantAuditLog(req.db, {
                 actorId: req.user.userId,
-                action: 'guest_export_approve',
+                action: isPathogen ? 'guest_pathogen_approve' : 'guest_export_approve',
                 resourceType: 'guest_export_request',
                 resourceId: requestId,
-                details: { guest_id: request.guest_id },
+                details: { guest_id: request.guest_id, request_type: request.request_type },
                 ip: req.ip || null,
             })
 
-            res.json({ success: true, message: '✅ 已批准导出申请' })
+            res.json({
+                success: true,
+                message: isPathogen ? '✅ 已批准病原体查看申请（只读，不含导出权限）' : '✅ 已批准导出申请'
+            })
         } catch (error) {
             console.error('❌ Error approving export request:', error)
             res.status(400).json({ error: `审批失败` })
@@ -513,11 +531,11 @@ export function createGuestExportRequestRoutes(userManager, prisma, jwtSecret) {
                 action: 'guest_export_reject',
                 resourceType: 'guest_export_request',
                 resourceId: requestId,
-                details: { guest_id: request.guest_id },
+                details: { guest_id: request.guest_id, request_type: request.request_type },
                 ip: req.ip || null,
             })
 
-            res.json({ success: true, message: '✅ 已驳回导出申请' })
+            res.json({ success: true, message: '✅ 已驳回申请' })
         } catch (error) {
             console.error('❌ Error rejecting export request:', error)
             res.status(400).json({ error: `驳回失败` })

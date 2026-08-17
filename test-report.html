@@ -880,17 +880,19 @@
                 const bar = $('summaryBar')
                 bar.innerHTML = CASE_DEFS.map((g) => {
                     const gs = s[g.group] || {}
-                    const total = g.cases.length
+                    const total = Math.max(0, g.cases.length - (gs.closed || 0))
                     const closed = gs.closed || 0
+                    // API 端 summary 已保证 passed/failed/skipped 不含已收口（只对未收口的最新一条累加），
+                    // 这里 done = passed + failed + skipped 即"未收口且已测试过"的用例数。
                     const done = (gs.passed || 0) + (gs.failed || 0) + (gs.skipped || 0)
                     // TD-NoClosedInPct: 已收口用例既不计入分子也不计入分母——
-                    // 分母直接用 CASE_DEFS 用例总数（不再扣 closed），避免 done（含清单外幻影 case）> 分子导致完成度 > 100%。
-                    //   · 分母（total）= CASE_DEFS.cases.length
-                    //   · 分子（done）  = passed + failed + skipped
+                    //   · 分母（total）= CASE_DEFS.cases.length - closed（不含已收口）
+                    //   · 分子（done）  = passed + failed + skipped（API 已天然排除 closed）
                     //   · 完成度 = done / total（天然不会超过 100%）
                     //   · "已收口"以独立 chip 形式展示（仅作业务结论维度，不影响完成度）
                     const pct = total > 0 ? Math.round((done / total) * 100) : 0
-                    const remain = Math.max(0, total - done - closed)
+                    // 待测 = 分母里还未完成的部分（已扣除已收口）
+                    const remain = Math.max(0, total - done)
                     return `<div class="glass-tile p-5">
                         <div class="text-base font-semibold text-gray-800 truncate" title="${esc(g.groupName)}">${esc(g.groupName.split(' · ')[0])}</div>
                         <div class="flex items-baseline gap-1.5 mt-3">

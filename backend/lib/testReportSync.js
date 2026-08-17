@@ -158,20 +158,23 @@ function buildSnapshot(results) {
         fix_note: c.fixNote || '',
       }
     })
-    // TD-CountsIncludeClosed: counts 是"该结果类别的全部用例"（含已收口），便于负责人一眼看清结果分布。
-    // closed 作为独立 chip 维度展示；完成度计算时 closed 不进入分子也不进入分母。
+    // TD-CountsNoClosed: closed 是独立的业务结论维度，统计 passed/failed/skipped/pending 时跳过已收口用例，
+    // 让分子（done）天然不含 closed；"收口"作为独立 chip 维度展示。
     const counts = { passed: 0, failed: 0, skipped: 0, pending: 0, closed: 0 }
     for (const it of items) {
-      if (it.closed) counts.closed += 1
+      if (it.closed) {
+        counts.closed += 1
+        continue
+      }
       if (it.result) counts[it.result] = (counts[it.result] || 0) + 1
     }
     // TD-NoClosedInPct: 已收口用例既不计入分子也不计入分母——
-    //   · 分母（total）= CASE_DEFS items.length
-    //   · 分子（done）  = passed + failed + skipped
+    //   · 分母（total）= CASE_DEFS items.length - counts.closed（不含已收口）
+    //   · 分子（done）  = passed + failed + skipped（已通过上面 continue 排除 closed）
     //   · 完成度       = done / total（天然不会超过 100%）
     //   · "已收口"作为独立 chip 维度展示（仅作业务结论维度，不影响完成度）
     const done = counts.passed + counts.failed + counts.skipped
-    const total = items.length
+    const total = items.length - counts.closed
     const pct = total > 0 ? Math.round((done / total) * 100) : 0
     return { group: g.group, groupName: g.groupName, total, counts, done, pct, items }
   })
@@ -202,14 +205,18 @@ function buildSnapshot(results) {
       }
     })
     // new_问题 组口径与 CASE_DEFS 组一致 —— done/total 都不含 closed，closed 仅作为独立 chip 展示
+    // TD-CountsNoClosed: closed 已通过 continue 排除，故 counts.passed/failed/skipped/pending 天然不含 closed
     // TD-NoClosedInPct: 已收口既不计入分子也不计入分母（与 CASE_DEFS 组同口径）
     const counts = { passed: 0, failed: 0, skipped: 0, pending: 0, closed: 0 }
     for (const it of items) {
-      if (it.closed) counts.closed += 1
+      if (it.closed) {
+        counts.closed += 1
+        continue
+      }
       if (it.result) counts[it.result] = (counts[it.result] || 0) + 1
     }
     const done = counts.passed + counts.failed + counts.skipped
-    const total = items.length
+    const total = items.length - counts.closed
     const pct = total > 0 ? Math.round((done / total) * 100) : 0
     groups.push({ group: 'new_问题', groupName: '新问题 / 缺陷反馈', total, counts, done, pct, items })
   }
@@ -222,7 +229,7 @@ function buildSnapshot(results) {
     },
     { passed: 0, failed: 0, skipped: 0, pending: 0, closed: 0, total: 0 }
   )
-  // TD-NoClosedInPct: 与卡片口径一致 —— done 不含 closed，分母直接用 total
+  // TD-NoClosedInPct: 与卡片口径一致 —— done 不含 closed，分母 total 已扣 closed
   overall.done = overall.passed + overall.failed + overall.skipped
   overall.pct = overall.total > 0 ? Math.round((overall.done / overall.total) * 100) : 0
 
@@ -247,7 +254,7 @@ export function renderMarkdown(snap) {
   lines.push('| 分组 | 通过 | 失败 | 跳过 | 待测 | 收口 | 已测试/总数 | 完成度 |')
   lines.push('|---|---:|---:|---:|---:|---:|---:|---:|')
   for (const g of snap.groups) {
-    // TD-NoClosedInPct: 分母用 g.total（不再扣 closed），避免 done > 分子导致百分比 > 100%
+    // TD-NoClosedInPct: g.total 已扣除 counts.closed，g.done 也已天然排除 closed（保持口径一致）
     lines.push(`| ${g.groupName} | ${g.counts.passed} | ${g.counts.failed} | ${g.counts.skipped} | ${g.counts.pending} | ${g.counts.closed} | ${g.done}/${g.total} | ${g.pct}% |`)
   }
   const o = snap.overall
@@ -498,11 +505,11 @@ function renderCards() {
   $('cards').innerHTML = SNAPSHOT.groups.map(g => {
     // TD-NoClosedInPct: 与 test-report.html 一致 —— 已收口不进入分子/分母
     //   · 大数字 = done (passed+failed+skipped)，不含 closed
-    //   · 分母   = total（CASE_DEFS / 清单外用例总数）
+    //   · 分母   = total（已扣除 counts.closed = 不含已收口的用例数）
     //   · 完成度 = pct（total=0 时为 0%，天然不会超过 100%）
     const pct = typeof g.pct === 'number' ? g.pct : (g.total ? Math.round(g.done / g.total * 100) : 0)
-    // 待测 = 还没测且未收口的用例数（避免被收口污染）
-    const remain = Math.max(0, (g.total || 0) - g.done - (g.counts.closed || 0))
+    // 待测 = 还没测的用例数（total 已扣 closed，无需再减）
+    const remain = Math.max(0, (g.total || 0) - g.done)
     const denom = g.total
     const mkChip = (k, lbl) => '<div class="chip" style="color:' + LABELS[k].color + '"><i class="icon">' + LABELS[k].emoji + '</i><span class="lbl">' + lbl + '</span><span class="v">' + (k === 'pending' ? remain : g.counts[k]) + '</span></div>';
     // 「收口」chip 独立展示，不影响完成度

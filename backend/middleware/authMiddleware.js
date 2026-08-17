@@ -482,7 +482,8 @@ export function createAuthMiddleware(userManager, prisma) {
    * 必须在 authenticateUser 之后使用。非 guest 角色直接放行（员工端口径不变）。
    * guest 角色：
    *   1) 只读 —— 仅允许 GET/HEAD；
-   *   2) 模块白名单 —— req.params.tableName 必须在该校 visible_types 内且非 pathogen；
+   *   2) 模块白名单 —— req.params.tableName 必须在该校 visible_types 内；
+   *      pathogen 模块默认拒绝，除非该访客已获 can_view_pathogen（经 pathogen_access 申请审批）；
    *   3) 挂载 req.guestVisibleTypes，供无 :tableName 参数的端点（如 /api/test-records、
    *      /api/guest/stats）在查询层强制过滤。
    */
@@ -501,9 +502,15 @@ export function createAuthMiddleware(userManager, prisma) {
       req.guestVisibleTypes = allowed
 
       const tableName = req.params?.tableName
-      if (tableName !== undefined &&
-          (GUEST_DENIED_TYPES.has(tableName) || !allowed.includes(tableName))) {
-        return res.status(403).json({ error: '❌ 访客无权访问该检测模块' })
+      if (tableName !== undefined) {
+        // 病原体：仅当访客已获 can_view_pathogen 审批后才放行（仍只读、绝不授导出）
+        const isPathogenAllowed = tableName === 'pathogen' && req.user.can_view_pathogen === true
+        if (GUEST_DENIED_TYPES.has(tableName) && !isPathogenAllowed) {
+          return res.status(403).json({ error: '❌ 访客无权访问该检测模块' })
+        }
+        if (!isPathogenAllowed && !allowed.includes(tableName)) {
+          return res.status(403).json({ error: '❌ 访客无权访问该检测模块' })
+        }
       }
       next()
     } catch (error) {

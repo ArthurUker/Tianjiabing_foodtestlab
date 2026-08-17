@@ -45,15 +45,15 @@ export class GuestAuthService {
     }
 
     /**
-     * 访客自助注册
+     * 访客自助注册（仅 readonly；可登记「希望查看病原体」意向，需经审批才生效）
      * @param {string} username - 访客用户名
      * @param {string} email - 访客邮箱
      * @param {string} password - 访客密码
      * @param {string} full_name - 访客真实姓名
-     * @param {string} guest_type - 访客类型: 'readonly' 或 'export_applicant'
+     * @param {boolean} request_pathogen_view - 是否申请查看病原体数据（默认 false；仅登记意向，审批后才生效）
      * @returns {Promise<{success: boolean, token?: string, guest?: object, error?: string}>}
      */
-    async register(username, email, password, full_name, guest_type = 'readonly', schoolCode = null) {
+    async register(username, email, password, full_name, request_pathogen_view = false, schoolCode = null) {
         try {
             const resolvedSchool = schoolCode || extractSchoolCode()
             const response = await fetch(`${this.apiBaseUrl}/api/guest/register`, {
@@ -64,7 +64,9 @@ export class GuestAuthService {
                     email,
                     password,
                     full_name,
-                    guest_type,
+                    // 自注册强制 readonly：即便传入也忽略（后端同样强制降级）
+                    guest_type: 'readonly',
+                    request_pathogen_view: !!request_pathogen_view,
                     valid_days: 30,
                     schoolCode: resolvedSchool
                 })
@@ -81,7 +83,7 @@ export class GuestAuthService {
                 this._storeGuestSession(data.token, data.guest);
             }
 
-            return { success: true, token: data.token, guest: data.guest };
+            return { success: true, token: data.token, guest: data.guest, requestPathogenView: data.requestPathogenView };
         } catch (error) {
             // L4: 仅打错误摘要，不输出可能含 PII 的完整 error 对象
             console.error('访客注册错误:', error.message);
@@ -243,6 +245,15 @@ export class GuestAuthService {
     }
 
     /**
+     * 是否可查看病原体数据（经 pathogen_access 申请审批后为真；仍只读、不授导出）
+     * @returns {boolean}
+     */
+    hasPathogenPermission() {
+        const guest = this.getCurrentGuest();
+        return guest ? !!guest.can_view_pathogen : false;
+    }
+
+    /**
      * 快速访问模式 - 调用后端接口获取真实 JWT（P0-07 修复）
      * @returns {Promise<boolean>}
      */
@@ -363,14 +374,14 @@ export class GuestAuthService {
     }
 
     /**
-     * 检查导出权限状态
-     * @returns {Promise<{has_export_permission: boolean, valid_until?: string}>}
+     * 检查权限状态（返回导出权限与病原体查看权限，二者独立）
+     * @returns {Promise<{has_export_permission: boolean, can_view_pathogen: boolean, valid_until?: string}>}
      */
     async checkExportPermission() {
         try {
             const token = this.getToken();
             if (!token) {
-                return { has_export_permission: false };
+                return { has_export_permission: false, can_view_pathogen: false };
             }
 
             const response = await fetch(`${this.apiBaseUrl}/api/guest-export-request/check-permission`, {
@@ -380,10 +391,18 @@ export class GuestAuthService {
             });
 
             const data = await response.json();
+            // 将最新权限同步回会话，便于 hasPathogenPermission() 等同步方法即时生效
+            const guest = this.getCurrentGuest();
+            if (guest && data) {
+                guest.has_export_permission = !!data.has_export_permission;
+                guest.can_view_pathogen = !!data.can_view_pathogen;
+                guest.request_pathogen_view = !!data.request_pathogen_view;
+                try { localStorage.setItem(this._nsKey('current_guest'), JSON.stringify(guest)); } catch (e) { /* 忽略 */ }
+            }
             return data;
         } catch (error) {
             console.error('检查权限错误:', error);
-            return { has_export_permission: false };
+            return { has_export_permission: false, can_view_pathogen: false };
         }
     }
 }

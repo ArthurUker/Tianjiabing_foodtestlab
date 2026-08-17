@@ -128,6 +128,9 @@
             display: block !important;
         }
     </style>
+
+    <!-- 系统版本号唯一事实来源（全站统一展示，避免版本漂移） -->
+    <script src="/js/config/appVersion.js"></script>
     
     <!-- 脚本库 (defer 延迟加载)，已本地化到 /vendor/js，避免国内服务器访问国外 CDN 被重置 ERR_CONNECTION_RESET -->
     <script src="/vendor/js/chart.min.js" defer crossorigin="anonymous"></script>
@@ -256,7 +259,7 @@
         <div class="glass-dark text-white w-64 flex-shrink-0 sidebar-menu">
             <div class="p-4 border-b border-gray-700">
                 <h1 class="text-xl font-bold">检测系统</h1>
-                <p class="text-xs text-gray-400 mt-1">Version 4.0</p>
+                <p class="text-xs text-gray-400 mt-1">系统版本 <span data-app-version>3.1.0</span></p>
             </div>
             <nav class="p-2 space-y-1">
                 <button class="nav-btn active w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="dashboard">

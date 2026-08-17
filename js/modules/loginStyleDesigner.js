@@ -182,8 +182,8 @@ export function initLoginStyleDesigner({ API_BASE, authHeaders, notify }) {
       ? `<img src="${escapeHtml(logoSrc)}" alt="logo" style="width:56px;height:56px;object-fit:contain" onerror="this.style.display='none'">`
       : '<i class="fas fa-shield-alt text-4xl" style="color:var(--accent,#1a73e8)"></i>'
     const accent = (resolvedTheme() && resolvedTheme().accent) || schoolInfo.themeColor || '#1a73e8'
-    // 页脚注释（系统版本号等）：未设置时使用默认文案
-    const footer = (bd.footer && bd.footer.trim()) || '系统版本 3.1.0 · © 2026'
+    // 页脚注释（系统版本号等）：未设置时使用默认文案（版本号取 appVersion.js 单一来源）
+    const footer = (bd.footer && bd.footer.trim()) || ('系统版本 ' + (window.APP_VERSION || '3.1.0') + ' · © 2026')
 
     preview.innerHTML = `
       <div style="position:absolute;inset:0;${bgStyle}"></div>
@@ -239,7 +239,11 @@ export function initLoginStyleDesigner({ API_BASE, authHeaders, notify }) {
     updateLogoPreview((bd.logoUrl && bd.logoUrl.trim()) || schoolInfo.logoUrl)
     if ($('ls_brand_title')) $('ls_brand_title').value = bd.title || ''
     if ($('ls_brand_subtitle')) $('ls_brand_subtitle').value = bd.subtitle || ''
-    if ($('ls_brand_footer')) $('ls_brand_footer').value = bd.footer || ''
+    if ($('ls_brand_footer')) {
+      $('ls_brand_footer').value = bd.footer || ''
+      // 页脚注释 placeholder 随系统版本号动态生成（与 appVersion.js 单一事实来源保持一致）
+      $('ls_brand_footer').placeholder = '如 系统版本 ' + (window.APP_VERSION || '3.1.0') + ' · © 2026'
+    }
   }
 
   function render() {

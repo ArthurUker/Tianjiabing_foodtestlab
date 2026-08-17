@@ -133,8 +133,10 @@ model Guest {
   full_name            String?
   // 自注册访客无创建者用户，故允许为空（P1-08 同款 Restrict 关系仅在非空时生效）
   created_by           String?
-  guest_type           String    @default("readonly") // readonly（只读） / export_applicant（导出申请人）
-  has_export_permission Boolean  @default(false)   // 导出权限（默认关，export_applicant 经审批后开通）
+  guest_type           String    @default("readonly") // readonly（只读） / export_applicant（导出申请人，历史别名）
+  has_export_permission Boolean  @default(false)   // 导出权限（默认关，经 export 申请审批后开通）
+  can_view_pathogen    Boolean   @default(false)   // 查看病原体数据权限（默认关，经 pathogen_access 申请审批后开通；开启后仍为只读，绝不含导出）
+  request_pathogen_view Boolean  @default(false)   // 注册时登记的「希望查看病原体」意向（仅标记，需审批才生效）
   valid_until          DateTime? // 访客有效期（自注册时按 valid_days 计算）
   status               String    @default("active") // active / disabled
   created_at           DateTime  @default(now())
@@ -145,6 +147,7 @@ model Guest {
 
   @@index([created_by])
   @@index([guest_type])
+  @@index([can_view_pathogen])
 }
 
 // ========== 访客导出申请 ==========
@@ -152,7 +155,7 @@ model Guest {
 model GuestExportRequest {
   id             String   @id @default(cuid())
   guest_id       String
-  request_type   String   // 申请类型（如 data_export）
+  request_type   String   // 申请类型：pathogen_access（查看病原体）/ export（数据导出）
   request_reason String?
   request_data   Json?  // JSON，附加数据 (P1-4: 升级 jsonb)
   status         String   @default("pending") // pending / approved / rejected
