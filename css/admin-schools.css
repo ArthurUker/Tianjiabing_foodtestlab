@@ -594,6 +594,14 @@
     border-color: rgba(99, 102, 241, 0.35);
     color: #4f46e5;
 }
+/* P-Fix: 上方 .reports-bar__btn 的 `display: inline-flex` 会覆盖浏览器默认的 [hidden] 选择器
+   （特异度均为 0,1,0，CSS 规则晚于 UA 样式 → 用户声明胜出），导致 sidebar.js 第 57 行
+   `syncBtn.hidden = (target !== 'submit')` 设置的 HTML 属性无效。需要显示/隐藏同步
+   按钮（adminReportsSync）的场合统一靠这个规则兜底。与同文件第 619 行
+   `.reports-subview.hidden { display: none !important; }` 用法保持一致。 */
+.reports-bar__btn[hidden] {
+    display: none !important;
+}
 .reports-frame-wrap {
     /* iframe 外层：玻璃质感 + 圆角 + overflow hidden，配合 iframe 内部滚动避免双层滚动条 */
     background: rgba(255, 255, 255, 0.65);
