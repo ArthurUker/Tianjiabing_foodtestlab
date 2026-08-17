@@ -63,6 +63,14 @@ export function initBackupView() {
             const download = `
                 <button class="text-blue-600 hover:underline" data-act="download-enc" data-id="${id}"><i class="fas fa-lock mr-1"></i>AES</button>
                 <button class="ml-3 text-blue-600 hover:underline" data-act="download-plain" data-id="${id}"><i class="fas fa-file mr-1"></i>明文</button>`;
+            // P-Fix: 只有单校备份（scope === 'single'）且 schoolCode 非空才允许行内显示"恢复"按钮。
+            //   全库备份（scope === 'all'）后端 adminBackupRoutes.js 显式 400「全库备份不支持直接恢复」，
+            //   原实现不论 scope 一律渲染恢复按钮 ⇒ 用户点后必 400。需要 UI 层先禁掉并给出 title 提示。
+            const isSingle = String(r.scope || '') === 'single';
+            const hasSchool = isSingle && r.schoolCode;
+            const restoreBtn = hasSchool
+                ? `<button class="text-sm text-red-600 hover:underline" data-act="restore" data-id="${id}" data-code="${escapeHtml(String(r.schoolCode || ''))}">恢复</button>`
+                : `<button class="text-sm text-gray-400 cursor-not-allowed" disabled title="${escapeHtml(String(r.scope || '') === 'all' ? '全库备份不支持直接恢复，请使用单校备份文件恢复' : '该备份无目标学校，无法恢复')}">恢复</button>`;
             return `
                 <tr>
                     <td class="px-3 py-2 text-gray-700 whitespace-nowrap">${escapeHtml(bkFmtTime(r.createdAt))}</td>
@@ -74,7 +82,7 @@ export function initBackupView() {
                         <span class="mx-1 text-gray-300">|</span>
                         ${download}
                         <span class="mx-1 text-gray-300">|</span>
-                        <button class="text-sm text-red-600 hover:underline" data-act="restore" data-id="${id}" data-code="${escapeHtml(String(r.schoolCode || ''))}">恢复</button>
+                        ${restoreBtn}
                     </td>
                 </tr>`;
         }
@@ -264,11 +272,19 @@ export function initBackupView() {
             } catch (e) {
                 // P-Fix: 区分网络层（TypeError: Failed to fetch）和服务器层（HTTP 5xx/4xx），
                 //   服务器层把 j.error 透传给运维定位（[adminBackupRoutes] 后端 catch 已把 e.message 写入 j.error）。
+                //   进一步识别【运维配置缺失】类不可自愈错误（fail-closed），给更具体的可执行建议。
                 const msg = e && e.message ? e.message : String(e || '未知错误');
                 const isNetwork = /Failed to fetch|NetworkError|TypeError/i.test(msg) && !/^HTTP\s\d+/.test(msg);
-                const hint = isNetwork
-                    ? '\n\n请检查：①网络连接 ②后端服务 8080 端口 ③浏览器代理/CORS 设置'
-                    : '\n\n如频繁出现，请查看后端日志或联系运维（[adminBackupRoutes] TAG 前缀过滤）。';
+                let hint = '\n\n如频繁出现，请查看后端日志或联系运维（[adminBackupRoutes] TAG 前缀过滤）。';
+                if (isNetwork) {
+                    hint = '\n\n请检查：①网络连接 ②后端服务 8080 端口 ③浏览器代理/CORS 设置';
+                } else if (/未配置加密主密钥|TENCENT_|BACKUP_MASTER_KEY|fail-closed/.test(msg)) {
+                    hint = '\n\n⚠️ 后端尚未配置备份加密主密钥（TENCENT_* 或 BACKUP_MASTER_KEY），\n重试无效，请联系运维在服务器环境变量中设置后重启服务。';
+                } else if (/pg_dump|psql/.test(msg)) {
+                    hint = '\n\n⚠️ 后端 PostgreSQL 客户端工具缺失或版本不匹配，\n请在服务器安装 postgresql-client 并确保与数据库主版本一致。';
+                } else if (/磁盘剩余空间不足/.test(msg)) {
+                    hint = '\n\n⚠️ 备份磁盘空间不足，请清理服务器备份目录后再试。';
+                }
                 alert('操作失败：' + msg + hint);
             }
         }
