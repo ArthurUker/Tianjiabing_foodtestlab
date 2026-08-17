@@ -980,7 +980,14 @@
                 // 业务口径（已确认）：全校共享，不做 submitted_by 过滤
                 const r = await fetch(`/api/test-results?case_group=${encodeURIComponent(NEW_ISSUE_GROUP)}&pageSize=500`, { headers: apiHeaders() })
                 const j = await r.json()
-                const items = j.data || []
+                // TD-PreviewEcho: 缓存已反馈列表给 updateIssuePreview() 用（②-b 分支显示"已反馈 N 项"摘要）。
+                // API 通常按 updated_at DESC 返回，但为防极端情况按 updated_at 再排一次。
+                const items = (j.data || []).slice().sort((a, b) => {
+                    const ta = a.updated_at ? Date.parse(a.updated_at) : 0
+                    const tb = b.updated_at ? Date.parse(b.updated_at) : 0
+                    return tb - ta
+                })
+                issueListCache = items
                 const list = $('issueList')
                 list.innerHTML = items.length
                     ? items.map((it) => `
@@ -994,11 +1001,20 @@
                         </div>`).join('')
                     : '<div class="text-[10px] text-gray-400">暂无反馈</div>'
                 list.querySelectorAll('.issue-edit').forEach((b) => b.addEventListener('click', () => editIssue(b.dataset.edit)))
+                // TD-PreviewEcho: 列表变化后刷新右上预览卡（表单为空时进入 ②-b 摘要态）
+                updateIssuePreview()
             } catch { /* 加载失败不阻断 */ }
         }
 
         // —— 新问题预览总结卡（右侧，实时预览 / 提交后总结）——
         // 独立读取当前 DOM（标题/描述/步骤），不依赖 issueEvidence 时序，避免与 issueSerialize 互相递归
+        // 状态机：
+        //   ① 用户正在填写（表单有内容）           — 实时"待提交"预览
+        //   ② 表单为空 + 本次会话刚提交过            — "已提交"总结（lastIssueSubmit 内存变量）
+        //   ②-b 表单为空 + 本次未提交 + 列表已有反馈 — "已反馈 N 个问题"摘要（含最近一条标题/时间）
+        //   ③ 完全空（列表也空）                    — 占位提示
+        let issueListCache = [] // loadMyIssues 写入；按 updated_at 倒序的最新快照
+
         function updateIssuePreview() {
             const el = $('issuePreview')
             if (!el) return
@@ -1033,7 +1049,7 @@
                 return
             }
 
-            // ② 表单为空但刚提交过：展示提交总结态
+            // ② 表单为空但本会话刚提交过：展示本次提交总结态（最高优先，避免遮盖"刚成功"的反馈）
             if (lastIssueSubmit) {
                 el.innerHTML = `
                     <div class="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
@@ -1046,6 +1062,25 @@
                         <span><i class="fas fa-images mr-1"></i>${lastIssueSubmit.imgs} 张截图</span>
                     </div>
                     <div class="text-[11px] text-emerald-600 pt-1 border-t border-white/60"><i class="fas fa-check mr-1"></i>已保存，可在下方「我已反馈的问题」中编辑</div>`
+                return
+            }
+
+            // ②-b 表单为空 + 本会话未提交 + 列表已有反馈：
+            //   修复前预览卡只显示"提示文字"，与下方"我已反馈的问题"列表不对齐。
+            //   修复后展示汇总：数量 + 最近一条标题/时间，并提示"下方列表查看/编辑全部"。
+            if (issueListCache.length > 0) {
+                const latest = issueListCache[0]
+                const latestTitle = latest.case_title || '（未填标题）'
+                const latestTime = latest.updated_at
+                    ? new Date(latest.updated_at).toLocaleString('zh-CN')
+                    : ''
+                el.innerHTML = `
+                    <div class="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
+                        <i class="fas fa-clipboard-check"></i>已反馈 ${issueListCache.length} 项</div>
+                    <div class="text-[11px] text-gray-400">最近一条</div>
+                    <div class="text-sm font-semibold text-gray-800 leading-snug break-words">${esc(latestTitle)}</div>
+                    ${latestTime ? `<div class="text-[11px] text-gray-500">${esc(latestTime)}</div>` : ''}
+                    <div class="text-[11px] text-gray-500 pt-1 border-t border-white/60"><i class="fas fa-arrow-down mr-1"></i>下方列表可查看与编辑全部反馈</div>`
                 return
             }
 
