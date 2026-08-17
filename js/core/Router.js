@@ -24,6 +24,29 @@ export class Router {
         this._abortCtrl = null;            // TD-EventLeak: 取消 init 阶段监听
         this._setupAbortCtrl = null;       // TD-EventLeak: 取消 setupAll 阶段监听
         this._tokenTimerId = null;         // TD-Router-Timer: Token 校验定时器句柄
+        // P10/P11 修复：监听角色变更事件，重渲染导航菜单与用户显示，
+        // 使后端角色变更（如 operator→viewer）即时反映到前端按钮权限。
+        if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+            this._onRoleChanged = () => {
+                try {
+                    this.updateNavigationByPermission();
+                    this.updateUserDisplay();
+                } catch (e) {
+                    console.warn('[Router] auth:role-changed 重渲染失败', e);
+                }
+            };
+            window.addEventListener('auth:role-changed', this._onRoleChanged);
+        }
+    }
+
+    /**
+     * 销毁路由（清理全局监听，避免重复绑定/内存泄漏）
+     */
+    destroy() {
+        if (this._onRoleChanged && typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
+            window.removeEventListener('auth:role-changed', this._onRoleChanged);
+            this._onRoleChanged = null;
+        }
     }
 
     /**

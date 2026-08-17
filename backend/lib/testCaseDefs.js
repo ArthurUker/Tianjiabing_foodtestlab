@@ -221,7 +221,7 @@ const FIXED_CASE_NOTES = {
   'B9': '备份定时任务已修复：脚本绝对路径 + OnFailure 失败告警钩子',
   // FIX-08：R01/R15 学校删除/恢复 jsonb 类型错误
   'R01': '学校删除/恢复 jsonb 类型错误已修复（::jsonb cast）',
-  'R15': '回收站恢复学校 jsonb 类型错误已修复（::jsonb cast）',
+  'R15': '回收站恢复学校 jsonb 类型错误已修复：safeParseJson 循环解析双重编码字符串（消除 42804）',
   // FIX-09：R03 数据同步无取消按钮
   'R03': '云端同步已增加进度对话框与取消按钮',
   // FIX-10：R06 模板打不开
@@ -237,6 +237,17 @@ const FIXED_CASE_NOTES = {
   // FIX-15：viewer 越权新增检测记录
   'P04': 'viewer 新增记录越权已修复（提交层权限拦截 + 隐藏入口）',
   'P05': 'viewer 编辑/删除记录越权已修复（权限拦截）',
+  // FIX-16：复检跨品类显示 + 刷新 400/记录丢失（2026-08-17 代码修复）
+  //   S2b：Tableware.js 保存点位不再清空 recheckRecords
+  //   S2a：Storage._applyServerRecord 缓存覆盖时保留本地 recheckRecords
+  //   S3：复检保存同步 finalStatus 与 recheckRecords[0].isPassed
+  'R08': '复检跨品类显示已修复（果蔬/肉蛋/油 复检持久化，保存点位不再丢复检记录）',
+  'R28': '复检刷新 400/记录不存在已修复：缓存覆盖与保存点位清空复检记录问题已解决',
+  // FIX-17：角色调整后旧会话实时生效 / 禁用后失效（2026-08-17 代码修复）
+  //   AuthService.syncRoleFromServer 检测 role 变化时派发 auth:role-changed 事件，
+  //   Router 监听后重渲染导航菜单与用户显示。
+  'P10': '角色调整后旧会话实时生效已修复：前端角色变更触发 UI 重渲染（无需重新登录）',
+  'P11': '禁用用户后旧会话立即失效已修复：401/禁用触发 clearAuth 跳登录 + 角色变更重渲染',
 }
 
 // 注入 fixNote 到 CASE_DEFS（模块加载时执行，供 defs 接口与报告同步引擎共用）

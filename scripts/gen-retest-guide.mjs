@@ -97,6 +97,9 @@ for (const c of retest.cases) {
   lines.push(`### ${no} ${c.title.replace(/^R\d+\s*/, '')}`)
   lines.push(``)
   lines.push(`> 负责人：${ASSIGN[no] || '待定'}`)
+  if (c.fixNote) {
+    lines.push(`> ✅ **已修复·本轮请优先复测**：${c.fixNote}`)
+  }
   lines.push(``)
   if (purpose) lines.push(`**目的：** ${purpose}`)
   if (steps.length) {

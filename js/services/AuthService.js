@@ -702,9 +702,17 @@ export class AuthService {
             if (!data || !data.success || !data.user) return { success: false };
             const local = this.getUser();
             if (local && data.user.role && data.user.role !== local.role) {
+                const prevRole = local.role;
                 local.role = data.user.role;
                 this.saveUser(local, true);
                 console.warn(`🔄 [auth] 本地角色已与服务器同步为 ${data.user.role}`);
+                // P10/P11 修复：角色变更后派发事件，触发 UI（菜单/导航栏/模块按钮）重渲染，
+                // 否则仅更新本地存储会导致按钮权限与后端不一致（查看者仍能看到写按钮）。
+                if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+                    window.dispatchEvent(new CustomEvent('auth:role-changed', {
+                        detail: { prevRole, nextRole: data.user.role }
+                    }));
+                }
             }
             return { success: true, role: data.user.role };
         } catch (e) {

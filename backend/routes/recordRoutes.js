@@ -413,7 +413,7 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
                 pesticide: [...PROTECTED_FIELDS_COMMON, 'vegetableType', 'batchNo', 'sampleNo', 'limitValue', 'detectionLimit', 'sampleSource'],
                 leanMeat: [...PROTECTED_FIELDS_COMMON, 'vegetableType', 'batchNo', 'sampleNo', 'limitValue', 'detectionLimit', 'sampleSource'],
                 oil: [...PROTECTED_FIELDS_COMMON, 'oilType', 'sampleNo', 'limitValue', 'sampleSource'],
-                tableware: [...PROTECTED_FIELDS_COMMON, 'atpPoints', 'sampleInfo'],
+                tableware: [...PROTECTED_FIELDS_COMMON, 'atpPoints', 'sampleInfo', 'recheckRecords'],
                 pathogen: [...PROTECTED_FIELDS_COMMON, 'sampleId', 'sampleType', 'positiveItems', 'positiveDetails', 'riskLevel', 'riskReason', 'allTestItems']
             }
             const PROTECTED_FIELDS = PROTECTED_FIELDS_BY_TYPE[testType] || PROTECTED_FIELDS_BY_TYPE.pesticide

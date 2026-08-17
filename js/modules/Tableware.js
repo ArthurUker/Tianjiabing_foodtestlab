@@ -782,8 +782,10 @@ function handleFormSubmit(e) {
     
     try {
         data.atpPoints = points;
-        data.modificationLogs = []; 
-        data.recheckRecords = [];
+        data.modificationLogs = [];
+        // 修复 S2b：保存点位时不得清空复检记录（否则复检历史丢失）。
+        // 仅当复检记录字段缺失/非数组时初始化为空数组，已有复检一律保留。
+        if (!Array.isArray(data.recheckRecords)) data.recheckRecords = [];
 
         storage.save(data);
         

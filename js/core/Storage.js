@@ -616,6 +616,12 @@ export class StorageService {
             if (serverV < localV && local._status !== 'updating') {
                 console.warn(`[Storage] _applyServerRecord 异常：serverV(${serverV}) < localV(${localV}), id=${serverRecord.id}, 以服务端为准覆盖`);
             }
+            // 修复 S2a：服务端响应若未携带复检记录（incoming 为空数组/缺省）但本地已有，
+            // 保留本地 recheckRecords，防止复检记录被"空响应"覆盖导致弹窗显示"暂无复检记录"。
+            if ((!Array.isArray(serverRecord.recheckRecords) || serverRecord.recheckRecords.length === 0)
+                && Array.isArray(local.recheckRecords) && local.recheckRecords.length > 0) {
+                fresh.recheckRecords = local.recheckRecords;
+            }
             rows[idx] = fresh;
         } else {
             rows.unshift(fresh);

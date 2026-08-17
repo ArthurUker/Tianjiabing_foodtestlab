@@ -21,8 +21,28 @@ const CUSTOMIZATION_COLUMNS = [
 
 // 兼容辅助：回收站快照中 jsonb 字段曾被 raw SQL 序列化为字符串（历史 double-encode 数据），
 // 恢复时需还原为对象/数组再交给 Model API；parse 失败（脏数据）降级为 null。
+// FIX-08/R01/R15：对"双重编码"字符串（JSON.parse 后仍是字符串且仍是合法 JSON 字符串）循环解析，
+// 否则 data[c] 残留字符串写入 jsonb 列会触发 42804（invalid input syntax for type json）。
 function safeParseJson(val) {
-    try { return JSON.parse(val) } catch (_) { return null }
+    if (typeof val !== 'string') return val;
+    let cur = val;
+    let parsed;
+    try {
+        parsed = JSON.parse(cur);
+    } catch (_) {
+        return null;
+    }
+    // 若解析结果仍是字符串且仍是合法 JSON，继续解析（消除双重编码）
+    let guard = 0;
+    while (typeof parsed === 'string' && guard < 5) {
+        try {
+            parsed = JSON.parse(parsed);
+        } catch (_) {
+            break;
+        }
+        guard++;
+    }
+    return parsed;
 }
 
 const RECYCLE_KEEP_DAYS = 90 // 3 个月
