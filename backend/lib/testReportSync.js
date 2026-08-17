@@ -134,8 +134,10 @@ function buildSnapshot(results) {
     }
   }
 
+  // TD-ServerOnly: serverOnly 用例（需连接服务器执行，如 B7-旧schema/B8/B9）不纳入
+  // 浏览器报告统计——已移出到 docs/测试执行-服务器侧-<日期>.md，由开发 VS Code 执行。
   const groups = CASE_DEFS.map((g) => {
-    const items = g.cases.map((c) => {
+    const items = g.cases.filter((c) => !c.serverOnly).map((c) => {
       const rec = byId.get(c.id)
       const evidenceList = rec ? parseEvidenceList(rec.evidence) : []
       const closedInfo = closedMap.get(c.id)
@@ -449,7 +451,9 @@ export function renderHtml(snap) {
       <span id="userInfo" class="topnav-user hidden"><i class="fas fa-user-circle mr-1.5"></i><span id="userName">—</span></span>
       <button id="logoutBtn" type="button" class="topnav-btn topnav-rose hidden"><i class="fas fa-sign-out-alt mr-1.5"></i>退出</button>
       <a id="loginLink" href="/super-admin-login.html" class="topnav-link topnav-indigo hidden"><i class="fas fa-sign-in-alt mr-1.5"></i>登录</a>
-      <button id="refreshBtn" type="button" class="topnav-btn topnav-indigo"><i class="fas fa-sync-alt mr-1.5"></i>刷新</button>
+      <!-- 刷新按钮已移除（用户反馈：汇总报告页不应有触发重新生成的入口）。
+           需要更新汇总数据时，在 admin-schools 控制台「数据上报」顶部条点「同步」，
+           或直接访问 /test-report.html 内的同步入口。 -->
     </div>
   </div>
 </nav>
@@ -775,44 +779,8 @@ $('logoutBtn').addEventListener('click', () => {
   window.location.href = '/super-admin-login.html';
 });
 
-// 刷新：重新从数据库生成报告并重建 dist，然后带时间戳重新加载页面（避免浏览器缓存）
-// 修订：未登录或 token 失效时直接跳超管登录页，不再弹窗询问（避免被「刷新需要先登录」打断）。
-async function refreshReport() {
-  const btn = $('refreshBtn');
-  if (btn.disabled) return;
-
-  const token = findToken();
-  if (!token) {
-    redirectToLogin();
-    return;
-  }
-
-  function resetBtn() {
-    btn.disabled = false;
-    btn.classList.remove('spin');
-    btn.innerHTML = '<i class="fas fa-sync-alt mr-1.5"></i>刷新';
-  }
-
-  btn.disabled = true;
-  btn.classList.add('spin');
-  btn.innerHTML = '<i class="fas fa-sync-alt mr-1.5"></i>刷新中...';
-  try {
-    const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token };
-    const r = await fetch('/api/test-results/sync', { method: 'POST', headers });
-    if (r.status === 401) {
-      // 登录已过期：直接跳超管登录页，不弹窗
-      redirectToLogin();
-      return;
-    }
-    const j = await r.json();
-    if (!j.success) throw new Error(j.error || '刷新失败');
-    window.location.href = window.location.pathname + '?_=' + Date.now();
-  } catch (e) {
-    alert('刷新失败：' + e.message);
-    resetBtn();
-  }
-}
-$('refreshBtn').addEventListener('click', refreshReport);
+// 刷新按钮已移除（见模板 HTML 注释）：汇总报告页不再提供触发重新生成的入口，
+// 避免用户在只读汇总页误触数据重建。更新汇总数据请走 admin-schools「数据上报」顶部同步按钮。
 initUser();
 </script>
 </body>

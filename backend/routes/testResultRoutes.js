@@ -151,9 +151,15 @@ export function createTestResultRoutes(userManager, prisma) {
           })
         }
       }
+      // TD-ServerOnly: 需连接服务器执行的用例（serverOnly=true，如 B7-旧schema/B8/B9）
+      // 从浏览器上报清单过滤，不再显示在 test-report.html——已移出到
+      // docs/测试执行-服务器侧-<日期>.md，由开发通过 VS Code 连接服务器执行。
+      const browserDefs = CASE_DEFS
+        .map((g) => ({ ...g, cases: g.cases.filter((c) => !c.serverOnly) }))
+        .filter((g) => g.cases.length > 0)
       res.json({
         success: true,
-        data: CASE_DEFS,
+        data: browserDefs,
         result_options: RESULT_OPTIONS,
         closed_case_ids: [...closedMap.values()],
       })
