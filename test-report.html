@@ -438,9 +438,9 @@
                             <button type="button" data-del title="删除本步" class="step-del px-2 py-1 sm:px-1.5 sm:py-0.5 text-sm sm:text-[10px] rounded border border-red-200 text-red-500 hover:bg-red-50"><i class="fas fa-trash-alt"></i></button>
                         </div>
                     </div>
-                    <div class="flex gap-1 items-center">
+                    <div class="flex gap-1 items-start">
                         <input type="file" class="step-file" accept="image/png,image/jpeg,image/webp,image/gif" multiple class="hidden">
-                        <input class="step-evi flex-1 min-w-0 border rounded px-2 py-1.5 sm:px-1.5 sm:py-0.5 text-sm sm:text-[10px] font-mono" placeholder="截图 URL 或上传" value="${esc((s.urls || []).join('\n'))}">
+                        <textarea class="step-evi flex-1 min-w-0 border rounded px-2 py-1.5 sm:px-1.5 sm:py-0.5 text-sm sm:text-[10px] font-mono leading-snug" rows="1" placeholder="截图 URL 或上传（每行一个）">${esc((s.urls || []).join('\n'))}</textarea>
                         <button type="button" data-upload title="上传本步截图" class="step-up px-2 py-1.5 sm:px-1.5 sm:py-0.5 text-sm sm:text-[10px] rounded bg-gray-600 text-white hover:bg-gray-700 shrink-0"><i class="fas fa-upload"></i></button>
                     </div>
                     <div class="step-preview flex flex-wrap gap-1"></div>
@@ -513,10 +513,29 @@
             })
         }
 
+        // 拆出文本里的证据 URL（兼容历史脏数据：多个 URL 无换行粘连成一个 token 的情况）
+        function splitEvidenceTokens(value) {
+            const out = []
+            for (const raw of String(value || '').split(/[\n\r]+/)) {
+                const t = raw.trim()
+                if (!t) continue
+                // 粘连 token 形如 .../a.png/api/test-results/evidence/.../b.png → 按特征拆成多条
+                const m = t.match(/\/api\/test-results\/evidence\/[^/]+\/[A-Za-z0-9._-]+/g)
+                if (m && m.length > 1) out.push(...m)
+                else out.push(t)
+            }
+            return out
+        }
+
         function renderStepPreview(card) {
             const evi = card.querySelector('.step-evi')
             const prev = card.querySelector('.step-preview')
-            const tokens = String(evi?.value || '').split(/[\n\r]+/).map((t) => t.trim()).filter(Boolean)
+            // textarea 随内容自动增高（多行 URL 完整可见）
+            if (evi) {
+                evi.style.height = 'auto'
+                evi.style.height = (evi.scrollHeight + 2) + 'px'
+            }
+            const tokens = splitEvidenceTokens(evi?.value)
             // 清空并逐项渲染：远程证据图用 fetch+Bearer 拉取（<img> 无法带 Authorization 头，否则 401），
             // 转 blob URL 显示；纯文本链接原样展示。
             prev.innerHTML = ''
@@ -1039,9 +1058,9 @@
                             <button type="button" data-del class="step-del px-2 py-1 sm:px-1.5 sm:py-0.5 text-sm sm:text-[10px] rounded border border-red-200 text-red-500 hover:bg-red-50"><i class="fas fa-trash-alt"></i></button>
                         </div>
                     </div>
-                    <div class="flex gap-1 items-center">
+                    <div class="flex gap-1 items-start">
                         <input type="file" class="step-file" accept="image/png,image/jpeg,image/webp,image/gif" multiple class="hidden">
-                        <input class="step-evi flex-1 min-w-0 border rounded px-2 py-1.5 sm:px-1.5 sm:py-0.5 text-sm sm:text-[10px] font-mono" placeholder="截图 URL 或上传" value="${esc((s.urls || []).join('\n'))}">
+                        <textarea class="step-evi flex-1 min-w-0 border rounded px-2 py-1.5 sm:px-1.5 sm:py-0.5 text-sm sm:text-[10px] font-mono leading-snug" rows="1" placeholder="截图 URL 或上传（每行一个）">${esc((s.urls || []).join('\n'))}</textarea>
                         <button type="button" data-upload class="step-up px-2 py-1.5 sm:px-1.5 sm:py-0.5 text-sm sm:text-[10px] rounded bg-gray-600 text-white hover:bg-gray-700 shrink-0"><i class="fas fa-upload"></i></button>
                     </div>
                     <div class="step-preview flex flex-wrap gap-1"></div>
