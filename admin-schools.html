@@ -151,14 +151,27 @@
                         <i class="fas fa-filter"></i><span class="admin-sidebar__subitem-label">按学校</span>
                     </button>
                 </div>
-                <button class="admin-sidebar__item" data-view="reports" type="button">
+                <!-- 测试报告：二级菜单（数据上报 / 汇总报告）。
+                     上报表单与汇总报告均内嵌在右侧主区（iframe），不再跳转新窗口，
+                     与「学校管理/账号与权限/备份运维」的二级菜单保持交互一致。 -->
+                <button class="admin-sidebar__item has-subnav" data-view="reports" type="button">
                     <i class="fas fa-file-alt"></i><span class="admin-sidebar__item-label">测试报告</span>
+                    <i class="fas fa-chevron-right admin-sidebar__chevron"></i>
                 </button>
+                <div class="admin-sidebar__subnav" data-subnav="reports">
+                    <button class="admin-sidebar__subitem active" data-subview="submit" type="button">
+                        <i class="fas fa-clipboard-check"></i><span class="admin-sidebar__subitem-label">数据上报</span>
+                    </button>
+                    <button class="admin-sidebar__subitem" data-subview="summary" type="button">
+                        <i class="fas fa-chart-bar"></i><span class="admin-sidebar__subitem-label">汇总报告</span>
+                    </button>
+                </div>
             </nav>
             <div class="admin-sidebar__footer">
                 <div class="admin-sidebar__hint">
                     <i class="fas fa-info-circle mr-1"></i>学校级备份：列表选学校 → 详情面板「备份运维」Tab
                     <br><i class="fas fa-database mr-1"></i>平台级备份：一级菜单「备份运维」（跨学校）
+                    <br><i class="fas fa-file-alt mr-1"></i>测试报告：上报页与汇总报告内嵌在右侧（不再新窗口打开）
                 </div>
                 <button id="btnSidebarLogout" type="button"
                         class="mt-3 w-full text-sm px-3 py-1.5 bg-red-500/90 text-white rounded-lg hover:bg-red-500 transition shadow"
@@ -1531,28 +1544,54 @@
         </div>
     </section>
 
+    <!-- 测试报告视图（P-ReportsLayout）：
+         与「学校管理/账号与权限/备份运维」一致，主区根据左侧二级菜单 subview 切换两个 iframe：
+           1. submit  → 内嵌 /test-report.html（用例填报，自动复用登录 token；顶部自带的 glass-dark nav 沿用）
+           2. summary → 内嵌 /docs/test-results/latest/index.html（脚本生成的汇总报告，含自有 topnav）
+         主区高度通过 calc(100vh - 220px) + min-height 自适应；
+         「重新载入」/「新窗口打开」按钮保留跳转逃生通道，原顶部右侧的 token 自动复用机制不被破坏。 -->
     <section id="adminViewReports" class="admin-view hidden" data-view="reports">
         <div class="container mx-auto px-4 py-6 max-w-7xl">
-            <div class="admin-card">
-                <h3><i class="fas fa-file-alt text-emerald-500"></i>测试报告</h3>
-                <p class="text-sm text-gray-600 mb-4">测试报告上报页与汇总报告。</p>
-                <div class="space-y-3">
-                    <a href="/test-report.html" target="_blank" rel="noopener" class="admin-link-card block">
-                        <span class="icon" style="background: linear-gradient(135deg, #10b981, #34d399)"><i class="fas fa-clipboard-check"></i></span>
-                        <span class="meta">
-                            <span class="title">测试报告上报页</span>
-                            <span class="desc">填写并提交测试报告（token 自动复用）</span>
+            <div class="glass rounded-2xl p-5 mb-4">
+                <div class="flex items-start justify-between gap-4 flex-wrap">
+                    <div class="flex items-start gap-3 min-w-0">
+                        <span id="adminReportsIcon" class="shrink-0 w-10 h-10 rounded-lg bg-emerald-500/10 text-emerald-600 flex items-center justify-center text-lg">
+                            <i class="fas fa-clipboard-check"></i>
                         </span>
-                        <i class="fas fa-external-link-alt arrow"></i>
-                    </a>
-                    <a href="/docs/test-results/latest/index.html" target="_blank" class="admin-link-card block">
-                        <span class="icon" style="background: linear-gradient(135deg, #6366f1, #818cf8)"><i class="fas fa-chart-bar"></i></span>
-                        <span class="meta">
-                            <span class="title">测试结果汇总报告</span>
-                            <span class="desc">docs/test-results/latest/（由生成脚本产出）</span>
-                        </span>
-                        <i class="fas fa-external-link-alt arrow"></i>
-                    </a>
+                        <div class="min-w-0">
+                            <h2 id="adminReportsTitle" class="font-semibold text-gray-800 leading-tight">数据上报</h2>
+                            <p id="adminReportsDesc" class="text-sm text-gray-500 mt-0.5 truncate">填写并提交测试用例结果（token 自动复用登录态）</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 shrink-0">
+                        <button id="adminReportsReload" type="button"
+                                class="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-600 text-sm hover:bg-gray-50 transition"
+                                title="重新载入当前页">
+                            <i class="fas fa-sync mr-1"></i>重新载入
+                        </button>
+                        <a id="adminReportsOpenNew" href="/test-report.html" target="_blank" rel="noopener"
+                           class="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-600 text-sm hover:bg-gray-50 transition"
+                           title="在新窗口打开当前页">
+                            <i class="fas fa-external-link-alt mr-1"></i>新窗口打开
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="glass rounded-2xl overflow-hidden" style="height: calc(100vh - 220px); min-height: 520px;">
+                <!-- submit：内嵌 test-report.html（自身有顶部 nav 与登录态检测，token 自动复用） -->
+                <div class="reports-subview h-full" data-reports-subview="submit">
+                    <iframe id="reportsIframeSubmit"
+                            src="/test-report.html"
+                            class="w-full h-full block border-0 bg-white"
+                            title="测试报告上报页"></iframe>
+                </div>
+                <!-- summary：内嵌 docs/test-results/latest/index.html（脚本生成的汇总报告） -->
+                <div class="reports-subview h-full hidden" data-reports-subview="summary">
+                    <iframe id="reportsIframeSummary"
+                            src="/docs/test-results/latest/index.html"
+                            class="w-full h-full block border-0 bg-white"
+                            title="测试结果汇总报告"></iframe>
                 </div>
             </div>
         </div>

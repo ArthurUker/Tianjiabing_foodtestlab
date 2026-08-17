@@ -507,3 +507,24 @@
         .theme-swatch .swatch-meta { display: block; padding: 7px 2px 0; }
         .theme-swatch .swatch-name { font-size: 13px; font-weight: 600; color: #1f2937; line-height: 1.2; }
         .theme-swatch .swatch-desc { font-size: 11px; color: #9ca3af; margin-top: 1px; }
+/* ====== 测试报告二级子视图（iframe）====== */
+/* 子视图容器与 iframe 全高度撑满父级 .glass + overflow-hidden 容器，
+   避免出现双层滚动条与底部留白。每个 subview 仅渲染一个 iframe，
+   切换由 sidebar.js 控制 .hidden 来完成 —— 隐藏的 iframe 停止渲染，
+   显示时由浏览器立即绘制。 */
+.reports-subview {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    min-height: 480px;
+}
+.reports-subview.hidden { display: none !important; }
+.reports-subview > iframe {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: #fff;
+    /* 让 iframe 内部滚动，避免和外层窗体滚动打架 */
+    overflow: auto;
+}

@@ -14,14 +14,50 @@
  * @param {Function} [views.switchSchoolsSubview]  学校管理（页面 module script 提供）
  * @param {Function} [views.switchAccountsSubview] 账号与权限（views/accountsView.js 提供）
  * @param {Function} [views.switchBackupSubview]   备份运维（views/backupView.js 提供）
+ * @param {Function} [views.switchReportsSubview]  测试报告（由本模块内置处理，见 switchTo 中的 reports 分支）
  * @returns {{ switchTo: (viewName: string, opts?: { subview?: string }) => void }}
  */
 import { getAuthService } from './context.js';
+
+/**
+ * 「测试报告」视图的默认 subview 切换器。
+ * 在主区两个 iframe（submit / summary）之间切换，并同步顶栏图标/标题/描述
+ * 与「新窗口打开」链接指向。无依赖注入，按惯例 mount 于 adminViewReports。
+ */
+function switchDefaultReports(subName) {
+    const target = subName === 'summary' ? 'summary' : 'submit';
+    const ICONS = {
+        submit: { icon: 'fa-clipboard-check', color: 'bg-emerald-500/10 text-emerald-600', title: '数据上报', desc: '填写并提交测试用例结果（token 自动复用登录态）', openHref: '/test-report.html' },
+        summary: { icon: 'fa-chart-bar',         color: 'bg-indigo-500/10 text-indigo-600',     title: '汇总报告', desc: 'docs/test-results/latest/（由生成脚本自动产出）',         openHref: '/docs/test-results/latest/index.html' }
+    };
+    // 切换两个 subview 显隐
+    document.querySelectorAll('[data-reports-subview]').forEach((el) => {
+        el.classList.toggle('hidden', el.getAttribute('data-reports-subview') !== target);
+    });
+    // 同步顶栏图标 / 标题 / 描述 / 「新窗口打开」链接
+    const meta = ICONS[target];
+    const iconEl = document.getElementById('adminReportsIcon');
+    const titleEl = document.getElementById('adminReportsTitle');
+    const descEl = document.getElementById('adminReportsDesc');
+    const openEl = document.getElementById('adminReportsOpenNew');
+    if (iconEl) {
+        iconEl.className = 'shrink-0 w-10 h-10 rounded-lg ' + meta.color + ' flex items-center justify-center text-lg';
+        iconEl.innerHTML = '<i class="fas ' + meta.icon + '"></i>';
+    }
+    if (titleEl) titleEl.textContent = meta.title;
+    if (descEl) descEl.textContent = meta.desc;
+    if (openEl) openEl.setAttribute('href', meta.openHref);
+    // 更新左侧二级菜单 active 态（保持 hash 切换、键盘可达也一致生效）
+    document.querySelectorAll('[data-subnav="reports"] .admin-sidebar__subitem').forEach((sub) => {
+        sub.classList.toggle('active', sub.getAttribute('data-subview') === target);
+    });
+}
 
 export function initAdminSidebar({
     switchSchoolsSubview,
     switchAccountsSubview,
     switchBackupSubview,
+    switchReportsSubview,
 } = {}) {
     const sidebar = document.getElementById('adminSidebar');
     const items = sidebar ? sidebar.querySelectorAll('.admin-sidebar__item') : [];
@@ -92,6 +128,17 @@ export function initAdminSidebar({
             }
         }
 
+        // reports 视图：按指定 subview 切换主区内的两个 iframe（默认 submit = 数据上报）。
+        // 默认实现已覆盖典型需求（切换 submit/summary、刷新 iframe、更新「重新载入/新窗口打开」指向）；
+        // 调用方也可通过 switchReportsSubview 注入自定义行为（覆盖默认）。未注入时使用内置 switchDefaultReports。
+        if (viewName === 'reports') {
+            const subName = opts.subview || 'submit';
+            const handler = typeof switchReportsSubview === 'function'
+                ? switchReportsSubview
+                : (sn) => switchDefaultReports(sn);
+            handler(subName);
+        }
+
         // 滚动到顶部
         window.scrollTo({ top: 0, behavior: 'smooth' });
         // URL hash 同步（轻量、可分享）
@@ -126,6 +173,25 @@ export function initAdminSidebar({
             switchTo('backup', { subview: sub.getAttribute('data-subview') });
         });
     });
+
+    // 二级菜单点击（测试报告：数据上报 / 汇总报告）
+    document.querySelectorAll('[data-subnav="reports"] .admin-sidebar__subitem[data-subview]').forEach((sub) => {
+        sub.addEventListener('click', () => {
+            switchTo('reports', { subview: sub.getAttribute('data-subview') });
+        });
+    });
+
+    // 「重新载入」按钮：刷新当前激活的 iframe
+    const btnReportsReload = document.getElementById('adminReportsReload');
+    if (btnReportsReload) {
+        btnReportsReload.addEventListener('click', () => {
+            const active = document.querySelector('.reports-subview:not(.hidden) iframe');
+            if (active) {
+                // 给 URL 追加时间戳后再去掉，避免缓存；iframe.contentWindow.location.reload() 会重新加载
+                try { active.contentWindow.location.reload(); } catch (e) { active.src = active.src; }
+            }
+        });
+    }
 
     // 「当前学校」分组关闭按钮：等价于关闭详情、返回列表
     document.getElementById('sidebarCloseSchool')?.addEventListener('click', () => {
@@ -198,11 +264,22 @@ export function initAdminSidebar({
 
     // 启动：按 URL hash 恢复视图（P-Refactor：改为 ESM 后在页面 module 末尾统一装配、
     // 仅此一次调用即可 —— 原普通 script 先行执行的时序竞态与 __adminSidebarOnModuleReady
-    // 补丁已随本次重构移除，不再需要重放）
-    const hashMatch = (location.hash || '').match(/view=([a-z]+)/);
-    const initialView = hashMatch ? hashMatch[1] : 'overview';
-    const targetView = document.querySelector('.admin-view:not(.hidden)');
-    switchTo(targetView ? targetView.getAttribute('data-view') : initialView);
+    // 补丁已随本次重构移除，不再需要重放）。
+    // hash 格式：#view=reports  或  #view=reports&subview=submit
+    // hash 中的 subview 用于按视图恢复二级子状态（仅当当前 hash 显式指定该视图时生效）。
+    const hashStr = location.hash || '';
+    const hashViewMatch = hashStr.match(/view=([a-z]+)/);
+    const hashSubMatch = hashStr.match(/subview=([a-z-]+)/);
+    const initialView = hashViewMatch ? hashViewMatch[1] : null;
+    const initialSubview = hashSubMatch ? hashSubMatch[1] : undefined;
+    const domDefault = document.querySelector('.admin-view:not(.hidden)');
+    if (initialView) {
+        switchTo(initialView, { subview: initialSubview });
+    } else if (domDefault) {
+        switchTo(domDefault.getAttribute('data-view'));
+    } else {
+        switchTo('overview');
+    }
 
     return { switchTo };
 }

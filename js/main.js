@@ -134,15 +134,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.body.classList.add('loaded');
         
         // 🎯 检查是否为快速访问模式（P0-quickAccess: 统一收敛至 quickAccess.js 单一来源）
-        const isQuickAccessMode = isQuickAccessMode();
+        // FIX: 原写法 `const isQuickAccessMode = isQuickAccessMode()` 因同名遮蔽触发 TDZ 报错，
+        // 故将本地布尔值改名为 quickAccessMode，避免与导入的函数 isQuickAccessMode 冲突。
+        const quickAccessMode = isQuickAccessMode();
         
         // ✨ 如果是快速访问模式但还没有访客信息，则自动创建临时访客
-        if (isQuickAccessMode && !guestAuthService.isLoggedIn()) {
+        if (quickAccessMode && !guestAuthService.isLoggedIn()) {
             await guestAuthService.quickAccessAsViewer();
         }
         
         // ✨ 在快速访问模式下初始化示例数据
-        if (isQuickAccessMode) {
+        if (quickAccessMode) {
             initializeSampleData();
         }
         
@@ -171,7 +173,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         
         // 🎯 快速访问模式：隐藏管理功能菜单 (必须在 UIHelper.setupNavigation 之后执行)
         // P0-quickAccess: CSS 注入收敛至 quickAccess.js（幂等，含完整隐藏规则 + 输入禁用样式）
-        if (isQuickAccessMode) {
+        if (quickAccessMode) {
             injectQuickAccessStyle();
         }
 
@@ -285,7 +287,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         // N1/N2/N3: 检测频率卡片(月报) + 每日提示 + 配置页初始化
-        if (!isQuickAccessMode) {
+        if (!quickAccessMode) {
             try {
                 // N1+N3: 月报卡片渲染到独立区块 #frequency-report(侧栏菜单切换可见)
                 const reportEl = document.getElementById('frequency-report');
@@ -305,14 +307,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         // 4. 看板快速导出功能 (仅非快速访问模式)
-        if (!isQuickAccessMode) {
+        if (!quickAccessMode) {
             document.getElementById('btnExportDashboard')?.addEventListener('click', () => {
                 ExportService.generatePDF('dashboard', '食品安全日报');
             });
         }
 
         // 5. 初始化数据导出报告模块 (仅非快速访问模式)
-        if (!isQuickAccessMode) {
+        if (!quickAccessMode) {
             try {
                 const exportService = new ExportService();
                 exportService.init();
@@ -322,7 +324,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         // 5b. ✨ 初始化数据备份与恢复模块 (仅非快速访问模式)
-        if (!isQuickAccessMode) {
+        if (!quickAccessMode) {
             try {
                 const backupRestore = new BackupRestoreService();
                 backupRestore.init();
@@ -332,7 +334,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         // 6. ✨ 初始化用户管理模块 (仅管理员可访问)
-        if (!isQuickAccessMode) {
+        if (!quickAccessMode) {
             try {
                 if (router.isAdmin() || permissionService.hasRole('manager')) {
                     initUserManagement();
@@ -345,7 +347,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         // 7. ✨ 初始化审计日志模块 (admin/manager 可访问,与 README §7.1 及后端权限一致)
         // P15: 原仅 router.isAdmin() 导致 manager 登录见空白页;放宽为与用户管理同条件
         // P2-10：动态导航通过 import 的 initAuditLog 直接调用，无需挂 window
-        if (!isQuickAccessMode) {
+        if (!quickAccessMode) {
             try {
                 if (router.isAdmin() || permissionService.hasRole('manager')) {
                     initAuditLog();
@@ -408,7 +410,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         
         // ✨ 快速访问模式：后备数据渲染器
         
-        if (isQuickAccessMode) {
+        if (quickAccessMode) {
             setTimeout(() => {
                 
                 // 专门处理餐具洁净度
