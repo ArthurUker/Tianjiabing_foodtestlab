@@ -421,6 +421,11 @@ export function renderHtml(snap) {
   /* 窄屏（卡片最小宽度放不下两列并排）时，整页与卡片内部都改为上下堆叠 */
   @media (max-width: 460px) { #list { grid-template-columns: 1fr; } }
   @media (max-width: 720px) { .topnav .container { padding: 12px 14px; } .item { grid-template-columns: 1fr; padding: 16px; } .badge { width: fit-content; } .filters { padding: 14px; } }
+  /* P-ReportsIframeAdapt: 被 admin-schools iframe 内嵌时
+       - 隐藏自身的 topnav（避免与 admin-schools 顶部 nav 视觉重复）
+       - 缩小 .wrap 两侧留白，让卡片网格铺更多列 */
+  html.iframed .topnav { display: none; }
+  html.iframed .wrap { padding: 14px 18px 48px; }
 </style>
 </head>
 <body>
@@ -467,6 +472,18 @@ export function renderHtml(snap) {
 const SNAPSHOT = ${safeJson};
 const LABELS = ${JSON.stringify(Object.fromEntries(Object.entries(L).map(([k, v]) => [k, { label: v.label, emoji: v.emoji, color: v.color }])))};
 const $ = (id) => document.getElementById(id);
+
+// P-ReportsIframeAdapt: 检测是否被 admin-schools.html 通过 iframe 内嵌。
+// 内嵌场景下：
+//   ① .topnav 视觉上与 admin-schools 顶部 nav 重复，浪费纵向空间 → 隐藏
+//   ② .wrap 两侧留白可缩小，让卡片网格在更宽容器里铺更多列
+// 独立访问时（直接打开 /docs/test-results/latest/）保持原样不变。
+const IS_IFRAMED = (function () {
+  try { return window.self !== window.top } catch (_) { return true }
+})()
+if (IS_IFRAMED) {
+  document.documentElement.classList.add('iframed')
+}
 
 function fmt(t) { if (!t) return '—'; const d = new Date(t); if (isNaN(d)) return '—'; const p = n => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()); }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }

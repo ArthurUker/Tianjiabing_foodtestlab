@@ -26,11 +26,20 @@ const loginBtnText = document.getElementById('loginBtnText');
 const errorMessage = document.getElementById('errorMessage');
 const errorText = document.getElementById('errorText');
 
-// 已登录则直接进入控制台（或回到 redirect 指定页面）
+// 已登录则直接进入控制台（或回到 redirect 指定页面）。
+// 例外：如果已登录但仍处于「首次登录须改密」状态，token 对受保护接口全部 403，
+// 不能直接跳到控制台（否则表现为「进入控制台但所有接口 403」）。
+// 清除残留登录态，强制用户重新走登录流程：用户输入临时密码登录时，
+// loginSuperAdmin 返回 mustChangePassword=true，会再次弹出强制改密弹窗。
 if (authService.isAuthenticated()) {
     const u = authService.getUser();
     if (u && u.role === 'admin' && !u.schoolCode) {
-        window.location.replace(redirectTarget);
+        if (u.mustChangePassword) {
+            console.warn('[auth] 检测到已登录但首登未改密，清除残留登录态，停留在登录页');
+            authService.clearAuth();
+        } else {
+            window.location.replace(redirectTarget);
+        }
     }
 }
 
@@ -69,6 +78,16 @@ form.addEventListener('submit', async function (e) {
         // P0-1: 平台超管登录默认持久化（保持登录态语义）；如需"会话级"可在登录页加勾选后传入
         const result = await authService.loginSuperAdmin(username, password, true);
         if (result.success) {
+            // IF-2/M2: 临时密码账号（管理员重置/建号初始密码）首登强制改密。
+            // 后端已对非白名单接口一律 403（MUST_CHANGE_PASSWORD），此处不改密无法使用系统。
+            // 超管登录页（与 loginPage.js 处理一致）必须在此拦截，否则直接跳到控制台后所有接口 403。
+            if (result.user && result.user.mustChangePassword) {
+                console.log('🔐 检测到临时密码，进入强制改密流程...');
+                showForceChangePassword(username, password);
+                // 登入按钮回退到初始态，避免按钮文案停留在"登录成功"造成误解
+                return;
+            }
+
             loginBtnText.innerHTML = '<i class="fas fa-check mr-2"></i>登录成功';
             setTimeout(() => window.location.replace(redirectTarget), 80);
         } else {
@@ -85,6 +104,74 @@ form.addEventListener('submit', async function (e) {
         loginBtnText.textContent = '登 录';
     }
 });
+
+// IF-2/M2: 强制改密面板（临时密码首登）。改密成功前不放行进入系统；
+// 用户关闭/刷新页面则登录态仍受后端 MUST_CHANGE_PASSWORD 拦截保护。
+// 与 loginPage.js 中 showForceChangePassword 行为一致；为保持两入口独立不共享实现，
+// 此处内联一份以适配超管场景：改密成功后会调用 loginSuperAdmin 用新密码重新登录
+// （后端 IF-1：用户自行改密后会吊销全部旧会话，需重新登录才能继续访问系统）。
+function showForceChangePassword(username, currentPassword) {
+    const overlay = document.createElement('div');
+    overlay.id = 'forceChangePwdOverlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+    overlay.innerHTML = `
+        <div style="background:#fff;border-radius:12px;max-width:400px;width:100%;padding:28px;box-shadow:0 20px 60px rgba(0,0,0,.3);">
+            <h3 style="margin:0 0 6px;font-size:18px;font-weight:700;color:#111827;">
+                <i class="fas fa-shield-alt" style="color:#2563eb;margin-right:8px;"></i>首次登录须修改密码
+            </h3>
+            <p style="margin:0 0 18px;font-size:13px;color:#6b7280;">当前为临时密码，请设置新密码后继续（至少 8 位，含字母和数字）。</p>
+            <input id="fcpNew" type="password" autocomplete="new-password" placeholder="新密码"
+                style="width:100%;box-sizing:border-box;border:1px solid #d1d5db;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:14px;">
+            <input id="fcpConfirm" type="password" autocomplete="new-password" placeholder="确认新密码"
+                style="width:100%;box-sizing:border-box;border:1px solid #d1d5db;border-radius:8px;padding:10px 12px;margin-bottom:8px;font-size:14px;">
+            <p id="fcpError" style="display:none;margin:0 0 8px;font-size:13px;color:#dc2626;"></p>
+            <button id="fcpSubmit" style="width:100%;background:#2563eb;color:#fff;border:none;border-radius:8px;padding:11px;font-size:14px;font-weight:600;cursor:pointer;">
+                确认修改并进入系统
+            </button>
+        </div>`;
+    document.body.appendChild(overlay);
+
+    const newInput = overlay.querySelector('#fcpNew');
+    const confirmInput = overlay.querySelector('#fcpConfirm');
+    const errEl = overlay.querySelector('#fcpError');
+    const submitBtn = overlay.querySelector('#fcpSubmit');
+    const fail = (msg) => { errEl.textContent = msg; errEl.style.display = 'block'; };
+
+    submitBtn.addEventListener('click', async () => {
+        errEl.style.display = 'none';
+        const np = newInput.value;
+        if (!/^(?=.*[A-Za-z])(?=.*\d).{8,}$/.test(np)) {
+            return fail('新密码至少 8 个字符，且必须包含字母和数字');
+        }
+        if (np === currentPassword) {
+            return fail('新密码不能与临时密码相同');
+        }
+        if (np !== confirmInput.value) {
+            return fail('两次输入的密码不一致');
+        }
+        submitBtn.disabled = true;
+        submitBtn.textContent = '正在修改…';
+        const r = await authService.changePassword(currentPassword, np);
+        if (r.success) {
+            submitBtn.textContent = '✅ 修改成功，正在重新登录…';
+            // 后端 IF-1：用户自行改密后会吊销全部旧会话（含当前会话），
+            // 必须用新密码重新登录才能继续访问受保护接口。否则直接跳转会被踢回登录页。
+            const reLogin = await authService.loginSuperAdmin(username, np, true);
+            if (reLogin.success) {
+                setTimeout(() => window.location.replace(redirectTarget), 300);
+            } else {
+                submitBtn.disabled = false;
+                submitBtn.textContent = '确认修改并进入系统';
+                fail('密码已修改，但自动重新登录失败：' + (reLogin.message || '请手动登录'));
+            }
+        } else {
+            submitBtn.disabled = false;
+            submitBtn.textContent = '确认修改并进入系统';
+            fail(r.message || '密码修改失败，请重试');
+        }
+    });
+    newInput.focus();
+}
 
 // ===== Q5: "我是学校管理员" —— 先输入学校代码,再跳转到 /<code>/login.html =====
 const btnGoSchoolLogin = document.getElementById('btnGoSchoolLogin');

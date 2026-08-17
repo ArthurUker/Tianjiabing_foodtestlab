@@ -42,7 +42,9 @@
       /* ====== P-Sidebar: 平台超管控制台 — 左侧功能菜单 + 主区多视图布局 ======
          - 两栏布局：固定宽侧栏 240px（可折叠到 64px 仅图标），主区自适应；
          - 玻璃深色：与现有顶部 nav 视觉一致；
-         - 移动端 (<1024px)：侧栏整体可被收纳，默认图标态 + 浮层 nav。 */
+         - 移动端 (<1024px)：侧栏整体可被收纳，默认图标态 + 浮层 nav；
+         - P-ReportsFill：测试报告视图（reports）激活时取消 max-width，
+           让 iframe 内嵌的报告能填满主区（汇总报告自身已有 max-width: 2000px + 卡片自适应网格）。 */
       .admin-layout {
           display: flex;
           gap: 20px;
@@ -50,6 +52,9 @@
           margin: 0 auto;
           padding: 20px 16px;
           align-items: flex-start;
+      }
+      .admin-layout[data-active-view="reports"] {
+          max-width: none;
       }
       .admin-sidebar {
           position: sticky;
@@ -507,19 +512,113 @@
         .theme-swatch .swatch-meta { display: block; padding: 7px 2px 0; }
         .theme-swatch .swatch-name { font-size: 13px; font-weight: 600; color: #1f2937; line-height: 1.2; }
         .theme-swatch .swatch-desc { font-size: 11px; color: #9ca3af; margin-top: 1px; }
-/* ====== 测试报告二级子视图（iframe）====== */
-/* 子视图容器与 iframe 全高度撑满父级 .glass + overflow-hidden 容器，
-   避免出现双层滚动条与底部留白。每个 subview 仅渲染一个 iframe，
-   切换由 sidebar.js 控制 .hidden 来完成 —— 隐藏的 iframe 停止渲染，
-   显示时由浏览器立即绘制。 */
-.reports-subview {
+/* ====== 测试报告二级子视图（iframe）======
+   P-ReportsLayout v2:
+   - 取消外层 max-w-7xl；reports-container 占满 admin-main 全部宽度
+   - 顶部"内容卡片"由大块 glass 卡片改为紧凑一行横向条 (.reports-bar)，节省纵向空间
+   - iframe 占满主区剩余高度，避免双层滚动条 + 底部留白
+   每个 subview 仅渲染一个 iframe，切换由 sidebar.js 控制 .hidden 来完成。 */
+.reports-container {
+    width: 100%;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    /* 16px 内边距让大屏下 iframe 边沿不贴死视口 */
+    padding: 0 20px 20px;
+}
+.reports-bar {
+    /* 紧凑横向条：浅色背景 + 圆角，对齐 admin-schools 其他视图的工具栏视觉 */
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 16px;
+    background: rgba(255, 255, 255, 0.65);
+    border: 1px solid rgba(30, 44, 80, 0.08);
+    border-radius: 14px;
+    backdrop-filter: blur(10px) saturate(160%);
+    -webkit-backdrop-filter: blur(10px) saturate(160%);
+    box-shadow: 0 4px 14px rgba(30, 44, 80, 0.06);
+    min-height: 44px;
+    flex-wrap: wrap;
+}
+.reports-bar__left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    flex: 1;
+}
+.reports-bar__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+    font-size: 14px;
+    flex-shrink: 0;
+}
+.reports-bar__title {
+    font-size: 15px;
+    font-weight: 600;
+    color: #1f2937;
+    line-height: 1.2;
+    margin: 0;
+    /* 副标题（描述）已移除，这里只保留标题 */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.reports-bar__right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+.reports-bar__btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 12px;
+    border: 1px solid rgba(30, 44, 80, 0.14);
+    background: rgba(255, 255, 255, 0.85);
+    color: #4b5563;
+    font-size: 13px;
+    border-radius: 8px;
+    transition: background-color .15s ease, border-color .15s ease;
+    text-decoration: none;
+    cursor: pointer;
+}
+.reports-bar__btn:hover {
+    background: rgba(99, 102, 241, 0.08);
+    border-color: rgba(99, 102, 241, 0.35);
+    color: #4f46e5;
+}
+.reports-frame-wrap {
+    /* iframe 外层：玻璃质感 + 圆角 + overflow hidden，配合 iframe 内部滚动避免双层滚动条 */
+    background: rgba(255, 255, 255, 0.65);
+    border: 1px solid rgba(30, 44, 80, 0.10);
+    border-radius: 16px;
+    backdrop-filter: blur(10px) saturate(160%);
+    -webkit-backdrop-filter: blur(10px) saturate(160%);
+    box-shadow: 0 6px 22px rgba(30, 44, 80, 0.08);
+    overflow: hidden;
+    /* 占满主区剩余高度：
+       100vh - 顶部 nav 高度(~64px) - admin-layout 上下 padding(40px) - 内容条高度(56px) - gap(12px) ≈ 828px；
+       设置 min-height 保证小屏也能完整展开。 */
+    height: calc(100vh - 200px);
+    min-height: 520px;
     position: relative;
+}
+.reports-subview {
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
-    min-height: 480px;
 }
 .reports-subview.hidden { display: none !important; }
-.reports-subview > iframe {
+.reports-iframe {
     display: block;
     width: 100%;
     height: 100%;
@@ -527,4 +626,10 @@
     background: #fff;
     /* 让 iframe 内部滚动，避免和外层窗体滚动打架 */
     overflow: auto;
+}
+/* 窄屏：内容条 + iframe 容器都要更紧凑 */
+@media (max-width: 1023px) {
+    .reports-container { padding: 0 12px 12px; }
+    .reports-bar { padding: 8px 12px; }
+    .reports-frame-wrap { height: calc(100vh - 180px); min-height: 480px; }
 }

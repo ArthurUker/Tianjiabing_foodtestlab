@@ -90,6 +90,10 @@ export function initAdminSidebar({
         // 显示目标视图
         const target = document.querySelector('.admin-view[data-view="' + viewName + '"]');
         if (target) target.classList.remove('hidden');
+        // P-ReportsFill: 同步当前激活视图到 .admin-layout 的 data 属性，
+        // 让 CSS 可以为 reports 视图放宽 max-width（iframe 内的报告填满主区）
+        const layout = document.querySelector('.admin-layout');
+        if (layout) layout.setAttribute('data-active-view', viewName);
         // 更新一级菜单激活态
         items.forEach((it) => {
             it.classList.toggle('active', it.getAttribute('data-view') === viewName);
