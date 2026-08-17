@@ -516,12 +516,39 @@
         function renderStepPreview(card) {
             const evi = card.querySelector('.step-evi')
             const prev = card.querySelector('.step-preview')
-            prev.innerHTML = String(evi?.value || '').split(/[\n\r]+/).map((t) => t.trim()).filter(Boolean).map((t) => {
-                if (/^\/api\/test-results\/evidence\/|^https?:\/\//i.test(t)) {
-                    return `<img src="${esc(t)}" alt="截图" class="h-12 w-16 object-cover rounded border border-gray-200 cursor-zoom-in" onclick="window.open(this.src,'_blank')" onerror="this.style.display='none'">`
+            const tokens = String(evi?.value || '').split(/[\n\r]+/).map((t) => t.trim()).filter(Boolean)
+            // 清空并逐项渲染：远程证据图用 fetch+Bearer 拉取（<img> 无法带 Authorization 头，否则 401），
+            // 转 blob URL 显示；纯文本链接原样展示。
+            prev.innerHTML = ''
+            for (const t of tokens) {
+                if (/^\/api\/test-results\/evidence\//i.test(t)) {
+                    const img = document.createElement('img')
+                    img.alt = '截图'
+                    img.className = 'h-12 w-16 object-cover rounded border border-gray-200 cursor-zoom-in'
+                    img.onclick = () => { if (img.src) window.open(img.src, '_blank') }
+                    img.onerror = () => { img.style.display = 'none' }
+                    prev.appendChild(img)
+                    // 异步拉取（带鉴权头）并设置 blob URL
+                    const token = authService.getToken()
+                    fetch(t, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+                        .then((r) => { if (!r.ok) throw new Error('fetch evidence ' + r.status); return r.blob() })
+                        .then((blob) => { img.src = URL.createObjectURL(blob) })
+                        .catch(() => { img.style.display = 'none' })
+                } else if (/^https?:\/\//i.test(t)) {
+                    const img = document.createElement('img')
+                    img.src = t
+                    img.alt = '截图'
+                    img.className = 'h-12 w-16 object-cover rounded border border-gray-200 cursor-zoom-in'
+                    img.onclick = () => { if (img.src) window.open(img.src, '_blank') }
+                    img.onerror = () => { img.style.display = 'none' }
+                    prev.appendChild(img)
+                } else {
+                    const span = document.createElement('span')
+                    span.className = 'text-[10px] text-gray-400 border border-gray-200 rounded px-1 py-0.5'
+                    span.textContent = t
+                    prev.appendChild(span)
                 }
-                return `<span class="text-[10px] text-gray-400 border border-gray-200 rounded px-1 py-0.5">${esc(t)}</span>`
-            }).join('')
+            }
         }
 
         function renderAllStepPreviews(wrap) {
