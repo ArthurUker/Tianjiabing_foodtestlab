@@ -92,6 +92,28 @@ class AuditLog {
                     </div>
                 </div>
 
+                <!-- 详情弹窗（点击行的"详情"或操作按钮时显示完整日志 JSON） -->
+                <div id="auditDetailModal" class="hidden fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+                    <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+                        <div class="flex justify-between items-center px-5 py-3 border-b">
+                            <h3 class="text-lg font-semibold text-gray-800 flex items-center">
+                                <i class="fas fa-file-alt text-blue-600 mr-2"></i>审计日志详情
+                            </h3>
+                            <button id="auditDetailClose" class="text-gray-400 hover:text-gray-600 transition" aria-label="关闭">
+                                <i class="fas fa-times text-xl"></i>
+                            </button>
+                        </div>
+                        <div class="px-5 py-4 overflow-y-auto flex-1">
+                            <pre id="auditDetailContent" class="text-sm text-gray-800 bg-gray-50 rounded p-4 whitespace-pre-wrap break-words font-mono"></pre>
+                        </div>
+                        <div class="px-5 py-3 border-t text-right">
+                            <button id="auditDetailCopy" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition">
+                                <i class="fas fa-copy mr-1"></i>复制 JSON
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- 统计信息 -->
                 <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
                     <p class="text-sm text-gray-600">
@@ -164,6 +186,34 @@ class AuditLog {
         document.getElementById('btnRefreshLogs')?.addEventListener('click', () => {
             this.currentPage = 1;
             this.loadLogs();
+        });
+
+        // 详情弹窗：关闭（点遮罩 / 点 X / 按 ESC 都生效）
+        document.getElementById('auditDetailClose')?.addEventListener('click', () => this.closeDetail());
+        document.getElementById('auditDetailModal')?.addEventListener('click', (e) => {
+            if (e.target.id === 'auditDetailModal') this.closeDetail();
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') this.closeDetail();
+        });
+        // 复制 JSON
+        document.getElementById('auditDetailCopy')?.addEventListener('click', () => {
+            const txt = document.getElementById('auditDetailContent')?.textContent || '';
+            if (!txt) return;
+            navigator.clipboard.writeText(txt).then(
+                () => UINotification.success('已复制到剪贴板'),
+                () => UINotification.error('复制失败，请手动选择')
+            );
+        });
+
+        // 表格事件委派：点击行或"详情"按钮均打开弹窗（仅绑定一次）
+        document.getElementById('logTable')?.addEventListener('click', (e) => {
+            const tr = e.target.closest('tr[data-log-id]');
+            if (!tr) return;
+            const log = this.logs.find(l => l.id === tr.dataset.logId);
+            if (!log) return;
+            // 若点在"详情"按钮上，明确阻止冒泡无关（事实上直接打开弹窗即可）
+            this.openDetail(log);
         });
 
         // 导出
@@ -299,9 +349,11 @@ class AuditLog {
             const timeStr = new Date(log.created_at).toLocaleString('zh-CN', { hour12: false });
             const actionLabel = this.getActionLabel(log.action);
             const actionColor = this.getActionColor(log.action);
+            const detailsSummary = this.summarizeDetails(log.details);
+            const detailsObj = this.normalizeDetails(log.details);
 
             return `
-                <tr class="hover:bg-blue-50 transition">
+                <tr class="hover:bg-blue-50 transition cursor-pointer" data-log-id="${this.escapeHtml(log.id)}">
                     <td class="px-4 py-3 text-sm whitespace-nowrap text-gray-600">${timeStr}</td>
                     <td class="px-4 py-3 text-sm font-medium">
                         <div class="flex items-center gap-2">
@@ -318,9 +370,18 @@ class AuditLog {
                             ${actionLabel}
                         </span>
                     </td>
-                    <td class="px-4 py-3 text-sm text-gray-600">${this.escapeHtml(log.resource_type)}</td>
-                    <td class="px-4 py-3 text-sm text-gray-600 truncate" title="${log.details || ''}">
-                        ${log.details ? this.escapeHtml(log.details) : '-'}
+                    <td class="px-4 py-3 text-sm text-gray-600">${this.escapeHtml(log.resource_type || '-')}</td>
+                    <td class="px-4 py-3 text-sm text-gray-600">
+                        <div class="flex items-center gap-2">
+                            <span class="truncate flex-1" title="${this.escapeHtml(detailsSummary.full)}">
+                                ${this.escapeHtml(detailsSummary.preview)}
+                            </span>
+                            ${detailsObj ? `
+                                <button class="audit-detail-btn px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition flex-shrink-0" title="查看完整详情">
+                                    <i class="fas fa-eye"></i>详情
+                                </button>
+                            ` : ''}
+                        </div>
                     </td>
                 </tr>
             `;
@@ -370,6 +431,94 @@ class AuditLog {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    /**
+     * 规范化 details 字段：后端该列是 JSON，可能返回对象、字符串或 null。
+     * - 对象 → 返回原对象（供弹窗展示）+ 序列化字符串（用于摘要/标题）。
+     * - 字符串 → 尝试 JSON.parse，失败则当作纯文本。
+     * - null/undefined → null
+     */
+    normalizeDetails(d) {
+        if (d == null) return null;
+        if (typeof d === 'object') return d;
+        if (typeof d === 'string') {
+            try { return JSON.parse(d); } catch { return d; }
+        }
+        return d;
+    }
+
+    /**
+     * 生成详情摘要：表格列里只显示一句话的精简摘要，避免 [object Object]；
+     * 完整 JSON 留给点击「详情」按钮/行打开弹窗查看。
+     * 返回 { preview, full }：preview 用于单元格显示，full 保留用作 title 悬浮提示。
+     */
+    summarizeDetails(d) {
+        if (d == null || d === '') return { preview: '-', full: '' };
+        const norm = this.normalizeDetails(d);
+        const fullText = typeof norm === 'string' ? norm : JSON.stringify(norm, null, 2);
+
+        if (typeof norm === 'string') {
+            return { preview: norm.length > 40 ? norm.slice(0, 40) + '…' : norm, full: norm };
+        }
+        if (typeof norm !== 'object') {
+            return { preview: String(norm), full: String(norm) };
+        }
+
+        // 对象：抽取最有信息量的前 1~2 个字段作为预览
+        const keys = Object.keys(norm);
+        if (keys.length === 0) return { preview: '{}', full: fullText };
+
+        const PREFERRED_KEYS = ['username', 'name', 'fullName', 'full_name', 'ip', 'role', 'action',
+                                'resource_id', 'resourceId', 'record_code', 'school_code', 'schoolCode', 'source'];
+        const summary = [];
+        for (const k of PREFERRED_KEYS) {
+            if (k in norm && norm[k] != null) {
+                const v = typeof norm[k] === 'object' ? JSON.stringify(norm[k]) : String(norm[k]);
+                summary.push(`${k}: ${v.length > 20 ? v.slice(0, 20) + '…' : v}`);
+                if (summary.length >= 2) break;
+            }
+        }
+        // 兜底：取前两个 key
+        if (summary.length === 0) {
+            for (const k of keys.slice(0, 2)) {
+                const v = typeof norm[k] === 'object' ? JSON.stringify(norm[k]) : String(norm[k]);
+                summary.push(`${k}: ${v.length > 20 ? v.slice(0, 20) + '…' : v}`);
+            }
+        }
+        const preview = summary.join(', ');
+        return { preview: preview.length > 60 ? preview.slice(0, 60) + '…' : preview, full: fullText };
+    }
+
+    /**
+     * 打开详情弹窗，显示完整 JSON（带字段分解以便阅读）
+     */
+    openDetail(log) {
+        const modal = document.getElementById('auditDetailModal');
+        const content = document.getElementById('auditDetailContent');
+        if (!modal || !content) return;
+
+        const norm = this.normalizeDetails(log.details);
+        const formatted = JSON.stringify({
+            id: log.id,
+            created_at: log.created_at,
+            user_id: log.user_id,
+            action: log.action,
+            resource_type: log.resource_type,
+            resource_id: log.resource_id,
+            ip_address: log.ip_address,
+            user: log.user ? { id: log.user.id, username: log.user.username, full_name: log.user.full_name } : null,
+            details: norm,
+        }, null, 2);
+        content.textContent = formatted || '（空）';
+        modal.classList.remove('hidden');
+        // 保存当前行号引用，便于复制按钮直接复制该 JSON
+        this._currentDetailLog = log;
+    }
+
+    closeDetail() {
+        document.getElementById('auditDetailModal')?.classList.add('hidden');
+        this._currentDetailLog = null;
     }
 
     /**
