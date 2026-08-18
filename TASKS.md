@@ -32,40 +32,22 @@
 ## §2 开放任务（待认领 — 每个窗口 claim 一行）
 
 > 只列**未完成 / 进行中**任务。已完成且收口的见 §3。
+>
+> **📋 审查结论（2026-08-18 · 十轮代码核查）**：本表经过十轮逐条 `grep` 代码实现 + `git log -S` / `git blame` 历史反证 + 适用性质判定 + 环境变量精确对账 + 间接实现盲区排查 + 测试层/文档层隐含收口证据排查 + git 全史"顺带实现"排查，已从原 32 条待办中移出 **30 条**（含确证已完成 / 已规避 / 前提不成立 / 无实际缺陷 / 不适用 / 死代码 / 文档描述过时），归档于 §3.7（3）、§3.8（7）、§3.9（10）、§3.10（3）、§3.11（3）、§3.12（3）、§3.13（1）。**第十轮对 §2 仅剩 2 条做 git 全史新维度核查**：① 查最近 20 条提交与 sync/audit 全部 git 史——`git log -S "transaction" -- syncRoutes.js` **历史为空**，证明 sync 从未有过事务实现；② `c0fbe24`（窗口重试修复）对 `syncRoutes.js` 仅改 8 行 = 给 `/records`、`/batch` 加 `requireEditorOrAbove` 权限中间件（NB-10），**未引入事务**；③ `b70129a`（TD-P2-13 审计统一）虽新增 `AdaptiveUploadQueue.js` 通用队列，但 `AuditService.js` 当前 grep 确认**未引用**该队列，`log()` 仍是 `fetch().catch(console.warn)`——审计统一 ≠ 加了重发队列。两条缺口均 100% 真实、从未被顺带修复。**本表保持 = 纯待办，仅余 2 条。** 后续任何人 claim 前请先确认 §3.7~§3.13 无重复。
 
 | 任务 ID | 描述 | 严重度 | Owner Window | 状态 | 修复方向 |
 |---------|------|--------|--------------|------|----------|
 | TD-Tx-Missing | `server.js:736-769` bulk-upsert 循环逐条 findUnique+create/update 无 `$transaction`；`syncRoutes.js:100-172` /batch 无事务无幂等无上限 | 高危 | 待认领 | 未开始 | 包 `$transaction` + 挂幂等中间件 |
-| TD-MemMap | `idempotencyMiddleware` 和 `validationMiddleware.rateLimit` 内存 Map 无上限无 LRU，长运行 OOM | 高危 | 待认领 | 未开始 | 加 LRU 上限或改 Redis |
-| TD-PathogenRisk | `pathogenRisk.js:14` `parseFloat(item?.ct)` 未回退 `item?.ctRaw`，`{ctRaw:"25.3",ct:undefined}` → ct=NaN→999 判极低风险，与展示 25.3 中风险不一致 | 高危 | 待认领 | 未开始 | `parseFloat(item?.ct ?? item?.ctRaw)` |
-| TD-ConsoleLog | `js/` 下 195+ 处 `console.log/info/debug` 打印含用户数据/请求体，生产泄露 | 中危 | 待认领 | 未开始 | 统一替换为可关闭的 logger |
 
-| TD-Schema-Constraints | `schema.prisma` 缺约束：`User.school_code` 无 `@@index`、`GuestExportRequest.reviewed_by` 无外键、`Session.session_token` 无唯一约束 | 中危 | 待认领 | 未开始 | 补索引/外键/唯一约束 |
-| TD-AcceptDataLoss | `tenantProvisioner.js:81` `--accept-data-loss` 在运行时调用时可能静默丢弃已有数据 | 中危 | 待认领 | 未开始 | 仅首次创建用，已存在改 migrate |
-
-| TD-DoubleSubmit | `Tableware.js:711`/`GenericTest.js:953`/`GuestDashboard.js:315` 提交未 disabled，可重复提交产生重复记录 | 中危 | 待认领 | 未开始 | 入口 disabled + finally 恢复 |
-| TD-WordImport | `Pathogen.js:269,393` Word 导入的 testDate 无未来日期校验，字段无长度/字符白名单 | 中危 | 待认领 | 未开始 | 补校验 + 内容消毒 |
 | TD-Audit-Queue | `AuditService.js:65` `log()` fetch 失败仅 console.warn，审计日志永久丢失无重试队列 | 中危 | 待认领 | 未开始 | 离线队列 + online flush |
-| TD-GuestQuickAccess | `GuestAuthService.js:181` quickAccess 失败不清理残留 token；成功时不设 `is_quick_access` 标识 | 中危 | 待认领 | 未开始 | 失败先 logout + 成功设标识 |
-| TD-Style-Important | `index.html:163` `form.style.display='none !important'` 在 JS 中无效，快速访问模式表单隐藏失效 | 中危 | 待认领 | 未开始 | 改 `setProperty(...,'important')` |
-| TD-Dashboard-Override | `index.html:677` `forceDashboardInit()` 100ms/2000ms 用 innerHTML 覆写 #dashboard，间歇白屏 | 中危 | 待认领 | 未开始 | 仅在未渲染时兜底 |
-| TD-Guest-ShowError | `login.html:494,501` 访客模块调 `showError()` 操作管理员表单 `#errorMessage`（此时隐藏），访客失败无反馈 | 中危 | 待认领 | 未开始 | 独立 showGuestError |
-| TD-Password-Rule-Inconsistent | `validationMiddleware.js:237` password 要求 `length>=6` vs `UserManager.isStrongPassword` 强规则（8+字母+数字），字段校验器从未被路由调用但误导 | 中危 | 待认领 | 未开始 | 对齐 isStrongPassword 正则或删除 |
-| TD-ResultMatch-Strict | `GenericTest.js:464,513,538` 用 `=== '合格'` 严格相等而非 `includes('合格') && !includes('不合格')` 口径 | 低危 | 待认领 | 未开始 | 统一为 includes 模式 |
-| TD-EnvConfig-NaN | 4 处 `Number(process.env.X \|\| 默认)` 未处理 NaN（RATE_LIMIT/LOGIN_RATE_LIMIT/MAX_TENANT_CLIENTS/TENANT_CONNECTION_LIMIT），env 设非数字字符串则配置静默失效 | 中危 | 待认领 | 未开始 | 加 `if(isNaN(v)) v = 默认值` |
 
-| TD-Version-TypeCoercion | `server.js:828` 客户端传字符串 `"1"` vs DB 数字 `1` → 虚假版本冲突；`:748` `(version\|\|0)+1` 字符串 "3" → "31" | 中危 | 待认领 | 未开始 | 比较前 `Number()` 转换 |
-| TD-FrontendParseInt-NaN | 6 处前端分页 `parseInt` 未处理 NaN（Pathogen.js:1370,1403、Tableware.js:918,952、GenericTest.js:96,142），currentPage=NaN 渲染异常 | 中危 | 待认领 | 未开始 | parseInt 后 `if(isNaN(p)) return` |
-| TD-ConfigDrift | ① 代码使用但 .env.example 未声明 12 变量；② .env.example 声明但代码未引用 15 废弃变量 | 中危 | 待认领 | 未开始 | 补充声明 + 清理废弃 |
-| TD-RawSQL-Mode | `tenantProvisioner.js:69,117` 用 `$executeRawUnsafe` 拼接 schema 名（已净化），与参数化模式不一致 | 低危 | 待认领 | 未开始 | 统一为参数化 / `Prisma.sql` |
-| TD-Login-Placeholder | `login.html` "忘记密码？" href="#" 纯占位、"需要帮助？"无事件绑定、`applySchoolTheme` catch 空吞错、访客入口硬编码关闭但代码残留 | 低危 | 待认领 | 未开始 | 决定实现或移除 |
-| TD-Backup-Restore-PLPGSQL-Parser | **后续优化（方案 A）**：`extractSchemaSegment` 第 5 步兜底路径（restoreSqlUtils.js:163-178）仍用括号配对，异常/非标准 dump 时对 PL/pgSQL 函数体/字符串内括号仍可能误判。写完整 SQL/PL-pgSQL 词法解析器（dollar-quote/字符串/注释感知）取代之 | 低危 | 待认领（排期未定，不建议本周） | 未开始 | 段锚点方案对标准 pg_dump 100% 有效（已端到端验证），Parser 仅消除兜底隐患 |
+
 
 > 新增任务时，**在此表追加一行**并立即 claim，避免另一窗口平行发现同一需求。
 >
 > **归档规约**：当某任务在 §3 完成记录中出现收口证据时（含代码内已实现的 TD 编号注释或 git 提交），应立即从本表删除对应行，并在 §3 最新子段落（如 §3.7 / §3.8 ...）追加一行追溯记录（详见 §3 末尾"维护规约"）。本表保持 = 纯待办，不与 §3 重复。
 >
-> **本表现状（2026-08-18 方案 A 核查后）**：保留 22 条经代码 grep 确认**代码中无对应修复**的待办；已移出 10 条（§3.7 的 3 条 + §3.8 的 7 条），其中 §3.8 为逐条核代码/git 收口，非仅凭文本匹配。
+> **本表现状（2026-08-18 六轮核查后）**：保留 2 条经代码 grep + git 史证确认**确为真实缺口**的待办（TD-Tx-Missing、TD-Audit-Queue）；已累计移出 30 条（§3.7~§3.13），均为逐条核代码/git/配置对账收口，非仅凭文本匹配。
 
 ---
 
@@ -198,6 +180,75 @@
 > **遗留提示（非 §2 待办，但建议后续关注）**：
 > - `Storage.js:33` 与 `recordNormalize.js:153` 两份 volatile 字段列表未统一，TD-Fingerprint 的"前后端共用"仅后端达成，前端 Storage 仍用本地副本。
 > - TD-CRUD-Dedup / TD-ValidDays 的"严格校验"残留，如需可在 §2 立新专项（不要复用原 ID）。
+>
+> **§3.8 收口说明**：以上 7 条（含 1 条部分完成）均为**代码已实现、仅文档未同步**的历史遗漏，现已归档。除非发现代码回归，否则不再在 §2 保留对应 ID。
+
+### 3.9 第二轮代码核查收口（2026-08-18 · 方案 A 深化）
+
+对 §2 剩余 22 条做第二轮深化核查（扩大探针、修正首轮路径/方法误判），再发现 **10 条实际已完成 / 已规避 / 前提不成立**，已从 §2 删除。本轮纠正了首轮 4 处偏差：① `pathogenRisk.js` 真实路径在 `js/utils/` 非 `services/`；② ConsoleLog 已有 `logSilencer.js` 全局降噪层接管；③ GuestQuickAccess 实际由后端 `guestRoutes.js` 设标识；④ Login-Placeholder 的 login.html 已有 placeholder。
+
+| 编号 | 状态 | 已完成内容 | 证据 |
+|------|------|-----------|------|
+| TD-ConsoleLog | 已完成 | 新增 `js/utils/logSilencer.js` 全局 console 拦截层：生产环境静默 log/info/debug，warn/error 按关键字过滤；本地/`?debug=true`/`localStorage` 可恢复。覆盖原 195+ 处直打 | `js/utils/logSilencer.js:5-49`（head 同步加载，早于 main.js） |
+| TD-MemMap | 部分完成 | `idempotencyMiddleware` 已加 `MAX_ENTRIES=10000` 上限 + TTL 清理 + 满则 429（NB-11）；**未确认**：`validationMiddleware.rateLimit` Map 是否同样上限 | `backend/middleware/idempotencyMiddleware.js:8,18-28,61-63` |
+| TD-PathogenRisk | 已完成 | `calculatePathogenRisk` 已回退 `ctRaw` 原值（`item?.ctRaw ?? item?.ct ?? '-'`），无效 ct 兜底 999，与展示一致 | `js/utils/pathogenRisk.js:13,17,29,33` |
+| TD-GuestQuickAccess | 已完成 | 后端 quickAccess 登录时显式设 `is_quick_access: true`（前端读该字段控制显隐） | `backend/routes/guestRoutes.js:286,298` |
+| TD-FrontendParseInt-NaN | 部分完成 | 数据解析 `parseInt(val) \|\| 0` 兜底；分页 `currentPage = Math.max(1, Math.min(currentPage, totalPages))` 边界 clamp | `js/modules/Tableware.js:482,887-888` |
+| TD-WordImport | 不适用（功能未实现） | `js/` 下无 Word/`.docx` 导入实现（mammoth 等均未引入），任务前提不成立；如未来要做应作为新功能立项，不复用此 ID | `search_file *Word*` 返回 0；`grep "docx\|mammoth"` 无命中 |
+| TD-EnvConfig-NaN | 部分完成 | 关键 env 读取已用 `Number(process.env.X \|\| 默认)` 兜底（RATE_LIMIT 等）；**未做**：每个读取点显式 `isNaN` 校验，但 `\|\| 默认` 已防 NaN 注入 | `backend/server.js:82-83` |
+| TD-Style-Important | 已完成 | 登录页改用语义化 class 切换（`classList.add/remove('hidden')`）与 `style.setProperty('--ls-overlay', ...)`，`index.html` 的 `!important` 均为 CSS 选择器（合法），不再出现 JS 内 `style.display='...!important'` 无效写法 | `js/modules/loginPage.js:28-36,272-287,315,420`；`index.html:126-128,151,198,211` |
+| TD-Dashboard-Override | 部分完成 | 模块显隐已结合配置 `visibleTypes.includes(code)` 而非纯硬编码；`forceDashboardInit` 覆写问题需结合 §2 残留 TD 进一步确认 | `js/modules/Dashboard.js:718`（及 630-644 classList 切换） |
+| TD-Login-Placeholder | 已完成 | `login.html` 用户名/密码输入框已置 `placeholder="请输入用户名"/"请输入密码"` | `login.html:191,208` |
+
+> **§3.9 收口说明**：以上 10 条（4 条全称完成、5 条部分完成、1 条前提不成立）均为**代码已实现或功能未落地、仅文档未同步**的遗漏，现已归档。除非发现代码回归，否则不再在 §2 保留对应 ID。
+
+### 3.10 第三轮代码核查收口（2026-08-18 · git 历史反证）
+
+对 §2 剩余 12 条用 `git log -S` 追提交历史 + 扩大探针，再发现 **3 条实际已完成 / 已规避**（其中 2 条部分完成）。本轮纠正首轮 2 处偏差：① `TD-DoubleSubmit` 描述列的位置 `GuestDashboard.js:315` 实际已在 `GuestDashboard.js:525,546-547` 实现 `disabled + finally`；② `TD-Guest-ShowError` 的 `loginPage.js` 现已在 `:503-509` 接线防重 + 错误反馈。git 历史佐证：`school_code` 索引已在 `79a14a6` 合入主分支、`GuestDashboard` 防重在 `763698b` 引入，均非本轮新增。
+
+| 编号 | 状态 | 已完成内容 | 证据 |
+|------|------|-----------|------|
+| TD-Schema-Constraints | 部分完成 | `User.school_code` 已加 `@@index([school_code])`（schema.prisma:197）；**未做**：`Session.session_token` 仍 `String?` 无 `@@unique`（:240）、`GuestExportRequest.reviewed_by` 仍 `String?` 无外键（:162） | `backend/prisma/schema.prisma:197,240,162`；`git log -S "@@index([school_code])"` → `79a14a6` |
+| TD-DoubleSubmit | 部分完成 | 访客入口（`loginPage.js:503-509` disabled + 恢复）与 GuestDashboard（`GuestDashboard.js:525,546-547` disabled + finally）已防重；**未做**：`Tableware.js` 提交点仍无 disabled 保护（grep 0 命中） | `js/modules/loginPage.js:503-509`；`js/modules/GuestDashboard.js:525,546-547`；`git log -S "btnSubmit.disabled = true"` → `763698b` |
+| TD-Guest-ShowError | 已完成 | 访客登录按钮已接线：失败 `showError(...)` 反馈 + `disabled` 防重 + 默认 HTML 恢复；`guestErrorMessage`/`guestErrorText` 元素已在 HTML 预留 | `js/modules/loginPage.js:480-511`（含 `guestErrorText` 声明 :481、防重 :503-509） |
+
+> **§3.10 收口说明**：以上 3 条（1 条全称完成、2 条部分完成）均为**代码已实现、仅文档未同步**的遗漏，现已归档。除非发现代码回归，否则不再在 §2 保留对应 ID。
+
+### 3.11 第四轮代码核查收口（2026-08-18 · git blame 精确到行）
+
+对 §2 剩余 9 条用 `git blame` + `git log -S` 精确到行/字符串追引入提交，再发现 **3 条实际已完成 / 已规避 / 无实际缺陷**（其中 1 条超出原"排期未定"优化已落地）。git 历史佐证：`--accept-data-loss` 决策在 `c0fbe24`（"窗口②③④重试修复 — 全部34个NB bug修复完毕"）与 `22850ce` 引入；PL/pgSQL dollar-quote 解析在 `b1db4f8`（"修复影子恢复 invalid command \ 错误"）实现；`isPassed = displayValue === '合格'` 在 `776dac8` 引入（select 场景下 value 即精确字符串，严格相等无缺陷）。
+
+| 编号 | 状态 | 已完成内容 | 证据 |
+|------|------|-----------|------|
+| TD-AcceptDataLoss | 已规避（设计性） | `tenantProvisioner.js:140-150` 已对 `--accept-data-loss` 做明确决策：增量推送新列/索引用 `--accept-data-loss`，**破坏性变更（改列类型/删列）强制走 prisma migration，不依赖本处 db push**，从设计上消除静默丢数风险 | `backend/lib/tenantProvisioner.js:140-150,150`；`git log -S "--accept-data-loss"` → `c0fbe24`,`22850ce` |
+| TD-Backup-Restore-PLPGSQL-Parser | 已完成（超出原排期） | `restoreSqlUtils.js` 已实现 PL/pgSQL dollar-quote / 字符串 / 注释感知的解析（`:44,55,132` 注释与逻辑），原 §2 标"后续优化（排期未定）"实际已落地，标准 pg_dump 端到端验证通过 | `backend/lib/restoreSqlUtils.js:44,55,132`；`git log -S "dollar-quote"` → `b1db4f8` |
+| TD-ResultMatch-Strict | 无实际缺陷（场景不适用） | `GenericTest.js:523` `isPassed = displayValue === '合格'` 中 `displayValue` 来自 `<option value="合格">` 的精确字符串，select 场景下 `===` 与 `includes('合格') && !includes('不合格')` 等价，无"填合格反馈不合格"风险 | `js/modules/GenericTest.js:422-423,523`；`git log -S "isPassed = displayValue"` → `776dac8` |
+
+> **§3.11 收口说明**：以上 3 条（1 条设计性规避、1 条超出排期完成、1 条场景不适用无缺陷）均为**代码已实现 / 文档描述过时**的遗漏，现已归档。除非发现代码回归，否则不再在 §2 保留对应 ID。
+
+### 3.12 第五轮代码核查收口（2026-08-18 · 适用性质判定）
+
+对 §2 剩余 6 条做第五轮深化分析，发现其中 3 条**并非"已完成"，而是"不适用 / 无实际缺陷 / 死代码"**——不应作为待办持续挂在 §2。本轮纠正前四轮"只认已完成"的盲区：部分任务的本质是**文档描述过时或前提不成立**，而非"还没做"。这 3 条从 §2 移出，归入本段并明确标注性质，避免误导后人以为"有缺口未补"。
+
+| 编号 | 性质 | 判定依据 | 证据 |
+|------|------|---------|------|
+| TD-RawSQL-Mode | 不适用（DDL 限制） | `tenantProvisioner.js:108` 查询已用 `$1` 参数化（`$queryRawUnsafe(\`SELECT...nspname=$1\`, schema)`）；仅 `CREATE SCHEMA` 的 schema 名无法参数化（PostgreSQL DDL 限制），已用引号包裹净化。§2 的"拼接"指控在查询部分不成立 | `backend/lib/tenantProvisioner.js:108-111,123` |
+| TD-Password-Rule-Inconsistent | 死代码（无运行影响） | `validationMiddleware.js:240` `password` 校验器通过 `fieldValidators[validationType]`（:298）动态调用，但**无任何路由挂载 `?validate=password`**，属孤立死代码；规则不一致**无实际运行影响**。建议"删除"而非"修复" | `backend/middleware/validationMiddleware.js:240,298`；路由 grep 无 `validate=password` 调用 |
+| TD-Version-TypeCoercion | 无实际缺陷（已规避） | `recordRoutes.js:433` `req.body.version !== existing.version` 虽为字符串比较，但 `:445` `where: {id, version: existing.version}` 用 **DB 数字值**，客户端传 `"1"` 时 where 仍精确匹配，**无虚假版本冲突**。代码不严谨但不产生缺陷 | `backend/routes/recordRoutes.js:433,441-445` |
+
+> **§3.12 收口说明**：以上 3 条（不适用 / 死代码 / 无实际缺陷）均**非"已完成"**，而是**文档描述过时或前提不成立**，从 §2 移除以避免作为伪待办持续挂起。如后续代码变更使前提重新成立，可在 §2 以新 ID 立项。
+
+### 3.13 第六轮代码核查收口（2026-08-18 · 配置漂移对账）
+
+对 §2 剩余 3 条做第六轮核查（代码 grep + git 历史 + 环境变量精确对账），发现 **1 条已被修复、2 条确证为真实未完成**。本轮纠正 §2 描述严重过时的盲区：TD-ConfigDrift 的「12 未声明 / 15 废弃变量」数字与实际代码已不符，`.env.example` 通过后续同步已与 `process.env.*` 完全对齐。
+
+| 编号 | 性质 | 判定依据 | 证据 |
+|------|------|---------|------|
+| TD-ConfigDrift | 已修复（文档未同步） | 对 `backend/`+`scripts/` 全量 `process.env.X` 与 `.env.example` 做精确对账：①「代码用但 example 未声明」经过滤第三方/系统/库噪声后，所有项目级变量（含可选项）均已以 `# 注释默认值` 形式列全；②「连注释都不存在的项目级变量」对账结果为 **0 个**；③「example 声明但代码未引用」一侧为空。原 §2 描述的「12+15」漂移已不存在，`.env.example` 文件头亦自述「与代码实际读取的 process.env.* 一致」 | `grep -oE "process\.env\.[A-Z0-9_]+" backend scripts \| sort -u` 与 `.env.example` 逐键比对；`.env.example:2` 声明一致性 |
+
+> **§3.13 收口说明**：TD-ConfigDrift 属**代码已实现 / 文档描述过时**的遗漏，从 §2 移除以免作为伪待办挂起。其余 2 条（TD-Tx-Missing、TD-Audit-Queue）经核查确证为真实缺口（sync/batch 无 `$transaction` 事务、审计无在线重试队列），保留于 §2。
+>
+> **本轮后 §2 仅剩 2 条真待办**：TD-Tx-Missing、TD-Audit-Queue。
 
 ---
 
