@@ -218,7 +218,9 @@ export async function loadRecycleBin() {
         const resp = await adminFetch('/api/admin/recycle-bin');
         const data = await resp.json();
         if (!resp.ok) throw new Error(data.error || '获取回收站失败');
-        const items = data.data || [];
+        // TD-RecycleBin-Restored-Filter: 已恢复（status='restored'）= 学校已重新启用（回到学校列表），
+        // 不应再出现在回收站列表里。后端 SQL 已过滤，这里前端再过滤一次作双重保险 + UI 意图清晰。
+        const items = (data.data || []).filter((it) => it.status !== 'restored');
         if (!items.length) {
             listEl.innerHTML = '<p class="text-sm text-gray-400">回收站为空，暂无已彻底删除的学校。</p>';
             return;

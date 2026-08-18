@@ -467,10 +467,16 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
     // 回收站列表
     router.get('/api/admin/recycle-bin', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
         try {
+            // TD-RecycleBin-Restored-Filter: 过滤掉 status='restored'（已恢复 = 学校已重新启用，
+            // 出现在学校列表里），按用户描述"已启用的学校租户不应出现在回收站，只有被停用的才出现"。
+            // 保留 status='active'（90 天待恢复期内的停用租户）与 status='purged'（已彻底删除的不可恢复记录）。
+            // restore / purge / archive 等按 id 操作的接口不受影响（仍按 id 查单行）。
             const rows = await prisma.$queryRawUnsafe(
                 `SELECT id, original_code, original_schema, recycle_schema, name, short_name, theme_color, logo_url,
                         deleted_by, deleted_at, expires_at, status
-                 FROM public."recycle_bin" ORDER BY deleted_at DESC`
+                 FROM public."recycle_bin"
+                 WHERE status IN ('active', 'purged')
+                 ORDER BY deleted_at DESC`
             )
             const now = new Date()
             const data = rows.map((r) => ({
