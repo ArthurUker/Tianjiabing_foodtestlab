@@ -378,6 +378,36 @@ router.delete('/super-admin/:id', authenticateUser, requirePlatformSuperAdmin, a
     }
 })
 
+// 编辑平台超管（仅允许修改 full_name / email；详见 UserManager.updatePlatformSuperAdmin 字段白名单）
+router.put('/super-admin/:id', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
+    try {
+        const id = req.params.id
+        if (!id) return res.status(400).json({ error: '无效的账号 ID' })
+        const actor = {
+            userId: req.user?.userId || null,
+            username: req.user?.username || null,
+            role: req.user?.role || null,
+            schoolCode: req.user?.schoolCode || null,
+            ip: req.ip || null
+        }
+        const { fullName, full_name, email } = req.body || {}
+        const updates = {}
+        // 同时支持 camelCase / snake_case 入参，与全站 REST 风格保持一致
+        if (typeof fullName === 'string' || typeof full_name === 'string') {
+            updates.full_name = (fullName ?? full_name)
+        }
+        if (typeof email === 'string' || email === null) {
+            updates.email = email === null ? null : email
+        }
+        const result = await userManager.forTenant(null).updatePlatformSuperAdmin(id, updates, actor)
+        res.json(result)
+    } catch (error) {
+        console.error('❌ 编辑超管失败:', error)
+        const status = error.status || (error.message && /不存在|缺失/.test(error.message) ? 400 : 400)
+        res.status(status).json({ error: '编辑超管失败: ' + error.message })
+    }
+})
+
 // 重置平台超管密码（管理员强制重置，无需旧密码；被重置账号所有会话立即吊销）
 router.post('/super-admin/:id/reset-password', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
     try {

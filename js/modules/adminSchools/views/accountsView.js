@@ -37,6 +37,9 @@ export function initAccountsView() {
     const schoolUsersCache = new Map();   // key: `${schoolCode}|${userId}` -> user
     const cacheKey = (schoolCode, userId) => `${schoolCode}|${userId}`;
 
+    // 行内平台超管缓存：id -> admin（包含 full_name / email 等）
+    const superAdminsCache = new Map();
+
     // —— 行内学校用户列表的动作分发（编辑/重置密码/删除） ——
     async function schoolUserAction(action, userId, schoolCode) {
         if (!schoolCode || !userId) return;
@@ -79,16 +82,43 @@ export function initAccountsView() {
         if (!adminId) return;
         const modal = document.getElementById('saAccountModal');
         if (action === 'edit') {
-            // 「编辑」语义：当前 saAccountModal 没有专门的「编辑某超管」入口，
-            // 统一收敛为：打开弹层，让超管在弹层内执行「重置该账号密码」。
-            // 这样既复用了既有 UI，又避免无端新增 PATCH 接口（后端暂未实现）。
-            if (modal) {
-                modal.classList.remove('hidden');
-                // 触发 SuperAdminAccount.js 中 listEl 的加载逻辑，确保弹层内列表可见
-                const openBtn = document.getElementById('btnAccountMgmt');
-                if (openBtn) openBtn.click();
-                showNotice('请在弹层中对目标超管点击「重置密码」完成账号收敛', 'info');
+            // 取缓存的 admin 对象（含 full_name / email）；若缓存缺失则拉一次列表兜底
+            let admin = superAdminsCache.get(adminId);
+            if (!admin) {
+                try {
+                    const res = await adminFetch('/api/user/super-admin');
+                    if (res.ok) {
+                        const data = await res.json();
+                        const list = data.admins || data.data || data || [];
+                        if (Array.isArray(list)) {
+                            for (const a of list) superAdminsCache.set(String(a.id || a._id), a);
+                            admin = superAdminsCache.get(adminId);
+                        }
+                    }
+                } catch (_) { /* 静默——没数据就让表单只填 username */ }
             }
+            // 优先调 SuperAdminAccount.js 暴露的 preFill 接口；
+            // 若 SuperAdminAccount.js 尚未初始化（旧兼容），退化为直接操作编辑表单 DOM
+            if (typeof window.superAdminOpenEditForm === 'function') {
+                window.superAdminOpenEditForm(admin || { id: adminId });
+                return;
+            }
+            // 兜底：直接显示编辑表单（即便 SuperAdminAccount.js 未加载也能让用户看到 form 框架）
+            const editWrap = document.getElementById('saEditAdminFormWrap');
+            const editIdEl = document.getElementById('saEditAdminId');
+            const editUnameEl = document.getElementById('saEditAdminUsername');
+            const editFullNameEl = document.getElementById('saEditAdminFullName');
+            const editEmailEl = document.getElementById('saEditAdminEmail');
+            if (!editWrap) {
+                showNotice('❌ 编辑表单未找到（请刷新页面重试）', 'error');
+                return;
+            }
+            if (modal) modal.classList.remove('hidden');
+            if (editIdEl) editIdEl.value = adminId;
+            if (editUnameEl) editUnameEl.textContent = (admin && admin.username) || `(id=${adminId})`;
+            if (editFullNameEl) editFullNameEl.value = (admin && (admin.full_name || admin.fullName)) || '';
+            if (editEmailEl) editEmailEl.value = (admin && admin.email) || '';
+            editWrap.classList.remove('hidden');
             return;
         }
         if (action === 'delete') {
@@ -128,6 +158,8 @@ export function initAccountsView() {
     // 暴露到 window，供列表行内按钮调用（来自页面内 onclick 字符串拼接的兼容保留）
     window.schoolUserAction = schoolUserAction;
     window.superAdminAction = superAdminAction;
+    // SuperAdminAccount.js 提交编辑成功后回调，用于刷新行内列表
+    window.superAdminInlineRefresh = () => loadSuperAdminsInline();
 
     // ============================================================
     // 「账号与权限」子视图处理（super-admins / school-users）
@@ -160,6 +192,7 @@ export function initAccountsView() {
                 const enabled = (u.enabled ?? u.isActive ?? true);
                 const createdAt = u.created_at || u.createdAt || '-';
                 const adminId = String(u.id || u._id || '');
+                superAdminsCache.set(adminId, u);  // 给 superAdminAction('edit', id) 提供完整对象
                 const safeId = escapeHtml(adminId);
                 return `
                     <tr>

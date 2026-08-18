@@ -539,6 +539,87 @@ export class UserManager {
         }
     }
 
+    // ===== 平台超管账号信息编辑（仅允许修改 full_name / email；不允许改 username / role / status / school_code）=====
+    // 用于 admin-schools.html 行内"编辑"按钮与 saAccountModal 的"编辑现有超管"表单。
+    // 走审计 + 严谨字段白名单，避免越权修改 username 等敏感字段。
+    async updatePlatformSuperAdmin(id, updates, actor = null) {
+        try {
+            if (!id) throw new Error('账号 ID 缺失')
+            const target = await this.prisma.user.findUnique({ where: { id } })
+            if (!target) throw this.httpError(404, '账号不存在')
+            if (target.role !== 'admin' || target.school_code) {
+                throw new Error('只能编辑平台超管账号')
+            }
+
+            // 字段白名单：只允许 full_name / email；其它字段（含 username / role / status / password）
+            // 一律拒绝，避免越权修改。email 允许 null（清空）。
+            const allowedUpdates = ['full_name', 'email']
+            const data = {}
+            for (const key of allowedUpdates) {
+                if (key in (updates || {})) {
+                    let v = updates[key]
+                    if (typeof v === 'string') v = v.trim()
+                    if (key === 'full_name' && !v) {
+                        throw new Error('姓名不能为空')
+                    }
+                    if (key === 'full_name' && v && v.length > 64) {
+                        throw new Error('姓名长度不能超过 64 个字符')
+                    }
+                    if (key === 'email' && v && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) {
+                        throw new Error('邮箱格式不正确')
+                    }
+                    data[key] = (key === 'email' && !v) ? null : v
+                }
+            }
+            if (Object.keys(data).length === 0) {
+                throw new Error('没有需要更新的字段')
+            }
+
+            // 计算差异用于审计
+            const changes = []
+            for (const key of Object.keys(data)) {
+                const before = target[key]
+                const after = data[key]
+                if (before !== after) changes.push({ field: key, before, after })
+            }
+
+            data.updated_at = new Date()
+
+            const updated = await this.prisma.user.update({
+                where: { id },
+                data,
+                select: {
+                    id: true,
+                    username: true,
+                    full_name: true,
+                    email: true,
+                    role: true,
+                    status: true,
+                    school_code: true,
+                    must_change_password: true,
+                    created_at: true
+                }
+            })
+
+            // H4: 强制服务端审计
+            await this.logAdminAction('super_admin_update', actor, {
+                targetUserId: updated.id,
+                targetUsername: updated.username,
+                changes
+            })
+
+            return {
+                success: true,
+                user: updated,
+                changes,
+                message: '平台超管账号已更新'
+            }
+        } catch (error) {
+            console.error('❌ 更新超管账号失败:', error)
+            throw error
+        }
+    }
+
     async resetPassword(userId, newPassword, actor = null) {
         try {
             // 验证新密码

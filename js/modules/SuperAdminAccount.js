@@ -33,6 +33,17 @@ export function initSuperAdminAccount({ notify }) {
     const resetPwdUsernameEl = document.getElementById('saResetPwdUsername')
     const cancelResetPwdBtn = document.getElementById('saCancelResetPwd')
 
+    // 编辑现有超管（admin-schools.html 行内「编辑」按钮触发 / 外部 preFill 调用）
+    const editWrap = document.getElementById('saEditAdminFormWrap')
+    const editForm = document.getElementById('saEditAdminForm')
+    const editIdEl = document.getElementById('saEditAdminId')
+    const editUsernameLabelEl = document.getElementById('saEditAdminUsername')
+    const editUsernameInputEl = document.getElementById('saEditAdminUsernameInput')
+    const editFullNameEl = document.getElementById('saEditAdminFullName')
+    const editEmailEl = document.getElementById('saEditAdminEmail')
+    const editErrorEl = document.getElementById('saEditAdminError')
+    const cancelEditBtn = document.getElementById('saCancelEditAdmin')
+
     function headers() {
         return { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` }
     }
@@ -48,6 +59,49 @@ export function initSuperAdminAccount({ notify }) {
         if (resetPwdIdEl) resetPwdIdEl.value = ''
         if (resetPwdUsernameEl) resetPwdUsernameEl.textContent = ''
     }
+
+    function closeEditForm() {
+        editWrap?.classList.add('hidden')
+        editForm?.reset()
+        if (editIdEl) editIdEl.value = ''
+        if (editUsernameLabelEl) editUsernameLabelEl.textContent = ''
+        if (editUsernameInputEl) editUsernameInputEl.value = ''
+        if (editFullNameEl) editFullNameEl.value = ''
+        if (editEmailEl) editEmailEl.value = ''
+        editErrorEl?.classList.add('hidden')
+        if (editErrorEl) editErrorEl.textContent = ''
+    }
+
+    /**
+     * 预填并显示"编辑现有超管"表单。
+     * 外部（accountsView 行内「编辑」按钮）传入完整或部分 admin 对象即可：
+     *   { id, username, full_name, email }
+     * 若字段缺失，username 将以 id 兜底显示，姓名/邮箱保持空。
+     */
+    function openEditAdminForm(admin) {
+        if (!admin || !admin.id) {
+            notify?.('无法打开编辑表单：缺少账号 ID', 'error')
+            return
+        }
+        // 关闭同区域内其它可能展开的子表单，保证互斥
+        closeAddForm()
+        closeResetPwdForm()
+        if (editIdEl) editIdEl.value = admin.id
+        const uname = admin.username || `(id=${admin.id})`
+        if (editUsernameLabelEl) editUsernameLabelEl.textContent = uname
+        if (editUsernameInputEl) editUsernameInputEl.value = uname
+        if (editFullNameEl) editFullNameEl.value = (admin.full_name || admin.fullName || '')
+        if (editEmailEl) editEmailEl.value = (admin.email || '')
+        editErrorEl?.classList.add('hidden')
+        if (editErrorEl) editErrorEl.textContent = ''
+        // 同时显示弹层（外部触发时弹层可能尚未打开）
+        if (modal) modal.classList.remove('hidden')
+        editWrap?.classList.remove('hidden')
+        editWrap?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }
+
+    // 暴露到 window，供 accountsView 行内「编辑」按钮调用（预填并打开编辑表单）
+    window.superAdminOpenEditForm = openEditAdminForm
 
     async function loadSuperAdmins() {
         if (!listEl) return
@@ -88,6 +142,7 @@ export function initSuperAdminAccount({ notify }) {
     })
     cancelAddBtn?.addEventListener('click', closeAddForm)
     cancelResetPwdBtn?.addEventListener('click', closeResetPwdForm)
+    cancelEditBtn?.addEventListener('click', closeEditForm)
 
     changeForm?.addEventListener('submit', async (e) => {
         e.preventDefault()
@@ -151,6 +206,43 @@ export function initSuperAdminAccount({ notify }) {
             closeResetPwdForm()
             loadSuperAdmins()
         } catch (err) { notify?.(err.message || '重置失败', 'error') }
+    })
+
+    editForm?.addEventListener('submit', async (e) => {
+        e.preventDefault()
+        const id = editIdEl?.value
+        if (!id) { notify?.('未选择要编辑的账号', 'error'); return }
+        const fullName = editFullNameEl?.value.trim() || ''
+        const email = editEmailEl?.value.trim() || ''
+        if (!fullName) {
+            editErrorEl.textContent = '姓名不能为空'
+            editErrorEl.classList.remove('hidden')
+            return
+        }
+        try {
+            const payload = { fullName, email }
+            const res = await fetch(`${apiBase}/api/user/super-admin/${encodeURIComponent(id)}`, {
+                method: 'PUT', headers: headers(),
+                body: JSON.stringify(payload)
+            })
+            const data = await res.json().catch(() => ({}))
+            if (!res.ok) {
+                const msg = (data && data.error) || '编辑失败'
+                editErrorEl.textContent = msg
+                editErrorEl.classList.remove('hidden')
+                return
+            }
+            notify?.(`账号「${editUsernameInputEl?.value || id}」已更新`, 'success')
+            closeEditForm()
+            loadSuperAdmins()
+            // 行内列表（如已打开）刷新由外部调用方（accountsView）处理
+            if (typeof window.superAdminInlineRefresh === 'function') {
+                try { window.superAdminInlineRefresh() } catch (_) { /* 静默 */ }
+            }
+        } catch (err) {
+            editErrorEl.textContent = err.message || '编辑失败'
+            editErrorEl.classList.remove('hidden')
+        }
     })
 
     listEl?.addEventListener('click', async (e) => {
