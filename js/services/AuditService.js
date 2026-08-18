@@ -115,6 +115,38 @@ export class AuditService {
     }
 
     /**
+     * 平台超管跨租户查询指定学校的审计日志
+     * @param {string} schoolCode 学校代码
+     * @param {number} limit
+     * @param {number} offset
+     * @param {object} [filters] { user_id, action }
+     * @returns {Promise<{success:boolean, data?:Array, total?:number, message?:string}>}
+     */
+    async getTenantLogs(schoolCode, limit = 100, offset = 0, filters = {}) {
+        try {
+            const token = getAuthToken()
+            if (!token) return { success: false, message: '未登录' }
+
+            const params = new URLSearchParams()
+            params.set('limit', String(limit))
+            params.set('offset', String(offset))
+            if (filters.user_id) params.set('userId', filters.user_id)
+            if (filters.username) params.set('username', filters.username)
+            if (filters.action) params.set('action', filters.action)
+
+            const resp = await fetch(`${this.apiBaseUrl}/api/audit-logs/school/${encodeURIComponent(schoolCode)}?${params.toString()}`, {
+                headers: { Authorization: `Bearer ${token}` },
+            })
+            const json = await resp.json()
+            if (!resp.ok) return { success: false, message: json.error || '查询失败' }
+            return { success: true, data: json.data || [], total: json.total || 0 }
+        } catch (error) {
+            console.error('[AuditService] 查询学校审计日志异常:', error)
+            return { success: false, message: error.message }
+        }
+    }
+
+    /**
      * 获取可筛选的用户列表（审计页用户下拉框数据源）
      * @returns {Promise<{success:boolean, data?:{users:Array, deletedIds:Array}, message?:string}>}
      */

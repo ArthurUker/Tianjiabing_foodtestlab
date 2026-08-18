@@ -7,6 +7,7 @@ import express from 'express'
 import jwt from 'jsonwebtoken'
 import { createAuthMiddleware } from '../middleware/authMiddleware.js'
 import { writeTenantAuditLog } from '../lib/auditLog.js'
+import { createTenantClient, isValidSchoolCode } from '../lib/tenantClient.js'
 
 /**
  * CSV 字段安全转义（TD-CSV-Export）
@@ -324,6 +325,62 @@ export function createAuditRoutes(userManager, prisma) {
      * 任何形式的审计批量删除均不允许；如需「清理」只能走「追加说明」方式。
      * 故该端点不再提供，避免触碰红线。
      */
+
+    /**
+     * 平台超管跨租户查询指定学校的审计日志
+     * GET /api/audit-logs/school/:schoolCode?userId=xxx&action=login&limit=100&offset=0
+     * 仅允许平台超管（role=admin 且 schoolCode 为空）访问，按租户 schema 隔离读取。
+     */
+    router.get('/school/:schoolCode', authenticateUser, authorizeAdmin, async (req, res) => {
+        try {
+            // 严格限定为平台超管，防止租户管理员越权查看其他学校日志
+            if (req.user.role !== 'admin' || req.user.schoolCode) {
+                return res.status(403).json({ error: '❌ 仅平台超管可访问学校审计日志' })
+            }
+
+            const schoolCode = req.params.schoolCode
+            if (!schoolCode || !isValidSchoolCode(schoolCode)) {
+                return res.status(400).json({ error: '❌ 学校代码无效' })
+            }
+
+            const { userId, username, action, limit = 100, offset = 0 } = req.query
+            const tenantDb = createTenantClient(prisma, schoolCode)
+
+            let where = {}
+            if (userId) where.user_id = userId
+            if (username) where.user = { username }
+            if (action) where.action = action
+
+            const logs = await tenantDb.auditLog.findMany({
+                where,
+                skip: Math.max(0, parseInt(offset) || 0),
+                take: Math.min(parseInt(limit) || 100, 500),
+                include: {
+                    user: {
+                        select: {
+                            id: true,
+                            username: true,
+                            full_name: true
+                        }
+                    }
+                },
+                orderBy: { created_at: 'desc' }
+            })
+
+            const total = await tenantDb.auditLog.count({ where })
+
+            res.json({
+                success: true,
+                data: logs,
+                total,
+                limit: Math.min(parseInt(limit) || 100, 500),
+                offset: Math.max(0, parseInt(offset) || 0)
+            })
+        } catch (error) {
+            console.error('❌ Error fetching school audit logs:', error)
+            res.status(400).json({ error: clientErr(error, '❌ 查询失败') })
+        }
+    })
 
     /**
      * 获取单条日志详情

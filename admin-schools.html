@@ -81,7 +81,7 @@
                 </button>
             </div>
             <nav class="admin-sidebar__nav">
-                <button class="admin-sidebar__item active" data-view="overview" type="button">
+                <button class="admin-sidebar__item active" data-view="overview" data-desc="平台整体运行概览：快速查看学校数量、租户状态、异常检测与最近待办。" type="button">
                     <i class="fas fa-chart-pie"></i><span class="admin-sidebar__item-label">平台总览</span>
                 </button>
 
@@ -89,16 +89,16 @@
                      「备份运维」是平台级功能【不】放在学校配置子项下——避免与一级同名菜单
                      产生认知冲突。学校级备份仍可通过详情面板的「备份运维」Tab 访问，
                      入口在「学校列表」点选具体学校 → 详情面板顶部 Tabs 里。 -->
-                <button class="admin-sidebar__item has-subnav" data-view="schools" type="button">
+                <button class="admin-sidebar__item has-subnav" data-view="schools" data-desc="管理所有学校租户：创建、编辑、回收站，以及选中学校的配置与用户。" type="button">
                     <i class="fas fa-school"></i><span class="admin-sidebar__item-label">学校管理</span>
                     <span id="adminSidebarBadgeSchools" class="admin-sidebar__badge" hidden></span>
                     <i class="fas fa-chevron-right admin-sidebar__chevron"></i>
                 </button>
                 <div class="admin-sidebar__subnav" data-subnav="schools">
-                    <button class="admin-sidebar__subitem active" data-subview="list" type="button">
+                    <button class="admin-sidebar__subitem active" data-subview="list" data-desc="浏览全部学校租户，可查看详情、进入配置或执行禁用/恢复操作。" type="button">
                         <i class="fas fa-list"></i><span class="admin-sidebar__subitem-label">学校列表</span>
                     </button>
-                    <button class="admin-sidebar__subitem" data-subview="recycle" type="button">
+                    <button class="admin-sidebar__subitem" data-subview="recycle" data-desc="查看已移入回收站的学校租户，支持恢复或彻底清理。" type="button">
                         <i class="fas fa-trash-restore"></i><span class="admin-sidebar__subitem-label">回收站</span>
                     </button>
                     <div id="sidebarSchoolConfigGroup" class="hidden">
@@ -108,36 +108,47 @@
                             <span id="sidebarSchoolConfigCode" class="code"></span>
                             <button id="sidebarCloseSchool" class="close-school" type="button" title="关闭该校详情，返回列表"><i class="fas fa-times"></i></button>
                         </div>
-                        <button class="admin-sidebar__subitem" data-subview="basic" type="button">
+                        <button class="admin-sidebar__subitem" data-subview="basic" data-desc="编辑当前学校的基本信息，如名称、代码、联系方式等。" type="button">
                             <i class="fas fa-info-circle"></i><span class="admin-sidebar__subitem-label">基本信息</span>
                         </button>
-                        <button class="admin-sidebar__subitem" data-subview="custom" type="button">
+                        <button class="admin-sidebar__subitem" data-subview="custom" data-desc="自定义当前学校的界面主题、配色、Logo 与登录页样式。" type="button">
                             <i class="fas fa-palette"></i><span class="admin-sidebar__subitem-label">界面定制</span>
                         </button>
-                        <button class="admin-sidebar__subitem" data-subview="login" type="button">
+                        <button class="admin-sidebar__subitem" data-subview="login" data-desc="单独配置该校登录页的背景、卡片样式与校徽展示效果。" type="button">
                             <i class="fas fa-sign-in-alt"></i><span class="admin-sidebar__subitem-label">登录样式</span>
                         </button>
-                        <button class="admin-sidebar__subitem" data-subview="users" type="button">
+                        <button class="admin-sidebar__subitem" data-subview="users" data-desc="管理当前学校的内部用户账号、角色与权限分配。" type="button">
                             <i class="fas fa-users"></i><span class="admin-sidebar__subitem-label">用户管理</span>
                         </button>
                         <!-- 学校配置内移除「备份运维」项（详见上方 P-Sidebar 注释） -->
                     </div>
                 </div>
 
-                <!-- 账号与权限：二级菜单（平台超管 / 学校用户 / 审计日志），均为内嵌视图 -->
-                <button class="admin-sidebar__item has-subnav" data-view="accounts" type="button">
+                <!-- 账号与权限：二级菜单（平台超管 / 学校用户），均为内嵌视图 -->
+                <button class="admin-sidebar__item has-subnav" data-view="accounts" data-desc="管理平台级账号和学校用户，控制谁能进入控制台或各校系统。" type="button">
                     <i class="fas fa-users-cog"></i><span class="admin-sidebar__item-label">账号与权限</span>
                     <i class="fas fa-chevron-right admin-sidebar__chevron"></i>
                 </button>
                 <div class="admin-sidebar__subnav" data-subnav="accounts">
-                    <button class="admin-sidebar__subitem active" data-subview="super-admins" type="button">
+                    <button class="admin-sidebar__subitem active" data-subview="super-admins" data-desc="管理平台超级管理员账号：增删改查、重置密码与权限分配。" type="button">
                         <i class="fas fa-user-shield"></i><span class="admin-sidebar__subitem-label">平台超管</span>
                     </button>
-                    <button class="admin-sidebar__subitem" data-subview="school-users" type="button">
+                    <button class="admin-sidebar__subitem" data-subview="school-users" data-desc="跨学校查询与管理各校用户账号，支持重置密码与禁用。" type="button">
                         <i class="fas fa-user-graduate"></i><span class="admin-sidebar__subitem-label">学校用户</span>
                     </button>
-                    <button class="admin-sidebar__subitem" data-subview="audit-logs" type="button">
-                        <i class="fas fa-history"></i><span class="admin-sidebar__subitem-label">审计日志</span>
+                </div>
+
+                <!-- 审计日志：独立一级菜单（控制台审计 / 学校审计） -->
+                <button class="admin-sidebar__item has-subnav" data-view="audit" data-desc="查看系统操作审计日志，追踪平台超管和各学校租户的关键行为。" type="button">
+                    <i class="fas fa-history"></i><span class="admin-sidebar__item-label">审计日志</span>
+                    <i class="fas fa-chevron-right admin-sidebar__chevron"></i>
+                </button>
+                <div class="admin-sidebar__subnav" data-subnav="audit">
+                    <button class="admin-sidebar__subitem active" data-subview="console" data-desc="查看平台控制台的操作审计日志，记录所有超管登录与关键变更。" type="button">
+                        <i class="fas fa-desktop"></i><span class="admin-sidebar__subitem-label">控制台审计日志</span>
+                    </button>
+                    <button class="admin-sidebar__subitem" data-subview="school" data-desc="按学校筛选，查看各租户内部的审计日志，便于排查校内操作。" type="button">
+                        <i class="fas fa-school"></i><span class="admin-sidebar__subitem-label">学校审计日志</span>
                     </button>
                 </div>
                 <!-- 备份运维：二级菜单（全部 / 按学校），平台级全库运维内嵌展示 -->
@@ -156,24 +167,22 @@
                 <!-- 测试报告：二级菜单（数据上报 / 汇总报告）。
                      上报表单与汇总报告均内嵌在右侧主区（iframe），不再跳转新窗口，
                      与「学校管理/账号与权限/备份运维」的二级菜单保持交互一致。 -->
-                <button class="admin-sidebar__item has-subnav" data-view="reports" type="button">
+                <button class="admin-sidebar__item has-subnav" data-view="reports" data-desc="测试数据上报与汇总报告查看，无需离开控制台即可处理检测数据。" type="button">
                     <i class="fas fa-file-alt"></i><span class="admin-sidebar__item-label">测试报告</span>
                     <i class="fas fa-chevron-right admin-sidebar__chevron"></i>
                 </button>
                 <div class="admin-sidebar__subnav" data-subnav="reports">
-                    <button class="admin-sidebar__subitem active" data-subview="submit" type="button">
+                    <button class="admin-sidebar__subitem active" data-subview="submit" data-desc="进入测试用例填报页面，直接提交检测结果。" type="button">
                         <i class="fas fa-clipboard-check"></i><span class="admin-sidebar__subitem-label">数据上报</span>
                     </button>
-                    <button class="admin-sidebar__subitem" data-subview="summary" type="button">
+                    <button class="admin-sidebar__subitem" data-subview="summary" data-desc="查看自动生成的汇总报告与统计结果。" type="button">
                         <i class="fas fa-chart-bar"></i><span class="admin-sidebar__subitem-label">汇总报告</span>
                     </button>
                 </div>
             </nav>
             <div class="admin-sidebar__footer">
-                <div class="admin-sidebar__hint">
-                    <i class="fas fa-info-circle mr-1"></i>学校级备份：列表选学校 → 详情面板「备份运维」Tab
-                    <br><i class="fas fa-database mr-1"></i>平台级备份：一级菜单「备份运维」（跨学校）
-                    <br><i class="fas fa-file-alt mr-1"></i>测试报告：上报页与汇总报告内嵌在右侧（不再新窗口打开）
+                <div id="adminSidebarHint" class="admin-sidebar__hint">
+                    <i class="fas fa-info-circle mr-1"></i>请选择左侧菜单查看对应功能说明
                 </div>
                 <button id="btnSidebarLogout" type="button"
                         class="mt-3 w-full text-sm px-3 py-1.5 bg-red-500/90 text-white rounded-lg hover:bg-red-500 transition shadow"
@@ -958,9 +967,11 @@
         import { initAdminSidebar } from '/js/modules/adminSchools/sidebar.js';
         // 总览 KPI / 回收站徽章 / 超管计数 定时刷新
         import { initKpiPoller } from '/js/modules/adminSchools/views/kpiPoller.js';
-        // 「账号与权限」三子视图（平台超管 / 学校用户 / 审计日志）
+        // 「账号与权限」二子视图（平台超管 / 学校用户）
         import { initAccountsView } from '/js/modules/adminSchools/views/accountsView.js';
-        // 「备份运维」两子视图（全部 / 按学校 + 恢复模态）
+        // 「审计日志」二子视图（控制台审计日志 / 学校审计日志）
+        import { initAuditView } from '/js/modules/adminSchools/views/auditView.js';
+        // 「备份运维」三子视图（全局备份 / 单点备份 / 恢复管理）
         import { initBackupView } from '/js/modules/adminSchools/views/backupView.js';
         // ====== P-Refactor 第二阶段：功能域模块（原 ~3200 行内联 JS 全部抽离至此）======
         // 主题预设 / 实时预览 / 可视化编辑（visualEdit 顶层自动绑定开关、引导横幅、弹层表单）
@@ -1059,9 +1070,11 @@
             openDetail: detailView.openDetail,
             switchSchoolsSubview: detailView.switchSchoolsSubview,
         });
+        const auditView = initAuditView();
         initAdminSidebar({
             switchSchoolsSubview: detailView.switchSchoolsSubview,
             switchAccountsSubview: accountsView.switchAccountsSubview,
+            switchAuditSubview: auditView.switchAuditSubview,
             switchBackupSubview: backupView.switchBackupSubview,
         });
     </script>
@@ -1247,11 +1260,20 @@
                 </div>
             </div>
 
-            <!-- ========== 子视图 3: 审计日志 ========== -->
-            <div class="admin-subview hidden" data-subview="audit-logs">
+        </div>
+    </section>
+
+    <!-- ==============================================================
+         审计日志（独立一级视图）
+         ============================================================== -->
+    <section id="adminViewAudit" class="admin-view hidden" data-view="audit">
+        <div class="container mx-auto px-4 py-6 max-w-[2000px]">
+
+            <!-- ========== 子视图 1: 控制台审计日志 ========== -->
+            <div class="admin-subview" data-subview="console">
                 <div class="admin-card">
-                    <h3><i class="fas fa-history text-gray-500"></i>操作审计日志</h3>
-                    <p class="text-sm text-gray-600 mb-3">所有超管写操作均会被记录至 <code class="bg-gray-100 px-1 rounded">public.AuditLog</code>。下方表单按时间段 + actor + action 过滤。</p>
+                    <h3><i class="fas fa-desktop text-gray-500"></i>控制台审计日志</h3>
+                    <p class="text-sm text-gray-600 mb-3">所有平台超管操作均会被记录至 <code class="bg-gray-100 px-1 rounded">public.AuditLog</code>。下方表单按时间段 + 操作者 + 动作过滤。</p>
                     <div class="flex flex-wrap items-center gap-3 mb-4">
                         <label class="text-sm text-gray-700">起始</label>
                         <input id="auStartDate" type="date" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80">
@@ -1288,11 +1310,6 @@
                             </tbody>
                         </table>
                     </div>
-                    <!-- 审计日志分页器 — 视觉与功能参考检测模块（Tableware.js / GenericTest.js）：
-                         - 左：「显示 X-Y 条，共 Z 条」统计
-                         - 中：< 上一页 / 页码按钮 / 下一页 >
-                         - 右：每页 N 条 + 跳转 N 页
-                         - 数据来源标注右对齐 -->
                     <div id="auTablePaginationContainer" class="flex flex-wrap justify-between items-center mt-4 mb-2 gap-2">
                         <div class="flex items-center text-sm text-gray-600"><span id="auPaginationInfo">—</span></div>
                         <div class="flex items-center space-x-1">
@@ -1324,49 +1341,124 @@
                 </div>
             </div>
 
+            <!-- ========== 子视图 2: 学校审计日志 ========== -->
+            <div class="admin-subview hidden" data-subview="school">
+                <div class="admin-card">
+                    <h3><i class="fas fa-school text-gray-500"></i>学校审计日志</h3>
+                    <p class="text-sm text-gray-600 mb-3">按学校租户查看各校自己的操作审计日志。选择学校后，下方表格会展示该租户 <code class="bg-gray-100 px-1 rounded">AuditLog</code> 中的记录。</p>
+                    <div class="flex flex-wrap items-center gap-3 mb-4">
+                        <label class="text-sm text-gray-700" for="saSchoolSelect">学校</label>
+                        <select id="saSchoolSelect" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80 focus:outline-none focus:ring-2 focus:ring-indigo-400 min-w-[200px]">
+                            <option value="">— 请选择学校 —</option>
+                        </select>
+                        <label class="text-sm text-gray-700">起始</label>
+                        <input id="saStartDate" type="date" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80">
+                        <label class="text-sm text-gray-700">截止</label>
+                        <input id="saEndDate" type="date" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80">
+                        <input id="saActor" type="text" placeholder="操作人 id" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80 w-32">
+                        <select id="saAction" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80">
+                            <option value="">全部动作</option>
+                            <option value="login">登录</option>
+                            <option value="logout">登出</option>
+                            <option value="create">创建</option>
+                            <option value="update">更新</option>
+                            <option value="delete">删除</option>
+                            <option value="backup">备份</option>
+                            <option value="restore">恢复</option>
+                        </select>
+                        <button id="saRefreshBtn" type="button" class="px-3 py-1.5 text-sm bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition shadow">
+                            <i class="fas fa-search mr-1"></i>查询
+                        </button>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full text-sm">
+                            <thead class="bg-gray-50 text-gray-600">
+                                <tr>
+                                    <th class="text-left px-3 py-2">时间</th>
+                                    <th class="text-left px-3 py-2">操作者</th>
+                                    <th class="text-left px-3 py-2">动作</th>
+                                    <th class="text-left px-3 py-2">目标</th>
+                                    <th class="text-left px-3 py-2">详情</th>
+                                </tr>
+                            </thead>
+                            <tbody id="saInlineList" class="divide-y divide-gray-100">
+                                <tr><td colspan="5" class="text-center text-gray-400 py-6">请先选择学校</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="saTablePaginationContainer" class="flex flex-wrap justify-between items-center mt-4 mb-2 gap-2">
+                        <div class="flex items-center text-sm text-gray-600"><span id="saPaginationInfo">—</span></div>
+                        <div class="flex items-center space-x-1">
+                            <button id="saPrevPageBtn" type="button" class="px-3 py-1 bg-gray-100 rounded disabled:opacity-50" disabled>
+                                <i class="fas fa-chevron-left"></i>
+                            </button>
+                            <div id="saPageButtonsContainer" class="flex items-center space-x-1"></div>
+                            <button id="saNextPageBtn" type="button" class="px-3 py-1 bg-gray-100 rounded disabled:opacity-50" disabled>
+                                <i class="fas fa-chevron-right"></i>
+                            </button>
+                        </div>
+                        <form id="saPageJumpForm" class="flex items-center ml-2">
+                            <label class="text-sm text-gray-600 mr-2">跳转</label>
+                            <input type="number" id="saPageJumpInput" min="1" class="border border-gray-300 rounded w-16 px-2 py-1 text-sm" placeholder="页">
+                            <button type="submit" class="ml-1 px-2 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600 transition"><i class="fas fa-arrow-right"></i></button>
+                        </form>
+                        <div class="flex items-center ml-2">
+                            <label class="text-sm text-gray-600 mr-2">每页:</label>
+                            <select id="saRecordsPerPageSelect" class="border border-gray-300 rounded px-2 py-1 text-sm">
+                                <option value="10">10</option>
+                                <option value="20">20</option>
+                                <option value="50" selected>50</option>
+                                <option value="100">100</option>
+                                <option value="200">200</option>
+                            </select>
+                        </div>
+                        <div class="text-xs text-gray-500">来源 <code class="bg-gray-100 px-1 rounded">GET /api/audit-logs/school/:code</code></div>
+                    </div>
+                </div>
+            </div>
+
         </div>
     </section>
 
     <section id="adminViewBackup" class="admin-view hidden" data-view="backup">
         <div class="container mx-auto px-4 py-6 max-w-[2000px]">
 
-            <!-- ===== 子视图：全部 ===== -->
-            <div class="admin-subview" data-subview="all">
-                <!-- KPI -->
+            <!-- ===== 子视图：全局备份 ===== -->
+            <div class="admin-subview" data-subview="global">
                 <div class="admin-kpi-grid">
                     <div class="admin-kpi-card">
-                        <div class="admin-kpi-label"><i class="fas fa-hdd mr-1"></i>备份总数</div>
-                        <div id="bkKpiTotal" class="admin-kpi-value">-</div>
-                        <div class="admin-kpi-sub">含全库 + 单校</div>
+                        <div class="admin-kpi-label"><i class="fas fa-globe mr-1"></i>全局备份总数</div>
+                        <div id="bkGlobalKpiTotal" class="admin-kpi-value">-</div>
+                        <div class="admin-kpi-sub">全部学校租户</div>
                     </div>
                     <div class="admin-kpi-card">
                         <div class="admin-kpi-label"><i class="fas fa-shield-alt mr-1"></i>校验通过</div>
-                        <div id="bkKpiVerified" class="admin-kpi-value">-</div>
+                        <div id="bkGlobalKpiVerified" class="admin-kpi-value">-</div>
                         <div class="admin-kpi-sub">verify_status=pass</div>
                     </div>
                     <div class="admin-kpi-card">
                         <div class="admin-kpi-label"><i class="fas fa-exclamation-triangle mr-1"></i>失败/未验证</div>
-                        <div id="bkKpiFailed" class="admin-kpi-value">-</div>
+                        <div id="bkGlobalKpiFailed" class="admin-kpi-value">-</div>
                         <div class="admin-kpi-sub">需关注</div>
                     </div>
                     <div class="admin-kpi-card">
                         <div class="admin-kpi-label"><i class="fas fa-clock mr-1"></i>最近一次</div>
-                        <div id="bkKpiLatest" class="admin-kpi-value" style="font-size:18px">-</div>
-                        <div class="admin-kpi-sub">最近成功备份</div>
+                        <div id="bkGlobalKpiLatest" class="admin-kpi-value" style="font-size:18px">-</div>
+                        <div class="admin-kpi-sub">最近成功全局备份</div>
                     </div>
                 </div>
 
                 <div class="admin-card">
                     <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
                         <div>
-                            <h3><i class="fas fa-database text-teal-500"></i>备份列表（全部）</h3>
-                            <p class="text-xs text-gray-500">每日 02:00 全库定时备份（systemd timer）+ 手动触发；备份经 AES-256-GCM 信封加密落系统盘</p>
+                            <h3><i class="fas fa-globe text-teal-500"></i>全局备份列表</h3>
+                            <p class="text-xs text-gray-500">每日 02:00 全库定时备份（systemd timer）+ 手动触发；一次备份覆盖所有学校租户，备份经 AES-256-GCM 信封加密落系统盘</p>
                         </div>
                         <div class="flex items-center gap-2">
-                            <button id="bkRunAll" type="button" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition shadow">
+                            <button id="bkGlobalRunAll" type="button" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition shadow">
                                 <i class="fas fa-hdd mr-1"></i>立即备份全部
                             </button>
-                            <button id="bkRefreshAll" type="button" class="px-3 py-1.5 text-sm bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition">
+                            <button id="bkGlobalRefresh" type="button" class="px-3 py-1.5 text-sm bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition">
                                 <i class="fas fa-sync mr-1"></i>刷新
                             </button>
                         </div>
@@ -1650,6 +1742,23 @@
             </div>
         </div>
     </section>
+
+    <!-- 审计日志详情弹窗 -->
+    <div id="auditLogDetailModal" class="hidden fixed inset-0 bg-black/40 z-[60] flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+            <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+                <h4 class="text-base font-semibold text-gray-800"><i class="fas fa-file-alt mr-2 text-blue-600"></i>审计日志详情</h4>
+                <button id="auditLogDetailClose" type="button" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
+            </div>
+            <div id="auditLogDetailBody" class="px-5 py-4 overflow-y-auto flex-1 text-sm text-gray-700 space-y-3">
+                <!-- dynamic content -->
+            </div>
+            <div class="px-5 py-3 border-t border-gray-100 flex justify-end gap-2">
+                <button id="auditLogDetailCopy" type="button" class="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200"><i class="fas fa-copy mr-1"></i>复制 JSON</button>
+                <button id="auditLogDetailCloseBtn" type="button" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">关闭</button>
+            </div>
+        </div>
+    </div>
 
     <!-- P-Refactor: 侧边栏/账号权限/备份运维已并入 js/modules/adminSchools/（ESM），由上方 module script 统一装配 -->
 </body>
