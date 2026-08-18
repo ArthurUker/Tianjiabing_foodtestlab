@@ -29,7 +29,10 @@ import { ensureFieldOptionSeeds } from './fieldOptionService.js'
 // 「学校 schema 内禁止 role=admin」制度兜底（详见 schoolAdminPurge.js）。
 // re-export 让其它模块仍可 from 'tenantSync.js' 引用，保持单一事实源；
 // 同时让 syncAllTenantSchemas() 末尾统一调用它（避免与 provisionSchool 内嵌降级流程分叉）。
-export { purgeInvalidAdminInSchools, findInvalidAdminInSchool, ADMIN_PURGE_CONSTANTS } from './schoolAdminPurge.js'
+// 注意：`export { x } from './y.js'` 仅转导出、不在本模块作用域创建绑定，
+// 因此需先用 import 引入（供下方 syncAllTenantSchemas 调用），再显式 export 保持转导出语义。
+import { purgeInvalidAdminInSchools, findInvalidAdminInSchool, ADMIN_PURGE_CONSTANTS } from './schoolAdminPurge.js'
+export { purgeInvalidAdminInSchools, findInvalidAdminInSchool, ADMIN_PURGE_CONSTANTS }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const BACKEND_DIR = path.resolve(__dirname, '..')
