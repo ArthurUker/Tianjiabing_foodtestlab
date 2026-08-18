@@ -680,7 +680,7 @@ export function initBackupView({ API_BASE, authHeaders, notify }) {
     async function handleLocalFiles(files) {
         if (!files.length) return;
         if (files.length > 2) {
-            notify('本地上传最多选 2 个文件：1 个 .aes（或 .sql.gz）+ 1 个 .meta.json');
+            notify('本地上传最多选 2 个文件：1 个 .aes + 1 个 .meta.json');
             return;
         }
         let dataFile = null;
@@ -688,25 +688,60 @@ export function initBackupView({ API_BASE, authHeaders, notify }) {
         for (const f of files) {
             const lower = f.name.toLowerCase();
             if (lower.endsWith('.meta.json')) metaFile = f;
-            else if (lower.endsWith('.aes') || lower.endsWith('.sql.gz') || lower.endsWith('.gz') || lower.endsWith('.sql')) dataFile = f;
-        }
-        if (!dataFile) {
-            notify('未识别到备份文件，请选择 .aes / .sql.gz / .sql');
-            return;
-        }
-        let meta = null;
-        if (metaFile) {
-            try {
-                const txt = await metaFile.text();
-                meta = JSON.parse(txt);
-            } catch (e) {
-                notify(`解析 meta.json 失败：${e.message}`);
+            else if (lower.endsWith('.aes')) dataFile = f;
+            else if (lower.endsWith('.sql.gz') || lower.endsWith('.gz') || lower.endsWith('.sql')) {
+                // ★仅 .aes 才允许本地上传恢复：明文上传无 meta.sha256 可比对，无完整性保障。
+                notify('本地上传仅支持加密备份 .aes（明文上传无法做完整性校验，已拒绝）。请从备份库下载加密备份后上传。');
                 return;
             }
         }
-        restoreLocalPayload = { dataFile, metaFile, meta };
+        if (!dataFile) {
+            notify('未识别到加密备份文件 (.aes)。如需下载，请到「全局备份/单点备份」点击「下载加密」。');
+            return;
+        }
+        if (!metaFile) {
+            notify('缺少配套 .meta.json 文件。恢复强校验要求 .aes 与 .meta.json 同时上传（meta 内含 sha256 等指纹）。');
+            return;
+        }
+        let meta = null;
+        try {
+            const txt = await metaFile.text();
+            meta = JSON.parse(txt);
+        } catch (e) {
+            notify(`解析 meta.json 失败：${e.message}`);
+            return;
+        }
+        // ★P-Recovery-Audit v1：客户端 WebCrypto 计算 .aes 的 sha256（hex）。
+        //   必须与 meta.sha256 一致，否则拒绝执行（文件可能被篡改或选错）。
+        notify('正在用浏览器 WebCrypto 计算 sha256…');
+        const clientSha = await sha256HexOfFile(dataFile);
+        const matchesMeta = !!(meta && meta.sha256 && clientSha.toLowerCase() === String(meta.sha256).toLowerCase());
+        if (!matchesMeta) {
+            const ok = confirm(
+                '⚠️ 文件完整性校验失败\n\n' +
+                `客户端 sha256：${clientSha.slice(0, 16)}…\n` +
+                `meta.sha256   ：${(meta.sha256 || '(缺失)').slice(0, 16)}…\n\n` +
+                '这表示您选择的 .aes 与 .meta.json 不是同一份备份，或文件被篡改。\n' +
+                '继续上传无法通过服务端强校验并会被拒绝。是否仍要继续（仅用于调试）？'
+            );
+            if (!ok) return;
+        }
+        restoreLocalPayload = { dataFile, metaFile, meta, clientSha, shaMatches: matchesMeta };
         renderRestoreLocalInfo();
         renderRestoreConfirmCard();
+        notify(matchesMeta ? '✅ 本地校验通过：sha256 与 meta.json 一致' : '⚠️ 本地校验未通过，但已确认继续', matchesMeta ? 'success' : 'warn');
+    }
+
+    /** 使用 WebCrypto 计算文件 sha256（hex）。仅支持 HTTPS / localhost 等 secure context，但 admin 控制台已是 auth + secure context。 */
+    function sha256HexOfFile(file) {
+        return new Promise(async (resolve, reject) => {
+            try {
+                const buf = await file.arrayBuffer();
+                const digest = await crypto.subtle.digest('SHA-256', buf);
+                const hex = Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
+                resolve(hex);
+            } catch (e) { reject(e); }
+        });
     }
 
     function renderRestoreLocalInfo() {
@@ -719,7 +754,7 @@ export function initBackupView({ API_BASE, authHeaders, notify }) {
             return;
         }
         info.classList.remove('hidden');
-        const { dataFile, metaFile, meta } = restoreLocalPayload;
+        const { dataFile, metaFile, meta, clientSha, shaMatches } = restoreLocalPayload;
         const item = (f, color, icon) => `
             <div class="flex items-center justify-between bg-white border border-gray-200 rounded-lg p-2 text-sm">
                 <div class="flex items-center gap-2 truncate">
@@ -729,15 +764,25 @@ export function initBackupView({ API_BASE, authHeaders, notify }) {
                 <div class="text-xs text-gray-500 ml-3 shrink-0">${fmtBytes(f.size)} · ${f.name.toLowerCase().endsWith('.aes') ? '加密' : '明文'}</div>
             </div>
         `;
+        // ★P-Recovery-Audit v1：显示完整指纹 + 校验结果
         const metaSummary = meta
             ? `<div class="grid grid-cols-2 gap-2 text-xs text-gray-600 mt-1 px-1">
                 <div><span class="text-gray-400">scope：</span><b>${escapeHtml(meta.scope || '-')}</b></div>
                 <div><span class="text-gray-400">schoolCode：</span><b class="font-mono">${escapeHtml(meta.schoolCode || '全部')}</b></div>
-                <div><span class="text-gray-400">tableCount：</span><b>${meta.tableCounts ? Object.keys(meta.tableCounts).length : '-'}</b> 张表</div>
-                <div><span class="text-gray-400">checksum：</span><b class="font-mono truncate inline-block max-w-[140px] align-middle">${escapeHtml((meta.checksum || '-').slice(0, 16))}…</b></div>
+                <div><span class="text-gray-400">原始 runId：</span><b class="font-mono">${escapeHtml(meta.runId || '(meta 无指纹)')}</b></div>
+                <div><span class="text-gray-400">原始 fileSize：</span><b>${escapeHtml(String(meta.fileSize != null ? meta.fileSize : '-'))}</b></div>
+                <div class="col-span-2"><span class="text-gray-400">meta.sha256：</span><b class="font-mono truncate inline-block max-w-[260px] align-middle">${escapeHtml((meta.sha256 || '(缺失)').slice(0, 32))}…</b></div>
+                <div class="col-span-2"><span class="text-gray-400">客户端 sha256：</span><b class="font-mono truncate inline-block max-w-[260px] align-middle">${escapeHtml((clientSha || '-').slice(0, 32))}…</b></div>
+                <div class="col-span-2">
+                    ${shaMatches === true
+                        ? '<span class="text-green-700"><i class="fas fa-shield-check mr-1"></i>校验通过：客户端 sha256 与 meta.sha256 完全一致</span>'
+                        : (shaMatches === false
+                            ? '<span class="text-red-700"><i class="fas fa-shield-virus mr-1"></i>校验失败：客户端 sha256 与 meta.sha256 不一致，文件可能被篡改</span>'
+                            : '<span class="text-gray-500"><i class="fas fa-shield-question mr-1"></i>校验未执行</span>')}
+                </div>
             </div>`
             : `<div class="text-xs text-amber-600 mt-1 px-1">
-                <i class="fas fa-exclamation-circle mr-1"></i>未提供 .meta.json，行数校验与源 schema 标识不可用，恢复前请确认文件来源。
+                <i class="fas fa-exclamation-circle mr-1"></i>未提供 .meta.json。
             </div>`;
         list.innerHTML = item(dataFile, 'blue', 'fa-database') + (metaFile ? item(metaFile, 'amber', 'fa-file-code') : '') + metaSummary;
     }
@@ -864,13 +909,17 @@ export function initBackupView({ API_BASE, authHeaders, notify }) {
                 const item = restoreCurrentBackups.find((r) => r.id === restoreSelectedBackupId);
                 return !!(item && item.scope === 'all');
             }
-            return !!(restoreLocalPayload && (restoreLocalPayload.meta?.scope === 'all' || !restoreLocalPayload.meta));
+            // 本地上传批量：必须提供 meta.json（带 runId / scope=all 才能通过服务端强校验）
+            const lp = restoreLocalPayload;
+            return !!(lp && lp.meta && lp.meta.runId && lp.meta.scope === 'all' && lp.shaMatches !== false);
         }
         // 单选：必须有数据源
         if (restoreSourceTab === 'server') {
             return !!restoreSelectedBackupId;
         }
-        return !!restoreLocalPayload;
+        // 本地上传单选：必须有 meta + runId，且客户端校验通过（未通过会再二次确认）
+        const lp = restoreLocalPayload;
+        return !!(lp && lp.meta && lp.meta.runId && lp.shaMatches !== false);
     }
 
     /** 执行恢复：单点 / 批量 / 本地上传 */
@@ -948,17 +997,25 @@ export function initBackupView({ API_BASE, authHeaders, notify }) {
     }
 
     async function executeRestoreFromLocal({ codes, isMulti }) {
-        const { dataFile, metaFile, meta } = restoreLocalPayload;
+        const { dataFile, metaFile, meta, clientSha } = restoreLocalPayload;
         const word = isMulti ? 'RESTORE_ALL' : 'RESTORE';
         try {
+            // ★P-Recovery-Audit v1：必须从 meta.json 取出 runId；缺失则拒绝提交（服务端强校验的前提）。
+            const runId = meta && meta.runId;
+            if (!runId) {
+                notify('上传失败：所选 meta.json 缺少 runId，无法做服务端交叉校验。请到备份库重新下载配套 meta.json 后再试。');
+                return;
+            }
             // 把文件读成 base64 + JSON 提交，避免引入 multer 等依赖
             const dataB64 = await readFileAsBase64(dataFile);
             let metaB64 = null;
             if (metaFile) metaB64 = await readFileAsBase64(metaFile);
             const payload = {
                 confirmText: word,
+                runId,                                                    // ★强校验 ①：原始备份 ID
                 data: { filename: dataFile.name, contentBase64: dataB64, size: dataFile.size },
                 meta: metaFile ? { filename: metaFile.name, contentBase64: metaB64 } : null,
+                clientSha256: clientSha || undefined,                     // ★强校验 ②：客户端 sha256
             };
             if (isMulti) payload.targetSchoolCodes = codes;
             else payload.targetSchoolCode = codes[0];
@@ -972,7 +1029,7 @@ export function initBackupView({ API_BASE, authHeaders, notify }) {
             let j = null;
             try { j = text ? JSON.parse(text) : null; } catch (_) {}
             if (!r.ok) {
-                alert(`本地恢复失败 ❌\n\n${(j && j.error) || `HTTP ${r.status}`}`);
+                alert(`本地恢复失败 ❌\n\n${(j && j.error) || `HTTP ${r.status}`}\n\n参考：审计日志记录了此次失败原因（reason 字段），可到「审计日志」查看`);
                 return;
             }
             if (isMulti) {
