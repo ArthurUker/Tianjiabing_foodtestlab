@@ -21,25 +21,44 @@ export async function loadUsers() {
             return;
         }
         const roleMap = { admin: '平台管理员', manager: '主管', operator: '操作人员', viewer: '查看者', user: '普通用户' };
-        tbody.innerHTML = users.map(u => `
-            <tr>
+        tbody.innerHTML = users.map(u => {
+            // P0-PROV: 「学校 schema 内禁止 role=admin」制度兜底前端展示。
+            // is_invalid_role 来自后端 /api/admin/schools/:code/users 响应；
+            // 这样的行不应允许编辑 / 重置密码 / 停用 / 删除（与后端
+            //   POST/PATCH/DELETE 接口的角色校验保持一致），仅暴露
+            //   「立即自动降级」按钮（走 reprovision 接口，安全收敛后再刷新）。
+            const isInvalid = u.is_invalid_role === true || u.role === 'admin';
+            const rowClass = isInvalid ? 'bg-red-50/40 ring-1 ring-red-200' : '';
+            const roleCell = isInvalid
+                ? `<div class="flex items-center gap-2">
+                     <span class="px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-semibold whitespace-nowrap">非法角色（仅允许三级账号）</span>
+                     <span class="text-xs text-red-500">${escapeHtml(u.role)}</span>
+                   </div>`
+                : (roleMap[u.role] || escapeHtml(u.role));
+            const disabledAttrs = isInvalid ? 'disabled title="该账号角色非法，请在右侧点击『自动降级』收敛后操作"' : '';
+            const opsCell = isInvalid
+                ? `<button class="px-2 py-1 text-xs bg-emerald-50 text-emerald-700 rounded hover:bg-emerald-100 transition btn-demote-admin" data-id="${escapeHtml(u.id)}" data-username="${escapeHtml(u.username)}" title="将该账号立即降级为 manager（重新初始化流）"${disabledAttrs}><i class="fas fa-shield-alt mr-1"></i>立即自动降级</button>`
+                : `
+                    <button class="px-2 py-1 text-xs bg-indigo-50 text-indigo-700 rounded hover:bg-indigo-100 transition btn-edit-user" data-id="${escapeHtml(u.id)}"${disabledAttrs}><i class="fas fa-edit mr-1"></i>编辑</button>
+                    <button class="px-2 py-1 text-xs bg-orange-50 text-orange-700 rounded hover:bg-orange-100 transition btn-reset-pwd" data-id="${escapeHtml(u.id)}" data-username="${escapeHtml(u.username)}"${disabledAttrs}><i class="fas fa-key mr-1"></i>重置密码</button>
+                    ${(u.status || 'active') === 'active'
+                        ? `<button class="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition btn-toggle-user" data-id="${escapeHtml(u.id)}" data-active="false"${disabledAttrs}><i class="fas fa-ban mr-1"></i>停用</button>`
+                        : `<button class="px-2 py-1 text-xs bg-green-50 text-green-700 rounded hover:bg-green-100 transition btn-toggle-user" data-id="${escapeHtml(u.id)}" data-active="true"${disabledAttrs}><i class="fas fa-check mr-1"></i>启用</button>`
+                    }
+                    <button class="px-2 py-1 text-xs bg-red-50 text-red-700 rounded hover:bg-red-100 transition btn-delete-user" data-id="${escapeHtml(u.id)}" data-username="${escapeHtml(u.username)}"${disabledAttrs}><i class="fas fa-trash mr-1"></i>删除</button>
+                `;
+            return `
+            <tr class="${rowClass}" data-invalid="${isInvalid ? '1' : '0'}">
                 <td class="font-mono">${escapeHtml(u.username)}</td>
                 <td>${escapeHtml(u.full_name || '-')}</td>
-                <td>${roleMap[u.role] || u.role}</td>
+                <td>${roleCell}</td>
                 <td>${(u.status || 'active') === 'active' ? '<span class="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs">启用</span>' : '<span class="px-2 py-0.5 bg-gray-200 text-gray-600 rounded-full text-xs">停用</span>'}</td>
                 <td class="text-xs text-gray-500">${u.created_at ? new Date(u.created_at).toLocaleDateString() : ''}</td>
                 <td class="text-xs text-gray-500">${u.last_login ? new Date(u.last_login).toLocaleDateString() : '—'}</td>
-                <td class="space-x-1 whitespace-nowrap">
-                    <button class="px-2 py-1 text-xs bg-indigo-50 text-indigo-700 rounded hover:bg-indigo-100 transition btn-edit-user" data-id="${escapeHtml(u.id)}"><i class="fas fa-edit mr-1"></i>编辑</button>
-                    <button class="px-2 py-1 text-xs bg-orange-50 text-orange-700 rounded hover:bg-orange-100 transition btn-reset-pwd" data-id="${escapeHtml(u.id)}" data-username="${escapeHtml(u.username)}"><i class="fas fa-key mr-1"></i>重置密码</button>
-                    ${(u.status || 'active') === 'active'
-                        ? `<button class="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition btn-toggle-user" data-id="${escapeHtml(u.id)}" data-active="false"><i class="fas fa-ban mr-1"></i>停用</button>`
-                        : `<button class="px-2 py-1 text-xs bg-green-50 text-green-700 rounded hover:bg-green-100 transition btn-toggle-user" data-id="${escapeHtml(u.id)}" data-active="true"><i class="fas fa-check mr-1"></i>启用</button>`
-                    }
-                    <button class="px-2 py-1 text-xs bg-red-50 text-red-700 rounded hover:bg-red-100 transition btn-delete-user" data-id="${escapeHtml(u.id)}" data-username="${escapeHtml(u.username)}"><i class="fas fa-trash mr-1"></i>删除</button>
-                </td>
+                <td class="space-x-1 whitespace-nowrap">${opsCell}</td>
             </tr>
-        `).join('');
+        `;
+        }).join('');
 
         tbody.querySelectorAll('.btn-reset-pwd').forEach(btn => {
             btn.addEventListener('click', () => openResetPwd(btn.dataset.id, btn.dataset.username));
@@ -55,6 +74,9 @@ export async function loadUsers() {
         });
         tbody.querySelectorAll('.btn-delete-user').forEach(btn => {
             btn.addEventListener('click', () => deleteUser(btn.dataset.id, btn.dataset.username));
+        });
+        tbody.querySelectorAll('.btn-demote-admin').forEach(btn => {
+            btn.addEventListener('click', () => demoteAdminUser(btn.dataset.id, btn.dataset.username));
         });
     } catch (e) {
         tbody.innerHTML = `<tr><td colspan="7" class="text-center py-4 text-red-500">${escapeHtml(e.message)}</td></tr>`;
@@ -108,6 +130,27 @@ async function toggleUser(userId, isActive) {
         loadUsers();
     } catch (e) {
         showNotice('❌ ' + e.message, 'error');
+    }
+}
+
+// P0-PROV: 将学校 schema 内的非法 admin 账号立即降级为 manager。
+// 走专用轻量接口 POST /api/admin/schools/:code/users/:userId/demote-from-admin
+// （不需要 adminPassword、不动 schema），失败时降级走 reprovision 兜底。
+async function demoteAdminUser(userId, username) {
+    if (!state.currentSchoolCode) return;
+    if (!confirm(`将该校历史遗留的『平台管理员』账号「${username}」自动降级为 manager 吗？\n降级不影响密码与历史数据，但会失去平台超管语义。`)) return;
+    try {
+        const resp = await adminFetch(`/api/admin/schools/${state.currentSchoolCode}/users/${userId}/demote-from-admin`, {
+            method: 'POST',
+            body: JSON.stringify({})
+        });
+        const json = await resp.json();
+        if (!resp.ok) throw new Error(json.error || '降级失败');
+        showNotice('✅ 已自动降级，刷新列表查看', 'success');
+        loadUsers();
+    } catch (e) {
+        showNotice('❌ ' + e.message + '（该账号可能已被其它流程收敛，刷新列表确认）', 'error');
+        loadUsers();
     }
 }
 

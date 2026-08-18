@@ -11,6 +11,14 @@
 //     因为旧学校历史行的新列为 NULL 会导致前端期望非空 JSON 时崩溃。
 //
 // 仅对「增量变更（加列/加表）」安全；破坏性变更（改列名/类型/删列）需人工处理。
+//
+// 「学校 schema 内禁止 role=admin」制度兜底：
+//   - 制度上：学校租户下只允许 manager / operator / viewer 三级账号，admin 只能存在于 public（平台超管）。
+//   - 现状：历史上某次 provisionSchool/UserManager 未做白名单校验的版本可能写入了 role=admin
+//     的脏数据（如 2026-07-23 写入的 school_demo.admin，截图复现的根因）。
+//   - 兜底：每次 syncAllTenantSchemas / provisionSchool.reprovision 之前，自动把所有学校 schema
+//     内 role=admin 的 User 行降级为 manager（保留 username、id、密码），避免「重新初始化」后
+//     出现「平台管理员账号」在子租户下被新建/保留。
 
 import { spawn } from 'node:child_process'
 import path from 'node:path'
@@ -18,6 +26,10 @@ import { fileURLToPath } from 'node:url'
 import { provisionSchool } from './tenantProvisioner.js'
 import { schemaNameOf } from './tenantClient.js'
 import { ensureFieldOptionSeeds } from './fieldOptionService.js'
+// 「学校 schema 内禁止 role=admin」制度兜底（详见 schoolAdminPurge.js）。
+// re-export 让其它模块仍可 from 'tenantSync.js' 引用，保持单一事实源；
+// 同时让 syncAllTenantSchemas() 末尾统一调用它（避免与 provisionSchool 内嵌降级流程分叉）。
+export { purgeInvalidAdminInSchools, findInvalidAdminInSchool, ADMIN_PURGE_CONSTANTS } from './schoolAdminPurge.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const BACKEND_DIR = path.resolve(__dirname, '..')
@@ -188,6 +200,9 @@ export async function syncAllTenantSchemas(prisma, { adminPassword = '', skipGen
       log(`  ❌ ${code} 字段选项种子失败 - ${e.message}`)
     }
   }
+
+  log('\n⑤ 学校 schema 内 role=admin 历史脏数据自愈（降级为 manager）...')
+  await purgeInvalidAdminInSchools(prisma, log)
 
   log('\n✅ 所有租户 schema 已与 schema.prisma 对齐。')
 }
