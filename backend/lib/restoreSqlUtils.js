@@ -61,6 +61,19 @@ export function rewriteSchemaNames(sql, fromSchema, toSchema) {
 
 const SCHEMA_LIKE = /^[a-z][a-z0-9_]*$/ // schema 名只允许小写字母数字下划线
 
+// psql meta-command 检测（首次出现是在 PG17，PG14.23 Ubuntu 也已 backport）。
+// 仅识别行首的 \command 形式（含可选前导空白），避免误伤字符串字面量中的反斜杠。
+// 涵盖：\restrict / \unrestrict / \encoding / \connect / \set / \unset /
+//       \echo / \qecho / \warninfo / \pset
+// 这些命令在原 dump 里只出现在文件首尾，但若 psql 在某一行被错误识别也会同样报错，
+// 故在输出端做一次兜底清理（详见函数末尾的 psql-meta 兜底 pass）。
+const PSQL_META_RE = /^\\(restrict|unrestrict|encoding|connect|set|unset|echo|qecho|warninfo|pset)\b/
+
+/** 判断一行是否是 psql meta-command（行首带前导空白）。 */
+function isPsqlMetaLine(trimmedLine) {
+  return PSQL_META_RE.test(trimmedLine)
+}
+
 /**
  * 从全库备份 SQL 文本中提取【指定 schema】的完整段（建表 + 约束 + 索引 + COPY 数据 + 函数）。
  * 保留语句顺序；同时保留前置的全局 SET / search_path / default_* 等必要上下文，
@@ -98,12 +111,13 @@ export function extractSchemaSegment(sql, schema) {
 
     // 1) 头部全局上下文：首个非内容行之前的所有 SET / SELECT / 注释 全保留；
     //    但 CREATE SCHEMA 不属于这里（见 2）。
-    //    【PG17+ 兼容】丢弃 psql meta-command 行（\restrict、\unrestrict、\encoding 等，
-    //    旧 PG14 不识别会导致 psql -f 报 "invalid command \\"）。
+    //    【PG17+ / PG14.23(Ubuntu) 兼容】丢弃 psql meta-command 行（\restrict、\unrestrict、
+    //    \encoding 等，旧版本 psql 不识别会导致 psql -f 报 "invalid command \\"）。
+    //    ⚠️ 该过滤只在 firstContent=true 区间生效；文件末尾的 \unrestrict 会落进本文末
+    //    （见最后追加的清理兜底）。
     if (firstContent) {
       const trimmed = line.trim()
-      const isPsqlMeta = /^\\(restrict|unrestrict|encoding|connect|set|unset|echo|qecho|warninfo|pset)\b/.test(trimmed)
-      if (isPsqlMeta) { i++; continue }
+      if (isPsqlMetaLine(trimmed)) { i++; continue }
       const isHeadSetup = /^(SET\s|SELECT\s+pg_catalog\.|--|$)/i.test(trimmed)
       const isCreateSchema = /^CREATE\s+SCHEMA\s/i.test(trimmed)
       if (isHeadSetup && !isCreateSchema) {
@@ -195,5 +209,20 @@ export function extractSchemaSegment(sql, schema) {
     i++
   }
 
-  return out.join('\n')
+  // ── 兜底清理：移除输出中残留的 psql meta-command 行 ──
+  // TD-Global-Backup-Restore-Unrestrict-Bug：
+  //   pg_dump 输出（PG14.23 Ubuntu / PG17+ 都包含）在文件【末尾】追加 \unrestrict <token>，
+  //   与文件首行的 \restrict <token> 配对。当目标 schema 是最后一个被 dump 的（典型场景：
+  //   用户对多 schema 的全库备份恢复某个学校），提取段内可能携带尾部 \unrestrict。
+  //   头部 \restrict 已被 firstContent 区间过滤，但尾部的 \unrestrict 会越过该区间
+  //   残留在输出里。psql -f 执行时，因对应 \restrict 已被剔除，psql 报：
+  //     error: \unrestrict: not currently in restricted mode
+  //   在 ON_ERROR_STOP=1 下整个恢复失败。
+  // 这里对 out 整体再做一次 meta-command 清理（输入 / 输出都安全：本来就不应保留这些行）。
+  const cleaned = []
+  for (const l of out) {
+    if (isPsqlMetaLine(l.trim())) continue
+    cleaned.push(l)
+  }
+  return cleaned.join('\n')
 }

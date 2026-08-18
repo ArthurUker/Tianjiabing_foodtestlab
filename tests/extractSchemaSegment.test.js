@@ -249,4 +249,96 @@ describe('extractSchemaSegment', () => {
     expect(seg).not.toContain('CREATE SCHEMA school_other;')
     expect(seg).toContain('CREATE TABLE school_hqyz."User"')
   })
+
+  // 回归测试：TD-Global-Backup-Restore-Unrestrict-Bug
+  // pg_dump 输出（含 PG14.23 Ubuntu 与 PG17+）会在文件首添加 \restrict <token>，
+  // 在文件尾添加 \unrestrict <token>。\restrict 行在 firstContent 头部已被过滤，
+  // 但 \unrestrict 行落在文件末尾，越过 firstContent 区间，会残留在提取的 SQL 里。
+  // psql -f 执行时会报：
+  //   psql:...:N: error: \unrestrict: not currently in restricted mode
+  // 复现条件：目标 schema 是 dump 中靠后位置（全库场景常见）。修复在函数末尾对
+  // out 做一次 psql meta-command 兜底清理（不仅 \restrict/\unrestrict，
+  // 还覆盖 \encoding/\set/\connect 等所有 psql meta-command）。
+  test('文件末尾 \\unrestrict 行被移除（不残留 psql meta-command）', () => {
+    const sql = [
+      '--',
+      '-- PostgreSQL database dump',
+      '--',
+      '\\restrict ePKvpz2NiOYwj287ZSLD9jT45M4n661fU9fwqYsc1ivoWg1qaP3irfwYx6sYON',
+      '',
+      '-- Dumped from database version 14.23',
+      '-- Dumped by pg_dump version 14.23',
+      '',
+      'SET statement_timeout = 0;',
+      'SELECT pg_catalog.set_config(\'search_path\', \'\', false);',
+      '',
+      'CREATE SCHEMA school_demo;',
+      '-- Name: school_demo."T"; Type: TABLE; Schema: school_demo; Owner: -',
+      'CREATE TABLE school_demo."T" (id text);',
+      'COPY school_demo."T" (id) FROM stdin;',
+      'r1',
+      '\\.',
+      '',
+      '-- Name: school_other."X"; Type: TABLE; Schema: school_other; Owner: -',
+      'CREATE TABLE school_other."X" (id text);',
+      'COPY school_other."X" (id) FROM stdin;',
+      '\\.',
+      '',
+      '-- PostgreSQL database dump complete',
+      '',
+      '\\unrestrict ePKvpz2NiOYwj287ZSLD9jT45M4n661fU9fwqYsc1ivoWg1qaP3irfwYx6sYON',
+      '',
+    ].join('\n')
+    const seg = extractSchemaSegment(sql, 'school_demo')
+    // 文件首的 \restrict 已被头部过滤
+    expect(seg).not.toMatch(/^\\restrict/m)
+    // 文件尾的 \unrestrict 必须被移除（这是 bug 修复点）
+    expect(seg).not.toMatch(/\\unrestrict/)
+    // 目标 schema 的内容必须保留
+    expect(seg).toContain('CREATE TABLE school_demo."T"')
+    expect(seg).toContain('COPY school_demo."T"')
+    // 其余 schema 不能泄漏
+    expect(seg).not.toContain('school_other')
+  })
+
+  test('其他 psql meta-command（\\encoding \\connect \\set \\unset \\echo \\pset）一并被清除', () => {
+    // 正常 pg_dump 不会输出这些命令，但作为防御：若 dump 被手工编辑或上游工具插入，
+    // 提取层必须过滤，不能把这些行送到 psql -f（未识别 meta-command 会报错）。
+    const sql = [
+      '--',
+      '-- PostgreSQL database dump',
+      '--',
+      '\\restrict xxxxxx',
+      '\\encoding UTF8',
+      '\\connect foodtestlab',
+      '\\set foo bar',
+      '\\unset foo',
+      '\\echo begin',
+      '\\pset pager off',
+      '',
+      'SET statement_timeout = 0;',
+      'CREATE SCHEMA s;',
+      '-- Name: s."T"; Type: TABLE; Schema: s; Owner: -',
+      'CREATE TABLE s."T" (id text);',
+      'COPY s."T" (id) FROM stdin;',
+      '\\.',
+      '',
+      '\\unrestrict xxxxxx',
+      '\\encoding SQL_ASCII',
+      '',
+    ].join('\n')
+    const seg = extractSchemaSegment(sql, 's')
+    // 全部 meta-command 必须清除
+    expect(seg).not.toMatch(/^\\restrict/m)
+    expect(seg).not.toMatch(/\\unrestrict/)
+    expect(seg).not.toMatch(/^\\encoding/m)
+    expect(seg).not.toMatch(/^\\connect/m)
+    expect(seg).not.toMatch(/^\\set\b/m)
+    expect(seg).not.toMatch(/^\\unset/m)
+    expect(seg).not.toMatch(/^\\echo\b/m)
+    expect(seg).not.toMatch(/^\\pset/m)
+    // 表内容必须保留
+    expect(seg).toContain('CREATE TABLE s."T"')
+    expect(seg).toContain('COPY s."T"')
+  })
 })
