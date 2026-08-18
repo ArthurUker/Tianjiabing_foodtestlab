@@ -407,6 +407,52 @@
       .single-school-card .arrow { color: #9ca3af; font-size: 12px; transition: color 0.15s; }
       .single-school-card:hover .arrow { color: #3b82f6; }
       .single-school-card.active .arrow { color: #3b82f6; }
+      /* ====== 恢复管理：源切换 / 备份可选行 / 上传 drop 高亮 ====== */
+      .restore-source-tab {
+          background: rgba(255,255,255,0.6);
+          color: #4b5563;
+          transition: background 0.15s, color 0.15s;
+      }
+      .restore-source-tab:hover { background: rgba(243,244,246,0.9); }
+      .restore-source-tab.active {
+          background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+          color: #fff;
+          font-weight: 500;
+      }
+      .restore-source-tab.active i { color: #fff; }
+      .restore-source-pane { animation: fadeIn 0.18s ease; }
+      @keyframes fadeIn { from { opacity: 0; transform: translateY(2px);} to { opacity: 1; transform: none;} }
+      /* 可选备份行：单选按钮风格 + hover/选中态 */
+      #bkRestoreList tr.is-selectable { cursor: pointer; }
+      #bkRestoreList tr.is-selected {
+          background: linear-gradient(90deg, rgba(59,130,246,0.06), rgba(59,130,246,0.12)) !important;
+          box-shadow: inset 3px 0 0 #3b82f6;
+      }
+      #bkRestoreList .restore-radio {
+          width: 16px; height: 16px;
+          border: 2px solid #d1d5db; border-radius: 50%;
+          display: inline-flex; align-items: center; justify-content: center;
+          transition: all 0.15s;
+      }
+      #bkRestoreList tr.is-selected .restore-radio {
+          border-color: #3b82f6;
+          background: #3b82f6;
+      }
+      #bkRestoreList tr.is-selected .restore-radio::after {
+          content: '';
+          width: 6px; height: 6px;
+          background: #fff;
+          border-radius: 50%;
+      }
+      #bkRestoreList tr.is-disabled {
+          opacity: 0.45; cursor: not-allowed;
+          background: repeating-linear-gradient(45deg, transparent, transparent 6px, rgba(239,68,68,0.04) 6px, rgba(239,68,68,0.04) 12px);
+      }
+      /* drop-zone 高亮 */
+      #restoreLocalDropZone.is-dragover {
+          border-color: #3b82f6;
+          background: rgba(59,130,246,0.08);
+      }
       /* 响应式：移动端折叠侧边栏 */
       @media (max-width: 1023px) {
           .admin-layout { flex-direction: column; padding: 12px; }

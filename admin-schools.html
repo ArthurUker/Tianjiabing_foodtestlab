@@ -1609,12 +1609,12 @@
             <!-- ===== 子视图：恢复管理 ===== -->
             <div class="admin-subview hidden" data-subview="restore">
                 <div class="flex flex-col gap-4">
-                    <!-- 上方：目标学校 -->
+                    <!-- ===== 卡片 1：目标学校 ===== -->
                     <div class="admin-card" id="restoreSchoolCard">
                         <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
                             <div>
                                 <h3><i class="fas fa-school text-teal-500"></i>目标学校</h3>
-                                <p class="text-xs text-gray-500">单选可恢复任意备份；多选仅可选全局备份批量恢复</p>
+                                <p class="text-xs text-gray-500">单选可恢复任意备份；多选 / 全选仅可选全局备份批量恢复</p>
                             </div>
                             <div class="flex items-center gap-2">
                                 <span id="restoreSelectedCount" class="text-xs font-medium px-2 py-0.5 bg-gray-100 rounded">已选 0</span>
@@ -1643,97 +1643,133 @@
                         </div>
                     </div>
 
-                    <!-- 下方：备份文件 -->
-                    <div class="admin-card">
-                        <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
+                    <!-- ===== 卡片 2：选择备份数据源 ===== -->
+                    <div class="admin-card" id="restoreSourceCard">
+                        <div class="flex items-center justify-between flex-wrap gap-3 mb-3">
                             <div>
-                                <h3><i class="fas fa-undo text-red-500"></i>恢复管理</h3>
-                                <p class="text-xs text-gray-500">选择备份文件，对上方已选学校执行影子恢复</p>
+                                <h3><i class="fas fa-database text-blue-500"></i>选择备份数据源</h3>
+                                <p class="text-xs text-gray-500" id="restoreSourceHint">请先选择目标学校</p>
                             </div>
-                            <div class="flex items-center gap-2">
+                            <!-- Tabs：备份库 / 本地文件 -->
+                            <div class="inline-flex rounded-lg border border-gray-300 bg-white/80 overflow-hidden text-xs">
+                                <button type="button" class="restore-source-tab px-3 py-1.5 active" data-source-tab="server">
+                                    <i class="fas fa-server mr-1"></i>从备份库选择
+                                </button>
+                                <button type="button" class="restore-source-tab px-3 py-1.5 border-l border-gray-300" data-source-tab="local">
+                                    <i class="fas fa-upload mr-1"></i>本地上传
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- ===== Tab: 备份库 ===== -->
+                        <div id="restoreSourceServer" class="restore-source-pane">
+                            <div class="flex items-center gap-2 mb-3 flex-wrap">
                                 <select id="restoreScopeFilter" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80">
                                     <option value="">全部类型</option>
                                     <option value="all">全局备份</option>
                                     <option value="single">单点备份</option>
                                 </select>
-                                <input id="restoreBackupSearch" type="text" placeholder="搜索备份时间 / 学校" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80 min-w-[180px]">
+                                <input id="restoreBackupSearch" type="text" placeholder="搜索备份时间 / 学校" class="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80 min-w-[180px]">
                                 <button id="restoreBackupRefresh" type="button" class="px-3 py-1.5 text-sm bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition">
                                     <i class="fas fa-sync mr-1"></i>刷新
                                 </button>
                             </div>
+                            <div class="overflow-x-auto">
+                                <table class="min-w-full text-sm">
+                                    <thead class="bg-gray-50 text-gray-600">
+                                        <tr>
+                                            <th class="text-left px-3 py-2 w-10"></th>
+                                            <th class="text-left px-3 py-2">时间</th>
+                                            <th class="text-left px-3 py-2">类型</th>
+                                            <th class="text-left px-3 py-2">学校</th>
+                                            <th class="text-left px-3 py-2">大小</th>
+                                            <th class="text-left px-3 py-2">校验</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="bkRestoreList" class="divide-y divide-gray-100">
+                                        <tr><td colspan="6" class="text-center text-gray-400 py-6">请先选择上方目标学校</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div id="restoreBackupPager" class="mt-3"></div>
                         </div>
-                        <div class="overflow-x-auto">
-                            <table class="min-w-full text-sm">
-                                <thead class="bg-gray-50 text-gray-600">
-                                    <tr>
-                                        <th class="text-left px-3 py-2">时间</th>
-                                        <th class="text-left px-3 py-2">类型</th>
-                                        <th class="text-left px-3 py-2">学校</th>
-                                        <th class="text-left px-3 py-2">大小</th>
-                                        <th class="text-left px-3 py-2">校验</th>
-                                        <th class="text-right px-3 py-2">操作</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="bkRestoreList" class="divide-y divide-gray-100">
-                                    <tr><td colspan="6" class="text-center text-gray-400 py-6">请先选择上方目标学校</td></tr>
-                                </tbody>
-                            </table>
+
+                        <!-- ===== Tab: 本地上传 ===== -->
+                        <div id="restoreSourceLocal" class="restore-source-pane hidden">
+                            <div id="restoreLocalDropZone" class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center bg-gray-50/50 hover:border-blue-400 hover:bg-blue-50/30 transition cursor-pointer">
+                                <input id="restoreLocalFileInput" type="file" multiple class="hidden" accept=".aes,.json,.gz,.sql,.sql.gz,.gz.aes">
+                                <i class="fas fa-cloud-upload-alt text-3xl text-gray-400 mb-2"></i>
+                                <div class="text-sm text-gray-700">
+                                    点击或拖拽上传本地备份文件
+                                </div>
+                                <div class="text-xs text-gray-500 mt-1">
+                                    支持 <code class="bg-gray-100 px-1 rounded font-mono">.aes</code>（加密备份）和 <code class="bg-gray-100 px-1 rounded font-mono">.meta.json</code>（元数据，可单独下载）；也可上传明文 <code class="bg-gray-100 px-1 rounded font-mono">.sql.gz</code>
+                                </div>
+                            </div>
+                            <div id="restoreLocalFileInfo" class="mt-3 hidden">
+                                <div class="flex items-center justify-between mb-2">
+                                    <div class="text-xs text-gray-600">
+                                        <i class="fas fa-paperclip mr-1 text-blue-500"></i>已选择本地文件：
+                                    </div>
+                                    <button type="button" id="restoreLocalClear" class="text-xs text-red-500 hover:text-red-600">
+                                        <i class="fas fa-times mr-1"></i>清除
+                                    </button>
+                                </div>
+                                <div id="restoreLocalFileList" class="flex flex-col gap-2"></div>
+                                <div class="text-xs text-gray-500 mt-2">
+                                    <i class="fas fa-info-circle mr-1 text-amber-500"></i>
+                                    上传的文件需在 <code class="bg-gray-100 px-1 rounded font-mono">.meta.json</code> 中含有 <code class="bg-gray-100 px-1 rounded font-mono">tableCounts</code> 与 <code class="bg-gray-100 px-1 rounded font-mono">checksum</code>，否则无法校验行数。
+                                </div>
+                            </div>
                         </div>
-                        <div id="restoreBackupPager" class="mt-3"></div>
+                    </div>
+
+                    <!-- ===== 卡片 3：流程确认与执行 ===== -->
+                    <div class="admin-card" id="restoreConfirmCard">
+                        <div class="flex items-center justify-between flex-wrap gap-3 mb-3">
+                            <div>
+                                <h3><i class="fas fa-clipboard-check text-emerald-500"></i>流程确认与执行</h3>
+                                <p class="text-xs text-gray-500">核对恢复摘要，确认后执行影子恢复</p>
+                            </div>
+                            <button id="restoreExecuteBtn" type="button" class="px-4 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition" disabled>
+                                <i class="fas fa-undo mr-1"></i>开始恢复
+                            </button>
+                        </div>
+                        <div id="restoreConfirmSummary" class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+                            <div class="bg-gray-50 rounded-lg p-3">
+                                <div class="text-xs text-gray-500 mb-1"><i class="fas fa-school mr-1 text-teal-500"></i>目标学校</div>
+                                <div id="restoreConfirmSchools" class="text-sm text-gray-800">未选择</div>
+                            </div>
+                            <div class="bg-gray-50 rounded-lg p-3">
+                                <div class="text-xs text-gray-500 mb-1"><i class="fas fa-database mr-1 text-blue-500"></i>备份数据源</div>
+                                <div id="restoreConfirmSource" class="text-sm text-gray-800">未选择</div>
+                            </div>
+                            <div class="bg-gray-50 rounded-lg p-3">
+                                <div class="text-xs text-gray-500 mb-1"><i class="fas fa-shield-alt mr-1 text-amber-500"></i>恢复模式</div>
+                                <div id="restoreConfirmMode" class="text-sm text-gray-800">未确认</div>
+                            </div>
+                        </div>
+                        <div id="restoreConfirmWarn" class="bg-red-50 border border-red-200 text-red-800 p-3 rounded text-xs mb-3">
+                            <i class="fas fa-exclamation-triangle mr-1"></i>
+                            <strong>危险操作</strong>：影子恢复过程会在临时 schema 还原并校验通过后，单事务原子切换当前生产 schema；
+                            失败则原数据零影响。一旦切换不可逆，请确认目标学校与数据源无误后再执行。
+                        </div>
+                        <div>
+                            <label class="block text-sm text-gray-600 mb-1">
+                                输入确认词
+                                <code id="restoreConfirmWord" class="bg-gray-100 px-1 rounded font-mono">RESTORE</code>
+                                以启用按钮：
+                            </label>
+                            <input id="restoreExecConfirm" type="text" placeholder="RESTORE" class="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono text-sm">
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <!-- ===== 单点恢复模态 ===== -->
-            <div id="bkRestoreModal" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center" style="z-index: 9999;">
-                <div class="bg-white rounded-xl shadow-2xl w-full max-w-md p-5">
-                    <div class="flex items-center justify-between mb-3">
-                        <h4 class="text-base font-semibold text-gray-800"><i class="fas fa-undo mr-1 text-red-500"></i>影子恢复</h4>
-                        <button id="bkRestoreClose" type="button" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
-                    </div>
-                    <p class="text-sm text-gray-600 mb-3">
-                        恢复目标学校：<b class="font-mono text-red-600" id="bkRestoreTargetCode">-</b>
-                        <br>备份文件：<b class="font-mono" id="bkRestoreFileName">-</b>
-                        <br>恢复前会把该学校 schema RENAME 成 <code class="bg-gray-100 px-1 rounded">school_&lt;code&gt;_old_&lt;ts&gt;</code> 暂存，再以目标备份重建。
-                        <br>恢复为不可逆操作，请确认后输入 <code class="bg-gray-100 px-1 rounded">RESTORE</code>：
-                    </p>
-                    <input id="bkRestoreConfirm" type="text" placeholder="RESTORE" class="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono">
-                    <div class="mt-3 flex justify-end gap-2">
-                        <button id="bkRestoreCancel" type="button" class="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200">取消</button>
-                        <button id="bkRestoreDo" type="button" class="px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50" disabled>确认恢复</button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ===== 批量恢复模态 ===== -->
-            <div id="bkBatchRestoreModal" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center" style="z-index: 9999;">
-                <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg p-5">
-                    <div class="flex items-center justify-between mb-3">
-                        <h4 class="text-base font-semibold text-gray-800"><i class="fas fa-layer-group mr-1 text-red-500"></i>批量恢复（全局备份）</h4>
-                        <button id="bkBatchRestoreClose" type="button" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
-                    </div>
-                    <div class="bg-red-50 border border-red-200 text-red-800 p-3 rounded text-xs mb-3">
-                        <i class="fas fa-exclamation-triangle mr-1"></i>
-                        <strong>危险操作</strong>：将对所选学校逐一执行影子恢复（每校独立事务、原子切换），覆盖各校当前生产数据。
-                        <br>大事故应急用；恢复过程中请勿关闭页面，逐校结果完成后统一返回。
-                    </div>
-                    <p class="text-sm text-gray-600 mb-2">
-                        备份记录：<b class="font-mono" id="bkBatchRestoreTarget">-</b>（全局）
-                        <br>目标学校：<b id="bkBatchRestoreCount">0</b> 所
-                    </p>
-                    <div id="bkBatchSchoolList" class="text-sm text-gray-400 text-center py-3">加载学校列表…</div>
-                    <div class="mt-3">
-                        <label class="block text-sm text-gray-600 mb-1">
-                            输入确认词 <code class="bg-gray-100 px-1 rounded font-mono">RESTORE_ALL</code> 以启用按钮：
-                        </label>
-                        <input id="bkBatchRestoreConfirm" type="text" placeholder="RESTORE_ALL" class="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono">
-                    </div>
-                    <div class="mt-4 flex justify-end gap-2">
-                        <button id="bkBatchRestoreCancel" type="button" class="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200">取消</button>
-                        <button id="bkBatchRestoreDo" type="button" class="px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50" disabled>确认批量恢复</button>
-                    </div>
-                </div>
-            </div>
+            <!-- ===== 单点恢复模态（已并入流程确认与执行卡片，保留空 div 占位以兼容可能的旧绑定） ===== -->
+            <div id="bkRestoreModal" class="hidden"></div>
+            <!-- ===== 批量恢复模态（已并入流程确认与执行卡片，保留空 div 占位以兼容可能的旧绑定） ===== -->
+            <div id="bkBatchRestoreModal" class="hidden"></div>
         </div>
     </section>
 

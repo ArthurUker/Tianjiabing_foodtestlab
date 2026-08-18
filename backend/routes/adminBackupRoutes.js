@@ -15,12 +15,25 @@
 import express from 'express'
 import path from 'node:path'
 import fs from 'node:fs'
+import fsp from 'node:fs/promises'
+import os from 'node:os'
+import crypto from 'node:crypto'
 import { runBackup } from '../lib/backupService.js'
 import { verifyBackupFile } from '../lib/backupVerify.js'
 import { runRestore } from '../lib/restoreService.js'
 import { writeAdminOpsLog } from '../lib/auditLog.js'
 
 const TAG = '[adminBackupRoutes]'
+
+/** 把 base64 字符串还原为 Buffer。容错：去掉 data:*;base64, 前缀与空白。 */
+function decodeBase64(b64) {
+  if (!b64 || typeof b64 !== 'string') throw new Error('base64 内容为空')
+  const cleaned = b64.replace(/^data:[^;]+;base64,/, '').replace(/\s+/g, '')
+  return Buffer.from(cleaned, 'base64')
+}
+
+/** 上传恢复最大文件大小（明文 .sql.gz 通常 < 50MB，加密 .aes 再小一些；上限 100MB 防御）。 */
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 
 export function createAdminBackupRoutes({ prisma, authenticateUser, requirePlatformSuperAdmin }) {
   const router = express.Router()
@@ -180,6 +193,181 @@ export function createAdminBackupRoutes({ prisma, authenticateUser, requirePlatf
     } catch (e) {
       console.error(`${TAG} 验证失败:`, e)
       res.status(500).json({ success: false, error: e.message || '验证失败' })
+    }
+  })
+
+  // ── POST /api/admin/backups/restore-from-upload ────────────────────────────
+  // 本地文件恢复（前端"本地上传"Tab）。接收：
+  //   { confirmText: 'RESTORE'|'RESTORE_ALL',
+  //     targetSchoolCode?: string,        // 单点
+  //     targetSchoolCodes?: string[],     // 批量
+  //     data: { filename, contentBase64, size },   // 必填：备份文件（.aes / .sql.gz / .sql）
+  //     meta?: { filename, contentBase64 }         // 可选：.meta.json
+  //   }
+  // 流程：保存到 tmpdir → 构造虚拟 BackupRun → 复用 runRestore。临时文件 finally 清理。
+  router.post('/restore-from-upload', async (req, res) => {
+    const startedAt = Date.now()
+    const tmpFiles = []
+    const cleanup = async () => {
+      for (const f of tmpFiles) {
+        try { await fsp.unlink(f) } catch (_) { /* ignore */ }
+      }
+    }
+    try {
+      const { confirmText, targetSchoolCode, targetSchoolCodes, data, meta: metaIn } = req.body || {}
+      const isBatch = !targetSchoolCode && Array.isArray(targetSchoolCodes) && targetSchoolCodes.length > 0
+      const codes = isBatch
+        ? [...new Set((targetSchoolCodes || []).filter((c) => typeof c === 'string').map((c) => c.trim()).filter(Boolean))]
+        : (typeof targetSchoolCode === 'string' && targetSchoolCode.trim() ? [targetSchoolCode.trim()] : [])
+
+      if (isBatch) {
+        if (confirmText !== 'RESTORE_ALL') return res.status(400).json({ success: false, error: '批量恢复必须输入确认词 RESTORE_ALL' })
+        if (codes.length === 0) return res.status(400).json({ success: false, error: '缺少 targetSchoolCodes' })
+        if (codes.length > 200) return res.status(400).json({ success: false, error: `一次批量恢复最多 200 所学校（当前 ${codes.length} 所），请分批执行` })
+      } else {
+        if (confirmText !== 'RESTORE') return res.status(400).json({ success: false, error: '必须输入确认词 RESTORE' })
+        if (codes.length !== 1) return res.status(400).json({ success: false, error: '缺少 targetSchoolCode（仅 1 所）' })
+      }
+      if (!data || typeof data.contentBase64 !== 'string') {
+        return res.status(400).json({ success: false, error: '缺少 data（备份文件内容）' })
+      }
+      const size = Number(data.size) || 0
+      if (size > MAX_UPLOAD_BYTES) {
+        return res.status(413).json({ success: false, error: `备份文件过大（${size} bytes），单次上传上限 ${MAX_UPLOAD_BYTES} bytes` })
+      }
+
+      // 保存 .aes（或明文临时文件）
+      const dataBuf = decodeBase64(data.contentBase64)
+      if (dataBuf.length > MAX_UPLOAD_BYTES) {
+        return res.status(413).json({ success: false, error: `备份文件过大（${dataBuf.length} bytes），单次上传上限 ${MAX_UPLOAD_BYTES} bytes` })
+      }
+      const runId = `upload-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`
+      const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'restore-upload-'))
+      const safeName = (data.filename || 'backup.bin').replace(/[^a-zA-Z0-9._-]/g, '_')
+      const aesName = safeName.endsWith('.aes') ? safeName : `${safeName}.sql.gz.aes`
+      const aesPath = path.join(tmpDir, `${runId}-${aesName}`)
+      let metaPath = null
+      let meta = null
+
+      const lower = safeName.toLowerCase()
+      const isEncrypted = lower.endsWith('.aes')
+
+      // 1) 加密备份（.aes）：要求 meta.json
+      if (isEncrypted) {
+        if (!metaIn || typeof metaIn.contentBase64 !== 'string') {
+          await cleanup()
+          return res.status(400).json({ success: false, error: '加密备份必须配套上传 meta.json' })
+        }
+        const metaBuf = decodeBase64(metaIn.contentBase64)
+        metaPath = aesPath.replace(/\.sql\.gz\.aes$/, '.meta.json')
+        await fsp.writeFile(aesPath, dataBuf)
+        await fsp.writeFile(metaPath, metaBuf)
+        tmpFiles.push(aesPath, metaPath)
+        try {
+          meta = JSON.parse(metaBuf.toString('utf8'))
+        } catch (e) {
+          await cleanup()
+          return res.status(400).json({ success: false, error: `meta.json 解析失败：${e.message}` })
+        }
+      } else {
+        // 2) 明文 .sql.gz 或 .sql：要求 BACKUP_PLAIN_DOWNLOAD_ALLOWED=true（与明文下载同策略）。
+        //    临时加密成 .aes + 写 meta.json，再走 runRestore（保证走标准解密/校验路径）。
+        if (process.env.BACKUP_PLAIN_DOWNLOAD_ALLOWED !== 'true') {
+          await cleanup()
+          return res.status(403).json({
+            success: false,
+            error: '明文上传被服务端禁止：公网 HTTP 下明文恢复=数据裸奔。请启用 HTTPS/内网后设置 BACKUP_PLAIN_DOWNLOAD_ALLOWED=true',
+          })
+        }
+        const { encryptFile } = await import('../lib/backupKms.js')
+        const { cipherBuf, meta: encMeta } = await encryptFile(dataBuf)
+        metaPath = aesPath.replace(/\.sql\.gz\.aes$/, '.meta.json')
+        await fsp.writeFile(aesPath, cipherBuf)
+        await fsp.writeFile(metaPath, JSON.stringify(encMeta, null, 2))
+        tmpFiles.push(aesPath, metaPath)
+        meta = encMeta
+      }
+
+      // 3) 构造虚拟 BackupRun。scope 优先取自 meta；缺省推断：含 tableCounts 键含 '.'（schema.table）多为多 schema 全库，
+      //    含 schoolCode 为单点；兜底 all。
+      const tc = meta?.tableCounts || {}
+      const tcCount = Object.keys(tc).length
+      const scope = meta?.scope || (tcCount > 0 && Object.keys(tc).some((k) => /\.school_/i.test(k)) && Object.keys(tc).some((k) => !k.startsWith('school_')) ? 'all' : 'single')
+      const schoolCode = meta?.schoolCode || (scope === 'single' ? (isBatch ? codes[0] : codes[0]) : null)
+
+      const fakeRun = {
+        id: runId,
+        scope,
+        schema_name: scope === 'single' ? `school_${schoolCode}` : null,
+        school_code: schoolCode,
+        file_path: aesPath,
+        table_counts: meta?.tableCounts || null,
+        checksum: meta?.sha256 || null,
+        encrypted: true,
+        verify_status: 'pending',
+      }
+
+      const actor = { userId: req.user?.userId, username: req.user?.username, role: req.user?.role, schoolCode: null, ip: req.ip }
+
+      // 4) 复用 runRestore 执行恢复
+      if (isBatch) {
+        // 仅全库备份支持（与 /restore-batch 同策略：明文/加密全库 dump 含多 schema 段，按目标学校提取）
+        if (scope !== 'all') {
+          await cleanup()
+          return res.status(400).json({ success: false, error: '批量恢复仅支持全库备份（meta.scope=all 或 tableCounts 含多 schema）' })
+        }
+        const results = []
+        for (const code of codes) {
+          try {
+            const r = await runRestore({ prisma, backup: fakeRun, targetSchoolCode: code, actor })
+            results.push({ schoolCode: code, ok: r.ok, schema: r.schema, checks: r.checks, error: r.error || null })
+          } catch (e) {
+            results.push({ schoolCode: code, ok: false, schema: null, checks: [], error: e.message || String(e) })
+          }
+        }
+        const okCount = results.filter((r) => r.ok).length
+        const elapsedMs = Date.now() - startedAt
+        await writeAdminOpsLog(prisma, {
+          action: 'backup_restore_batch_upload',
+          actor,
+          targetId: runId,
+          targetSchoolCode: null,
+          details: { requested: codes.length, succeeded: okCount, failed: codes.length - okCount, schools: codes, results, sourceFile: data.filename, elapsedMs },
+          level: okCount === codes.length ? 'warn' : 'error',
+        })
+        await cleanup()
+        return res.json({
+          success: okCount === codes.length,
+          data: { requested: codes.length, succeeded: okCount, failed: codes.length - okCount, elapsedMs, results },
+        })
+      }
+
+      // 单点恢复
+      if (scope === 'single' && fakeRun.school_code && fakeRun.school_code !== codes[0]) {
+        await cleanup()
+        return res.status(400).json({ success: false, error: `该备份属于学校 ${fakeRun.school_code}，不能恢复到 ${codes[0]}` })
+      }
+      const r = await runRestore({ prisma, backup: fakeRun, targetSchoolCode: codes[0], actor })
+      await writeAdminOpsLog(prisma, {
+        action: r.ok ? 'backup_restore_upload' : 'backup_restore_upload_failed',
+        actor,
+        targetId: runId,
+        targetSchoolCode: codes[0],
+        details: { ok: r.ok, schema: r.schema, sourceFile: data.filename, error: r.error || null },
+        level: r.ok ? 'warn' : 'error',
+      })
+      await cleanup()
+      return res.json({
+        success: r.ok,
+        checks: r.checks,
+        error: r.error || null,
+        schema: r.schema,
+        oldSchema: r.oldSchema,
+      })
+    } catch (e) {
+      await cleanup()
+      console.error(`${TAG} 本地恢复失败:`, e)
+      res.status(500).json({ success: false, error: e.message || '本地恢复失败' })
     }
   })
 
