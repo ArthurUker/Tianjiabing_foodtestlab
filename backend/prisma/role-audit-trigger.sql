@@ -64,13 +64,18 @@ BEGIN
     gen_random_uuid()::text,
     OLD.id,
     OLD.id,
+    -- P1-4 后续：AuditLog.details 已升级为 jsonb（见 migrations/20260814040000_json_fields_to_jsonb），
+    -- 必须 ::jsonb 显式转换；::text 会触发 PG 42804「expression is of type text」拒写。
+    -- 这里选 ::jsonb 而非省掉 cast：plpgsql 的 EXECUTE format + USING 路径下，省略 cast 走
+    -- 「json → jsonb」隐式转换，部分 PG 版本会保持 json 字节序而牺牲 jsonb 的二进制去重/索引收益；
+    -- 显式 ::jsonb 保证与其它应用层写入（writeTenantAuditLog）口径一致。
     json_build_object(
       'targetUserId', OLD.id,
       'targetUsername', OLD.username,
       'oldRole', OLD.role,
       'newRole', NEW.role,
       'source', CASE WHEN v_actor_id IS NULL THEN 'db-direct' ELSE 'app' END
-    )::text;
+    )::jsonb;
 
   -- 全量吊销会话（兜底 #7）：任何角色变更都让旧 token 即刻失效。
   -- 与 revokeAllUserTokens(token_type='user_all') 等价，覆盖裸 SQL 路径。
