@@ -222,4 +222,31 @@ describe('extractSchemaSegment', () => {
     expect(seg).toContain('CREATE TABLE school_hqyz."User"')
     expect(seg).toContain('COPY school_hqyz."User"')
   })
+
+  test('真实 pg_dump SCHEMA section：Schema: - 但 Name 为目标 schema 时保留 CREATE SCHEMA', () => {
+    // PG14 全库备份中 CREATE SCHEMA 的段锚点是：
+    //   -- Name: school_hqyz; Type: SCHEMA; Schema: -; Owner: -
+    // 旧实现按 Schema 字段判断（为 -），会整段丢弃，导致恢复时影子 schema 不存在。
+    const sql = [
+      'SET statement_timeout = 0;',
+      'SELECT pg_catalog.set_config(\'search_path\', \'\', false);',
+      '',
+      '-- Name: public; Type: SCHEMA; Schema: -; Owner: -',
+      'CREATE SCHEMA public;',
+      '',
+      '-- Name: school_hqyz; Type: SCHEMA; Schema: -; Owner: -',
+      'CREATE SCHEMA school_hqyz;',
+      '',
+      '-- Name: school_other; Type: SCHEMA; Schema: -; Owner: -',
+      'CREATE SCHEMA school_other;',
+      '',
+      '-- Name: school_hqyz."User"; Type: TABLE; Schema: school_hqyz; Owner: -',
+      'CREATE TABLE school_hqyz."User" (id text);',
+    ].join('\n')
+    const seg = extractSchemaSegment(sql, 'school_hqyz')
+    expect(seg).toContain('CREATE SCHEMA school_hqyz;')
+    expect(seg).not.toContain('CREATE SCHEMA public;')
+    expect(seg).not.toContain('CREATE SCHEMA school_other;')
+    expect(seg).toContain('CREATE TABLE school_hqyz."User"')
+  })
 })

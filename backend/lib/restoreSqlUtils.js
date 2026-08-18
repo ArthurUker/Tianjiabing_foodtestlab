@@ -130,15 +130,24 @@ export function extractSchemaSegment(sql, schema) {
     // 3) pg_dump 段锚点：以"段"为单位整体保留 / 丢弃。
     //    修复 TD-Backup-Restore-Extract-Bug 的核心——整段从 `Name:` 行开始到下一个
     //    `Name:` 行之前，不做任何括号/dollar-quote 解析，避免 PL/pgSQL/复杂 CHECK 误判。
+    //    ⚠️ SCHEMA 对象特殊：pg_dump 对 CREATE SCHEMA 的段头写作
+    //       `-- Name: school_x; Type: SCHEMA; Schema: -; Owner: -`
+    //       其中 Schema 字段是 `-`（SCHEMA 本身不属于任何 schema），必须用 Name 字段判断归属。
     if (looksLikeSectionHeader(i)) {
       const m = lines[i].match(SECTION_HEADER_RE)
+      const sectionType = m[2].trim()
+      const sectionName = m[1].trim().replace(/^"|"$/g, '')
       const sectionSchema = m[3].trim()
+      // 判断该段是否属于目标 schema：普通对象看 Schema 字段；SCHEMA 对象看 Name 字段。
+      const belongsToTarget = sectionType.toUpperCase() === 'SCHEMA'
+        ? sectionName === schema || sectionName === `"${schema}"`
+        : sectionSchema === schema
       // 定位下一段头（下一个 `Name:` 行）
       let nextHeaderIdx = lines.length
       for (let scan = i + 1; scan < lines.length; scan++) {
         if (looksLikeSectionHeader(scan)) { nextHeaderIdx = scan; break }
       }
-      if (sectionSchema === schema) {
+      if (belongsToTarget) {
         // 落地：一行 `Name: ...` 锚点 + 段内所有内容（CREATE/ALTER/COPY/函数体/数据行）
         out.push(lines[i])
         for (let k = i + 1; k < nextHeaderIdx; k++) out.push(lines[k])
