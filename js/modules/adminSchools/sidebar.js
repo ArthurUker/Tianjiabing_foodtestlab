@@ -13,6 +13,7 @@
  * @param {object} views 子视图切换函数（全部可选，缺失时对应视图仅做显隐切换）
  * @param {Function} [views.switchSchoolsSubview]  学校管理（页面 module script 提供）
  * @param {Function} [views.switchAccountsSubview] 账号与权限（views/accountsView.js 提供）
+ * @param {Function} [views.switchAuditSubview]    审计日志（views/auditView.js 提供）
  * @param {Function} [views.switchBackupSubview]   备份运维（views/backupView.js 提供）
  * @param {Function} [views.switchReportsSubview]  测试报告（由本模块内置处理，见 switchTo 中的 reports 分支）
  * @returns {{ switchTo: (viewName: string, opts?: { subview?: string }) => void }}
@@ -64,6 +65,7 @@ function switchDefaultReports(subName) {
 export function initAdminSidebar({
     switchSchoolsSubview,
     switchAccountsSubview,
+    switchAuditSubview,
     switchBackupSubview,
     switchReportsSubview,
 } = {}) {
@@ -139,6 +141,14 @@ export function initAdminSidebar({
             }
         }
 
+        // audit 视图：按指定 subview 渲染主区（默认 console）
+        if (viewName === 'audit') {
+            const subName = opts.subview || 'console';
+            if (typeof switchAuditSubview === 'function') {
+                switchAuditSubview(subName);
+            }
+        }
+
         // backup 视图：按指定 subview 渲染主区（默认 all）
         if (viewName === 'backup') {
             const subName = opts.subview || 'all';
@@ -165,11 +175,63 @@ export function initAdminSidebar({
             const hash = opts.subview ? '#view=' + viewName + '&subview=' + opts.subview : '#view=' + viewName;
             history.replaceState(null, '', hash);
         } catch (e) { /* file:// 等场景下 history.replaceState 可能抛错 */ }
+
+        // 同步侧边栏底部说明：一级菜单介绍 + 当前激活的二级菜单介绍
+        // 使用 requestAnimationFrame，确保各子视图切换函数已同步完 active 态
+        requestAnimationFrame(updateSidebarHint);
+    }
+
+    /**
+     * 根据当前激活的一级/二级菜单更新底部说明区。
+     * 一级菜单说明 + 二级菜单说明分两行显示，均读取 DOM 上的 data-desc。
+     */
+    function updateSidebarHint() {
+        const container = document.getElementById('adminSidebarHint');
+        if (!container) return;
+
+        const activeItem = sidebar.querySelector('.admin-sidebar__item.active');
+        const activeSub = sidebar.querySelector('.admin-sidebar__subitem.active');
+        const itemDesc = activeItem?.getAttribute('data-desc');
+        const subDesc = activeSub?.getAttribute('data-desc');
+
+        let html = '';
+        if (itemDesc) {
+            html += '<div><i class="fas fa-info-circle mr-1"></i>' + escapeHtml(itemDesc) + '</div>';
+        }
+        if (subDesc && subDesc !== itemDesc) {
+            html += '<div class="mt-1"><i class="fas fa-chevron-right mr-1 text-[10px]"></i>' + escapeHtml(subDesc) + '</div>';
+        }
+
+        container.innerHTML = html || '<i class="fas fa-info-circle mr-1"></i>请选择左侧菜单查看对应功能说明';
+    }
+
+    function escapeHtml(text) {
+        if (text == null) return '';
+        return String(text)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
     }
 
     // 一级菜单点击
     items.forEach((it) => {
-        it.addEventListener('click', () => switchTo(it.getAttribute('data-view')));
+        it.addEventListener('click', () => {
+            const viewName = it.getAttribute('data-view');
+            const isActive = it.classList.contains('active');
+            const hasSubnav = it.classList.contains('has-subnav');
+            // 若已激活且带二级菜单：点击切换（收起/展开）二级菜单，而非重新打开
+            if (isActive && hasSubnav) {
+                const subnav = document.querySelector('.admin-sidebar__subnav[data-subnav="' + viewName + '"]');
+                const willExpand = !it.classList.contains('expanded');
+                it.classList.toggle('expanded', willExpand);
+                if (subnav) subnav.classList.toggle('expanded', willExpand);
+                updateSidebarHint();
+                return;
+            }
+            switchTo(viewName);
+        });
     });
 
     // 二级菜单点击（学校管理：学校列表 / 回收站 / 5 个学校配置）
@@ -179,14 +241,21 @@ export function initAdminSidebar({
         });
     });
 
-    // 二级菜单点击（账号与权限：平台超管 / 学校用户 / 审计日志）
+    // 二级菜单点击（账号与权限：平台超管 / 学校用户）
     document.querySelectorAll('[data-subnav="accounts"] .admin-sidebar__subitem[data-subview]').forEach((sub) => {
         sub.addEventListener('click', () => {
             switchTo('accounts', { subview: sub.getAttribute('data-subview') });
         });
     });
 
-    // 二级菜单点击（备份运维：全部 / 按学校）
+    // 二级菜单点击（审计日志：控制台审计日志 / 学校审计日志）
+    document.querySelectorAll('[data-subnav="audit"] .admin-sidebar__subitem[data-subview]').forEach((sub) => {
+        sub.addEventListener('click', () => {
+            switchTo('audit', { subview: sub.getAttribute('data-subview') });
+        });
+    });
+
+    // 二级菜单点击（备份运维：全局备份 / 单点备份 / 恢复管理）
     document.querySelectorAll('[data-subnav="backup"] .admin-sidebar__subitem[data-subview]').forEach((sub) => {
         sub.addEventListener('click', () => {
             switchTo('backup', { subview: sub.getAttribute('data-subview') });
@@ -336,6 +405,9 @@ export function initAdminSidebar({
     } else {
         switchTo('overview');
     }
+
+    // 初始加载也更新一次底部说明
+    requestAnimationFrame(updateSidebarHint);
 
     return { switchTo };
 }
