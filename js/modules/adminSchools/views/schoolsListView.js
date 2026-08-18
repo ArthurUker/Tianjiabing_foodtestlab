@@ -28,13 +28,23 @@ export function schoolLoginUrl(code) {
 
 // RBAC 收敛：学校租户预览窗口（超管以 iframe 预览该校登录页/网页，不进入该校业务数据）
 function openPreviewSchool(code) {
-    const school = state.allSchools.find(s => s.code === code);
+    console.log('[preview] click', code, 'allSchools=', state.allSchools);
+    const list = Array.isArray(state.allSchools) ? state.allSchools : [];
+    const school = list.find(s => s.code === code);
     const name = school ? (school.name || code) : code;
     const url = schoolLoginUrl(code);
+    const modal = document.getElementById('previewSchoolModal');
+    if (!modal) {
+        console.error('[preview] modal #previewSchoolModal not found in DOM');
+        showNotice('预览窗口未找到，请刷新页面重试', 'error');
+        return;
+    }
     document.getElementById('previewSchoolTitle').textContent = `${name} (${code})`;
     document.getElementById('previewSchoolOpenLink').href = url;
     document.getElementById('previewSchoolFrame').src = url;
-    document.getElementById('previewSchoolModal').classList.remove('hidden');
+    modal.classList.remove('hidden');
+    const cs = getComputedStyle(modal);
+    console.log('[preview] opened', url, '| display:', cs.display, 'position:', cs.position, 'zIndex:', cs.zIndex, 'visibility:', cs.visibility, 'opacity:', cs.opacity);
 }
 function closePreviewSchool() {
     document.getElementById('previewSchoolModal').classList.add('hidden');
@@ -120,7 +130,7 @@ function renderSchools() {
                 <button class="px-2 py-1 text-xs bg-emerald-50 text-emerald-700 rounded hover:bg-emerald-100 transition btn-preview-school" data-code="${escapeHtml(s.code)}" title="在超管界面预览该校租户网页（iframe）"><i class="fas fa-eye mr-1"></i>预览</button>
                 <button class="px-2 py-1 text-xs bg-blue-50 text-blue-700 rounded hover:bg-blue-100 transition btn-manage" data-code="${escapeHtml(s.code)}"><i class="fas fa-cog mr-1"></i>管理</button>
                 <button class="px-2 py-1 text-xs bg-red-50 text-red-700 rounded hover:bg-red-100 transition btn-delete-school" data-code="${escapeHtml(s.code)}" title="停用该校（数据保留）"><i class="fas fa-trash mr-1"></i>停用</button>
-                ${s.status === 'disabled' ? `<button class="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition btn-hard-delete" data-code="${escapeHtml(s.code)}" title="彻底删除（移入回收站，90 天内可恢复）"><i class="fas fa-eraser mr-1"></i>彻底删除</button>` : ''}
+                ${s.status === 'disabled' ? `<button class="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition btn-hard-delete" data-code="${escapeHtml(s.code)}" title="移入回收站（90 天内可恢复）"><i class="fas fa-recycle mr-1"></i>移入回收站</button>` : ''}
             </div></td>
         </tr>
     `).join('');
@@ -171,7 +181,9 @@ function renderSchools() {
         btn.addEventListener('click', () => gotoDetail(btn.dataset.code));
     });
     // RBAC 收敛：学校租户预览窗口（超管以 iframe 预览该校网页，无需进入该校业务数据）
-    tbody.querySelectorAll('.btn-preview-school').forEach(btn => {
+    const previewBtns = tbody.querySelectorAll('.btn-preview-school');
+    console.log('[preview] bind', previewBtns.length, 'buttons');
+    previewBtns.forEach(btn => {
         btn.addEventListener('click', () => openPreviewSchool(btn.dataset.code));
     });
 
@@ -196,11 +208,11 @@ function renderSchools() {
     tbody.querySelectorAll('.btn-hard-delete').forEach(btn => {
         btn.addEventListener('click', async () => {
             const code = btn.dataset.code;
-            if (!confirm(`⚠️ 即将彻底删除学校「${code}」\n\n• 该校数据将移入回收站\n• 90 天内可恢复\n• 90 天后需手动清除后不可恢复\n\n确定继续吗？`)) return;
+            if (!confirm(`⚠️ 即将把学校「${code}」移入回收站\n\n• 该校数据会被保留并移入回收站\n• 90 天内可随时恢复\n• 90 天后需手动清除，清除后不可恢复\n\n确定继续吗？`)) return;
             try {
                 const resp = await adminFetch(`/api/admin/schools/${code}/hard`, { method: 'DELETE' });
                 const data = await resp.json();
-                if (!resp.ok) throw new Error(data.error || '彻底删除失败');
+                if (!resp.ok) throw new Error(data.error || '移入回收站失败');
                 showNotice(data.message || `✅ 学校 ${code} 已移入回收站`, 'success');
                 loadSchools();
             } catch (e) {
@@ -222,7 +234,7 @@ export async function loadRecycleBin() {
         // 不应再出现在回收站列表里。后端 SQL 已过滤，这里前端再过滤一次作双重保险 + UI 意图清晰。
         const items = (data.data || []).filter((it) => it.status !== 'restored');
         if (!items.length) {
-            listEl.innerHTML = '<p class="text-sm text-gray-400">回收站为空，暂无已彻底删除的学校。</p>';
+            listEl.innerHTML = '<p class="text-sm text-gray-400">回收站为空，暂无已移入回收站的学校。</p>';
             return;
         }
         const rows = items.map((it) => {
@@ -367,7 +379,7 @@ export async function loadRecycleBin() {
             btn.addEventListener('click', () => {
                 const code = btn.dataset.code;
                 if (!code) return;
-                showNotice('请在「学校管理」列表选中该校 → 操作列的「删除」按钮即可触发彻底删除（不再经回收站）。', 'info');
+                showNotice('请在「学校管理」列表选中该校 → 操作列的「移入回收站」按钮即可触发移入回收站（不再经回收站）。', 'info');
                 switchSchoolsSubview && switchSchoolsSubview('list');
             });
         });
