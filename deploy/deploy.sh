@@ -389,8 +389,11 @@ BACKEND_ENV="$REPO_ROOT/backend/.env"
 # 密钥复用：conf 未显式提供时，复用现有 .env 中已生成的密钥，避免重部署重新随机
 # 导致 (1) PG 角色密码不匹配 / (2) JWT 失效需重新登录 / (3) seed 账号 password_hash
 # 与 .env 不一致（登录失败）。仅首次部署（无旧 .env）才会真正生成随机值。
+# 2026-08-18：新增 BACKUP_MASTER_KEY / TENCENT_* 复用 —— 备份加密密钥一旦丢失，
+# 已用该密钥加密的 .aes 备份将永久无法解密，故重部署必须保留（TD-School-Backup-Sync）。
 if [ -f "$BACKEND_ENV" ]; then
-  for k in PG_PASSWORD JWT_SECRET SEED_ADMIN_PASSWORD SEED_OPERATOR_PASSWORD SEED_VIEWER_PASSWORD; do
+  for k in PG_PASSWORD JWT_SECRET SEED_ADMIN_PASSWORD SEED_OPERATOR_PASSWORD SEED_VIEWER_PASSWORD \
+           BACKUP_MASTER_KEY TENCENT_SECRET_ID TENCENT_SECRET_KEY TENCENT_KMS_REGION TENCENT_KMS_KEY_ID; do
     [ -n "${!k}" ] && continue
     v=$(grep -E "^${k}=" "$BACKEND_ENV" 2>/dev/null | head -1 | cut -d= -f2-)
     [ -n "$v" ] && eval "$k=\"$v\""
@@ -444,6 +447,11 @@ SEED_OPERATOR_PASSWORD=$SEED_OPERATOR_PASSWORD
 SEED_VIEWER_PASSWORD=$SEED_VIEWER_PASSWORD
 BACKUP_DIR=$BACKUP_DIR
 BACKUP_KEEP_DAYS=$BACKUP_KEEP_DAYS
+BACKUP_MASTER_KEY=$BACKUP_MASTER_KEY
+TENCENT_SECRET_ID=$TENCENT_SECRET_ID
+TENCENT_SECRET_KEY=$TENCENT_SECRET_KEY
+TENCENT_KMS_REGION=$TENCENT_KMS_REGION
+TENCENT_KMS_KEY_ID=$TENCENT_KMS_KEY_ID
 EOF
 # DS-19：机密文件权限收紧到 600 并归属非 root 服务用户（系统用户已在 §3 创建），
 # 避免同机其它用户读到 DATABASE_URL / JWT_SECRET / SEED_* 等机密。
