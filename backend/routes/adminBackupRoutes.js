@@ -204,10 +204,15 @@ export function createAdminBackupRoutes({ prisma, authenticateUser, requirePlatf
       if (!Array.isArray(targetSchoolCodes) || targetSchoolCodes.length === 0) {
         return res.status(400).json({ success: false, error: '缺少 targetSchoolCodes（至少一个学校代码）' })
       }
-      // 去重 + 去空
-      const codes = [...new Set(targetSchoolCodes.map((c) => String(c).trim()).filter(Boolean))]
+      // 去重 + 去空 + 只保留字符串（防 [object Object] 注入）
+      const codes = [...new Set(targetSchoolCodes.filter((c) => typeof c === 'string').map((c) => c.trim()).filter(Boolean))]
       if (codes.length === 0) {
         return res.status(400).json({ success: false, error: 'targetSchoolCodes 均为空' })
+      }
+      // 上限保护：防误操作/恶意请求一次恢复过多学校（每校一次完整恢复，代价高）
+      const MAX_BATCH_SCHOOLS = 200
+      if (codes.length > MAX_BATCH_SCHOOLS) {
+        return res.status(400).json({ success: false, error: `一次批量恢复最多 ${MAX_BATCH_SCHOOLS} 所学校（当前 ${codes.length} 所），请分批执行` })
       }
       // 仅全库备份支持批量（见顶部注释）
       if (run.scope !== 'all') {
@@ -216,6 +221,7 @@ export function createAdminBackupRoutes({ prisma, authenticateUser, requirePlatf
       const actor = { userId: req.user?.userId, username: req.user?.username, role: req.user?.role, schoolCode: null, ip: req.ip }
       // 串行逐校恢复：每校独立事务，一校失败不影响其它
       const results = []
+      const startedAt = Date.now()
       for (const code of codes) {
         try {
           const r = await runRestore({ prisma, backup: run, targetSchoolCode: code, actor })
@@ -225,15 +231,32 @@ export function createAdminBackupRoutes({ prisma, authenticateUser, requirePlatf
         }
       }
       const okCount = results.filter((r) => r.ok).length
+      const elapsedMs = Date.now() - startedAt
       await writeAdminOpsLog(prisma, {
         action: 'backup_restore_batch',
         actor,
         targetId: run.id,
         targetSchoolCode: null,
-        details: { requested: codes.length, succeeded: okCount, failed: codes.length - okCount, schools: codes },
+        details: {
+          requested: codes.length,
+          succeeded: okCount,
+          failed: codes.length - okCount,
+          schools: codes,
+          results, // 逐校明细（含成功/失败原因）
+          elapsedMs,
+        },
         level: okCount === codes.length ? 'warn' : 'error',
       })
-      res.json({ success: okCount === codes.length, data: { requested: codes.length, succeeded: okCount, failed: codes.length - okCount, results } })
+      res.json({
+        success: okCount === codes.length,
+        data: {
+          requested: codes.length,
+          succeeded: okCount,
+          failed: codes.length - okCount,
+          elapsedMs,
+          results,
+        },
+      })
     } catch (e) {
       console.error(`${TAG} 批量恢复失败:`, e)
       res.status(500).json({ success: false, error: e.message || '批量恢复失败' })

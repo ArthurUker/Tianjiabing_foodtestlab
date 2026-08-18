@@ -355,11 +355,11 @@ export function initBackupView() {
                 wrap.innerHTML = '<div class="text-sm text-gray-400 text-center py-4">无可用学校，请先在「学校管理」创建</div>';
                 return;
             }
-            // 全选 + 搜索过滤（简单版：直接全渲染，量大时浏览器原生下拉滚动）
+            // 全选 + 全部列表（量大时浏览器原生下拉滚动）
             wrap.innerHTML = `
                 <div class="flex items-center gap-2 mb-2">
                     <label class="text-xs text-gray-500 flex items-center gap-1"><input type="checkbox" id="bkBatchSelectAll"> 全选</label>
-                    <span class="text-xs text-gray-400">已选 <b id="bkBatchCount">0</b> 所</span>
+                    <span class="text-xs text-gray-400">共 <b>${bkBatchSchools.length}</b> 所可选 · 已选 <b id="bkBatchCount">0</b> 所</span>
                 </div>
                 <div class="max-h-64 overflow-y-auto border border-gray-200 rounded-lg divide-y divide-gray-100">
                     ${bkBatchSchools.map((s) => `
@@ -422,13 +422,20 @@ export function initBackupView() {
                 });
                 const j = await res.json();
                 if (res.ok) {
-                    // 展示逐校结果
+                    // 展示逐校结果：成功学校只列数，失败学校列出代码 + 原因（50 校不全刷屏）
                     const results = (j.data && j.data.results) || [];
-                    const lines = results.map((r) =>
-                        `${r.ok ? '✅' : '❌'} ${r.schoolCode}  ${r.ok ? '' : (r.error || '失败')}`
-                    ).join('\n');
-                    const summary = `请求 ${j.data?.requested} 所，成功 ${j.data?.succeeded} 所，失败 ${j.data?.failed} 所`;
-                    alert(`批量恢复完成\n${summary}\n\n${lines || '(无结果)'}`);
+                    const failed = results.filter((r) => !r.ok);
+                    const successCount = results.length - failed.length;
+                    const summary = `请求 ${j.data?.requested} 所，成功 ${j.data?.succeeded || successCount} 所，失败 ${j.data?.failed || failed.length} 所${j.data?.elapsedMs ? `，耗时 ${Math.round(j.data.elapsedMs / 1000)}s` : ''}`;
+                    let detail = '';
+                    if (failed.length) {
+                        detail = '\n\n失败明细：\n' + failed.slice(0, 20).map((r) =>
+                            `❌ ${r.schoolCode}：${r.error || '失败'}`
+                        ).join('\n') + (failed.length > 20 ? `\n...（其余 ${failed.length - 20} 所失败详见审计日志）` : '');
+                    } else if (!results.length) {
+                        detail = '\n\n(无逐校结果返回)';
+                    }
+                    alert(`批量恢复完成\n${summary}${detail}`);
                     bkCloseBatchRestore();
                     bkReloadCurrent();
                 } else {
