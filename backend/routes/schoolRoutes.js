@@ -47,6 +47,49 @@ function safeParseJson(val) {
 
 const RECYCLE_KEEP_DAYS = 90 // 3 个月
 
+// ====== recycle_bin 系统表（运行时 DDL 附加表，恒落 public）======
+// README §架构 声明：recycle_bin 与 revoked_tokens 同为「运行时 DDL 附加系统表，
+// 不在 schema.prisma，由启动/操作时 CREATE TABLE IF NOT EXISTS 创建」。
+// 旧实现遗漏了建表代码（只有 revoked_tokens 经 ensureRevocationInfra 建了），
+// 导致生产库缺 recycle_bin 表 → /api/admin/recycle-bin 查询抛 P2021 → 500。
+// 现补齐幂等建表（memoized，单进程只真正执行一次），在 server.js 启动时统一调用。
+const RECYCLE_BIN_DDL = [
+  `CREATE TABLE IF NOT EXISTS public."recycle_bin" (
+     id            TEXT PRIMARY KEY,
+     original_code TEXT NOT NULL,
+     original_schema TEXT NOT NULL,
+     recycle_schema TEXT NOT NULL,
+     name          TEXT,
+     short_name    TEXT,
+     theme_color   TEXT,
+     logo_url      TEXT,
+     customization TEXT,
+     deleted_by    TEXT,
+     deleted_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+     expires_at    TIMESTAMPTZ NOT NULL,
+     status        TEXT NOT NULL DEFAULT 'active'
+   )`,
+  `CREATE INDEX IF NOT EXISTS recycle_bin_original_code_idx ON public."recycle_bin" (original_code)`,
+  `CREATE INDEX IF NOT EXISTS recycle_bin_status_idx ON public."recycle_bin" (status)`,
+]
+
+let _ensureRecycleBinPromise = null
+
+export function ensureRecycleBinInfra(prisma) {
+  if (!_ensureRecycleBinPromise) {
+    _ensureRecycleBinPromise = (async () => {
+      for (const sql of RECYCLE_BIN_DDL) {
+        await prisma.$executeRawUnsafe(sql)
+      }
+    })().catch((e) => {
+      // 失败后允许下次重试（例如 DB 暂不可用时启动）
+      _ensureRecycleBinPromise = null
+      throw e
+    })
+  }
+  return _ensureRecycleBinPromise
+}
+
 const SCHOOL_USER_ROLES = ['manager', 'operator', 'viewer']
 const isSchoolUserRole = (r) => SCHOOL_USER_ROLES.includes(r)
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,32}$/
@@ -467,6 +510,8 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
     // 回收站列表
     router.get('/api/admin/recycle-bin', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
         try {
+            // 确保系统表存在（防御：极端情况下启动建表未执行/表被误删时，先建再查，避免 500）
+            await ensureRecycleBinInfra(prisma)
             // TD-RecycleBin-Restored-Filter: 过滤掉 status='restored'（已恢复 = 学校已重新启用，
             // 出现在学校列表里），按用户描述"已启用的学校租户不应出现在回收站，只有被停用的才出现"。
             // 保留 status='active'（90 天待恢复期内的停用租户）与 status='purged'（已彻底删除的不可恢复记录）。
@@ -486,6 +531,15 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
             }))
             res.json({ success: true, data })
         } catch (error) {
+            // 防御降级：表尚未创建（启动建表未执行/迁移遗漏）时不报 500，返回空列表
+            const msg = error?.message || String(error)
+            // Prisma raw query 错误通常是 P2010，真正的 PG 状态码在 error.meta.code 中
+            const pgCode = error?.meta?.code || error?.code
+            const missingTable = pgCode === '42P01' || error?.code === 'P2021' || /does not exist/i.test(msg)
+            if (missingTable) {
+                console.warn('⚠️ recycle_bin 表不存在，返回空回收站列表（请检查启动建表 ensureRecycleBinInfra）')
+                return res.json({ success: true, data: [] })
+            }
             console.error('❌ Error listing recycle bin:', error)
             res.status(500).json({ error: '获取回收站失败' })
         }

@@ -24,7 +24,7 @@ import { createSyncRoutes } from './routes/syncRoutes.js'
 import { createAdminBackupRoutes } from './routes/adminBackupRoutes.js'
 import { createSchoolBackupRoutes } from './routes/schoolBackupRoutes.js'
 import { createTestResultRoutes } from './routes/testResultRoutes.js'
-import { createSchoolRoutes } from './routes/schoolRoutes.js'
+import { createSchoolRoutes, ensureRecycleBinInfra } from './routes/schoolRoutes.js'
 import { createRecordRoutes } from './routes/recordRoutes.js'
 import frequencyRoutes from './routes/frequencyRoutes.js'
 import { disconnectAllTenantClients } from './lib/tenantClient.js'
@@ -365,6 +365,13 @@ const server = app.listen(PORT, () => {
 
     // 服务就绪后再后台自愈，避免拖慢首请求响应
     selfHealTenantSchemas()
+
+    // 运行时 DDL 附加系统表：recycle_bin（学校回收站）。幂等建表（与 revoked_tokens 同模式）。
+    // 旧版本遗漏建表代码，导致生产库缺表 → /api/admin/recycle-bin 查询 500。
+    // 单进程 memoized，失败仅告警不影响启动，下次请求时由路由内 ensureRecycleBinInfra 重试。
+    ensureRecycleBinInfra(prisma)
+        .then(() => console.log('✅ 系统表 recycle_bin 已就绪'))
+        .catch((e) => console.error('⚠️  系统表 recycle_bin 建表失败（不影响服务运行，路由将在首次访问时重试）:', e.message))
 
     // 第六轮·检查项2：SECURITY:* 安全事件告警扫描（REVOCATION_WRITE_FAILED /
     // REFRESH_TOKEN_REPLAY / REFRESH_CONCURRENT_ROTATION / TENANT_SCHEMA_MISMATCH），
