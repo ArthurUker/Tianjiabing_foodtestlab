@@ -364,6 +364,49 @@
       .admin-link-card .title { font-weight: 600; color: #1f2937; }
       .admin-link-card .desc { font-size: 12px; color: #6b7280; margin-top: 2px; }
       .admin-link-card .arrow { color: #9ca3af; }
+      /* 单点备份：学校选择卡片 */
+      .single-school-card {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          width: 100%;
+          padding: 12px 14px;
+          border-radius: 14px;
+          background: rgba(255, 255, 255, 0.55);
+          border: 1px solid rgba(255, 255, 255, 0.6);
+          transition: all 0.15s ease;
+          cursor: pointer;
+          text-align: left;
+      }
+      .single-school-card:hover {
+          background: rgba(255, 255, 255, 0.9);
+          border-color: rgba(59, 130, 246, 0.35);
+          transform: translateY(-1px);
+          box-shadow: 0 4px 14px rgba(30, 44, 80, 0.1);
+      }
+      .single-school-card.active {
+          background: rgba(59, 130, 246, 0.12);
+          border-color: rgba(59, 130, 246, 0.55);
+          box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+      }
+      .single-school-card .icon {
+          width: 40px;
+          height: 40px;
+          border-radius: 12px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: #fff;
+          font-size: 16px;
+          font-weight: 700;
+          flex-shrink: 0;
+      }
+      .single-school-card .meta { flex: 1; min-width: 0; }
+      .single-school-card .title { font-weight: 600; color: #1f2937; font-size: 14px; }
+      .single-school-card .code { font-size: 11px; color: #6b7280; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; margin-top: 2px; }
+      .single-school-card .arrow { color: #9ca3af; font-size: 12px; transition: color 0.15s; }
+      .single-school-card:hover .arrow { color: #3b82f6; }
+      .single-school-card.active .arrow { color: #3b82f6; }
       /* 响应式：移动端折叠侧边栏 */
       @media (max-width: 1023px) {
           .admin-layout { flex-direction: column; padding: 12px; }

@@ -152,16 +152,19 @@
                     </button>
                 </div>
                 <!-- 备份运维：二级菜单（全部 / 按学校），平台级全库运维内嵌展示 -->
-                <button class="admin-sidebar__item has-subnav" data-view="backup" type="button">
+                <button class="admin-sidebar__item has-subnav" data-view="backup" data-desc="对平台进行备份、恢复等运维操作，支持全局和按学校两种维度。" type="button">
                     <i class="fas fa-database"></i><span class="admin-sidebar__item-label">备份运维</span>
                     <i class="fas fa-chevron-right admin-sidebar__chevron"></i>
                 </button>
                 <div class="admin-sidebar__subnav" data-subnav="backup">
-                    <button class="admin-sidebar__subitem active" data-subview="all" type="button">
-                        <i class="fas fa-hdd"></i><span class="admin-sidebar__subitem-label">全部备份</span>
+                    <button class="admin-sidebar__subitem active" data-subview="global" data-desc="跨所有学校的全局数据库与文件备份管理。" type="button">
+                        <i class="fas fa-globe"></i><span class="admin-sidebar__subitem-label">全局备份</span>
                     </button>
-                    <button class="admin-sidebar__subitem" data-subview="by-school" type="button">
-                        <i class="fas fa-filter"></i><span class="admin-sidebar__subitem-label">按学校</span>
+                    <button class="admin-sidebar__subitem" data-subview="single" data-desc="针对单个学校租户执行精准备份，不影响其他学校数据。" type="button">
+                        <i class="fas fa-bullseye"></i><span class="admin-sidebar__subitem-label">单点备份</span>
+                    </button>
+                    <button class="admin-sidebar__subitem" data-subview="restore" data-desc="从已有备份点执行数据恢复，支持预览与确认流程。" type="button">
+                        <i class="fas fa-undo"></i><span class="admin-sidebar__subitem-label">恢复管理</span>
                     </button>
                 </div>
                 <!-- 测试报告：二级菜单（数据上报 / 汇总报告）。
@@ -193,6 +196,11 @@
         </aside>
         <main class="admin-main">
 
+    <!-- 全局通知区：所有 admin-view 共享，避免切换视图后通知被隐藏 -->
+    <div class="container mx-auto px-4 pt-6 max-w-[2000px]">
+        <div id="notice" class="hidden mb-4 p-3 rounded-lg text-sm"></div>
+    </div>
+
     <!-- P-WidthFill: 外层容器 max-w 跟随主区宽度自适应（不再 1280px 限制），
          让 schools 视图的列表 / 工具栏 / KPI 卡在大屏下自然铺满可用宽度；
          内容过宽时由 inner grid 的 minmax 自动控制单卡最小宽度，避免拉伸难看。 -->
@@ -201,8 +209,6 @@
          会让顶部工具栏 / 学校列表 / 回收站 / 详情面板遗留在主区不再隐藏。 -->
     <section id="adminViewSchools" class="admin-view" data-view="schools">
     <div class="container mx-auto px-4 py-6 max-w-[2000px]">
-        <!-- 通知区 -->
-        <div id="notice" class="hidden mb-4 p-3 rounded-lg text-sm"></div>
 
         <!-- 工具栏（学校列表 subview 内显示） -->
         <div id="schoolsToolbar" class="glass rounded-2xl p-4 mb-6 flex flex-wrap items-center justify-between gap-3">
@@ -1056,7 +1062,7 @@
         const backupManager = initBackupManager({ API_BASE, authHeaders, notify: showNotice });
         // ====== P-Refactor 第二阶段装配（原 918-4117 内联 JS 已全部抽离至 adminSchools/ 模块）======
         const accountsView = initAccountsView();
-        const backupView = initBackupView();
+        const backupView = initBackupView({ API_BASE, authHeaders, notify: showNotice });
         initKpiPoller();
         // 学校管理：详情视图先建（导出 openDetail / switchSchoolsSubview / renderCanteenInputs / updateBadgeStyleHint），
         // 再注入定制加载的详情回调与弹层的列表刷新回调，最后装配列表视图（openDetail / switchSchoolsSubview 注入）。
@@ -1475,157 +1481,210 @@
                                     <th class="text-right px-3 py-2">操作</th>
                                 </tr>
                             </thead>
-                            <tbody id="bkListAll" class="divide-y divide-gray-100">
+                            <tbody id="bkGlobalList" class="divide-y divide-gray-100">
                                 <tr><td colspan="6" class="text-center text-gray-400 py-6">加载中…</td></tr>
                             </tbody>
                         </table>
                     </div>
-                    <div class="flex items-center justify-end gap-2 mt-3 text-xs text-gray-600">
-                        <button id="bkPrevAll" class="px-2 py-1 border rounded disabled:opacity-50" disabled><i class="fas fa-angle-left"></i></button>
-                        <span id="bkPagerAll">—</span>
-                        <button id="bkNextAll" class="px-2 py-1 border rounded disabled:opacity-50" disabled><i class="fas fa-angle-right"></i></button>
-                    </div>
+                    <div id="bkGlobalPager" class="mt-3"></div>
                 </div>
             </div>
 
-            <!-- ===== 子视图：按学校 ===== -->
-            <div class="admin-subview hidden" data-subview="by-school">
-                <div class="admin-card">
-                    <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
-                        <div>
-                            <h3><i class="fas fa-filter text-teal-500"></i>按学校筛选</h3>
-                            <p class="text-xs text-gray-500">选定学校后展示其备份列表与立即备份按钮</p>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <select id="bkSchoolSelect" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80">
-                                <option value="">— 请选择学校 —</option>
-                            </select>
-                            <button id="bkRunSingle" type="button" class="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition shadow disabled:opacity-50" disabled>
-                                <i class="fas fa-plus mr-1"></i>立即备份该校
-                            </button>
-                        </div>
+            <!-- ===== 子视图：单点备份 ===== -->
+            <div class="admin-subview hidden" data-subview="single">
+                <!-- KPI 概览 -->
+                <div class="admin-kpi-grid">
+                    <div class="admin-kpi-card">
+                        <div class="admin-kpi-label"><i class="fas fa-school text-blue-500 mr-1"></i>学校总数</div>
+                        <div class="admin-kpi-value" id="bkSingleKpiTotal">-</div>
+                        <div class="admin-kpi-sub">可执行单点备份的租户</div>
                     </div>
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full text-sm">
-                            <thead class="bg-gray-50 text-gray-600">
-                                <tr>
-                                    <th class="text-left px-3 py-2">时间</th>
-                                    <th class="text-left px-3 py-2">大小</th>
-                                    <th class="text-left px-3 py-2">校验</th>
-                                    <th class="text-right px-3 py-2">操作</th>
-                                </tr>
-                            </thead>
-                            <tbody id="bkListBySchool" class="divide-y divide-gray-100">
-                                <tr><td colspan="4" class="text-center text-gray-400 py-6">请先选择学校</td></tr>
-                            </tbody>
-                        </table>
+                    <div class="admin-kpi-card">
+                        <div class="admin-kpi-label"><i class="fas fa-database text-teal-500 mr-1"></i>已备份学校</div>
+                        <div class="admin-kpi-value" id="bkSingleKpiBacked">-</div>
+                        <div class="admin-kpi-sub">至少存在一份备份</div>
                     </div>
-                    <div class="flex items-center justify-end gap-2 mt-3 text-xs text-gray-600">
-                        <button id="bkPrevSch" class="px-2 py-1 border rounded disabled:opacity-50" disabled><i class="fas fa-angle-left"></i></button>
-                        <span id="bkPagerSch">—</span>
-                        <button id="bkNextSch" class="px-2 py-1 border rounded disabled:opacity-50" disabled><i class="fas fa-angle-right"></i></button>
+                    <div class="admin-kpi-card">
+                        <div class="admin-kpi-label"><i class="fas fa-clock text-indigo-500 mr-1"></i>最近备份</div>
+                        <div class="admin-kpi-value text-base mt-2" id="bkSingleKpiLatest">-</div>
+                        <div class="admin-kpi-sub">最近一次单点备份时间</div>
                     </div>
                 </div>
 
-                <!-- ===== 功能说明卡片（验证 / AES / 明文 / 恢复）=====
-                     为操作列的四个动作提供业务级语义说明，弥补列表 UI 无法承载的
-                     「这按钮干嘛的 / 何时用 / 有何风险」三类信息。卡片可折叠，
-                     默认展开便于首次理解，再次进入记住折叠状态由浏览器 <details> 接管。 -->
+                <div class="grid grid-cols-12 gap-4">
+                    <!-- 左侧：学校列表 -->
+                    <div class="col-span-12 lg:col-span-4 flex flex-col gap-4">
+                        <div class="admin-card">
+                            <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+                                <div>
+                                    <h3><i class="fas fa-bullseye text-teal-500"></i>选择学校</h3>
+                                    <p class="text-xs text-gray-500">点击学校，右侧实时显示备份记录</p>
+                                </div>
+                            </div>
+                            <div class="relative mb-3">
+                                <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
+                                <input id="singleSchoolFilter" type="text" placeholder="搜索学校名称 / code" class="pl-8 pr-3 py-1.5 w-full border border-gray-300 rounded-lg text-sm bg-white/80">
+                            </div>
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="text-xs text-gray-500" id="singleSchoolCount">共 0 所学校</span>
+                                <button id="singleSchoolRefresh" type="button" class="text-xs text-blue-600 hover:text-blue-800 transition">
+                                    <i class="fas fa-sync mr-1"></i>刷新
+                                </button>
+                            </div>
+                            <div id="singleSchoolGrid" class="flex flex-col gap-2 max-h-[520px] overflow-y-auto pr-1">
+                                <div class="text-center text-gray-400 py-8 text-sm">加载学校列表…</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 右侧：备份详情 -->
+                    <div class="col-span-12 lg:col-span-8 flex flex-col gap-4">
+                        <div class="admin-card">
+                            <div class="flex items-center justify-between flex-wrap gap-3">
+                                <div>
+                                    <h3><i class="fas fa-school text-teal-500"></i><span id="singleDetailTitle">请选择学校</span></h3>
+                                    <p class="text-xs text-gray-500" id="singleDetailSub">点击左侧学校查看备份记录并执行单点备份</p>
+                                </div>
+                                <button id="singleRunBackup" type="button" disabled class="px-4 py-2 text-sm bg-gradient-to-r from-teal-500 to-blue-600 text-white rounded-lg hover:from-teal-600 hover:to-blue-700 transition shadow disabled:opacity-50 disabled:cursor-not-allowed">
+                                    <i class="fas fa-play mr-1"></i>立即备份该校
+                                </button>
+                            </div>
+                        </div>
+                        <div class="admin-card flex-1">
+                            <div class="overflow-x-auto">
+                                <table class="min-w-full text-sm">
+                                    <thead class="bg-gray-50/80 text-gray-600">
+                                        <tr>
+                                            <th class="text-left px-3 py-2 rounded-l-lg">时间</th>
+                                            <th class="text-left px-3 py-2">大小</th>
+                                            <th class="text-left px-3 py-2">校验</th>
+                                            <th class="text-right px-3 py-2 rounded-r-lg">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="bkSingleList" class="divide-y divide-gray-100">
+                                        <tr><td colspan="4" class="text-center text-gray-400 py-10">请先选择左侧学校</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div id="bkSinglePager" class="mt-3"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 操作说明 -->
                 <div class="admin-card mt-4">
-                    <details open>
-                        <summary class="cursor-pointer select-none flex items-center gap-2 text-sm font-semibold text-gray-700 hover:text-gray-900 transition">
-                            <i class="fas fa-info-circle text-blue-500"></i>
-                            <span>操作说明（验证 / AES / 明文 / 恢复）</span>
-                            <span class="ml-auto text-xs text-gray-400 font-normal">点击折叠</span>
-                        </summary>
-                        <div class="grid md:grid-cols-2 gap-3 mt-4">
-
-                            <!-- 验证 -->
-                            <div class="rounded-xl border border-blue-200/70 bg-blue-50/60 p-3">
-                                <div class="flex items-center gap-2 mb-2">
-                                    <span class="inline-flex w-7 h-7 rounded-lg bg-blue-500 text-white items-center justify-center text-xs">
-                                        <i class="fas fa-shield-alt"></i>
-                                    </span>
-                                    <h4 class="text-sm font-bold text-gray-800">验证</h4>
-                                    <span class="ml-auto text-[10px] text-gray-400 font-mono">verify</span>
-                                </div>
-                                <p class="text-xs text-gray-700 leading-relaxed">
-                                    对备份文件的完整性 + 解密可行性做只读校验：解密 header、检查 schema 转储和 media 文件存在、比对 tar 包大小与头部记录是否一致。
-                                </p>
-                                <p class="text-xs text-blue-700 mt-2">
-                                    <i class="fas fa-check mr-1"></i>何时用：恢复前必做（确保备份可读）；定期巡检（凌晨备份后人工抽样）。
-                                </p>
-                                <p class="text-[11px] text-gray-500 mt-1">
-                                    <i class="fas fa-shield-halved mr-1"></i>零风险，不修改任何数据。
-                                </p>
+                    <h3 class="mb-3"><i class="fas fa-info-circle text-blue-500"></i>操作说明</h3>
+                    <div class="grid md:grid-cols-3 gap-4">
+                        <div class="flex items-start gap-3 p-3 rounded-xl border border-white/50 bg-white/40">
+                            <span class="inline-flex w-9 h-9 rounded-xl bg-gradient-to-br from-blue-400 to-blue-600 text-white items-center justify-center text-xs shrink-0 shadow-sm">
+                                <i class="fas fa-shield-alt"></i>
+                            </span>
+                            <div>
+                                <h4 class="text-sm font-bold text-gray-800 mb-1">验证</h4>
+                                <p class="text-xs text-gray-600 leading-relaxed">对备份文件的完整性 + 解密可行性做只读校验。</p>
                             </div>
-
-                            <!-- AES -->
-                            <div class="rounded-xl border border-indigo-200/70 bg-indigo-50/60 p-3">
-                                <div class="flex items-center gap-2 mb-2">
-                                    <span class="inline-flex w-7 h-7 rounded-lg bg-indigo-500 text-white items-center justify-center text-xs">
-                                        <i class="fas fa-lock"></i>
-                                    </span>
-                                    <h4 class="text-sm font-bold text-gray-800">AES（加密）下载</h4>
-                                    <span class="ml-auto text-[10px] text-gray-400 font-mono">encrypted</span>
-                                </div>
-                                <p class="text-xs text-gray-700 leading-relaxed">
-                                    下载包含 AES-256-GCM 信封加密的 tar 包（密钥派生自全局 secret）。文件可被异地备份服务导入。
-                                </p>
-                                <p class="text-xs text-indigo-700 mt-2">
-                                    <i class="fas fa-check mr-1"></i>何时用：异地归档、长期保留、需要保密物理介质的场景。
-                                </p>
-                                <p class="text-[11px] text-gray-500 mt-1">
-                                    <i class="fas fa-shield-halved mr-1"></i>解密需要服务端 secret；丢 secret = 永久无法恢复。
-                                </p>
-                            </div>
-
-                            <!-- 明文 -->
-                            <div class="rounded-xl border border-sky-200/70 bg-sky-50/60 p-3">
-                                <div class="flex items-center gap-2 mb-2">
-                                    <span class="inline-flex w-7 h-7 rounded-lg bg-sky-500 text-white items-center justify-center text-xs">
-                                        <i class="fas fa-file"></i>
-                                    </span>
-                                    <h4 class="text-sm font-bold text-gray-800">明文下载</h4>
-                                    <span class="ml-auto text-[10px] text-gray-400 font-mono">plain</span>
-                                </div>
-                                <p class="text-xs text-gray-700 leading-relaxed">
-                                    已解密的 tar.gz（含 schema_dumps.sql + media/）。可直接 tar -tzf 浏览结构、grep 业务数据、离线分析。
-                                </p>
-                                <p class="text-xs text-sky-700 mt-2">
-                                    <i class="fas fa-check mr-1"></i>何时用：诊断具体某学校的表数据、研发核对业务逻辑、应急抢救单一记录。
-                                </p>
-                                <p class="text-[11px] text-amber-700 mt-1">
-                                    <i class="fas fa-triangle-exclamation mr-1"></i>含敏感数据，离线存储需相应加密措施。
-                                </p>
-                            </div>
-
-                            <!-- 恢复 -->
-                            <div class="rounded-xl border border-red-200/70 bg-red-50/60 p-3">
-                                <div class="flex items-center gap-2 mb-2">
-                                    <span class="inline-flex w-7 h-7 rounded-lg bg-red-500 text-white items-center justify-center text-xs">
-                                        <i class="fas fa-undo"></i>
-                                    </span>
-                                    <h4 class="text-sm font-bold text-gray-800">影子恢复</h4>
-                                    <span class="ml-auto text-[10px] text-gray-400 font-mono">restore</span>
-                                </div>
-                                <p class="text-xs text-gray-700 leading-relaxed">
-                                    把当前 <code class="px-1 bg-white rounded">school_&lt;code&gt;</code> schema 重命名成 <code class="px-1 bg-white rounded">school_&lt;code&gt;_old_&lt;ts&gt;</code> 暂存，再用目标备份新建同名 schema、写回数据。
-                                </p>
-                                <p class="text-xs text-red-700 mt-2">
-                                    <i class="fas fa-check mr-1"></i>何时用：误删数据回滚 / 学校迁移 / 灾难恢复。
-                                </p>
-                                <p class="text-[11px] text-red-700 mt-1">
-                                    <i class="fas fa-triangle-exclamation mr-1"></i>不可逆操作（写入数据库），需输入 <code class="px-1 bg-white rounded">RESTORE</code> 二次确认。
-                                </p>
-                            </div>
-
                         </div>
-                    </details>
+                        <div class="flex items-start gap-3 p-3 rounded-xl border border-white/50 bg-white/40">
+                            <span class="inline-flex w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-400 to-indigo-600 text-white items-center justify-center text-xs shrink-0 shadow-sm">
+                                <i class="fas fa-lock"></i>
+                            </span>
+                            <div>
+                                <h4 class="text-sm font-bold text-gray-800 mb-1">AES 下载</h4>
+                                <p class="text-xs text-gray-600 leading-relaxed">下载 AES-256-GCM 信封加密的 tar 包，可用于异地归档。</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start gap-3 p-3 rounded-xl border border-white/50 bg-white/40">
+                            <span class="inline-flex w-9 h-9 rounded-xl bg-gradient-to-br from-sky-400 to-sky-600 text-white items-center justify-center text-xs shrink-0 shadow-sm">
+                                <i class="fas fa-file-alt"></i>
+                            </span>
+                            <div>
+                                <h4 class="text-sm font-bold text-gray-800 mb-1">明文下载</h4>
+                                <p class="text-xs text-gray-600 leading-relaxed">下载已解密的 tar.gz，便于离线诊断数据。</p>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <!-- ===== 影子恢复模态（共享） ===== -->
+            <!-- ===== 子视图：恢复管理 ===== -->
+            <div class="admin-subview hidden" data-subview="restore">
+                <div class="flex flex-col gap-4">
+                    <!-- 上方：目标学校 -->
+                    <div class="admin-card" id="restoreSchoolCard">
+                        <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+                            <div>
+                                <h3><i class="fas fa-school text-teal-500"></i>目标学校</h3>
+                                <p class="text-xs text-gray-500">单选可恢复任意备份；多选仅可选全局备份批量恢复</p>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span id="restoreSelectedCount" class="text-xs font-medium px-2 py-0.5 bg-gray-100 rounded">已选 0</span>
+                                <button id="restoreToggleSchoolPanel" type="button" class="text-xs px-2 py-1 border border-gray-300 rounded-lg hover:bg-gray-50 bg-white/80 transition">
+                                    <i class="fas fa-chevron-up mr-1"></i><span>收起</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div id="restoreSchoolPanelBody">
+                            <div class="flex items-center gap-2 mb-3">
+                                <input id="restoreSchoolSearch" type="text" placeholder="搜索学校名称 / code" class="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80">
+                                <label class="flex items-center gap-1 text-xs text-gray-600 whitespace-nowrap cursor-pointer select-none">
+                                    <input id="restoreSelectAll" type="checkbox" class="rounded border-gray-300 text-blue-600"> 全选
+                                </label>
+                            </div>
+                            <div id="restoreSchoolList" class="max-h-[200px] overflow-y-auto pr-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 content-start">
+                                <div class="text-center text-gray-400 text-sm py-6 col-span-full">加载学校列表…</div>
+                            </div>
+                            <div id="restoreSchoolPager" class="mt-2"></div>
+                        </div>
+                        <div id="restoreSchoolPanelSummary" class="hidden">
+                            <div class="text-sm text-gray-600 bg-gray-50 rounded-lg px-3 py-2 flex items-center justify-between">
+                                <span>已选 <b id="restoreSummaryCount">0</b> / 共 <span id="restoreSummaryTotal">0</span> 所学校</span>
+                                <button type="button" class="text-xs text-blue-600 hover:text-blue-700" data-act="expand-schools"><i class="fas fa-expand mr-1"></i>展开选择</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 下方：备份文件 -->
+                    <div class="admin-card">
+                        <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
+                            <div>
+                                <h3><i class="fas fa-undo text-red-500"></i>恢复管理</h3>
+                                <p class="text-xs text-gray-500">选择备份文件，对上方已选学校执行影子恢复</p>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <select id="restoreScopeFilter" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80">
+                                    <option value="">全部类型</option>
+                                    <option value="all">全局备份</option>
+                                    <option value="single">单点备份</option>
+                                </select>
+                                <input id="restoreBackupSearch" type="text" placeholder="搜索备份时间 / 学校" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80 min-w-[180px]">
+                                <button id="restoreBackupRefresh" type="button" class="px-3 py-1.5 text-sm bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition">
+                                    <i class="fas fa-sync mr-1"></i>刷新
+                                </button>
+                            </div>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full text-sm">
+                                <thead class="bg-gray-50 text-gray-600">
+                                    <tr>
+                                        <th class="text-left px-3 py-2">时间</th>
+                                        <th class="text-left px-3 py-2">类型</th>
+                                        <th class="text-left px-3 py-2">学校</th>
+                                        <th class="text-left px-3 py-2">大小</th>
+                                        <th class="text-left px-3 py-2">校验</th>
+                                        <th class="text-right px-3 py-2">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="bkRestoreList" class="divide-y divide-gray-100">
+                                    <tr><td colspan="6" class="text-center text-gray-400 py-6">请先选择上方目标学校</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div id="restoreBackupPager" class="mt-3"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ===== 单点恢复模态 ===== -->
             <div id="bkRestoreModal" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center" style="z-index: 9999;">
                 <div class="bg-white rounded-xl shadow-2xl w-full max-w-md p-5">
                     <div class="flex items-center justify-between mb-3">
@@ -1634,6 +1693,7 @@
                     </div>
                     <p class="text-sm text-gray-600 mb-3">
                         恢复目标学校：<b class="font-mono text-red-600" id="bkRestoreTargetCode">-</b>
+                        <br>备份文件：<b class="font-mono" id="bkRestoreFileName">-</b>
                         <br>恢复前会把该学校 schema RENAME 成 <code class="bg-gray-100 px-1 rounded">school_&lt;code&gt;_old_&lt;ts&gt;</code> 暂存，再以目标备份重建。
                         <br>恢复为不可逆操作，请确认后输入 <code class="bg-gray-100 px-1 rounded">RESTORE</code>：
                     </p>
@@ -1645,11 +1705,11 @@
                 </div>
             </div>
 
-            <!-- ===== 批量恢复模态（P 大事故批量恢复：从全库备份一键恢复多所学校） ===== -->
+            <!-- ===== 批量恢复模态 ===== -->
             <div id="bkBatchRestoreModal" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center" style="z-index: 9999;">
                 <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg p-5">
                     <div class="flex items-center justify-between mb-3">
-                        <h4 class="text-base font-semibold text-gray-800"><i class="fas fa-layer-group mr-1 text-red-500"></i>批量恢复（全库备份）</h4>
+                        <h4 class="text-base font-semibold text-gray-800"><i class="fas fa-layer-group mr-1 text-red-500"></i>批量恢复（全局备份）</h4>
                         <button id="bkBatchRestoreClose" type="button" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
                     </div>
                     <div class="bg-red-50 border border-red-200 text-red-800 p-3 rounded text-xs mb-3">
@@ -1658,8 +1718,8 @@
                         <br>大事故应急用；恢复过程中请勿关闭页面，逐校结果完成后统一返回。
                     </div>
                     <p class="text-sm text-gray-600 mb-2">
-                        备份记录：<b class="font-mono" id="bkBatchRestoreTarget">-</b>（全库）
-                        <br>选择要恢复的学校（勾选即纳入批量恢复）：
+                        备份记录：<b class="font-mono" id="bkBatchRestoreTarget">-</b>（全局）
+                        <br>目标学校：<b id="bkBatchRestoreCount">0</b> 所
                     </p>
                     <div id="bkBatchSchoolList" class="text-sm text-gray-400 text-center py-3">加载学校列表…</div>
                     <div class="mt-3">
