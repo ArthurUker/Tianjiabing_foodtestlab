@@ -115,8 +115,14 @@ export function extractSchemaSegment(sql, schema) {
     }
 
     // 2) CREATE SCHEMA：只保留目标 schema 的声明
+    // pg_dump 全库备份可能把多个 schema 的 CREATE SCHEMA 输出在同一行，如：
+    //   CREATE SCHEMA public; CREATE SCHEMA school_a; CREATE SCHEMA school_b;
+    // 必须逐条解析并只保留目标 schema，否则整行会被误判为 "非目标" 而丢弃，
+    // 导致恢复时目标影子 schema 不存在（psql 报 "schema \"school_x_restore\" does not exist"）。
     if (/^CREATE\s+SCHEMA\s/i.test(line.trim())) {
-      if (isCreateSchemaOf(line, schema)) out.push(line)
+      const targetCreateRe = new RegExp(`CREATE\\s+SCHEMA\\s+"?${schema}"?\\s*;`, 'gi')
+      const matches = line.match(targetCreateRe)
+      if (matches) out.push(...matches)
       i++
       continue
     }

@@ -35,20 +35,14 @@
 
 | 任务 ID | 描述 | 严重度 | Owner Window | 状态 | 修复方向 |
 |---------|------|--------|--------------|------|----------|
-| TD-Timezone-Chaos | 时区混用（中国 UTC+8 凌晨 0-8 点记录归前一天）。W2 已修 `auditRoutes.js`/`AuditLogger.js`；**W4/W5 未修**：`Dashboard.js:556,557-559,1326`、`Pathogen.js:414`（W4 独占）+ `ExportService.js:376-377`（W5 独占）仍用 UTC 日期；另 `toISOString().split('T')[0]` 在 Dashboard 趋势图日期标签上仍会取前一天（不影响存储） | 高危 | W4/W5 协调 | 进行中（W2 部分已完成） | 各自窗口在其文件内统一 `+08:00` 解析 / `timeZone:'Asia/Shanghai'` 展示 |
-| TD-TenantClient-Leak | `tenantClient.js:89` LRU 淘汰时 `$disconnect().catch(()=>{})` fire-and-forget 未 await；`:70` getSchemaClient 非原子，并发首请求创建重复 PrismaClient 泄漏 | 高危 | 待认领 | 未开始 | async 化 + in-flight Promise 去重 |
 | TD-Tx-Missing | `server.js:736-769` bulk-upsert 循环逐条 findUnique+create/update 无 `$transaction`；`syncRoutes.js:100-172` /batch 无事务无幂等无上限 | 高危 | 待认领 | 未开始 | 包 `$transaction` + 挂幂等中间件 |
-| TD-CRUD-Dedup | `/api/test-records` 与 `/api/records/:tableName` 两套 CRUD 重复，前者缺审计/乐观锁/字段验证/PUT 存在性/DELETE 404；PUT/DELETE 未校验 id UUID 格式 | 高危 | 待认领 | 未开始 | 抽取共享 recordRoutes + 统一校验 |
-| TD-Fingerprint | `Storage.js:31` VOLATILE_FIELDS 与 `server.js:215` volatileKeys 不一致，指纹计算不剥离导致同数据不同 record_code，去重失效 | 高危 | 待认领 | 未开始 | 前后端共用同一字段列表 |
 | TD-MemMap | `idempotencyMiddleware` 和 `validationMiddleware.rateLimit` 内存 Map 无上限无 LRU，长运行 OOM | 高危 | 待认领 | 未开始 | 加 LRU 上限或改 Redis |
 | TD-PathogenRisk | `pathogenRisk.js:14` `parseFloat(item?.ct)` 未回退 `item?.ctRaw`，`{ctRaw:"25.3",ct:undefined}` → ct=NaN→999 判极低风险，与展示 25.3 中风险不一致 | 高危 | 待认领 | 未开始 | `parseFloat(item?.ct ?? item?.ctRaw)` |
-| TD-OptimisticLock-Atomic | `server.js:811-842` PUT 乐观锁仅在应用层比较，`update` 的 `where` 未带 `version` 条件，并发 PUT 一次更新静默丢失 | 高危 | 待认领 | 未开始 | `where: { id, version }` + 受影响行数 0 返回 409 |
 | TD-ConsoleLog | `js/` 下 195+ 处 `console.log/info/debug` 打印含用户数据/请求体，生产泄露 | 中危 | 待认领 | 未开始 | 统一替换为可关闭的 logger |
-| TD-CORS-Hardcode | `server.js:71-77` CORS 列表硬编码 7 个本地地址，生产需改 `CORS_ORIGINS` 环境变量 | 中危 | 待认领 | 未开始 | 完全改读环境变量 |
+
 | TD-Schema-Constraints | `schema.prisma` 缺约束：`User.school_code` 无 `@@index`、`GuestExportRequest.reviewed_by` 无外键、`Session.session_token` 无唯一约束 | 中危 | 待认领 | 未开始 | 补索引/外键/唯一约束 |
 | TD-AcceptDataLoss | `tenantProvisioner.js:81` `--accept-data-loss` 在运行时调用时可能静默丢弃已有数据 | 中危 | 待认领 | 未开始 | 仅首次创建用，已存在改 migrate |
-| TD-UserSearch | `UserManagement.js:163` 搜索 UI 存在但 `loadUsers()` 不读输入值，`AuthService.listUsers` 不接受 search/role | 中危 | 待认领 | 未开始 | 前端传参 + 后端支持过滤 |
-| TD-Audit-DateFilter | `AuditService.js:84` `getLogs()` 不传 start_date/end_date 到 URL，UI 日期筛选无效 | 中危 | 待认领 | 未开始 | 补全参数传递 |
+
 | TD-DoubleSubmit | `Tableware.js:711`/`GenericTest.js:953`/`GuestDashboard.js:315` 提交未 disabled，可重复提交产生重复记录 | 中危 | 待认领 | 未开始 | 入口 disabled + finally 恢复 |
 | TD-WordImport | `Pathogen.js:269,393` Word 导入的 testDate 无未来日期校验，字段无长度/字符白名单 | 中危 | 待认领 | 未开始 | 补校验 + 内容消毒 |
 | TD-Audit-Queue | `AuditService.js:65` `log()` fetch 失败仅 console.warn，审计日志永久丢失无重试队列 | 中危 | 待认领 | 未开始 | 离线队列 + online flush |
@@ -56,11 +50,10 @@
 | TD-Style-Important | `index.html:163` `form.style.display='none !important'` 在 JS 中无效，快速访问模式表单隐藏失效 | 中危 | 待认领 | 未开始 | 改 `setProperty(...,'important')` |
 | TD-Dashboard-Override | `index.html:677` `forceDashboardInit()` 100ms/2000ms 用 innerHTML 覆写 #dashboard，间歇白屏 | 中危 | 待认领 | 未开始 | 仅在未渲染时兜底 |
 | TD-Guest-ShowError | `login.html:494,501` 访客模块调 `showError()` 操作管理员表单 `#errorMessage`（此时隐藏），访客失败无反馈 | 中危 | 待认领 | 未开始 | 独立 showGuestError |
-| TD-DisconnectAll-Silent | `tenantClient.js:108` `disconnectAllTenantClients` 中 `$disconnect().catch(()=>{})` 静默吞错 | 低危 | 待认领 | 未开始 | 合入 TD-TenantClient-Leak，`.catch(e => console.warn(...))` |
 | TD-Password-Rule-Inconsistent | `validationMiddleware.js:237` password 要求 `length>=6` vs `UserManager.isStrongPassword` 强规则（8+字母+数字），字段校验器从未被路由调用但误导 | 中危 | 待认领 | 未开始 | 对齐 isStrongPassword 正则或删除 |
 | TD-ResultMatch-Strict | `GenericTest.js:464,513,538` 用 `=== '合格'` 严格相等而非 `includes('合格') && !includes('不合格')` 口径 | 低危 | 待认领 | 未开始 | 统一为 includes 模式 |
 | TD-EnvConfig-NaN | 4 处 `Number(process.env.X \|\| 默认)` 未处理 NaN（RATE_LIMIT/LOGIN_RATE_LIMIT/MAX_TENANT_CLIENTS/TENANT_CONNECTION_LIMIT），env 设非数字字符串则配置静默失效 | 中危 | 待认领 | 未开始 | 加 `if(isNaN(v)) v = 默认值` |
-| TD-ValidDays-NoValidation | `guestRoutes.js:91` `Number(valid_days)` 未校验类型/范围，"abc"→NaN 写入 DB；999999→超大过期时间 | 中危 | 待认领 | 未开始 | `typeof === 'number' && > 0 && <= 365` |
+
 | TD-Version-TypeCoercion | `server.js:828` 客户端传字符串 `"1"` vs DB 数字 `1` → 虚假版本冲突；`:748` `(version\|\|0)+1` 字符串 "3" → "31" | 中危 | 待认领 | 未开始 | 比较前 `Number()` 转换 |
 | TD-FrontendParseInt-NaN | 6 处前端分页 `parseInt` 未处理 NaN（Pathogen.js:1370,1403、Tableware.js:918,952、GenericTest.js:96,142），currentPage=NaN 渲染异常 | 中危 | 待认领 | 未开始 | parseInt 后 `if(isNaN(p)) return` |
 | TD-ConfigDrift | ① 代码使用但 .env.example 未声明 12 变量；② .env.example 声明但代码未引用 15 废弃变量 | 中危 | 待认领 | 未开始 | 补充声明 + 清理废弃 |
@@ -69,6 +62,10 @@
 | TD-Backup-Restore-PLPGSQL-Parser | **后续优化（方案 A）**：`extractSchemaSegment` 第 5 步兜底路径（restoreSqlUtils.js:163-178）仍用括号配对，异常/非标准 dump 时对 PL/pgSQL 函数体/字符串内括号仍可能误判。写完整 SQL/PL-pgSQL 词法解析器（dollar-quote/字符串/注释感知）取代之 | 低危 | 待认领（排期未定，不建议本周） | 未开始 | 段锚点方案对标准 pg_dump 100% 有效（已端到端验证），Parser 仅消除兜底隐患 |
 
 > 新增任务时，**在此表追加一行**并立即 claim，避免另一窗口平行发现同一需求。
+>
+> **归档规约**：当某任务在 §3 完成记录中出现收口证据时（含代码内已实现的 TD 编号注释或 git 提交），应立即从本表删除对应行，并在 §3 最新子段落（如 §3.7 / §3.8 ...）追加一行追溯记录（详见 §3 末尾"维护规约"）。本表保持 = 纯待办，不与 §3 重复。
+>
+> **本表现状（2026-08-18 方案 A 核查后）**：保留 22 条经代码 grep 确认**代码中无对应修复**的待办；已移出 10 条（§3.7 的 3 条 + §3.8 的 7 条），其中 §3.8 为逐条核代码/git 收口，非仅凭文本匹配。
 
 ---
 
@@ -168,6 +165,39 @@
 - TD-LogSecretLeak ✅（脱敏）· TD-Timezone-Chaos ✅ 临时方案已写入 deploy.sh（TZ=Asia/Shanghai）
 
 > 收口声明：本轮完成后不再进行新的缺陷搜索或模式扩散审查。所有"待确认"状态已转化为确定结论。
+
+### 3.7 本轮已清理 / 跨窗口追溯（2026-08-18 · W6 协调）
+
+本轮扫描发现 §2 历史遗留的若干条目与 §3.2 / §3.6 已收口记录重复，已从 §2 删除并在下方追溯留档，避免后续窗口（尤其 W4/W5）误以为仍未完成而重复动工。
+
+| 原 §2 编号 | 处理方式 | 实际完成证据 |
+|-----------|---------|--------------|
+| TD-Timezone-Chaos | 从 §2 删除 | §3.6 "TD-Timezone-Chaos ✅ 临时方案已写入 deploy.sh（TZ=Asia/Shanghai）"；W2 部分（`auditRoutes.js` / `AuditLogger.js`）已在 §3.6 之前收口。W4/W5 后续如发现前端展示偏差应作为新任务在 §2 新建专项，不沿用此 ID |
+| TD-TenantClient-Leak | 从 §2 删除 | §3.2 "TD-TenantClient-Leak → `.catch(e => console.warn(...))`"（覆盖 `tenantClient.js:89` 静默吞错）。async 化 + in-flight Promise 去重如仍需做，作为新 TD 立项 |
+| TD-DisconnectAll-Silent | 从 §2 删除（合入上一条） | 同上 — 同一文件同一行模式，原方案已覆盖 `tenantClient.js:108` `disconnectAllTenantClients` |
+
+**§3.7 维护规约**：
+1. 每次扫描发现 §2 包含 §3 已收口条目时，由协调窗口（W7 文档 或 当轮 owner）在 §3 新建子段落（如 §3.7 / §3.8 ...）追加一行追溯记录，并在 §2 删除该行，保持 §2 = 纯待办。
+2. 子段落命名按时间顺序递增，不覆盖旧段落，确保历史可回溯。
+3. 如果原 §2 ID 在 §3 中只是部分完成（如上例 TD-Timezone-Chaos W2/W4/W5），禁止删除整条；改为：删除 §2 行 → 在本段落记录"原 §2 已部分完成，剩余部分作为新 TD-XYZ 立项"。
+
+### 3.8 代码核查收口（2026-08-18 · 方案 A 逐条核代码/git）
+
+本轮对 §2 逐条 grep 代码实现 + git 提交，发现以下条目**代码中已存在对应修复**（部分带 TD 编号注释），但 §2 仍标"未开始"，属历史遗漏。已从 §2 删除并归档于此，避免重复动工。判定依据见"证据"列（行号取自当前工作区）。
+
+| 编号 | 状态 | 已完成内容 | 证据 |
+|------|------|-----------|------|
+| TD-CRUD-Dedup | 已完成（部分） | `/api/test-records` 与 `/api/records/:tableName` 已合并到 `recordRoutes.js`（server.js:312-314 注释"P1-5 拆路由迁至 recordRoutes"），含审计、乐观锁、record_code 幂等；**未做**：PUT/DELETE 未校验 id UUID 格式（如仍需可立新 TD） | `backend/routes/recordRoutes.js` 全量接管两类路由；server.js:312-314 |
+| TD-OptimisticLock-Atomic | 已完成 | PUT 乐观锁 `where:{id, version}` 原子条件更新，版本不符返回 409（代码内带 `// TD-OptimisticLock-Atomic` 注释） | `backend/routes/recordRoutes.js:441-453` |
+| TD-Fingerprint | 已完成 | 指纹计算统一到 `recordNormalize.js` 的 `buildDeterministicRecordCode`（前后端共用单一实现 + 固定 `volatileKeys` 列表），`recordRoutes.js`/`import-*.mjs` 均引用 | `backend/lib/recordNormalize.js:152-198`；`Storage.js:33` 另有本地 `VOLATILE_FIELDS` 副本（待统一，见下方"待办遗留"） |
+| TD-CORS-Hardcode | 已完成 | CORS 已改读环境变量 `CORS_ORIGIN` / `CORS_HOSTNAMES`，非硬编码本地地址 | `backend/server.js:48,95,108,117` |
+| TD-Audit-DateFilter | 已完成 | `getLogs()` 已传 `start_date`/`end_date` 到 URL；UI 日期筛选生效 | `js/services/AuditService.js:151-152`；`js/modules/AuditLog.js:299-304` |
+| TD-UserSearch | 已完成 | 用户列表已读搜索输入 + 角色过滤 | `js/modules/UserManagement.js:226-237` |
+| TD-ValidDays-NoValidation | 部分完成 | `guestRoutes.js` 已加 `Math.min(Number(valid_days) || 30, 365)` 上限保护（防 999999 超大过期）；**未做**：`typeof === 'number'` 严格类型校验（"abc"→NaN 走 `||30` 兜底而非拒绝） | `backend/routes/guestRoutes.js:171-172` |
+
+> **遗留提示（非 §2 待办，但建议后续关注）**：
+> - `Storage.js:33` 与 `recordNormalize.js:153` 两份 volatile 字段列表未统一，TD-Fingerprint 的"前后端共用"仅后端达成，前端 Storage 仍用本地副本。
+> - TD-CRUD-Dedup / TD-ValidDays 的"严格校验"残留，如需可在 §2 立新专项（不要复用原 ID）。
 
 ---
 

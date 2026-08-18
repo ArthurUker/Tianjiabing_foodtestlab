@@ -199,4 +199,27 @@ describe('extractSchemaSegment', () => {
     expect(seg).toContain('PRIMARY KEY (id)')
     expect(seg).toContain('FOREIGN KEY (parent_id)')
   })
+
+  test('pg_dump 多 schema CREATE SCHEMA 输出在同一行时，仍保留目标 schema 声明', () => {
+    // PG 全库备份实测会把多个 CREATE SCHEMA 放在同一行，旧实现把整行当非目标丢弃，
+    // 导致恢复时 schema "school_hqyz_restore" does not exist。
+    const sql = [
+      'SET statement_timeout = 0;',
+      'SELECT pg_catalog.set_config(\'search_path\', \'\', false);',
+      '',
+      'CREATE SCHEMA public; CREATE SCHEMA school_hqyz; CREATE SCHEMA school_other;',
+      '',
+      '-- Name: school_hqyz."User"; Type: TABLE; Schema: school_hqyz; Owner: -',
+      'CREATE TABLE school_hqyz."User" (id text);',
+      'COPY school_hqyz."User" (id) FROM stdin;',
+      'u1',
+      '\\.',
+    ].join('\n')
+    const seg = extractSchemaSegment(sql, 'school_hqyz')
+    expect(seg).toContain('CREATE SCHEMA school_hqyz;')
+    expect(seg).not.toContain('CREATE SCHEMA public;')
+    expect(seg).not.toContain('CREATE SCHEMA school_other;')
+    expect(seg).toContain('CREATE TABLE school_hqyz."User"')
+    expect(seg).toContain('COPY school_hqyz."User"')
+  })
 })
