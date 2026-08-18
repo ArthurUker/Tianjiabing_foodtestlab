@@ -139,9 +139,9 @@ export function initAdminSidebar({
             }
         }
 
-        // backup 视图：按指定 subview 渲染主区（默认 all）
+        // backup 视图：按指定 subview 渲染主区（默认 global）
         if (viewName === 'backup') {
-            const subName = opts.subview || 'all';
+            const subName = opts.subview || 'global';
             if (typeof switchBackupSubview === 'function') {
                 switchBackupSubview(subName);
             }
