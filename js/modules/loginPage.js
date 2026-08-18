@@ -224,7 +224,10 @@ function applyLoginStyle(login, cfg) {
         console.warn(`[auth] 登录页检测到 token 归属不匹配（token=${_tokenSchool}，页面=${_pageCode}），清除残留并停留在登录页`);
         authService.clearAuth();
     } else if (authService.isAuthenticated()) {
-        const _urlHasSchool = !!location.pathname.match(/^\/[a-z0-9-]+\/login/);
+        // TD-PreviewFix: iframe 预览使用 /login.html?school=<code>（经 server.js rewrite 后无路径前缀），
+        // 原判断只认 /xxx/login.html 路径前缀，导致 preview modal 中登录页被自动跳走，表现为"点击预览无反应"。
+        // extractSchoolCode() 同时识别路径前缀与 ?school= 查询参数，保持一致。
+        const _urlHasSchool = !!extractSchoolCode();
         if (!(_alreadyUser && _alreadyUser.role === 'admin' && !_alreadyUser.schoolCode && _urlHasSchool)) {
             window.location.replace(window.__schoolIndexUrl());
         }
