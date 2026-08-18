@@ -586,7 +586,19 @@ export class AuthService {
 
             // 凭证失效（401/403）：必须重新登录，清理本地态
             if (response.status === 401 || response.status === 403) {
+                // REVOKED-REASON: 后端 401 会附带吊销原因（code='REVOKED', reason=role_change_db_trigger 等）。
+                // 角色被平台超管更改属于"主动强制下线"，须给用户明确提示，避免对突然登出一头雾水。
+                const revokeReason = (data && data.reason) || '';
+                const isRoleChangeRevoked = !!(data && data.code === 'REVOKED') &&
+                    /role_change/i.test(revokeReason);
                 this.clearAuth();
+                if (isRoleChangeRevoked && typeof window !== 'undefined') {
+                    const notice = '您的权限已被超级管理员更改，请重新登录';
+                    try { window.alert(notice); } catch (e) { /* 某些环境无 alert，忽略 */ }
+                    // 与 Router.handleLogout 保持一致的相对路径跳转；延迟等待 clearAuth 落盘
+                    setTimeout(() => { window.location.href = './login.html'; }, 300);
+                    throw new Error(notice);
+                }
                 throw new Error('登录已失效，请重新登录');
             }
 

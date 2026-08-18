@@ -4,7 +4,7 @@
  */
 
 import express from 'express'
-import { createAuthMiddleware, revokeToken, revokeAllUserTokens, isTokenRevoked, getRevocationInfo } from '../middleware/authMiddleware.js'
+import { createAuthMiddleware, revokeToken, revokeAllUserTokens, isTokenRevoked, getRevocationInfo, getTokenRevocationReason } from '../middleware/authMiddleware.js'
 import { rateLimit } from '../middleware/validationMiddleware.js'
 import { isValidSchoolCode } from '../lib/tenantProvisioner.js'
 
@@ -246,7 +246,13 @@ export function createUserRoutes(userManager) {
 
             // 3. 该用户是否已被全量吊销（user_all 记录晚于本 token 签发时间）
             if (await isTokenRevoked(rootPrisma, { jti: null, userId, iat: decoded.iat })) {
-                return res.status(401).json({ error: '❌ 会话已被吊销，请重新登录' })
+                // REVOKED-REASON: 附带吊销原因（如 role_change_db_trigger / user_disable / refresh_replay），
+                // 前端据此提示「权限已被超级管理员更改」等，避免强制登出时用户一头雾水。
+                let revokeReason = null
+                try {
+                    revokeReason = await getTokenRevocationReason(rootPrisma, { jti: null, userId, iat: decoded.iat })
+                } catch { /* 查询失败仅丢失提示信息，不影响吊销判定本身 */ }
+                return res.status(401).json({ error: '❌ 会话已被吊销，请重新登录', code: 'REVOKED', reason: revokeReason })
             }
 
             // 4. DS3-H2: userId ↔ schema 绑定校验——以 DB 中查得的权威 school_code 为准

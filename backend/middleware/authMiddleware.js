@@ -95,6 +95,33 @@ export async function isTokenRevoked(prisma, { jti, userId, iat }) {
 }
 
 /**
+ * 查询令牌的吊销原因（与 isTokenRevoked 同一判定口径）。
+ * 供 authenticateUser / refresh-token 在返回 401 时附带 reason，让前端能区分
+ * 「被吊销的具体原因」（如 role_change 权限被改 → 提示"权限已被超级管理员更改"）
+ * 与普通过期，避免用户对强制登出感到困惑。
+ * @returns {Promise<string|null>} reason（如 role_change_db_trigger / user_disable / refresh_replay），未吊销返回 null
+ */
+export async function getTokenRevocationReason(prisma, { jti, userId, iat }) {
+  const query = () => prisma.$queryRawUnsafe(
+    `SELECT reason FROM public.revoked_tokens
+      WHERE jti = $1
+         OR (token_type = 'user_all' AND user_id = $2 AND revoked_at >= to_timestamp($3))
+      ORDER BY revoked_at DESC
+      LIMIT 1`,
+    jti || '', userId || '', Math.floor(Number(iat) || 0)
+  )
+  try {
+    await ensureRevocationInfra(prisma)
+    const rows = await query()
+    return rows.length ? (rows[0]?.reason || null) : null
+  } catch (e) {
+    // 与 isTokenRevoked 同口径：查询失败向上抛出，由调用方降级决策（不静默放行）
+    console.error('❌ [revocation] 吊销原因查询失败（向上抛出）:', e.message)
+    throw e
+  }
+}
+
+/**
  * 写入单令牌吊销记录（幂等）。
  * @returns {Promise<boolean>} true = 本次新写入；false = 该 jti 已存在（refresh 重放检测依赖此语义）
  */
@@ -300,7 +327,12 @@ export function createAuthMiddleware(userManager, prisma) {
             isTokenRevoked(rootPrisma, { jti: u.jti, userId: u.userId, iat: u.iat })
           ])
           if (revoked) {
-            return res.status(401).json({ error: '❌ 会话已失效，请重新登录' })
+            // REVOKED-REASON: 附带吊销原因，前端可区分「权限被改/禁用/删除」等强制登出场景并给用户明确提示
+            let reason = null
+            try {
+              reason = await getTokenRevocationReason(rootPrisma, { jti: u.jti, userId: u.userId, iat: u.iat })
+            } catch { /* 查询失败仅丢失提示信息，不影响吊销判定本身 */ }
+            return res.status(401).json({ error: '❌ 会话已失效，请重新登录', code: 'REVOKED', reason })
           }
           if (!guest || guest.status !== 'active' ||
               (guest.valid_until && guest.valid_until < new Date())) {
@@ -334,7 +366,12 @@ export function createAuthMiddleware(userManager, prisma) {
           ])
 
           if (revoked) {
-            return res.status(401).json({ error: '❌ 会话已被吊销，请重新登录' })
+            // REVOKED-REASON: 附带吊销原因，前端可区分「权限被改/禁用/删除」等强制登出场景并给用户明确提示
+            let reason = null
+            try {
+              reason = await getTokenRevocationReason(rootPrisma, { jti: u.jti, userId: u.userId, iat: u.iat })
+            } catch { /* 查询失败仅丢失提示信息，不影响吊销判定本身 */ }
+            return res.status(401).json({ error: '❌ 会话已被吊销，请重新登录', code: 'REVOKED', reason })
           }
           // H1: 用户不存在（已删除）或已禁用 → 立即失效
           if (!dbUser || dbUser.status !== 'active') {
