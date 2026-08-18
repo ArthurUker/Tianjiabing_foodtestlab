@@ -1139,7 +1139,30 @@ export function initBackupView({ API_BASE, authHeaders, notify }) {
             a.download = `backup-${id}.${format === 'encrypted' ? 'aes' : 'sql.gz'}`;
             a.click();
             URL.revokeObjectURL(a.href);
-            notify(format === 'encrypted' ? '已下载加密备份（.aes），请与同名 .meta.json 配对保管' : '已下载明文备份', 'success');
+            // ★P-Recovery-Audit v1：加密下载时同步拉 meta.json（指纹文件），
+            //   让用户上传本地恢复时能同时提供两者以做 sha256 完整性校验。
+            if (format === 'encrypted') {
+                notify('已下载加密备份（.aes），正在下载配套 meta.json…', 'success');
+                try {
+                    const metaUrl = `${API_BASE}/api/admin/backups/${id}/meta`;
+                    const mr = await fetch(metaUrl, { headers: authHeaders() });
+                    if (!mr.ok) {
+                        warn(`meta.json 下载失败（HTTP ${mr.status}），本地上传恢复将无法校验完整性`);
+                    } else {
+                        const mBlob = await mr.blob();
+                        const ma = document.createElement('a');
+                        ma.href = URL.createObjectURL(mBlob);
+                        ma.download = `backup-${id}.meta.json`;
+                        ma.click();
+                        URL.revokeObjectURL(ma.href);
+                        notify('已下载加密备份 + meta.json。两份文件需保管在同一目录，本地上传时请同时选择。', 'success');
+                    }
+                } catch (e) {
+                    warn(`meta.json 下载失败：${e.message}`);
+                }
+            } else {
+                notify('已下载明文备份', 'success');
+            }
         } catch (e) {
             console.error('[backupView] 下载失败:', e);
             alert('下载失败\n\n' + (e.message || '未知错误'));

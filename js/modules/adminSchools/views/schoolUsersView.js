@@ -6,7 +6,12 @@ import { adminFetch } from '../context.js';
 
 let currentUsers = [];
 
-export async function loadUsers() {
+export function getCurrentUsers() {
+    return currentUsers;
+}
+
+export async function loadUsers(schoolCode) {
+    if (schoolCode) state.currentSchoolCode = schoolCode;
     if (!state.currentSchoolCode) return;
     const tbody = document.getElementById('usersTbody');
     tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-gray-400">加载中...</td></tr>';
@@ -84,7 +89,8 @@ export async function loadUsers() {
 }
 
 // 重置密码
-function openResetPwd(userId, username) {
+export function openResetPwd(userId, username, schoolCode) {
+    if (schoolCode) state.currentSchoolCode = schoolCode;
     document.getElementById('rp_userId').value = userId;
     document.getElementById('rp_username').textContent = username;
     document.getElementById('rp_newPassword').value = '';
@@ -177,7 +183,9 @@ document.getElementById('btnReprovision').addEventListener('click', async () => 
     }
 });
 
-function openUserModal(user) {
+export function openUserModal(user, schoolCode) {
+    if (schoolCode) state.currentSchoolCode = schoolCode;
+    if (schoolCode) state.currentSchoolCode = schoolCode;
     const isEdit = !!user;
     document.getElementById('userEditId').value = isEdit ? user.id : '';
     document.getElementById('userModalTitle').innerHTML = isEdit
@@ -277,7 +285,8 @@ document.getElementById('userForm').addEventListener('submit', async (e) => {
     }
 });
 
-async function deleteUser(id, username) {
+export async function deleteUser(id, username, schoolCode) {
+    if (schoolCode) state.currentSchoolCode = schoolCode;
     if (!confirm(`确定删除用户「${username}」吗？此操作不可恢复。`)) return;
     try {
         const resp = await adminFetch(`/api/admin/schools/${state.currentSchoolCode}/users/${id}`, {

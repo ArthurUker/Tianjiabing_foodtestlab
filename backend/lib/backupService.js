@@ -392,6 +392,27 @@ async function executeBackup({ prisma, scope, schoolCode, createdBy = 'system', 
     log(`${TAG} ⚠️ BackupRun 记录写入失败（备份文件已生成，不受影响）: ${e.message}`)
   }
 
+  // ★P-Recovery-Audit v1：把 runId / scope / schoolCode / fileSize / createdAt 回写 meta.json，
+  //   形成「meta 自带指纹」的强校验包。前端下载的 .meta.json 内嵌这些字段，
+  //   服务端接收上传时把这些字段与 BackupRun 表交叉对比，防张冠李戴 / 中间人篡改。
+  if (runId && meta) {
+    try {
+      meta.runId = runId
+      meta.scope = scope
+      meta.schoolCode = scope === 'single' ? schoolCode : null
+      meta.fileSize = size
+      meta.createdAt = new Date().toISOString()
+      await fsp.writeFile(metaPath, JSON.stringify(meta, null, 2), { mode: 0o600 })
+      // 把 createdAt 也回写到 BackupRun（用同一时间，避免与服务端默认 now() 漂移）
+      await prisma.backupRun.update({
+        where: { id: runId },
+        data: { created_at: new Date(meta.createdAt) },
+      }).catch(() => {})
+    } catch (e) {
+      log(`${TAG} ⚠️ meta.json 指纹回写失败（不影响恢复，但本地上传强校验无法启用）: ${e.message}`)
+    }
+  }
+
   // ⑦ 清理过期（扫描备份根目录下全部日期子目录）
   await cleanupOldBackups(backupRootDir())
 

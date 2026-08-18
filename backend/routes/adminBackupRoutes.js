@@ -122,6 +122,35 @@ export function createAdminBackupRoutes({ prisma, authenticateUser, requirePlatf
     }
   })
 
+  // ── GET /api/admin/backups/:id/meta — 下载对应 .meta.json（加密备份的元数据/指纹）──
+  // ★P-Recovery-Audit v1：本地恢复需要在 .aes 之外还拥有 meta.json 才能做 sha256 交叉校验，
+  //   提供独立下载接口便于 UI 把「下载备份」从「下 .aes」升级为「下 .aes + .meta.json 配套」。
+  router.get('/:id/meta', async (req, res) => {
+    try {
+      const run = await loadRun(req.params.id, res)
+      if (!run) return
+      const metaPath = run.file_path.replace(/\.sql\.gz\.aes$/, '.meta.json')
+      if (!fs.existsSync(metaPath)) return res.status(404).json({ success: false, error: 'meta.json 不存在' })
+      const metaRaw = await fsp.readFile(metaPath, 'utf8')
+      // 审计：meta 下载（warn 级）
+      await writeAdminOpsLog(prisma, {
+        action: 'backup_meta_download',
+        actor: { userId: req.user?.userId, username: req.user?.username, role: req.user?.role, schoolCode: null, ip: req.ip },
+        targetId: run.id,
+        targetSchoolCode: run.school_code,
+        details: { file: path.basename(metaPath) },
+        level: 'warn',
+      })
+      // 与「下载加密」下载策略一致：返回 meta.json 文件名而非 .json
+      res.setHeader('Content-Type', 'application/json')
+      res.setHeader('Content-Disposition', `attachment; filename="${path.basename(metaPath)}"`)
+      res.send(metaRaw)
+    } catch (e) {
+      console.error(`${TAG} 下载 meta 失败:`, e)
+      res.status(500).json({ success: false, error: e.message || '下载 meta 失败' })
+    }
+  })
+
   // ── GET /api/admin/backups/:id/download?format=plain|encrypted ──
   router.get('/:id/download', async (req, res) => {
     try {
@@ -201,9 +230,19 @@ export function createAdminBackupRoutes({ prisma, authenticateUser, requirePlatf
   //   { confirmText: 'RESTORE'|'RESTORE_ALL',
   //     targetSchoolCode?: string,        // 单点
   //     targetSchoolCodes?: string[],     // 批量
+  //     runId?: string,                   // ★强校验：原始备份 ID（必填，与 BackupRun 记录交叉核对）
   //     data: { filename, contentBase64, size },   // 必填：备份文件（.aes / .sql.gz / .sql）
-  //     meta?: { filename, contentBase64 }         // 可选：.meta.json
+  //     meta?: { filename, contentBase64 },        // 加密备份必填；明文可选（服务端会生成）
+  //     clientSha256?: string,            // 客户端计算的 sha256（hex）。若提供则与服务端 sha256 比对，不匹配 422。
   //   }
+  //
+  // 强校验链（P-Recovery-Audit v1）：
+  //   ① 必须提供 runId，对应 BackupRun 数据库记录；
+  //   ② 上传文件大小（byteLen）必须 === BackupRun.file_size；
+  //   ③ 解密后 sha256（与 meta.sha256 双保险）必须 === BackupRun.checksum；
+  //   ④ meta 中携带的 runId（若存在）必须 === 请求 runId（防 meta 张冠李戴）；
+  //   ⑤ 提供 clientSha256 时必须 === 服务端重新计算的 sha256（防中间人篡改）；
+  //   任何一步不通过 → 422 拒绝 + 写 audit（action='backup_restore_upload_rejected'）。
   // 流程：保存到 tmpdir → 构造虚拟 BackupRun → 复用 runRestore。临时文件 finally 清理。
   router.post('/restore-from-upload', async (req, res) => {
     const startedAt = Date.now()
@@ -214,7 +253,7 @@ export function createAdminBackupRoutes({ prisma, authenticateUser, requirePlatf
       }
     }
     try {
-      const { confirmText, targetSchoolCode, targetSchoolCodes, data, meta: metaIn } = req.body || {}
+      const { confirmText, targetSchoolCode, targetSchoolCodes, runId, data, meta: metaIn, clientSha256 } = req.body || {}
       const isBatch = !targetSchoolCode && Array.isArray(targetSchoolCodes) && targetSchoolCodes.length > 0
       const codes = isBatch
         ? [...new Set((targetSchoolCodes || []).filter((c) => typeof c === 'string').map((c) => c.trim()).filter(Boolean))]
@@ -231,6 +270,15 @@ export function createAdminBackupRoutes({ prisma, authenticateUser, requirePlatf
       if (!data || typeof data.contentBase64 !== 'string') {
         return res.status(400).json({ success: false, error: '缺少 data（备份文件内容）' })
       }
+      // ★强校验 ①：runId 必须存在并能找到 BackupRun
+      if (!runId || typeof runId !== 'string') {
+        return res.status(400).json({ success: false, error: '缺少 runId（必须从备份库选择原始记录，以便交叉校验）' })
+      }
+      const sourceRun = await prisma.backupRun.findUnique({ where: { id: runId } })
+      if (!sourceRun) {
+        return res.status(404).json({ success: false, error: `runId=${runId} 在 BackupRun 中不存在（拒绝恢复，防伪造来源）` })
+      }
+
       const size = Number(data.size) || 0
       if (size > MAX_UPLOAD_BYTES) {
         return res.status(413).json({ success: false, error: `备份文件过大（${size} bytes），单次上传上限 ${MAX_UPLOAD_BYTES} bytes` })
@@ -241,11 +289,27 @@ export function createAdminBackupRoutes({ prisma, authenticateUser, requirePlatf
       if (dataBuf.length > MAX_UPLOAD_BYTES) {
         return res.status(413).json({ success: false, error: `备份文件过大（${dataBuf.length} bytes），单次上传上限 ${MAX_UPLOAD_BYTES} bytes` })
       }
-      const runId = `upload-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`
+      // ★强校验 ②：上传文件大小必须 === BackupRun.file_size（防恶意截断/拼接）
+      if (Number.isFinite(sourceRun.file_size) && dataBuf.length !== sourceRun.file_size) {
+        await writeAdminOpsLog(prisma, {
+          action: 'backup_restore_upload_rejected',
+          actor: { userId: req.user?.userId, username: req.user?.username, role: req.user?.role, schoolCode: null, ip: req.ip },
+          targetId: runId,
+          targetSchoolCode: null,
+          details: { reason: 'size_mismatch', declaredSize: dataBuf.length, dbSize: sourceRun.file_size, sourceFile: data.filename },
+          level: 'error',
+        })
+        return res.status(422).json({
+          success: false,
+          error: `上传文件大小与原始备份不一致：上传 ${dataBuf.length} bytes, 原始 ${sourceRun.file_size} bytes（拒绝恢复，防中间人篡改）`,
+        })
+      }
+
+      const uploadRunId = `upload-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`
       const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'restore-upload-'))
       const safeName = (data.filename || 'backup.bin').replace(/[^a-zA-Z0-9._-]/g, '_')
       const aesName = safeName.endsWith('.aes') ? safeName : `${safeName}.sql.gz.aes`
-      const aesPath = path.join(tmpDir, `${runId}-${aesName}`)
+      const aesPath = path.join(tmpDir, `${uploadRunId}-${aesName}`)
       let metaPath = null
       let meta = null
 
@@ -269,23 +333,75 @@ export function createAdminBackupRoutes({ prisma, authenticateUser, requirePlatf
           await cleanup()
           return res.status(400).json({ success: false, error: `meta.json 解析失败：${e.message}` })
         }
+
+        // ★强校验 ③：meta 中若带 runId，必须等于请求 runId（防 meta 与 .aes 来自不同备份）
+        if (meta.runId && meta.runId !== runId) {
+          await cleanup()
+          await writeAdminOpsLog(prisma, {
+            action: 'backup_restore_upload_rejected',
+            actor: { userId: req.user?.userId, username: req.user?.username, role: req.user?.role, schoolCode: null, ip: req.ip },
+            targetId: runId,
+            targetSchoolCode: null,
+            details: { reason: 'meta_runId_mismatch', metaRunId: meta.runId, reqRunId: runId, sourceFile: data.filename },
+            level: 'error',
+          })
+          return res.status(422).json({
+            success: false,
+            error: `meta.json 中的 runId（${meta.runId}）与请求 runId（${runId}）不一致，拒绝恢复`,
+          })
+        }
+
+        // ★强校验 ④：服务端解密 + sha256，必须等于 meta.sha256 与 BackupRun.checksum（任一不匹配即拒绝）
+        try {
+          const { decryptFile } = await import('../lib/backupKms.js')
+          const plain = await decryptFile(dataBuf, meta)
+          const serverSha = crypto.createHash('sha256').update(plain).digest('hex')
+          if (meta.sha256 && serverSha !== meta.sha256) {
+            throw new Error(`解密 sha256 不一致：服务端 ${serverSha.slice(0, 16)}…, meta ${String(meta.sha256).slice(0, 16)}…`)
+          }
+          if (sourceRun.checksum && serverSha !== sourceRun.checksum) {
+            throw new Error(`解密 sha256 与 BackupRun.checksum 不一致：服务端 ${serverSha.slice(0, 16)}…, DB ${String(sourceRun.checksum).slice(0, 16)}…`)
+          }
+          // ★强校验 ⑤：客户端预先计算的 sha256（若提供）必须等于服务端重新计算的（防中间人在上传途中篡改）
+          if (clientSha256 && typeof clientSha256 === 'string') {
+            const clientLower = clientSha256.trim().toLowerCase()
+            if (clientLower !== serverSha) {
+              throw new Error(`客户端 sha256（${clientLower.slice(0, 16)}…）与服务端重新计算的 sha256（${serverSha.slice(0, 16)}…）不一致，疑似传输中被修改，拒绝恢复`)
+            }
+          }
+        } catch (e) {
+          await cleanup()
+          await writeAdminOpsLog(prisma, {
+            action: 'backup_restore_upload_rejected',
+            actor: { userId: req.user?.userId, username: req.user?.username, role: req.user?.role, schoolCode: null, ip: req.ip },
+            targetId: runId,
+            targetSchoolCode: null,
+            details: { reason: 'sha256_verify_failed', error: e.message, sourceFile: data.filename, clientSha256: clientSha256 || null },
+            level: 'error',
+          })
+          return res.status(422).json({
+            success: false,
+            error: `本地备份完整性校验失败：${e.message}`,
+          })
+        }
       } else {
         // 2) 明文 .sql.gz 或 .sql：要求 BACKUP_PLAIN_DOWNLOAD_ALLOWED=true（与明文下载同策略）。
         //    临时加密成 .aes + 写 meta.json，再走 runRestore（保证走标准解密/校验路径）。
-        if (process.env.BACKUP_PLAIN_DOWNLOAD_ALLOWED !== 'true') {
-          await cleanup()
-          return res.status(403).json({
-            success: false,
-            error: '明文上传被服务端禁止：公网 HTTP 下明文恢复=数据裸奔。请启用 HTTPS/内网后设置 BACKUP_PLAIN_DOWNLOAD_ALLOWED=true',
-          })
-        }
-        const { encryptFile } = await import('../lib/backupKms.js')
-        const { cipherBuf, meta: encMeta } = await encryptFile(dataBuf)
-        metaPath = aesPath.replace(/\.sql\.gz\.aes$/, '.meta.json')
-        await fsp.writeFile(aesPath, cipherBuf)
-        await fsp.writeFile(metaPath, JSON.stringify(encMeta, null, 2))
-        tmpFiles.push(aesPath, metaPath)
-        meta = encMeta
+        // ★明文上传禁止：明文上传无法做 sha256 完整性校验（meta 中没有 sha256 可比对），
+        //   即便 BACKUP_PLAIN_DOWNLOAD_ALLOWED=true 也仍只能下载不能上传恢复——强制走加密通道。
+        await cleanup()
+        await writeAdminOpsLog(prisma, {
+          action: 'backup_restore_upload_rejected',
+          actor: { userId: req.user?.userId, username: req.user?.username, role: req.user?.role, schoolCode: null, ip: req.ip },
+          targetId: runId,
+          targetSchoolCode: null,
+          details: { reason: 'plain_upload_not_allowed', sourceFile: data.filename },
+          level: 'error',
+        })
+        return res.status(400).json({
+          success: false,
+          error: '本地上传恢复仅支持加密备份 .aes（明文上传无法做完整性校验）。请从备份库下载加密备份（.aes + .meta.json）后上传。',
+        })
       }
 
       // 3) 构造虚拟 BackupRun。scope 优先取自 meta；缺省推断：含 tableCounts 键含 '.'（schema.table）多为多 schema 全库，
