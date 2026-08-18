@@ -195,6 +195,19 @@ export async function provisionSchool({
   let managerCreated = false
   await prisma.$transaction(async (tx) => {
     await tx.$executeRawUnsafe(`SET LOCAL search_path TO "${schema}", public`)
+
+    // P0-PROV: 「学校 schema 内禁止 role=admin」制度兜底。
+    // 历史脏数据（如 2026-07-23 schema-per-tenant 改造前在 school_demo 内写入的 admin 账号）
+    // 必须在此被识别并降级为 manager，否则「重新初始化」会出现"新增平台管理员"的伪影（截图复现的根因）。
+    // - 仅删除/降级 school 下 role='admin' 的行（不影响 manager/operator/viewer）
+    // - 必须先于下方 SELECT managerUsername 判断执行，确保 fresh state
+    const demoted = await tx.$executeRawUnsafe(
+      `UPDATE "User" SET role = 'manager', "updated_at" = now() WHERE role = 'admin' RETURNING "username"`
+    )
+    if (Array.isArray(demoted) && demoted.length) {
+      log(`🔧 租户 ${code}: 降级 ${demoted.length} 个历史 admin 账号 → manager (${demoted.map((r) => r.username).join(', ')})`)
+    }
+
     const found = await tx.$queryRawUnsafe(
       `SELECT 1 FROM "User" WHERE "username" = $1 LIMIT 1`,
       managerUsername

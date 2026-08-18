@@ -862,6 +862,9 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
     })
 
     // 列出该校用户（跨 schema 查询）
+    // 说明：P0-PROV 后，制度上学校 schema 内不得出现 role='admin' 的账号。
+    // 历史脏数据被 purgeInvalidAdminInSchools 自愈函数 / provisionSchool 的 BEGIN UPDATE 步骤收敛；
+    // 一旦万一仍存在（运维未跑 sync），is_invalid_role=true 提示前端做禁用与警示。
     router.get('/api/admin/schools/:code/users', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
         try {
             const { code } = req.params
@@ -872,7 +875,12 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
                 `SELECT "id","username","role","status","created_at","last_login"
                  FROM "${schema}"."User" ORDER BY "created_at" DESC`
             )
-            res.json({ success: true, data: users })
+            // 标记非法角色（仅作可见性提示；不允许前端编辑/重置密码/停用）
+            const data = users.map((u) => ({
+                ...u,
+                is_invalid_role: u.role === 'admin',
+            }))
+            res.json({ success: true, data })
         } catch (error) {
             const msg = error.message || String(error)
             // 学校尚未初始化（schema / User 表不存在）时返回空列表，而不是 500
@@ -904,6 +912,7 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
             if (!adminPassword || String(adminPassword).length < 8) {
                 return res.status(400).json({ error: '⚠️ 必须提供 adminPassword（至少 8 位）' })
             }
+
             const result = await provisionSchool({
                 prisma,
                 code,
@@ -1074,6 +1083,34 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
             console.error('❌ Error updating user:', error)
             console.error('❌ [stack]', error?.stack)
             res.status(500).json({ error: '更新用户失败：' + (error?.message || '未知错误') })
+        }
+    })
+
+    // P0-PROV: 「学校 schema 内禁止 role=admin」制度兜底 — 单点收敛。
+    // 对历史脏数据（早期 provisionSchool / UserManager 未做白名单校验时遗留），
+    // 平台超管可在此接口里立即将单条 role='admin' 的学校用户降级为 manager。
+    // 区别于 reprovision：仅做 role 收敛，不动 schema/表结构、不需要 adminPassword。
+    router.post('/api/admin/schools/:code/users/:userId/demote-from-admin', authenticateUser, requirePlatformSuperAdmin, async (req, res) => {
+        try {
+            const { code, userId } = req.params
+            const schema = schemaNameOf(code)
+            if (!schema) return res.status(400).json({ error: '无效的学校代码' })
+            const tenantPrisma = createTenantClient(prisma, code)
+            const cur = await tenantPrisma.$queryRawUnsafe(
+                `SELECT "id","username","role" FROM "${schema}"."User" WHERE "id" = $1`, userId
+            )
+            if (!cur.length) return res.status(404).json({ error: '用户不存在' })
+            if (cur[0].role !== 'admin') {
+                return res.status(409).json({ error: '该用户不是非法角色，无需降级', data: cur[0] })
+            }
+            const updated = await tenantPrisma.$executeRawUnsafe(
+                `UPDATE "${schema}"."User" SET "role" = 'manager', "updated_at" = now() WHERE "id" = $1 AND "role" = 'admin'`,
+                userId
+            )
+            res.json({ success: true, message: `已降级 ${cur[0].username} → manager`, demoted: updated })
+        } catch (error) {
+            console.error('❌ Error demoting admin user in school:', error)
+            res.status(500).json({ error: '降级失败：' + (error?.message || '未知错误') })
         }
     })
 
