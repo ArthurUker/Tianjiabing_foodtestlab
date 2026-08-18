@@ -1552,6 +1552,36 @@
                     </div>
                 </div>
             </div>
+
+            <!-- ===== 批量恢复模态（P 大事故批量恢复：从全库备份一键恢复多所学校） ===== -->
+            <div id="bkBatchRestoreModal" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center" style="z-index: 9999;">
+                <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg p-5">
+                    <div class="flex items-center justify-between mb-3">
+                        <h4 class="text-base font-semibold text-gray-800"><i class="fas fa-layer-group mr-1 text-red-500"></i>批量恢复（全库备份）</h4>
+                        <button id="bkBatchRestoreClose" type="button" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
+                    </div>
+                    <div class="bg-red-50 border border-red-200 text-red-800 p-3 rounded text-xs mb-3">
+                        <i class="fas fa-exclamation-triangle mr-1"></i>
+                        <strong>危险操作</strong>：将对所选学校逐一执行影子恢复（每校独立事务、原子切换），覆盖各校当前生产数据。
+                        <br>大事故应急用；恢复过程中请勿关闭页面，逐校结果完成后统一返回。
+                    </div>
+                    <p class="text-sm text-gray-600 mb-2">
+                        备份记录：<b class="font-mono" id="bkBatchRestoreTarget">-</b>（全库）
+                        <br>选择要恢复的学校（勾选即纳入批量恢复）：
+                    </p>
+                    <div id="bkBatchSchoolList" class="text-sm text-gray-400 text-center py-3">加载学校列表…</div>
+                    <div class="mt-3">
+                        <label class="block text-sm text-gray-600 mb-1">
+                            输入确认词 <code class="bg-gray-100 px-1 rounded font-mono">RESTORE_ALL</code> 以启用按钮：
+                        </label>
+                        <input id="bkBatchRestoreConfirm" type="text" placeholder="RESTORE_ALL" class="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono">
+                    </div>
+                    <div class="mt-4 flex justify-end gap-2">
+                        <button id="bkBatchRestoreCancel" type="button" class="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200">取消</button>
+                        <button id="bkBatchRestoreDo" type="button" class="px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50" disabled>确认批量恢复</button>
+                    </div>
+                </div>
+            </div>
         </div>
     </section>
 

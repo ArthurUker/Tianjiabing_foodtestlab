@@ -81,6 +81,10 @@ export function initBackupView() {
             const scopeBadge = isAll
                 ? '<span class="inline-flex px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-xs"><i class="fas fa-database mr-1"></i>全库</span>'
                 : `<span class="inline-flex px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full text-xs">${escapeHtml(String(r.scope || 'single'))}</span>`;
+            // 批量恢复：仅全库备份在「全部」子视图显示，用于大事故一键恢复多所学校（P 大事故批量恢复）
+            const batchRestoreBtn = isAll
+                ? `<span class="mx-1 text-gray-300">|</span><button class="text-sm text-red-600 hover:underline font-medium" data-act="restore-batch" data-id="${id}" title="从全库备份批量恢复多所学校（大事故应急）"><i class="fas fa-layer-group mr-1"></i>批量恢复</button>`
+                : '';
             return `
                 <tr>
                     <td class="px-3 py-2 text-gray-700 whitespace-nowrap">${escapeHtml(bkFmtTime(r.createdAt))}</td>
@@ -93,6 +97,7 @@ export function initBackupView() {
                         ${download}
                         <span class="mx-1 text-gray-300">|</span>
                         ${restoreBtn}
+                        ${batchRestoreBtn}
                     </td>
                 </tr>`;
         }
@@ -262,6 +267,8 @@ export function initBackupView() {
                     bkLoadBySchool(code);
                 } else if (act === 'restore') {
                     bkOpenRestore(id, extra);
+                } else if (act === 'restore-batch') {
+                    await bkOpenBatchRestore(id);
                 }
             } catch (e) {
                 // P-Fix: 区分网络层（TypeError: Failed to fetch）和服务器层（HTTP 5xx/4xx），
@@ -311,6 +318,127 @@ export function initBackupView() {
             const modal = document.getElementById('bkRestoreModal');
             if (modal) modal.classList.add('hidden');
             bkRestoreTarget = null;
+        }
+
+        // ── 批量恢复（P 大事故批量恢复）──
+        let bkBatchRestoreTarget = null;   // { id, schools: [] }
+        let bkBatchLoaded = false;          // 学校列表已缓存
+        const bkBatchSchools = [];          // 全校列表缓存 [{code, name}]
+
+        async function bkEnsureSchoolsForBatch() {
+            if (bkBatchLoaded && bkBatchSchools.length) return bkBatchSchools;
+            try {
+                const res = await adminFetch('/api/admin/schools?limit=500');
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const j = await res.json();
+                const list = j.data?.schools || j.schools || j.data || [];
+                if (Array.isArray(list)) {
+                    bkBatchSchools.length = 0;
+                    list.forEach((s) => {
+                        const code = s.code || s.schoolCode || s.id;
+                        const name = s.fullName || s.full_name || s.shortName || s.short_name || s.code || '';
+                        if (code) bkBatchSchools.push({ code: String(code), name });
+                    });
+                    bkBatchLoaded = true;
+                }
+                return bkBatchSchools;
+            } catch (e) {
+                console.warn('[bk] 加载批量恢复学校列表失败:', e);
+                return [];
+            }
+        }
+
+        function bkRenderBatchSchoolList() {
+            const wrap = document.getElementById('bkBatchSchoolList');
+            if (!wrap) return;
+            if (!bkBatchSchools.length) {
+                wrap.innerHTML = '<div class="text-sm text-gray-400 text-center py-4">无可用学校，请先在「学校管理」创建</div>';
+                return;
+            }
+            // 全选 + 搜索过滤（简单版：直接全渲染，量大时浏览器原生下拉滚动）
+            wrap.innerHTML = `
+                <div class="flex items-center gap-2 mb-2">
+                    <label class="text-xs text-gray-500 flex items-center gap-1"><input type="checkbox" id="bkBatchSelectAll"> 全选</label>
+                    <span class="text-xs text-gray-400">已选 <b id="bkBatchCount">0</b> 所</span>
+                </div>
+                <div class="max-h-64 overflow-y-auto border border-gray-200 rounded-lg divide-y divide-gray-100">
+                    ${bkBatchSchools.map((s) => `
+                        <label class="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer">
+                            <input type="checkbox" class="bk-batch-item" value="${escapeHtml(s.code)}">
+                            <span class="text-sm font-mono text-gray-700">${escapeHtml(s.code)}</span>
+                            <span class="text-xs text-gray-400 truncate">${escapeHtml(s.name)}</span>
+                        </label>`).join('')}
+                </div>`;
+        }
+
+        function bkUpdateBatchCount() {
+            const count = document.querySelectorAll('.bk-batch-item:checked').length;
+            const el = document.getElementById('bkBatchCount');
+            if (el) el.textContent = count;
+            const doBtn = document.getElementById('bkBatchRestoreDo');
+            const confirmEl = document.getElementById('bkBatchRestoreConfirm');
+            // 需选中 ≥1 校 + 输入 RESTORE_ALL 才可执行
+            if (doBtn) doBtn.disabled = !(count > 0 && confirmEl && confirmEl.value.trim() === 'RESTORE_ALL');
+        }
+
+        async function bkOpenBatchRestore(id) {
+            // 拉取学校列表（缓存）
+            const schools = await bkEnsureSchoolsForBatch();
+            bkBatchRestoreTarget = { id, schools };
+            const modal = document.getElementById('bkBatchRestoreModal');
+            if (!modal) return;
+            // 更新备份标识
+            const idEl = document.getElementById('bkBatchRestoreTarget');
+            if (idEl) idEl.textContent = id;
+            // 渲染学校列表
+            bkRenderBatchSchoolList();
+            // 重置输入
+            const confirmEl = document.getElementById('bkBatchRestoreConfirm');
+            if (confirmEl) confirmEl.value = '';
+            bkUpdateBatchCount();
+            modal.classList.remove('hidden');
+            setTimeout(() => { try { confirmEl && confirmEl.focus(); } catch (_) { /* ignore */ } }, 50);
+        }
+
+        function bkCloseBatchRestore() {
+            const modal = document.getElementById('bkBatchRestoreModal');
+            if (modal) modal.classList.add('hidden');
+            bkBatchRestoreTarget = null;
+        }
+
+        async function bkSubmitBatchRestore() {
+            if (!bkBatchRestoreTarget) return;
+            const id = bkBatchRestoreTarget.id;
+            const selected = [...document.querySelectorAll('.bk-batch-item:checked')].map((c) => c.value);
+            if (!selected.length) { alert('请至少选择一所学校'); return; }
+            const confirmEl = document.getElementById('bkBatchRestoreConfirm');
+            if (confirmEl.value.trim() !== 'RESTORE_ALL') { alert('必须输入确认词 RESTORE_ALL 才能执行批量恢复'); confirmEl.focus(); return; }
+            const doBtn = document.getElementById('bkBatchRestoreDo');
+            if (doBtn) doBtn.disabled = true; doBtn.textContent = '恢复中…';
+            try {
+                const res = await bkFetch(`/${id}/restore-batch`, {
+                    method: 'POST',
+                    body: JSON.stringify({ confirmText: 'RESTORE_ALL', targetSchoolCodes: selected }),
+                });
+                const j = await res.json();
+                if (res.ok) {
+                    // 展示逐校结果
+                    const results = (j.data && j.data.results) || [];
+                    const lines = results.map((r) =>
+                        `${r.ok ? '✅' : '❌'} ${r.schoolCode}  ${r.ok ? '' : (r.error || '失败')}`
+                    ).join('\n');
+                    const summary = `请求 ${j.data?.requested} 所，成功 ${j.data?.succeeded} 所，失败 ${j.data?.failed} 所`;
+                    alert(`批量恢复完成\n${summary}\n\n${lines || '(无结果)'}`);
+                    bkCloseBatchRestore();
+                    bkReloadCurrent();
+                } else {
+                    alert('批量恢复失败：' + (j.error || ('HTTP ' + res.status)));
+                }
+            } catch (e) {
+                alert('批量恢复异常：' + (e.message || e));
+            } finally {
+                if (doBtn) { doBtn.disabled = false; doBtn.textContent = '确认批量恢复'; }
+            }
         }
 
         // 按钮绑定
@@ -366,6 +494,22 @@ export function initBackupView() {
         document.getElementById('bkRestoreConfirm')?.addEventListener('input', (e) => {
             const doBtn = document.getElementById('bkRestoreDo');
             if (doBtn) doBtn.disabled = e.target.value.trim() !== 'RESTORE';
+        });
+
+        // 批量恢复模态（P 大事故批量恢复）
+        document.getElementById('bkBatchRestoreClose')?.addEventListener('click', bkCloseBatchRestore);
+        document.getElementById('bkBatchRestoreCancel')?.addEventListener('click', bkCloseBatchRestore);
+        document.getElementById('bkBatchRestoreConfirm')?.addEventListener('input', bkUpdateBatchCount);
+        document.getElementById('bkBatchRestoreDo')?.addEventListener('click', bkSubmitBatchRestore);
+        // 全选 / 单项选择联动
+        document.getElementById('bkBatchRestoreModal')?.addEventListener('change', (e) => {
+            if (e.target && e.target.id === 'bkBatchSelectAll') {
+                const checked = e.target.checked;
+                document.querySelectorAll('.bk-batch-item').forEach((c) => { c.checked = checked; });
+                bkUpdateBatchCount();
+            } else if (e.target && e.target.classList.contains('bk-batch-item')) {
+                bkUpdateBatchCount();
+            }
         });
         document.getElementById('bkRestoreDo')?.addEventListener('click', async () => {
             if (!bkRestoreTarget) return;

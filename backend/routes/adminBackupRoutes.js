@@ -183,6 +183,63 @@ export function createAdminBackupRoutes({ prisma, authenticateUser, requirePlatf
     }
   })
 
+  // ── POST /api/admin/backups/:id/restore-batch — 批量影子恢复（异步逐校执行）──
+  // 用途：大事故应急，从一份全库备份同时/逐个恢复多所学校，避免 50 校逐个手动点。
+  // 设计要点（P 大事故批量恢复）：
+  //   - 仅支持全库备份（scope='all'）：全库 dump 含所有租户 schema 段，可按 targetSchoolCodes
+  //     逐校提取。单校备份（scope='single'）只含一校，批量无意义 → 400。
+  //   - 请求体 { confirmText:'RESTORE_ALL', targetSchoolCodes:[...] }。
+  //     confirmText 强制 'RESTORE_ALL'（区别于单校 'RESTORE'，防误触发）。
+  //   - 逐校调用 runRestore（每校独立原子事务，互不影响）；串行执行避免 DB 并发压力。
+  //   - 返回逐校结果数组 [{schoolCode, ok, schema, checks, error}]，含成功/失败明细。
+  //   - 审计：逐校 writeAdminOpsLog（action 含 backup_restore / backup_restore_failed）。
+  router.post('/:id/restore-batch', async (req, res) => {
+    try {
+      const run = await loadRun(req.params.id, res)
+      if (!run) return
+      const { confirmText, targetSchoolCodes } = req.body || {}
+      if (confirmText !== 'RESTORE_ALL') {
+        return res.status(400).json({ success: false, error: '批量恢复必须输入确认词 RESTORE_ALL' })
+      }
+      if (!Array.isArray(targetSchoolCodes) || targetSchoolCodes.length === 0) {
+        return res.status(400).json({ success: false, error: '缺少 targetSchoolCodes（至少一个学校代码）' })
+      }
+      // 去重 + 去空
+      const codes = [...new Set(targetSchoolCodes.map((c) => String(c).trim()).filter(Boolean))]
+      if (codes.length === 0) {
+        return res.status(400).json({ success: false, error: 'targetSchoolCodes 均为空' })
+      }
+      // 仅全库备份支持批量（见顶部注释）
+      if (run.scope !== 'all') {
+        return res.status(400).json({ success: false, error: '批量恢复仅支持全库备份（scope=all）' })
+      }
+      const actor = { userId: req.user?.userId, username: req.user?.username, role: req.user?.role, schoolCode: null, ip: req.ip }
+      // 串行逐校恢复：每校独立事务，一校失败不影响其它
+      const results = []
+      for (const code of codes) {
+        try {
+          const r = await runRestore({ prisma, backup: run, targetSchoolCode: code, actor })
+          results.push({ schoolCode: code, ok: r.ok, schema: r.schema, checks: r.checks, error: r.error || null })
+        } catch (e) {
+          results.push({ schoolCode: code, ok: false, schema: null, checks: [], error: e.message || String(e) })
+        }
+      }
+      const okCount = results.filter((r) => r.ok).length
+      await writeAdminOpsLog(prisma, {
+        action: 'backup_restore_batch',
+        actor,
+        targetId: run.id,
+        targetSchoolCode: null,
+        details: { requested: codes.length, succeeded: okCount, failed: codes.length - okCount, schools: codes },
+        level: okCount === codes.length ? 'warn' : 'error',
+      })
+      res.json({ success: okCount === codes.length, data: { requested: codes.length, succeeded: okCount, failed: codes.length - okCount, results } })
+    } catch (e) {
+      console.error(`${TAG} 批量恢复失败:`, e)
+      res.status(500).json({ success: false, error: e.message || '批量恢复失败' })
+    }
+  })
+
   // ── POST /api/admin/backups/:id/restore — 影子恢复（同步执行）──
   router.post('/:id/restore', async (req, res) => {
     try {
