@@ -25,18 +25,44 @@ export function rewriteSchemaNames(sql, fromSchema, toSchema) {
 // ─────────────────────────────────────────────────────────────
 // 全库备份 → 单校段提取（方案B：全库备份记录对学校可见，恢复只提取自己 schema）
 // ─────────────────────────────────────────────────────────────
-// pg_dump -Fp 全库备份输出结构（PG18 实测）：
-//   SET ... ; SELECT pg_catalog.set_config('search_path','',false); SET default_tablespace = ''; ...
+// pg_dump -Fp 全库备份输出结构（PG14/PG18 实测）：
+//   --
+//   -- PostgreSQL database dump
+//   --
+//   \restrict <token>          ← PG17+ 才有的 meta-command（PG14 不识别，丢弃）
+//   -- Dumped from database version 14.23
+//   --
+//   SET statement_timeout = 0;
+//   ...
 //   CREATE SCHEMA public;  CREATE SCHEMA school_a;  CREATE SCHEMA school_b; ...
-//   CREATE TABLE school_a."X" ( ... );  ALTER TABLE ONLY school_a."X" ADD CONSTRAINT ...;
-//   COPY school_a."X" (...) FROM stdin;  <data>  \.
-//   CREATE INDEX "x_idx" ON school_a."X" ...;
-// 目标 schema 的表 / 索引 / 约束 / COPY 数据均以 `school_x.` 前缀限定，可精确切分。
+//   --
+//   -- Name: school_a."X"; Type: TABLE; Schema: school_a; Owner: -
+//   --
+//   CREATE TABLE school_a."X" ( ... 含复杂 CHECK CONSTRAINT ... );
+//   ALTER TABLE ONLY school_a."X" ADD CONSTRAINT ...;
+//   CREATE INDEX ... ON school_a."X" ...;
+//   CREATE FUNCTION school_a.audit_role_change() ... LANGUAGE plpgsql AS $_$ ... $_$;  ← PL/pgSQL dollar-quote
+//   COPY school_a."X" (...) FROM stdin;
+//   <data>
+//   \.
+//
+// 目标 schema 的段以 pg_dump 标准锚点
+//   `-- Name: ...; Type: ...; Schema: <schema>; Owner: -`
+// 开头，整段（建表 + 约束 + 索引 + 函数 + COPY 数据 + 数据行）按 schema 归属整体保留 / 丢弃。
+//
+// TD-Backup-Restore-Extract-Bug：旧实现用括号配对算法判断多行语句结束，对复杂
+//   - CONSTRAINT ... CHECK ((role = ANY (ARRAY['admin'::text, ...])))  （字符串内 + 多层括号）
+//   - PL/pgSQL 函数体（dollar-quote `$_$ ... $_$`）
+//   - 多表紧邻（COPY 紧跟 CREATE TABLE 的多行块）
+// 全部误判，导致：① 整段 CREATE TABLE/FUNCTION 被截短 ② COPY 块被错切 ③ 孤立
+// `\.` 行残留 → psql -f 报 "invalid command \\"（截图错误）。
+//
+// 修复：以 pg_dump 标准段锚点为界，整段隔离 → 不再做括号配对解析。
 
-const SCHEMA_LIKE = /^[a-z][a-z0-9_]*$/ // schema 名只允许小写字母数字下划线（assertSafeSchemaName 同源）
+const SCHEMA_LIKE = /^[a-z][a-z0-9_]*$/ // schema 名只允许小写字母数字下划线
 
 /**
- * 从全库备份 SQL 文本中提取【指定 schema】的完整段（建表 + 约束 + 索引 + COPY 数据）。
+ * 从全库备份 SQL 文本中提取【指定 schema】的完整段（建表 + 约束 + 索引 + COPY 数据 + 函数）。
  * 保留语句顺序；同时保留前置的全局 SET / search_path / default_* 等必要上下文，
  * 使提取后的片段可独立 psql -f 执行（与单校备份文件的语义一致）。
  * @param {string} sql 全库备份明文 SQL
@@ -50,8 +76,6 @@ export function extractSchemaSegment(sql, schema) {
   let i = 0
   let firstContent = true // 首个非注释非空行之前允许保留头部全局 SET
 
-  // 目标 schema 的限定名引用形式（兼容带引号 / 不带引号）：
-  //   school_a."X"   /   school_a.X   /   "school_a"."X"（少见）
   const quotedSchema = '"' + schema + '"'
   const prefixDot = schema + '.'
   const quotedPrefixDot = quotedSchema + '.'
@@ -61,13 +85,25 @@ export function extractSchemaSegment(sql, schema) {
   const isCreateSchemaOf = (line, name) =>
     new RegExp(`^CREATE\\s+SCHEMA\\s+"?${name}"?\\s*;`, 'i').test(line)
 
+  // pg_dump 标准段锚点：第二行 `Name: ...; Type: ...; Schema: ...; Owner: ...`
+  // 段边界规则：以 `Name:` 行（无论是否是 `Data for Name:` 数据段）作为新段起点。
+  // 段终止于下一个 `Name:`/`Data for Name:` 行之前。无需检查前后 `--`（pg_dump
+  // 在两段之间至少含一个 `--` 行，但形状不一致——CONSTRAINT/INDEX/FUNCTION 段以
+  // `--` 收尾，TABLE 段直接紧接空行后开始下一段）。
+  const SECTION_HEADER_RE = /^--\s*(?:Data for )?Name:\s*(.+?);\s*Type:\s*(.+?);\s*Schema:\s*(.+?);\s*Owner:\s*(.+?)$/
+  const looksLikeSectionHeader = (idx) => SECTION_HEADER_RE.test(lines[idx])
+
   while (i < lines.length) {
     const line = lines[i]
 
-    // 1) 头部全局上下文：首个内容行之前的所有 SET / SELECT pg_catalog / 注释 全保留；
+    // 1) 头部全局上下文：首个非内容行之前的所有 SET / SELECT / 注释 全保留；
     //    但 CREATE SCHEMA 不属于这里（见 2）。
+    //    【PG17+ 兼容】丢弃 psql meta-command 行（\restrict、\unrestrict、\encoding 等，
+    //    旧 PG14 不识别会导致 psql -f 报 "invalid command \\"）。
     if (firstContent) {
       const trimmed = line.trim()
+      const isPsqlMeta = /^\\(restrict|unrestrict|encoding|connect|set|unset|echo|qecho|warninfo|pset)\b/.test(trimmed)
+      if (isPsqlMeta) { i++; continue }
       const isHeadSetup = /^(SET\s|SELECT\s+pg_catalog\.|--|$)/i.test(trimmed)
       const isCreateSchema = /^CREATE\s+SCHEMA\s/i.test(trimmed)
       if (isHeadSetup && !isCreateSchema) {
@@ -75,18 +111,38 @@ export function extractSchemaSegment(sql, schema) {
         i++
         continue
       }
-      // 遇到 CREATE SCHEMA 或 CREATE TABLE 等实际内容后，头部结束
       firstContent = false
     }
 
-    // 2) CREATE SCHEMA：只保留目标 schema 的声明（其它 schema 的删掉）
+    // 2) CREATE SCHEMA：只保留目标 schema 的声明
     if (/^CREATE\s+SCHEMA\s/i.test(line.trim())) {
       if (isCreateSchemaOf(line, schema)) out.push(line)
       i++
       continue
     }
 
-    // 3) COPY 数据块：COPY <schema>.<table> ... FROM stdin; 直到 `\.`
+    // 3) pg_dump 段锚点：以"段"为单位整体保留 / 丢弃。
+    //    修复 TD-Backup-Restore-Extract-Bug 的核心——整段从 `Name:` 行开始到下一个
+    //    `Name:` 行之前，不做任何括号/dollar-quote 解析，避免 PL/pgSQL/复杂 CHECK 误判。
+    if (looksLikeSectionHeader(i)) {
+      const m = lines[i].match(SECTION_HEADER_RE)
+      const sectionSchema = m[3].trim()
+      // 定位下一段头（下一个 `Name:` 行）
+      let nextHeaderIdx = lines.length
+      for (let scan = i + 1; scan < lines.length; scan++) {
+        if (looksLikeSectionHeader(scan)) { nextHeaderIdx = scan; break }
+      }
+      if (sectionSchema === schema) {
+        // 落地：一行 `Name: ...` 锚点 + 段内所有内容（CREATE/ALTER/COPY/函数体/数据行）
+        out.push(lines[i])
+        for (let k = i + 1; k < nextHeaderIdx; k++) out.push(lines[k])
+      }
+      // 跳过整段（无论是否保留），落到下一段头
+      i = nextHeaderIdx
+      continue
+    }
+
+    // 4) 兜底：COPY 数据块单独处理（即便在段锚点未识别的回退路径里也要正确切 `\.`）。
     if (/^COPY\s/i.test(line.trim())) {
       if (inTarget(line)) {
         out.push(line)
@@ -95,9 +151,8 @@ export function extractSchemaSegment(sql, schema) {
           out.push(lines[i])
           i++
         }
-        if (i < lines.length) { out.push(lines[i]); i++ } // `\.`
+        if (i < lines.length) { out.push(lines[i]); i++ }
       } else {
-        // 跳过其它 schema 的 COPY 及其数据块
         i++
         while (i < lines.length && lines[i].trim() !== '\\.') i++
         if (i < lines.length) i++
@@ -105,20 +160,13 @@ export function extractSchemaSegment(sql, schema) {
       continue
     }
 
-    // 4) 一般语句（CREATE TABLE / ALTER TABLE / CREATE INDEX / CREATE SEQUENCE / GRANT 等）：
-    //    CREATE TABLE 与 ALTER TABLE 可能跨多行（字段列表 / 约束），用 inTarget 判定归属；
-    //    非目标 schema 的多行块整体跳过直到语句结束（行尾 ; 或裸 ); 行）。
+    // 5) 兜底：段锚点未匹配到（异常 dump）的旧行为——按 inTarget + 括号配对
+    //    正常 pg_dump 输出不会走这里。仅做最基本的安全处理。
     const trimmedLine = line.trim()
-    if (inTarget(line)) {
-      out.push(line)
-      i++
-      continue
-    }
-    // 非目标 schema 的多行语句（CREATE TABLE x ( ... );）需要整体跳过，直到该语句结束
+    if (inTarget(line)) { out.push(line); i++; continue }
     if (/^(CREATE\s+TABLE|ALTER\s+TABLE|CREATE\s+UNIQUE\s+INDEX|CREATE\s+INDEX|CREATE\s+SEQUENCE|GRANT|REVOKE|CREATE\s+VIEW|CREATE\s+FUNCTION)/i.test(trimmedLine)) {
       let depth = (line.match(/\(/g) || []).length - (line.match(/\)/g) || []).length
       i++
-      // 跨行时维护括号深度；行尾 ; 且深度≤0 视为语句结束
       while (i < lines.length) {
         const l = lines[i]
         depth += (l.match(/\(/g) || []).length - (l.match(/\)/g) || []).length
@@ -128,15 +176,9 @@ export function extractSchemaSegment(sql, schema) {
       }
       continue
     }
-
-    // 5) 其余行（空行 / 注释 / pg_dump 分节注释头）——仅当上一条已属于目标段时顺带保留，
-    //    否则丢弃（避免把其它 schema 段的分隔注释带进来造成误导）
-    const prev = out[out.length - 1]
-    const prevBelongs = prev !== undefined && inTarget(prev)
-    if (prevBelongs || /^--/.test(line.trim()) && i === lines.length - 1) out.push(line)
+    // 其余（空行 / 注释）：不保留（避免把其它 schema 段的分隔注释带进来）
     i++
   }
 
-  // 收尾：确保片段以分号结尾（若被截断）不必要——按行提取天然保留完整语句。
   return out.join('\n')
 }
