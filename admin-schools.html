@@ -1359,33 +1359,33 @@
                     <h3><i class="fas fa-school text-gray-500"></i>学校审计日志</h3>
                     <p class="text-sm text-gray-600 mb-3">按学校租户查看各校自己的操作审计日志。选择学校后，下方表格会展示该租户 <code class="bg-gray-100 px-1 rounded">AuditLog</code> 中的记录。</p>
                     <div class="flex flex-wrap items-center gap-3 mb-4">
-                        <label class="text-sm text-gray-700" for="saSchoolSelect">学校</label>
-                        <select id="saSchoolSelect" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80 focus:outline-none focus:ring-2 focus:ring-indigo-400 min-w-[200px]" aria-label="学校选择">
+                        <label class="text-sm text-gray-700" for="saAuditSchoolSelect">学校</label>
+                        <select id="saAuditSchoolSelect" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80 focus:outline-none focus:ring-2 focus:ring-indigo-400 min-w-[200px]" aria-label="学校选择">
                             <option value="">— 请选择学校 —</option>
                         </select>
-                        <input id="saSchoolSearch" type="search" placeholder="🔍 搜索学校名 / 代码" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80 min-w-[180px]" autocomplete="off">
-                        <label class="text-sm text-gray-700" for="saStartDate">起始</label>
-                        <input id="saStartDate" type="date" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80" aria-label="起始日期">
-                        <label class="text-sm text-gray-700" for="saEndDate">截止</label>
-                        <input id="saEndDate" type="date" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80" aria-label="截止日期">
+                        <input id="saAuditSchoolSearch" type="search" placeholder="🔍 搜索学校名 / 代码" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80 min-w-[180px]" autocomplete="off">
+                        <label class="text-sm text-gray-700" for="saAuditStartDate">起始</label>
+                        <input id="saAuditStartDate" type="date" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80" aria-label="起始日期">
+                        <label class="text-sm text-gray-700" for="saAuditEndDate">截止</label>
+                        <input id="saAuditEndDate" type="date" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80" aria-label="截止日期">
                         <div class="flex items-center gap-1 ml-1" role="group" aria-label="日期快捷选项">
-                            <button id="saDateAllBtn" type="button" class="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 transition" title="清除起止日期，查询全部时间（默认）"><i class="fas fa-infinity mr-1"></i>全部时间</button>
-                            <button id="saDate7Btn" type="button" class="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 transition" title="快捷设为最近 7 天"><i class="fas fa-calendar-week mr-1"></i>最近 7 天</button>
-                            <button id="saDate30Btn" type="button" class="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 transition" title="快捷设为最近 30 天"><i class="fas fa-calendar-alt mr-1"></i>最近 30 天</button>
+                            <button id="saAuditDateAllBtn" type="button" class="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 transition" title="清除起止日期，查询全部时间（默认）"><i class="fas fa-infinity mr-1"></i>全部时间</button>
+                            <button id="saAuditDate7Btn" type="button" class="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 transition" title="快捷设为最近 7 天"><i class="fas fa-calendar-week mr-1"></i>最近 7 天</button>
+                            <button id="saAuditDate30Btn" type="button" class="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 transition" title="快捷设为最近 30 天"><i class="fas fa-calendar-alt mr-1"></i>最近 30 天</button>
                         </div>
-                        <label class="text-sm text-gray-700" for="saActor">操作人</label>
-                        <select id="saActor" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80 min-w-[180px]" aria-label="操作人（按真名展示）">
+                        <label class="text-sm text-gray-700" for="saAuditActor">操作人</label>
+                        <select id="saAuditActor" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80 min-w-[180px]" aria-label="操作人（按真名展示）">
                             <option value="">全部用户</option>
                         </select>
-                        <label class="text-sm text-gray-700" for="saAction">动作</label>
-                        <select id="saAction" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80" aria-label="动作">
+                        <label class="text-sm text-gray-700" for="saAuditAction">动作</label>
+                        <select id="saAuditAction" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80" aria-label="动作">
                             <!-- 由 initAuditView.renderActionOptions('sa') 在启动时动态填充（与 ALL_ACTIONS 同步） -->
                             <option value="">全部动作</option>
                         </select>
-                        <button id="saRefreshBtn" type="button" class="px-3 py-1.5 text-sm bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition shadow" title="按当前筛选条件重新查询">
+                        <button id="saAuditRefreshBtn" type="button" class="px-3 py-1.5 text-sm bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition shadow" title="按当前筛选条件重新查询">
                             <i class="fas fa-search mr-1"></i>查询
                         </button>
-                        <button id="saResetFiltersBtn" type="button" class="px-3 py-1.5 text-sm bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition" title="重置日期、动作、操作人筛选">
+                        <button id="saAuditResetFiltersBtn" type="button" class="px-3 py-1.5 text-sm bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition" title="重置日期、动作、操作人筛选">
                             <i class="fas fa-undo mr-1"></i>重置
                         </button>
                     </div>
@@ -1400,30 +1400,30 @@
                                     <th class="text-left px-3 py-2">详情</th>
                                 </tr>
                             </thead>
-                            <tbody id="saInlineList" class="divide-y divide-gray-100">
+                            <tbody id="saAuditInlineList" class="divide-y divide-gray-100">
                                 <tr><td colspan="5" class="text-center text-gray-400 py-6">请先选择学校</td></tr>
                             </tbody>
                         </table>
                     </div>
-                    <div id="saTablePaginationContainer" class="flex flex-wrap justify-between items-center mt-4 mb-2 gap-2">
-                        <div class="flex items-center text-sm text-gray-600"><span id="saPaginationInfo">—</span></div>
+                    <div id="saAuditTablePaginationContainer" class="flex flex-wrap justify-between items-center mt-4 mb-2 gap-2">
+                        <div class="flex items-center text-sm text-gray-600"><span id="saAuditPaginationInfo">—</span></div>
                         <div class="flex items-center space-x-1">
-                            <button id="saPrevPageBtn" type="button" class="px-3 py-1 bg-gray-100 rounded disabled:opacity-50" disabled>
+                            <button id="saAuditPrevPageBtn" type="button" class="px-3 py-1 bg-gray-100 rounded disabled:opacity-50" disabled>
                                 <i class="fas fa-chevron-left"></i>
                             </button>
-                            <div id="saPageButtonsContainer" class="flex items-center space-x-1"></div>
-                            <button id="saNextPageBtn" type="button" class="px-3 py-1 bg-gray-100 rounded disabled:opacity-50" disabled>
+                            <div id="saAuditPageButtonsContainer" class="flex items-center space-x-1"></div>
+                            <button id="saAuditNextPageBtn" type="button" class="px-3 py-1 bg-gray-100 rounded disabled:opacity-50" disabled>
                                 <i class="fas fa-chevron-right"></i>
                             </button>
                         </div>
-                        <form id="saPageJumpForm" class="flex items-center ml-2">
+                        <form id="saAuditPageJumpForm" class="flex items-center ml-2">
                             <label class="text-sm text-gray-600 mr-2">跳转</label>
-                            <input type="number" id="saPageJumpInput" min="1" class="border border-gray-300 rounded w-16 px-2 py-1 text-sm" placeholder="页">
+                            <input type="number" id="saAuditPageJumpInput" min="1" class="border border-gray-300 rounded w-16 px-2 py-1 text-sm" placeholder="页">
                             <button type="submit" class="ml-1 px-2 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600 transition"><i class="fas fa-arrow-right"></i></button>
                         </form>
                         <div class="flex items-center ml-2">
                             <label class="text-sm text-gray-600 mr-2">每页:</label>
-                            <select id="saRecordsPerPageSelect" class="border border-gray-300 rounded px-2 py-1 text-sm">
+                            <select id="saAuditRecordsPerPageSelect" class="border border-gray-300 rounded px-2 py-1 text-sm">
                                 <option value="10">10</option>
                                 <option value="20">20</option>
                                 <option value="50" selected>50</option>

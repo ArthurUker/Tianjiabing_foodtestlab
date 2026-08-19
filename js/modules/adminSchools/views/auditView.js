@@ -152,7 +152,7 @@ export function initAuditView() {
     // 操作人下拉填充（学校子视图专用 —— 平台超管跨租户时按学校 code 拉取用户）
     // ------------------------------------------------------------------
     async function loadSchoolUsers(schoolCode) {
-        const sel = document.getElementById('saActor');
+        const sel = document.getElementById('saAuditActor');
         if (!sel) return;
         const current = sel.value;
         sel.innerHTML = '<option value="">全部用户（加载中…）</option>';
@@ -298,7 +298,7 @@ export function initAuditView() {
             if (!tbody) return;
             const myVersion = ++state.loadVersion;
             // 学校子视图在未选学校时显示明确占位，不发请求
-            if (prefix === 'sa' && !getSchoolCode()) {
+            if (prefix === 'saAudit' && !getSchoolCode()) {
                 state.total = 0;
                 state.totalPages = 1;
                 state.logs = [];
@@ -488,7 +488,7 @@ export function initAuditView() {
     let schoolCode = '';
     const getSchoolCode = () => schoolCode;
     const schoolPane = createAuditLogPane({
-        prefix: 'sa',
+        prefix: 'saAudit',
         fetchLogs: async (params) => {
             const code = schoolCode;
             if (!code) return { list: [], total: 0 };
@@ -500,7 +500,7 @@ export function initAuditView() {
     });
 
     async function loadSchoolsForAudit() {
-        const sel = document.getElementById('saSchoolSelect');
+        const sel = document.getElementById('saAuditSchoolSelect');
         if (!sel || sel.options.length > 1) return;
         try {
             const res = await adminFetch('/api/admin/schools?limit=500');
@@ -520,11 +520,11 @@ export function initAuditView() {
         }
     }
 
-    const schoolSelect = document.getElementById('saSchoolSelect');
+    const schoolSelect = document.getElementById('saAuditSchoolSelect');
     if (schoolSelect && !schoolSelect.dataset.listenerAttached) {
         schoolSelect.addEventListener('change', (e) => {
             schoolCode = e.target.value;
-            const tbody = document.getElementById('saInlineList');
+            const tbody = document.getElementById('saAuditInlineList');
             if (!schoolCode) {
                 if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-400 py-6">请先选择学校</td></tr>';
                 schoolPane.state.total = 0;
@@ -533,7 +533,7 @@ export function initAuditView() {
                 schoolPane.state.loadVersion++; // 取消任何在飞的旧 load
                 schoolPane.updatePagination();
                 // 清空操作人下拉
-                const actorSel = document.getElementById('saActor');
+                const actorSel = document.getElementById('saAuditActor');
                 if (actorSel) {
                     actorSel.innerHTML = '<option value="">全部用户</option>';
                 }
@@ -542,7 +542,7 @@ export function initAuditView() {
             // 联动：异步加载该校用户列表到「操作人」下拉
             loadSchoolUsers(schoolCode);
             // 切换学校时清空操作人筛选、重置到第 1 页，避免跨学校筛选残留
-            const actorSel = document.getElementById('saActor');
+            const actorSel = document.getElementById('saAuditActor');
             if (actorSel) actorSel.value = '';
             schoolPane.state.page = 1;
             schoolPane.load();
@@ -551,11 +551,11 @@ export function initAuditView() {
     }
 
     // 学校下拉搜索：输入时过滤 option（不破坏 value 选择）
-    const schoolSearch = document.getElementById('saSchoolSearch');
+    const schoolSearch = document.getElementById('saAuditSchoolSearch');
     if (schoolSearch && !schoolSearch.dataset.listenerAttached) {
         schoolSearch.addEventListener('input', (e) => {
             const q = String(e.target.value || '').trim().toLowerCase();
-            const sel = document.getElementById('saSchoolSelect');
+            const sel = document.getElementById('saAuditSchoolSelect');
             if (!sel) return;
             Array.from(sel.options).forEach((opt) => {
                 if (!opt.value) {
@@ -722,13 +722,13 @@ export function initAuditView() {
 
     // 一次性渲染两个子视图的动作下拉，确保动作清单完整
     renderActionOptions('au');
-    renderActionOptions('sa');
+    renderActionOptions('saAudit');
     // 用户需求：「按时间筛选默认是所有时间的审计日志」→ 进入时不预填日期，
     // 通过快捷按钮（全部时间 / 最近 7 天 / 最近 30 天）调整。
     setDateManualCleared('au');
-    setDateManualCleared('sa');
+    setDateManualCleared('saAudit');
     // 把"全部时间"按钮初始高亮（setDateManualCleared 不会触发 bindDateShortcuts.applyAndReload）
-    ['au', 'sa'].forEach((p) => {
+    ['au', 'saAudit'].forEach((p) => {
         const btn = document.getElementById(p + 'DateAllBtn');
         if (btn) {
             btn.classList.add('bg-indigo-100', 'text-indigo-700');
@@ -743,13 +743,13 @@ export function initAuditView() {
     // 学校子视图的操作人下拉在用户选择学校时按需加载（见 schoolSelect.change）
     loadConsoleUsers();
     bindResetFilters('au');
-    bindResetFilters('sa');
+    bindResetFilters('saAudit');
     bindDateShortcuts('au');
-    bindDateShortcuts('sa');
+    bindDateShortcuts('saAudit');
 
     // 延迟加载学校列表：只有切到学校审计日志子视图时才填充一次
     function ensureSchoolOptions() {
-        const sel = document.getElementById('saSchoolSelect');
+        const sel = document.getElementById('saAuditSchoolSelect');
         if (sel && sel.options.length <= 1) loadSchoolsForAudit();
     }
 
@@ -762,7 +762,7 @@ export function initAuditView() {
         if (subName === 'school') {
             ensureSchoolOptions();
             if (!schoolCode) {
-                const tbody = document.getElementById('saInlineList');
+                const tbody = document.getElementById('saAuditInlineList');
                 if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-400 py-6">请先选择学校</td></tr>';
                 schoolPane.state.total = 0;
                 schoolPane.state.totalPages = 1;
