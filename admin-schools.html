@@ -1527,27 +1527,41 @@
                 <div class="grid grid-cols-12 gap-4">
                     <!-- 左侧：学校列表 -->
                     <div class="col-span-12 lg:col-span-4 flex flex-col gap-4">
-                        <div class="admin-card">
+                        <div class="admin-card" id="singleSchoolCard">
                             <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
                                 <div>
                                     <h3><i class="fas fa-bullseye text-teal-500"></i>选择学校</h3>
                                     <p class="text-xs text-gray-500">点击学校，右侧实时显示备份记录</p>
                                 </div>
+                                <div class="flex items-center gap-2">
+                                    <span id="singleSelectedCount" class="text-xs font-medium px-2 py-0.5 bg-gray-100 rounded">已选 0</span>
+                                    <button id="singleToggleSchoolPanel" type="button" class="text-xs px-2 py-1 border border-gray-300 rounded-lg hover:bg-gray-50 bg-white/80 transition">
+                                        <i class="fas fa-chevron-up mr-1"></i><span>收起</span>
+                                    </button>
+                                </div>
                             </div>
-                            <div class="relative mb-3">
-                                <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
-                                <input id="singleSchoolFilter" type="text" placeholder="搜索学校名称 / code" class="pl-8 pr-3 py-1.5 w-full border border-gray-300 rounded-lg text-sm bg-white/80">
+                            <div id="singleSchoolPanelBody">
+                                <div class="flex items-center gap-2 mb-3">
+                                    <div class="relative flex-1">
+                                        <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
+                                        <input id="singleSchoolFilter" type="text" placeholder="搜索学校名称 / code" class="pl-8 pr-3 py-1.5 w-full border border-gray-300 rounded-lg text-sm bg-white/80">
+                                    </div>
+                                    <button id="singleSchoolRefresh" type="button" class="text-xs px-2 py-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition whitespace-nowrap">
+                                        <i class="fas fa-sync mr-1"></i>刷新
+                                    </button>
+                                </div>
+                                <!-- 单点备份 · 学校卡片网格：与恢复管理「目标学校」一致的紧凑 3 列网格，
+                                     视觉密度更高、视觉风格统一；点击整张切换右侧详情面板。 -->
+                                <div id="singleSchoolGrid" class="max-h-[360px] overflow-y-auto pr-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 content-start">
+                                    <div class="text-center text-gray-400 text-sm py-6 col-span-full">加载学校列表…</div>
+                                </div>
+                                <div id="singleSchoolPager" class="mt-2"></div>
                             </div>
-                            <div class="flex items-center justify-between mb-2">
-                                <span class="text-xs text-gray-500" id="singleSchoolCount">共 0 所学校</span>
-                                <button id="singleSchoolRefresh" type="button" class="text-xs text-blue-600 hover:text-blue-800 transition">
-                                    <i class="fas fa-sync mr-1"></i>刷新
-                                </button>
-                            </div>
-                            <!-- 单点备份 · 学校卡片网格：与恢复管理「目标学校」一致的紧凑 3 列网格，
-                                 视觉密度更高、视觉风格统一；点击整张切换右侧详情面板。 -->
-                            <div id="singleSchoolGrid" class="max-h-[520px] overflow-y-auto pr-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 content-start">
-                                <div class="text-center text-gray-400 text-sm py-6 col-span-full">加载学校列表…</div>
+                            <div id="singleSchoolPanelSummary" class="hidden">
+                                <div class="text-sm text-gray-600 bg-gray-50 rounded-lg px-3 py-2 flex items-center justify-between">
+                                    <span>已选 <b id="singleSummaryCount">0</b> / 共 <span id="singleSummaryTotal">0</span> 所学校</span>
+                                    <button type="button" class="text-xs text-blue-600 hover:text-blue-700" data-act="expand-single-schools"><i class="fas fa-expand mr-1"></i>展开选择</button>
+                                </div>
                             </div>
                         </div>
                     </div>

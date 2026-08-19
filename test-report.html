@@ -810,6 +810,16 @@
         async function syncNow() {
             const btn = $('syncBtn')
             if (btn.disabled) return
+            // 点击同步后先提示：同步需要时间，且完成后需到汇总报告页刷新才能看到新内容
+            const waitTip = window.confirm(
+                '同步提示\n\n' +
+                '点击「确定」后，系统将重新生成汇总报告并重建部署目录，' +
+                '该过程通常需要数秒到十几秒，请耐心等待不要重复点击。\n\n' +
+                '同步完成后，请到「汇总报告」页面刷新（或重新打开），' +
+                '才能看到最新的同步内容。\n\n' +
+                '是否开始同步？'
+            )
+            if (!waitTip) return
             btn.disabled = true
             const orig = btn.innerHTML
             btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>同步中...'
@@ -817,7 +827,14 @@
                 const r = await fetch('/api/test-results/sync', { method: 'POST', headers: apiHeaders() })
                 const j = await r.json()
                 if (!j.success) throw new Error(j.error || '同步失败')
-                alert(j.message || '同步完成')
+                const msg = j.skipped
+                    ? (j.message || '同步已跳过')
+                    : (j.message || '同步完成')
+                alert(
+                    msg + '\n\n' +
+                    '提示：请到「汇总报告」页面刷新（或重新打开），' +
+                    '才能看到本次同步的最新内容。'
+                )
             } catch (e) {
                 alert('同步失败：' + e.message)
             } finally {

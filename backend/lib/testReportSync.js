@@ -20,7 +20,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { CASE_DEFS, RESULT_LABELS, indexCaseDefs } from './testCaseDefs.js'
+import { CASE_DEFS, RESULT_LABELS, indexCaseDefs, NEW_FIXED_NOTES } from './testCaseDefs.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 /** 项目根目录（backend/lib/ → ../..） */
@@ -203,7 +203,9 @@ function buildSnapshot(results) {
         closed: !!closedInfo,
         closed_by: closedInfo?.closed_by || null,
         closed_at: closedInfo?.closed_at || null,
-        fix_note: '',
+        // FIX-NOTICE: 清单外 NEW-* 反馈也支持复测提醒（来自 testCaseDefs.js 的 NEW_FIXED_NOTES），
+        // 供报告页渲染「已修复·请重复测试」徽章，提醒重新测试验证。
+        fix_note: NEW_FIXED_NOTES[rec.case_id] || '',
       }
     })
     // new_问题 组口径与 CASE_DEFS 组一致 —— done/total 都不含 closed，closed 仅作为独立 chip 展示

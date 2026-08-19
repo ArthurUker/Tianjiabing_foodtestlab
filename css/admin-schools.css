@@ -364,54 +364,33 @@
       .admin-link-card .title { font-weight: 600; color: #1f2937; }
       .admin-link-card .desc { font-size: 12px; color: #6b7280; margin-top: 2px; }
       .admin-link-card .arrow { color: #9ca3af; }
-      /* 单点备份：学校选择卡片 — 与恢复管理「目标学校」紧凑网格风格保持一致
-         （小圆点 radio + 校名 + code，去掉渐变方形图标与右侧箭头；
-          信息密度更高，三个一行，与「恢复管理」视觉完全统一。） */
+      /* 单点备份：学校选择卡片 — 与恢复管理「目标学校」完全一致的视觉规格 */
       .single-school-card {
           display: flex;
           align-items: center;
-          gap: 8px;
+          gap: 0.5rem;
           width: 100%;
-          padding: 6px 10px;
-          border-radius: 8px;
-          border: 1px solid #f3f4f6;
+          padding: 0.625rem 0.75rem;
+          border-radius: 0.5rem;
+          border: 1px solid #e5e7eb;
           background: #ffffff;
-          transition: all 0.15s ease;
+          transition: all .15s ease;
           cursor: pointer;
           text-align: left;
-          font-size: 12px;
-          line-height: 1.2;
       }
-      .single-school-card:hover {
-          background: #f9fafb;
-          border-color: #d1d5db;
-      }
-      .single-school-card.active {
-          background: rgba(59, 130, 246, 0.08);
-          border-color: #3b82f6;
-          box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.12);
-      }
+      .single-school-card:hover { border-color: #93c5fd; background: #eff6ff; }
+      .single-school-card.active { border-color: #3b82f6; background: #eff6ff; box-shadow: 0 0 0 2px #bfdbfe; }
       .single-school-radio {
-          width: 14px;
-          height: 14px;
+          width: 0.875rem;
+          height: 0.875rem;
           border-color: #d1d5db;
           color: #3b82f6;
+          accent-color: #3b82f6;
           flex-shrink: 0;
-          margin-top: 0;
+          margin: 0;
       }
-      .single-school-card .title {
-          font-weight: 500;
-          color: #1f2937;
-          font-size: 13px;
-          line-height: 1.2;
-      }
-      .single-school-card.active .title { color: #1d4ed8; }
-      .single-school-card .code {
-          font-size: 11px;
-          color: #6b7280;
-          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-          margin-top: 1px;
-      }
+      .single-school-card .title { font-size: 0.75rem; font-weight: 600; color: #374151; line-height: 1.25; }
+      .single-school-card .code { font-size: 0.625rem; color: #6b7280; margin-top: 1px; }
       /* ====== 恢复管理：源切换 / 备份可选行 / 上传 drop 高亮 ====== */
       .restore-source-tab {
           background: rgba(255,255,255,0.6);

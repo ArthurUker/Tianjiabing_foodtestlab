@@ -60,11 +60,12 @@ export function initBackupView({ API_BASE, authHeaders, notify }) {
     let allSchools = [];
 
     // 分页实例（每个子视图独立）
-    const pagers = { global: null, single: null, restoreSchool: null, restoreBackup: null };
+    const pagers = { global: null, single: null, singleSchool: null, restoreSchool: null, restoreBackup: null };
 
     // 单点备份视图状态
     let singleSelectedSchool = null;
     let singleFilter = '';
+    let singleSchoolPanelExpanded = true;
 
     // 恢复管理视图状态（v3 重构）
     let restoreSelectedSchools = new Set();
@@ -214,24 +215,39 @@ export function initBackupView({ API_BASE, authHeaders, notify }) {
         }
     }
 
-    function renderSingleSchoolGrid() {
-        const grid = document.getElementById('singleSchoolGrid');
-        if (!grid) return;
+    function getFilteredSingleSchools() {
         const term = singleFilter.trim().toLowerCase();
-        const list = allSchools.filter((s) => {
+        return allSchools.filter((s) => {
             if (!term) return true;
             return (s.name || '').toLowerCase().includes(term) || (s.code || '').toLowerCase().includes(term);
         });
+    }
 
-        const countEl = document.getElementById('singleSchoolCount');
-        if (countEl) countEl.textContent = `共 ${list.length} 所学校`;
+    function renderSingleSchoolGrid() {
+        const grid = document.getElementById('singleSchoolGrid');
+        if (!grid) return;
+        const filtered = getFilteredSingleSchools();
+
+        // 与恢复管理「目标学校」一致：客户端分页，默认 12 条/页。
+        if (!pagers.singleSchool) {
+            pagers.singleSchool = new TablePager({
+                id: 'singleSchool',
+                containerId: 'singleSchoolPager',
+                defaultPerPage: 12,
+                perPageOptions: [6, 12, 24, 48],
+                serverSide: false,
+                onChange: () => renderSingleSchoolGrid(),
+            }).mount();
+        }
+        const p = paginateArray(filtered, pagers.singleSchool.page, pagers.singleSchool.perPage);
+        pagers.singleSchool.setTotal(p.total).setPage(p.page);
 
         // 设计参考「恢复管理 → 目标学校」卡片：紧凑 3 列网格 + checkbox 视觉风格。
         // 单点备份语义是「单选一所」：用 label/radio 替代 checkbox 表达排他选择，
         // 但视觉与恢复管理完全一致（统一卡片尺寸、padding、选中态高亮）；
         // 点击整张切换右侧详情面板。
-        grid.innerHTML = list.length
-            ? list.map((s) => {
+        grid.innerHTML = p.data.length
+            ? p.data.map((s) => {
                 const isActive = singleSelectedSchool && singleSelectedSchool.code === s.code;
                 return `
                     <label class="single-school-card ${isActive ? 'active' : ''}" data-code="${escapeHtml(s.code)}" title="${escapeHtml(s.name || s.code)} · ${escapeHtml(s.code)}">
@@ -260,6 +276,35 @@ export function initBackupView({ API_BASE, authHeaders, notify }) {
                 });
             });
         });
+
+        updateSingleSchoolSummary();
+    }
+
+    function updateSingleSchoolSummary() {
+        const selected = singleSelectedSchool ? 1 : 0;
+        const total = allSchools.length;
+        const countBadge = document.getElementById('singleSelectedCount');
+        if (countBadge) countBadge.textContent = singleSelectedSchool ? `已选 1` : '已选 0';
+        const summaryCount = document.getElementById('singleSummaryCount');
+        const summaryTotal = document.getElementById('singleSummaryTotal');
+        if (summaryCount) summaryCount.textContent = String(selected);
+        if (summaryTotal) summaryTotal.textContent = String(total);
+    }
+
+    function setSingleSchoolPanelExpanded(expanded) {
+        const body = document.getElementById('singleSchoolPanelBody');
+        const summary = document.getElementById('singleSchoolPanelSummary');
+        const btn = document.getElementById('singleToggleSchoolPanel');
+        if (!body || !summary) return;
+        singleSchoolPanelExpanded = expanded;
+        body.classList.toggle('hidden', !expanded);
+        summary.classList.toggle('hidden', expanded);
+        if (btn) {
+            const icon = btn.querySelector('i');
+            const text = btn.querySelector('span');
+            if (icon) icon.className = expanded ? 'fas fa-chevron-up mr-1' : 'fas fa-chevron-down mr-1';
+            if (text) text.textContent = expanded ? '收起' : '展开';
+        }
     }
 
     function switchSingleSchool(code) {
@@ -292,6 +337,8 @@ export function initBackupView({ API_BASE, authHeaders, notify }) {
         const pager = document.getElementById('bkSinglePager');
         if (pager) pager.innerHTML = '';
         pagers.single = null; // 重建分页器，避免闭包引用旧学校
+        if (pagers.singleSchool) pagers.singleSchool.setPage(1);
+        setSingleSchoolPanelExpanded(true);
         renderSingleSchoolGrid();
     }
 
@@ -335,12 +382,18 @@ export function initBackupView({ API_BASE, authHeaders, notify }) {
     function bindSingleEvents() {
         document.getElementById('singleSchoolFilter')?.addEventListener('input', (e) => {
             singleFilter = e.target.value || '';
+            if (pagers.singleSchool) pagers.singleSchool.setPage(1);
             renderSingleSchoolGrid();
         });
         document.getElementById('singleSchoolRefresh')?.addEventListener('click', () => loadSingleSchools());
-        document.getElementById('singleSchoolGrid')?.addEventListener('click', (e) => {
-            const card = e.target.closest('button[data-code]');
-            if (card) switchSingleSchool(card.dataset.code);
+        document.getElementById('singleToggleSchoolPanel')?.addEventListener('click', () => {
+            const body = document.getElementById('singleSchoolPanelBody');
+            setSingleSchoolPanelExpanded(body?.classList.contains('hidden') || false);
+        });
+        document.getElementById('singleSchoolPanelSummary')?.addEventListener('click', (e) => {
+            if (e.target.closest('[data-act="expand-single-schools"]')) {
+                setSingleSchoolPanelExpanded(true);
+            }
         });
         document.getElementById('singleRunBackup')?.addEventListener('click', runSingleBackup);
     }
