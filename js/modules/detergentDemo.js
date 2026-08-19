@@ -163,11 +163,8 @@ async function runLocateStep(image) {
 // ---------------------------------------------------------------------------
 function startRegionConfirm(manual, hintText) {
   stage = 'region_confirm';
-  // 在 canvas 上画区域框（不画 7 个小块，避免干扰）
-  drawRegionBoxes(canvas, {
-    cardRect: denormRect(currentRegions.cardRect, locateCanvasSize),
-    tube: denormRect(currentRegions.tube, locateCanvasSize),
-  }, { canvasSize: locateCanvasSize });
+  // canvas 只保留原图；可交互的区域框由 DOM 覆盖层 (#regionLayer) 显示，
+  // 避免 clearRect 把原图擦掉，也避免 canvas 文字与 DOM 标签重叠。
 
   ensureRegionUI();
   showRegionActions(true, manual);
@@ -502,11 +499,6 @@ function startDrag(e, box, key, mode, isTouch, handle) {
     box.style.top = (r.y * 100) + '%';
     box.style.width = (r.w * 100) + '%';
     box.style.height = (r.h * 100) + '%';
-    // 同步更新 canvas 上的区域框绘制
-    drawRegionBoxes(canvas, {
-      cardRect: denormRect(currentRegions.cardRect, locateCanvasSize),
-      tube: denormRect(currentRegions.tube, locateCanvasSize),
-    }, { canvasSize: locateCanvasSize });
   };
   const onUp = () => {
     document.removeEventListener('mousemove', onMove);

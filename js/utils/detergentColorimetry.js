@@ -879,38 +879,27 @@ export function drawRegionBoxes(canvas, regions, options = {}) {
   const sy = canvas.height / srcH;
 
   ctx.save();
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
+  // 不再 clearRect：本函数作为“在原图上方叠加区域提示”使用，清空会擦掉原图。
   if (regions.cardRect) {
     const c = regions.cardRect;
+    ctx.fillStyle = 'rgba(22,163,74,0.10)';
+    ctx.fillRect(c.x * sx, c.y * sy, c.w * sx, c.h * sy);
     ctx.strokeStyle = '#16a34a';
     ctx.lineWidth = 3;
     ctx.setLineDash([8, 5]);
     ctx.strokeRect(c.x * sx, c.y * sy, c.w * sx, c.h * sy);
     ctx.setLineDash([]);
-    ctx.fillStyle = 'rgba(22,163,74,0.92)';
-    const label = '比色卡区域';
-    ctx.font = 'bold 15px sans-serif';
-    const tw = ctx.measureText(label).width;
-    ctx.fillRect(c.x * sx, c.y * sy - 22, tw + 12, 20);
-    ctx.fillStyle = '#fff';
-    ctx.fillText(label, c.x * sx + 6, c.y * sy - 7);
   }
 
   if (regions.tube) {
     const t = regions.tube;
+    ctx.fillStyle = 'rgba(37,99,235,0.10)';
+    ctx.fillRect(t.x * sx, t.y * sy, t.w * sx, t.h * sy);
     ctx.strokeStyle = '#2563eb';
     ctx.lineWidth = 3;
     ctx.setLineDash([8, 5]);
     ctx.strokeRect(t.x * sx, t.y * sy, t.w * sx, t.h * sy);
     ctx.setLineDash([]);
-    ctx.fillStyle = 'rgba(37,99,235,0.92)';
-    const label = '样品区域';
-    ctx.font = 'bold 15px sans-serif';
-    const tw = ctx.measureText(label).width;
-    ctx.fillRect(t.x * sx, t.y * sy - 22, tw + 12, 20);
-    ctx.fillStyle = '#fff';
-    ctx.fillText(label, t.x * sx + 6, t.y * sy - 7);
   }
   ctx.restore();
 }
