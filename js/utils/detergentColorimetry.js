@@ -613,6 +613,62 @@ function boundingRectOf(rects) {
  *   未提供 blocks 时，用 cardRect 做"整块等距拆分"兜底取色（手动框选场景）。
  * @returns {object} 完整分析结果（与 analyzeDetergentImage 同结构）
  */
+/**
+ * 在用户手动框选的 cardRect 内部重新检测真实彩色色块（不依赖整图定位）。
+ * 复用 locateColorBlocks 的列投影/波峰思路，但把搜索范围限制在 cardRect 内，
+ * 因此能识别比色卡里的具体色块位置（彩色带），而不是简单等分整个大框。
+ *
+ * @param {HTMLCanvasElement} canvas  降采样后的工作 canvas
+ * @param {object} cardRect {x,y,w,h} 用户框选的比色卡整体矩形
+ * @param {number} n 期望色块数（7）
+ * @returns {Array|null} 检测到的色块数组（measured:true），不足时返回 null 让兜底介入
+ */
+function detectBlocksInRect(canvas, cardRect, n) {
+  const W = canvas.width, H = canvas.height;
+  const x0 = Math.max(0, Math.round(cardRect.x));
+  const y0 = Math.max(0, Math.round(cardRect.y));
+  const x1 = Math.min(W - 1, Math.round(cardRect.x + cardRect.w));
+  const y1 = Math.min(H - 1, Math.round(cardRect.y + cardRect.h));
+  const rw = x1 - x0 + 1, rh = y1 - y0 + 1;
+  if (rw < 20 || rh < 10) return null;
+
+  const imageData = canvas.getContext('2d', { willReadFrequently: true }).getImageData(x0, y0, rw, rh);
+  const sal = computeSaliencyMap(imageData).map;
+  const SAT_THRESH = 0.04;
+
+  // 列投影：cardRect 内每列的平均饱和度（含白边/文字仍偏低，彩色块峰值高）
+  const colScore = new Float32Array(rw);
+  for (let x = 0; x < rw; x++) {
+    let sum = 0;
+    for (let y = 0; y < rh; y++) sum += sal[y * rw + x];
+    colScore[x] = sum / rh;
+  }
+  const sortedCol = [...colScore].sort((a, b) => a - b);
+  const colBase = sortedCol[Math.floor(rw * 0.5)];
+  const colSmooth = boxBlur1D(colScore, rw, 2);
+
+  const peaks = findPeaksTopN(colSmooth, rw, n, colBase);
+  if (peaks.length < 4) return null; // 框内识别不出足够色带，退回等距兜底
+
+  const cardH = rh;
+  const blocks = [];
+  for (const px of peaks) {
+    // 在局部 sal（rw×rh）内做纵向边界检测，x 用局部坐标 px
+    const b = findBlockVerticalBounds(sal, rw, rh, px, 20, SAT_THRESH, 0, rh - 1);
+    if (!b) {
+      blocks.push({ x: x0 + px - 20, y: y0, w: 40, h: cardH });
+    } else {
+      blocks.push({ x: x0 + b.x, y: y0 + b.y, w: b.w, h: b.h });
+    }
+  }
+  // 标记真实取色（measured），不视为推断
+  return blocks.map(r => ({
+    x: Math.round(r.x), y: Math.round(r.y),
+    w: Math.round(r.w), h: Math.round(r.h),
+    measured: true, inferred: false,
+  }));
+}
+
 export function analyzeWithRegions(srcCanvas, options = {}, regions = {}) {
   const concentrations = options.concentrations || [0, 0.01, 0.05, 0.1, 0.5, 1.0, 2.0];
 
@@ -632,8 +688,15 @@ export function analyzeWithRegions(srcCanvas, options = {}, regions = {}) {
   const W = canvas.width, H = canvas.height;
 
   // 1. 色块：优先用定位阶段识别到的精确 blocks；
-  //    若用户手动框选（blocks 为空），用 cardRect 等距推断 7 个色块并实际取色。
-  let blocks = providedBlocks && providedBlocks.length ? providedBlocks : inferBlocksFromCardRect(cardRect, concentrations.length);
+  //    若用户手动框选（blocks 为空），先在你框定的 cardRect 内重新检测真实彩色色块；
+  //    检测不到足够色带时，才退回等距推断兜底。
+  let blocks;
+  if (providedBlocks && providedBlocks.length) {
+    blocks = providedBlocks;
+  } else {
+    const detected = detectBlocksInRect(canvas, cardRect, concentrations.length);
+    blocks = detected && detected.length >= 4 ? detected : inferBlocksFromCardRect(cardRect, concentrations.length);
+  }
 
   // 2. 给色块排序、补全缺失位置（用等距先验）
   const sortedBlocks = [...blocks].sort((a, b) => a.x - b.x);
