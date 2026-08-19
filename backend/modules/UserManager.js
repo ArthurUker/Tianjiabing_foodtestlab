@@ -1241,6 +1241,31 @@ export class UserManager {
                 action: 'login_failed',
                 details: { username, timestamp: new Date().toISOString() },
             })
+
+            // 安全策略：短时间内连续密码错误超过 5 次 → 自动停用该账户
+            // 窗口：最近 2 分钟内的 login_failed 记录
+            try {
+                const autoDisableThreshold = Number(process.env.AUTO_DISABLE_THRESHOLD || 5)
+                const autoDisableWindowMs = Number(process.env.AUTO_DISABLE_WINDOW_MS || 2 * 60 * 1000)
+                if (autoDisableThreshold > 0) {
+                    const recentFailures = await this.prisma.auditLog.count({
+                        where: {
+                            user_id: userId,
+                            action: 'login_failed',
+                            created_at: { gte: new Date(Date.now() - autoDisableWindowMs) }
+                        }
+                    })
+                    if (recentFailures >= autoDisableThreshold) {
+                        await this.prisma.user.update({
+                            where: { id: userId },
+                            data: { status: 'disabled' }
+                        })
+                        console.warn(`⚠️ 用户 ${username}(id=${userId}) 因 ${autoDisableWindowMs / 1000} 秒内连续 ${recentFailures} 次登录失败，已自动停用`)
+                    }
+                }
+            } catch (autoErr) {
+                console.error(`❌ 自动停用检测失败: ${autoErr.message}`)
+            }
         } catch (error) {
             console.error(`❌ 记录失败登录失败: ${error.message}`)
         }

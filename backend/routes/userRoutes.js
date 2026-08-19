@@ -36,6 +36,9 @@ export function createUserRoutes(userManager) {
         if (error && error.code === 'ACCOUNT_LOCKED') {
             return res.status(423).json({ error: '❌ 登录失败次数过多，该账号已被临时锁定，请稍后再试' })
         }
+        if (error && error.code === 'ACCOUNT_DISABLED') {
+            return res.status(403).json({ error: '❌ 该账号已被停用，请联系管理员启用', code: 'ACCOUNT_DISABLED' })
+        }
         // q-2：被拒账号申请人登录时给出明确提示（不泄露其它账号状态）
         if (error && error.code === 'APPLICATION_REJECTED') {
             return res.status(403).json({ error: error.message, code: 'APPLICATION_REJECTED' })
