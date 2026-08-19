@@ -10,6 +10,26 @@
 import { adminFetch } from '../context.js';
 import { escapeHtml } from '../ui.js';
 
+// 与 getActionLabel 一致的完整动作清单（用于筛选下拉与文案渲染同步）
+const ALL_ACTIONS = [
+    { value: 'login', label: '登录' },
+    { value: 'logout', label: '登出' },
+    { value: 'login_failed', label: '登录失败' },
+    { value: 'create', label: '创建' },
+    { value: 'update', label: '更新' },
+    { value: 'delete', label: '删除' },
+    { value: 'backup', label: '备份' },
+    { value: 'restore', label: '恢复' },
+    { value: 'export', label: '导出' },
+    { value: 'import', label: '导入' },
+    { value: 'print', label: '打印' },
+    { value: 'role_change', label: '角色变更' },
+    { value: 'password_reset', label: '密码重置' },
+    { value: 'must_change_password', label: '强制改密' },
+    { value: 'user_disable', label: '禁用用户' },
+    { value: 'user_enable', label: '启用用户' },
+];
+
 export function initAuditView() {
     // ------------------------------------------------------------------
     // 子视图切换
@@ -25,20 +45,170 @@ export function initAuditView() {
     }
 
     // ------------------------------------------------------------------
+    // 渲染动作下拉（统一使用 ALL_ACTIONS，确保前端筛选项与后端白名单同步）
+    // ------------------------------------------------------------------
+    function renderActionOptions(prefix) {
+        const sel = document.getElementById(prefix + 'Action');
+        if (!sel) return;
+        const current = sel.value;
+        sel.innerHTML = '<option value="">全部动作</option>' + ALL_ACTIONS
+            .map((a) => `<option value="${escapeHtml(a.value)}">${escapeHtml(a.label)}</option>`)
+            .join('');
+        // 保留之前的 value（如果还在动作清单中）
+        if (current && ALL_ACTIONS.some((a) => a.value === current)) sel.value = current;
+    }
+
+    // ------------------------------------------------------------------
+    // 默认日期（最近 7 天，含今日）
+    // ------------------------------------------------------------------
+    function applyDefaultDateRange(prefix, days = 7) {
+        const startEl = document.getElementById(prefix + 'StartDate');
+        const endEl = document.getElementById(prefix + 'EndDate');
+        if (!startEl || !endEl) return;
+        // 若用户/调用方已显式设置过值（data-user-set=true），则保留不动
+        if (startEl.dataset.userSet === 'true' || endEl.dataset.userSet === 'true') return;
+        const end = new Date();
+        const start = new Date();
+        start.setDate(start.getDate() - (days - 1));
+        const fmt = (d) => {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const dd = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${dd}`;
+        };
+        startEl.value = fmt(start);
+        endEl.value = fmt(end);
+    }
+
+    // ------------------------------------------------------------------
+    // 操作人下拉填充（学校子视图专用 —— 平台超管跨租户时按学校 code 拉取用户）
+    // ------------------------------------------------------------------
+    async function loadSchoolUsers(schoolCode) {
+        const sel = document.getElementById('saActor');
+        if (!sel) return;
+        const current = sel.value;
+        sel.innerHTML = '<option value="">全部用户（加载中…）</option>';
+        sel.disabled = true;
+        try {
+            const res = await adminFetch(`/api/admin/schools/${encodeURIComponent(schoolCode)}/users`);
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const data = await res.json();
+            const rows = Array.isArray(data?.data) ? data.data : (Array.isArray(data) ? data : []);
+            renderUserSelect(sel, rows, current);
+            sel.disabled = false;
+        } catch (e) {
+            sel.innerHTML = '<option value="">全部用户（加载失败）</option>';
+            sel.disabled = false;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 操作人下拉填充（控制台子视图专用 —— 调用 /api/audit-logs/users 从 req.db 查 user）
+    // ------------------------------------------------------------------
+    async function loadConsoleUsers() {
+        const sel = document.getElementById('auActor');
+        if (!sel) return;
+        const current = sel.value;
+        sel.innerHTML = '<option value="">全部用户（加载中…）</option>';
+        sel.disabled = true;
+        try {
+            const res = await adminFetch('/api/audit-logs/users');
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const data = await res.json();
+            const rows = Array.isArray(data?.data?.users) ? data.data.users : [];
+            renderUserSelect(sel, rows, current);
+            sel.disabled = false;
+        } catch (e) {
+            sel.innerHTML = '<option value="">全部用户（加载失败）</option>';
+            sel.disabled = false;
+        }
+    }
+
+    // 共用：根据用户行渲染下拉选项。row 形如 { id, username, full_name, role, status }
+    function renderUserSelect(sel, rows, keepValue) {
+        const opts = ['<option value="">全部用户</option>'];
+        const validValues = new Set(['']);
+        rows.forEach((u) => {
+            if (!u || !u.id) return;
+            const name = [u.username, u.full_name].filter(Boolean).join(' / ');
+            const roleLabel = u.role === 'admin' ? '管理员' : (u.role === 'manager' ? '主管' : (u.role || ''));
+            const text = `${name || u.id}${roleLabel ? ` (${roleLabel})` : ''}${u.status === 'disabled' ? ' [已禁用]' : ''}`;
+            opts.push(`<option value="${escapeHtml(String(u.id))}">${escapeHtml(text)}</option>`);
+            validValues.add(String(u.id));
+        });
+        sel.innerHTML = opts.join('');
+        // 仅当先前选中的 user_id 仍在结果集中时保留（兼容：用户已被删除时清空筛选）
+        if (keepValue && validValues.has(String(keepValue))) sel.value = keepValue;
+    }
+
+    // ------------------------------------------------------------------
+    // 重置筛选（清空日期用户设置、清空动作/操作人筛选、恢复默认 7 天区间）
+    // ------------------------------------------------------------------
+    function bindResetFilters(prefix) {
+        const btn = document.getElementById(prefix + 'ResetFiltersBtn');
+        if (!btn || btn.dataset.bound) return;
+        btn.dataset.bound = 'true';
+        btn.addEventListener('click', () => {
+            // 清空日期用户标记，重新应用默认最近 7 天
+            const startEl = document.getElementById(prefix + 'StartDate');
+            const endEl = document.getElementById(prefix + 'EndDate');
+            if (startEl) startEl.dataset.userSet = '';
+            if (endEl) endEl.dataset.userSet = '';
+            applyDefaultDateRange(prefix, 7);
+
+            const actorEl = document.getElementById(prefix + 'Actor');
+            if (actorEl) actorEl.value = '';
+            const actionEl = document.getElementById(prefix + 'Action');
+            if (actionEl) actionEl.value = '';
+
+            // 触发对应 pane 重新加载（page=1）
+            const pane = prefix === 'au' ? consolePane : schoolPane;
+            if (pane) {
+                pane.state.page = 1;
+                pane.load();
+            }
+        });
+    }
+
+    // ------------------------------------------------------------------
     // 审计日志面板工厂（复用给 console / school 两套 DOM）
     // ------------------------------------------------------------------
     function createAuditLogPane({ prefix, fetchLogs }) {
-        const state = { page: 1, perPage: 50, total: 0, totalPages: 1, logs: [], currentDetailLog: null };
+        const state = {
+            page: 1, perPage: 50, total: 0, totalPages: 1, logs: [],
+            currentDetailLog: null,
+            // 加载版本号：每次 load 自增；await 之后只接受当前最新版本的结果，
+            // 避免快速切换筛选时旧请求的「暂无日志记录」覆盖新请求的真实数据。
+            loadVersion: 0,
+            placeholderMode: 'loading', // loading / need-school / empty / error
+            placeholderMsg: '',
+        };
         const el = (id) => document.getElementById(prefix + id);
+
+        function setPlaceholder(tbody, mode, msg) {
+            state.placeholderMode = mode;
+            state.placeholderMsg = msg || '';
+            const text = {
+                loading: '加载中…',
+                'need-school': '请先选择学校',
+                empty: '暂无日志记录',
+                error: msg ? `查询失败：${escapeHtml(msg)}` : '查询失败',
+            }[mode];
+            const cls = mode === 'error' ? 'text-center text-red-500 py-6' : 'text-center text-gray-400 py-6';
+            tbody.innerHTML = `<tr><td colspan="5" class="${cls}">${escapeHtml(text || '')}</td></tr>`;
+        }
 
         function getParams() {
             const start = el('StartDate')?.value;
             const end = el('EndDate')?.value;
-            const actor = el('Actor')?.value.trim();
+            const actor = el('Actor')?.value;
             const action = el('Action')?.value;
             const params = new URLSearchParams();
-            if (start) params.set('startDate', new Date(start).toISOString());
-            if (end) params.set('endDate', new Date(end).toISOString());
+            if (start) params.set('startDate', new Date(start + 'T00:00:00+08:00').toISOString());
+            if (end) {
+                // 含当日：end 取 23:59:59.999 +08:00
+                params.set('endDate', new Date(end + 'T23:59:59.999+08:00').toISOString());
+            }
             if (actor) params.set('userId', actor);
             if (action) params.set('action', action);
             params.set('offset', String((state.page - 1) * state.perPage));
@@ -49,23 +219,37 @@ export function initAuditView() {
         async function load() {
             const tbody = el('InlineList');
             if (!tbody) return;
-            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-400 py-6">加载中…</td></tr>';
+            const myVersion = ++state.loadVersion;
+            // 学校子视图在未选学校时显示明确占位，不发请求
+            if (prefix === 'sa' && !getSchoolCode()) {
+                state.total = 0;
+                state.totalPages = 1;
+                state.logs = [];
+                setPlaceholder(tbody, 'need-school');
+                updatePagination();
+                return;
+            }
+            setPlaceholder(tbody, 'loading');
             try {
                 const params = getParams();
                 const { list, total } = await fetchLogs(params);
-                state.total = Number(total ?? list.length);
+                // 期间用户可能又触发了新的 load()：丢弃过时结果
+                if (myVersion !== state.loadVersion) return;
+                state.total = Number(total ?? (Array.isArray(list) ? list.length : 0));
                 state.totalPages = Math.max(1, Math.ceil(state.total / state.perPage));
                 if (state.page > state.totalPages) {
                     state.page = state.totalPages;
+                    // 用最新版本号再发一次
+                    if (myVersion !== state.loadVersion) return;
                     return load();
                 }
-                state.logs = list;
-                if (!Array.isArray(list) || list.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-400 py-6">暂无日志记录</td></tr>';
+                state.logs = Array.isArray(list) ? list : [];
+                if (state.logs.length === 0) {
+                    setPlaceholder(tbody, 'empty');
                     updatePagination();
                     return;
                 }
-                tbody.innerHTML = list.map((l) => {
+                tbody.innerHTML = state.logs.map((l) => {
                     const ts = l.created_at || l.createdAt || l.timestamp || '-';
                     const actor = l.user?.username || l.user?.full_name || l.user_id || '-';
                     const action = l.action || '-';
@@ -85,9 +269,11 @@ export function initAuditView() {
                             </td>
                         </tr>`;
                 }).join('');
+                state.placeholderMode = 'data';
                 updatePagination();
             } catch (e) {
-                tbody.innerHTML = `<tr><td colspan="5" class="text-center text-red-500 py-6">查询失败：${escapeHtml(String(e.message || e))}</td></tr>`;
+                if (myVersion !== state.loadVersion) return;
+                setPlaceholder(tbody, 'error', String(e?.message || e));
                 updatePagination();
             }
         }
@@ -169,6 +355,27 @@ export function initAuditView() {
             refreshBtn.dataset.listenerAttached = 'true';
         }
 
+        // 自动查询：日期/动作/操作人 变化即触发 load（不依赖「查询」按钮）
+        ['StartDate', 'EndDate', 'Action'].forEach((id) => {
+            const node = el(id);
+            if (node && !node.dataset.autoQueryBound) {
+                node.addEventListener('change', () => {
+                    node.dataset.userSet = 'true';
+                    state.page = 1;
+                    load();
+                });
+                node.dataset.autoQueryBound = 'true';
+            }
+        });
+        const actorEl = el('Actor');
+        if (actorEl && !actorEl.dataset.autoQueryBound) {
+            actorEl.addEventListener('change', () => {
+                state.page = 1;
+                load();
+            });
+            actorEl.dataset.autoQueryBound = 'true';
+        }
+
         // 表格行点击 -> 详情弹窗
         const table = el('InlineList')?.closest('table');
         if (table && !table.dataset.listenerAttached) {
@@ -199,13 +406,27 @@ export function initAuditView() {
 
     // ------------------------------------------------------------------
     // 学校审计日志面板
+    // 当前所选学校代码用闭包变量维护（避免 window 全局污染，便于模块化和单测）
     // ------------------------------------------------------------------
     let schoolCode = '';
+    const getSchoolCode = () => schoolCode;
+    const schoolPane = createAuditLogPane({
+        prefix: 'sa',
+        fetchLogs: async (params) => {
+            const code = schoolCode;
+            if (!code) return { list: [], total: 0 };
+            const res = await adminFetch(`/api/audit-logs/school/${encodeURIComponent(code)}?${params.toString()}`);
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const data = await res.json();
+            return { list: data.data || [], total: data.total ?? data.totalCount };
+        },
+    });
+
     async function loadSchoolsForAudit() {
         const sel = document.getElementById('saSchoolSelect');
         if (!sel || sel.options.length > 1) return;
         try {
-            const res = await adminFetch('/api/admin/schools?limit=200');
+            const res = await adminFetch('/api/admin/schools?limit=500');
             if (!res.ok) throw new Error('HTTP ' + res.status);
             const data = await res.json();
             const list = data.data?.schools || data.schools || data.data || data || [];
@@ -221,30 +442,55 @@ export function initAuditView() {
             // 静默失败，用户可点刷新重试
         }
     }
-    const schoolPane = createAuditLogPane({
-        prefix: 'sa',
-        fetchLogs: async (params) => {
-            if (!schoolCode) return { list: [], total: 0 };
-            const res = await adminFetch(`/api/audit-logs/school/${encodeURIComponent(schoolCode)}?${params.toString()}`);
-            if (!res.ok) throw new Error('HTTP ' + res.status);
-            const data = await res.json();
-            return { list: data.data || [], total: data.total ?? data.totalCount };
-        },
-    });
 
-    document.getElementById('saSchoolSelect')?.addEventListener('change', (e) => {
-        schoolCode = e.target.value;
-        const tbody = document.getElementById('saInlineList');
-        if (!schoolCode) {
-            if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-400 py-6">请先选择学校</td></tr>';
-            schoolPane.state.total = 0;
-            schoolPane.state.totalPages = 1;
-            schoolPane.updatePagination();
-            return;
-        }
-        schoolPane.state.page = 1;
-        schoolPane.load();
-    });
+    const schoolSelect = document.getElementById('saSchoolSelect');
+    if (schoolSelect && !schoolSelect.dataset.listenerAttached) {
+        schoolSelect.addEventListener('change', (e) => {
+            schoolCode = e.target.value;
+            const tbody = document.getElementById('saInlineList');
+            if (!schoolCode) {
+                if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-400 py-6">请先选择学校</td></tr>';
+                schoolPane.state.total = 0;
+                schoolPane.state.totalPages = 1;
+                schoolPane.state.logs = [];
+                schoolPane.state.loadVersion++; // 取消任何在飞的旧 load
+                schoolPane.updatePagination();
+                // 清空操作人下拉
+                const actorSel = document.getElementById('saActor');
+                if (actorSel) {
+                    actorSel.innerHTML = '<option value="">全部用户</option>';
+                }
+                return;
+            }
+            // 联动：异步加载该校用户列表到「操作人」下拉
+            loadSchoolUsers(schoolCode);
+            // 切换学校时清空操作人筛选、重置到第 1 页，避免跨学校筛选残留
+            const actorSel = document.getElementById('saActor');
+            if (actorSel) actorSel.value = '';
+            schoolPane.state.page = 1;
+            schoolPane.load();
+        });
+        schoolSelect.dataset.listenerAttached = 'true';
+    }
+
+    // 学校下拉搜索：输入时过滤 option（不破坏 value 选择）
+    const schoolSearch = document.getElementById('saSchoolSearch');
+    if (schoolSearch && !schoolSearch.dataset.listenerAttached) {
+        schoolSearch.addEventListener('input', (e) => {
+            const q = String(e.target.value || '').trim().toLowerCase();
+            const sel = document.getElementById('saSchoolSelect');
+            if (!sel) return;
+            Array.from(sel.options).forEach((opt) => {
+                if (!opt.value) {
+                            opt.hidden = false;
+                            return;
+                        }
+                const txt = String(opt.textContent || '').toLowerCase();
+                opt.hidden = q && !txt.includes(q);
+            });
+        });
+        schoolSearch.dataset.listenerAttached = 'true';
+    }
 
     // ------------------------------------------------------------------
     // 详情弹窗（全局共用）
@@ -332,13 +578,8 @@ export function initAuditView() {
     }
 
     function getActionLabel(action) {
-        const labels = {
-            login: '登录', logout: '登出', create: '创建', update: '更新', delete: '删除',
-            backup: '备份', restore: '恢复', export: '导出', import: '导入', print: '打印',
-            login_failed: '登录失败', role_change: '角色变更', password_reset: '密码重置',
-            must_change_password: '强制改密', user_disable: '禁用用户', user_enable: '启用用户',
-        };
-        return labels[action] || action;
+        const item = ALL_ACTIONS.find((a) => a.value === action);
+        return item ? item.label : (action || '-');
     }
 
     function getActionColor(action) {
@@ -347,8 +588,11 @@ export function initAuditView() {
             create: 'bg-green-100 text-green-700', update: 'bg-yellow-100 text-yellow-700',
             delete: 'bg-red-100 text-red-700', backup: 'bg-purple-100 text-purple-700',
             restore: 'bg-orange-100 text-orange-700', export: 'bg-indigo-100 text-indigo-700',
-            import: 'bg-teal-100 text-teal-700', login_failed: 'bg-red-100 text-red-700',
+            import: 'bg-teal-100 text-teal-700', print: 'bg-cyan-100 text-cyan-700',
+            login_failed: 'bg-red-100 text-red-700',
             role_change: 'bg-orange-100 text-orange-700', password_reset: 'bg-orange-100 text-orange-700',
+            must_change_password: 'bg-amber-100 text-amber-700',
+            user_disable: 'bg-red-100 text-red-700', user_enable: 'bg-green-100 text-green-700',
         };
         return colors[action] || 'bg-indigo-100 text-indigo-700';
     }
@@ -382,6 +626,8 @@ export function initAuditView() {
             case 'import': sentence = `${actor} 导入${resourceType ? ' ' + resourceType : '数据'}`; break;
             case 'role_change': sentence = `${actor} 变更角色${resourceId ? '（' + resourceId + '）' : ''}`; break;
             case 'password_reset': sentence = `${actor} 重置密码${resourceId ? '（' + resourceId + '）' : ''}`; break;
+            case 'user_disable': sentence = `${actor} 禁用用户${resourceId ? '（' + resourceId + '）' : ''}`; break;
+            case 'user_enable': sentence = `${actor} 启用用户${resourceId ? '（' + resourceId + '）' : ''}`; break;
             default: sentence = `${actor} 执行操作「${action}」`;
         }
 
@@ -397,6 +643,19 @@ export function initAuditView() {
         return { preview, full };
     }
 
+    // 一次性渲染两个子视图的动作下拉，确保动作清单完整
+    renderActionOptions('au');
+    renderActionOptions('sa');
+    // 默认日期（最近 7 天；用户手动改动后保留用户设置）
+    applyDefaultDateRange('au', 7);
+    applyDefaultDateRange('sa', 7);
+
+    // 控制台子视图：异步加载操作人下拉（平台超管可访问 /api/audit-logs/users）
+    // 学校子视图的操作人下拉在用户选择学校时按需加载（见 schoolSelect.change）
+    loadConsoleUsers();
+    bindResetFilters('au');
+    bindResetFilters('sa');
+
     // 延迟加载学校列表：只有切到学校审计日志子视图时才填充一次
     function ensureSchoolOptions() {
         const sel = document.getElementById('saSchoolSelect');
@@ -404,7 +663,8 @@ export function initAuditView() {
     }
 
     // 重写 switchAuditSubview：切到学校审计日志时先初始化学校下拉；
-    // 若尚未选择学校，保留占位提示，不发起查询。
+    // 若尚未选择学校，保留占位提示，不发起查询；
+    // 若已选择学校则重新查询（保持数据新鲜）。
     const originalSwitch = switchAuditSubview;
     function switchAuditSubviewWithInit(subName) {
         originalSwitch(subName);
@@ -415,6 +675,7 @@ export function initAuditView() {
                 if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-400 py-6">请先选择学校</td></tr>';
                 schoolPane.state.total = 0;
                 schoolPane.state.totalPages = 1;
+                schoolPane.state.logs = [];
                 schoolPane.updatePagination();
             }
         }

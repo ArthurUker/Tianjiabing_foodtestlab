@@ -1281,23 +1281,24 @@
                     <h3><i class="fas fa-desktop text-gray-500"></i>控制台审计日志</h3>
                     <p class="text-sm text-gray-600 mb-3">所有平台超管操作均会被记录至 <code class="bg-gray-100 px-1 rounded">public.AuditLog</code>。下方表单按时间段 + 操作者 + 动作过滤。</p>
                     <div class="flex flex-wrap items-center gap-3 mb-4">
-                        <label class="text-sm text-gray-700">起始</label>
-                        <input id="auStartDate" type="date" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80">
-                        <label class="text-sm text-gray-700">截止</label>
-                        <input id="auEndDate" type="date" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80">
-                        <input id="auActor" type="text" placeholder="操作人 id" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80 w-32">
-                        <select id="auAction" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80">
-                            <option value="">全部动作</option>
-                            <option value="login">登录</option>
-                            <option value="logout">登出</option>
-                            <option value="create">创建</option>
-                            <option value="update">更新</option>
-                            <option value="delete">删除</option>
-                            <option value="backup">备份</option>
-                            <option value="restore">恢复</option>
+                        <label class="text-sm text-gray-700" for="auStartDate">起始</label>
+                        <input id="auStartDate" type="date" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80" aria-label="起始日期">
+                        <label class="text-sm text-gray-700" for="auEndDate">截止</label>
+                        <input id="auEndDate" type="date" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80" aria-label="截止日期">
+                        <label class="text-sm text-gray-700" for="auActor">操作人</label>
+                        <select id="auActor" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80 min-w-[160px]" aria-label="操作人">
+                            <option value="">全部用户（加载中…）</option>
                         </select>
-                        <button id="auRefreshBtn" type="button" class="px-3 py-1.5 text-sm bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition shadow">
+                        <label class="text-sm text-gray-700" for="auAction">动作</label>
+                        <select id="auAction" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80" aria-label="动作">
+                            <!-- 由 initAuditView.renderActionOptions('au') 在启动时动态填充（与 ALL_ACTIONS 同步） -->
+                            <option value="">全部动作</option>
+                        </select>
+                        <button id="auRefreshBtn" type="button" class="px-3 py-1.5 text-sm bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition shadow" title="按当前筛选条件重新查询">
                             <i class="fas fa-search mr-1"></i>查询
+                        </button>
+                        <button id="auResetFiltersBtn" type="button" class="px-3 py-1.5 text-sm bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition" title="重置日期、动作、操作人筛选">
+                            <i class="fas fa-undo mr-1"></i>重置
                         </button>
                     </div>
                     <div class="overflow-x-auto">
@@ -1354,26 +1355,28 @@
                     <p class="text-sm text-gray-600 mb-3">按学校租户查看各校自己的操作审计日志。选择学校后，下方表格会展示该租户 <code class="bg-gray-100 px-1 rounded">AuditLog</code> 中的记录。</p>
                     <div class="flex flex-wrap items-center gap-3 mb-4">
                         <label class="text-sm text-gray-700" for="saSchoolSelect">学校</label>
-                        <select id="saSchoolSelect" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80 focus:outline-none focus:ring-2 focus:ring-indigo-400 min-w-[200px]">
+                        <select id="saSchoolSelect" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80 focus:outline-none focus:ring-2 focus:ring-indigo-400 min-w-[200px]" aria-label="学校选择">
                             <option value="">— 请选择学校 —</option>
                         </select>
-                        <label class="text-sm text-gray-700">起始</label>
-                        <input id="saStartDate" type="date" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80">
-                        <label class="text-sm text-gray-700">截止</label>
-                        <input id="saEndDate" type="date" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80">
-                        <input id="saActor" type="text" placeholder="操作人 id" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80 w-32">
-                        <select id="saAction" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80">
-                            <option value="">全部动作</option>
-                            <option value="login">登录</option>
-                            <option value="logout">登出</option>
-                            <option value="create">创建</option>
-                            <option value="update">更新</option>
-                            <option value="delete">删除</option>
-                            <option value="backup">备份</option>
-                            <option value="restore">恢复</option>
+                        <input id="saSchoolSearch" type="search" placeholder="🔍 搜索学校名 / 代码" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80 min-w-[180px]" autocomplete="off">
+                        <label class="text-sm text-gray-700" for="saStartDate">起始</label>
+                        <input id="saStartDate" type="date" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80" aria-label="起始日期">
+                        <label class="text-sm text-gray-700" for="saEndDate">截止</label>
+                        <input id="saEndDate" type="date" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80" aria-label="截止日期">
+                        <label class="text-sm text-gray-700" for="saActor">操作人</label>
+                        <select id="saActor" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80 min-w-[160px]" aria-label="操作人">
+                            <option value="">全部用户</option>
                         </select>
-                        <button id="saRefreshBtn" type="button" class="px-3 py-1.5 text-sm bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition shadow">
+                        <label class="text-sm text-gray-700" for="saAction">动作</label>
+                        <select id="saAction" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80" aria-label="动作">
+                            <!-- 由 initAuditView.renderActionOptions('sa') 在启动时动态填充（与 ALL_ACTIONS 同步） -->
+                            <option value="">全部动作</option>
+                        </select>
+                        <button id="saRefreshBtn" type="button" class="px-3 py-1.5 text-sm bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition shadow" title="按当前筛选条件重新查询">
                             <i class="fas fa-search mr-1"></i>查询
+                        </button>
+                        <button id="saResetFiltersBtn" type="button" class="px-3 py-1.5 text-sm bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition" title="重置日期、动作、操作人筛选">
+                            <i class="fas fa-undo mr-1"></i>重置
                         </button>
                     </div>
                     <div class="overflow-x-auto">
