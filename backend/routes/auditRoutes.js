@@ -383,6 +383,48 @@ export function createAuditRoutes(userManager, prisma) {
     })
 
     /**
+     * 获取指定学校审计日志的时间范围（最早时间 + 最新时间）
+     * GET /api/audit-logs/school/:schoolCode/date-range
+     * 用于「全部时间」按钮：起始填最早日志时间，截止填当前时间。
+     * 仅允许平台超管访问。
+     */
+    router.get('/school/:schoolCode/date-range', authenticateUser, authorizeAdmin, async (req, res) => {
+        try {
+            if (req.user.role !== 'admin' || req.user.schoolCode) {
+                return res.status(403).json({ error: '❌ 仅平台超管可访问' })
+            }
+
+            const schoolCode = req.params.schoolCode
+            if (!schoolCode || !isValidSchoolCode(schoolCode)) {
+                return res.status(400).json({ error: '❌ 学校代码无效' })
+            }
+
+            const tenantDb = createTenantClient(prisma, schoolCode)
+
+            const earliest = await tenantDb.auditLog.findFirst({
+                orderBy: { created_at: 'asc' },
+                select: { created_at: true },
+            })
+
+            const latest = await tenantDb.auditLog.findFirst({
+                orderBy: { created_at: 'desc' },
+                select: { created_at: true },
+            })
+
+            res.json({
+                success: true,
+                data: {
+                    earliest: earliest ? new Date(earliest.created_at) : null,
+                    latest: latest ? new Date(latest.created_at) : null,
+                },
+            })
+        } catch (error) {
+            console.error('❌ Error fetching school audit date range:', error)
+            res.status(400).json({ error: clientErr(error, '❌ 查询失败') })
+        }
+    })
+
+    /**
      * 获取单条日志详情
      * GET /api/audit-logs/:logId
      * P1-27: 动态参数路由移至所有静态路由之后，遵循 Express 最佳实践

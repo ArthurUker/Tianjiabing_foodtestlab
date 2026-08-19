@@ -96,12 +96,51 @@ export function initAuditView() {
             if (startEl) startEl.dataset.userSet = '';
             if (endEl) endEl.dataset.userSet = '';
             if (days == null) {
-                // 全部时间：清空两个日期
-                if (startEl) startEl.value = '';
-                if (endEl) endEl.value = '';
-                // 标记为 user-set 以阻止默认行为干扰（虽然都为 0，但保留显式语义）
-                if (startEl) startEl.dataset.userSet = 'true';
-                if (endEl) endEl.dataset.userSet = 'true';
+                // 全部时间：查询该学校审计日志的最早时间，截止为当前时间
+                const schoolCode = document.getElementById('auSchoolSelect')?.value || '';
+                const isSchoolPane = prefix === 'au';
+                // 确定实际使用的 schoolCode：学校面板用 auSchoolSelect，控制台面板用 auSchoolSelect
+                const code = schoolCode;
+
+                if (code) {
+                    fetch(`/api/audit-logs/school/${encodeURIComponent(code)}/date-range`, { credentials: 'include' })
+                        .then(r => r.json())
+                        .then(res => {
+                            if (res.success && res.data.earliest) {
+                                const d = new Date(res.data.earliest);
+                                const y = d.getFullYear();
+                                const m = String(d.getMonth() + 1).padStart(2, '0');
+                                const day = String(d.getDate()).padStart(2, '0');
+                                if (startEl) startEl.value = `${y}-${m}-${day}`;
+                            } else {
+                                if (startEl) startEl.value = '';
+                            }
+                            // 截止日期始终为当前时间
+                            const now = new Date();
+                            const ny = now.getFullYear();
+                            const nm = String(now.getMonth() + 1).padStart(2, '0');
+                            const nd = String(now.getDate()).padStart(2, '0');
+                            if (endEl) endEl.value = `${ny}-${nm}-${nd}`;
+                            if (startEl) startEl.dataset.userSet = 'true';
+                            if (endEl) endEl.dataset.userSet = 'true';
+                            // 触发加载
+                            const pane = prefix === 'au' ? consolePane : schoolPane;
+                            if (pane) { pane.state.page = 1; pane.load(); }
+                        })
+                        .catch(() => {
+                            // 失败时回退到留空
+                            if (startEl) { startEl.value = ''; startEl.dataset.userSet = 'true'; }
+                            if (endEl) { endEl.value = ''; endEl.dataset.userSet = 'true'; }
+                            const pane = prefix === 'au' ? consolePane : schoolPane;
+                            if (pane) { pane.state.page = 1; pane.load(); }
+                        });
+                } else {
+                    if (startEl) { startEl.value = ''; startEl.dataset.userSet = 'true'; }
+                    if (endEl) { endEl.value = ''; endEl.dataset.userSet = 'true'; }
+                    const pane = prefix === 'au' ? consolePane : schoolPane;
+                    if (pane) { pane.state.page = 1; pane.load(); }
+                }
+                return; // 异步加载，提前返回避免重复 load
             } else {
                 applyDefaultDateRange(prefix, days);
                 // applyDefaultDateRange 不会写 userSet，标记为已设置避免被覆盖
