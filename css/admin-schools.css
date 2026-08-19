@@ -336,14 +336,28 @@
           /* 创建新的 stacking context，防止内部按钮被外部 fixed 元素（浏览器扩展等）遮挡 */
           isolation: isolate;
       }
-      /* FIX: 表格操作列按钮在全宽大屏下被浏览器扩展/fixed 元素遮挡无法点击 */
-      /* 提升 overflow 容器和操作列的层级 */
+      /* FIX: 表格操作列按钮在全宽大屏下被遮挡无法点击
+         原因：backdrop-filter 劫持了 fixed 元素的包含块 + 浏览器扩展注入的 fixed 覆盖层
+         方案：给表格容器和每个操作按钮创建独立 stacking context 并提升层级 */
       .admin-card .overflow-x-auto {
           position: relative;
+          z-index: 1;
       }
       .admin-card table {
           position: relative;
-          z-index: 1;
+          z-index: 2;
+      }
+      /* 操作列 td 内的按钮：强制提升到最上层 stacking context */
+      .admin-card td:last-child,
+      .admin-card td:has(> button[data-act]) {
+          position: relative;
+          z-index: 10;
+      }
+      .admin-card button[data-act],
+      .admin-card button[data-sa-act] {
+          position: relative;
+          z-index: 100;
+          pointer-events: auto !important;
       }
       .admin-card h3 {
           font-size: 16px;
