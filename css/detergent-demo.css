@@ -368,6 +368,48 @@
     .rb-sw { left: -7px; bottom: -7px; cursor: nesw-resize; }
     .rb-w  { left: -7px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
 
+    /* 色块微调层：每个色块一个框（第二次调整） */
+    .block-box {
+      position: absolute; pointer-events: auto; cursor: move;
+      border: 2px solid; border-radius: 4px;
+      box-sizing: border-box; background: rgba(255,255,255,0.12);
+    }
+    /* 7 个色块按浓度梯度上色（绿→黄→红），与图例一致 */
+    .block-box.bb-0 { border-color: #16a34a; }
+    .block-box.bb-1 { border-color: #65a30d; }
+    .block-box.bb-2 { border-color: #84cc16; }
+    .block-box.bb-3 { border-color: #ca8a04; }
+    .block-box.bb-4 { border-color: #eab308; }
+    .block-box.bb-5 { border-color: #f97316; }
+    .block-box.bb-6 { border-color: #dc2626; }
+    .block-box .bb-label {
+      position: absolute; top: -20px; left: 0;
+      font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 4px;
+      color: #fff; white-space: nowrap;
+    }
+    .block-box.bb-0 .bb-label { background: #16a34a; }
+    .block-box.bb-1 .bb-label { background: #65a30d; }
+    .block-box.bb-2 .bb-label { background: #84cc16; }
+    .block-box.bb-3 .bb-label { background: #ca8a04; }
+    .block-box.bb-4 .bb-label { background: #eab308; }
+    .block-box.bb-5 .bb-label { background: #f97316; }
+    .block-box.bb-6 .bb-label { background: #dc2626; }
+    .block-box .rb-handle { border-color: #334155; }
+
+    /* 模式切换 */
+    .mode-switch { display: flex; gap: 8px; margin-bottom: 12px; }
+    .mode-btn {
+      flex: 1; padding: 10px; border: 1px solid var(--c-border); border-radius: 0.6rem;
+      background: #fff; color: var(--c-muted); cursor: pointer; font-size: 14px; font-weight: 600;
+      transition: all .15s;
+    }
+    .mode-btn:hover { border-color: var(--c-muted); }
+    .mode-btn.active {
+      background: var(--c-primary, #2563eb); color: #fff; border-color: var(--c-primary, #2563eb);
+    }
+    .mode-tip { font-size: 12px; color: var(--c-muted); margin: 10px 0 0; line-height: 1.6; }
+    #blockActions { margin-top: 12px; }
+
     /* ============ 处理中遮罩 ============ */
     .busy-overlay {
       position: absolute; inset: 0; z-index: 20;

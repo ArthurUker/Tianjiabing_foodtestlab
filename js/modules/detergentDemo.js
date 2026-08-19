@@ -9,7 +9,7 @@
  *   3) 在（可能矫正过的）区域上执行 analyzeWithRegions 比色，输出浓度
  */
 
-import { analyzeDetergentImage, locateRegions, analyzeWithRegions, drawOverlay, drawRegionBoxes, buildResultHtml } from '../utils/detergentColorimetry.js';
+import { analyzeDetergentImage, locateRegions, analyzeWithRegions, analyzeWithTemplate, detectBlocksInRect, TEMPLATE_LAYOUT, drawOverlay, drawRegionBoxes, buildResultHtml } from '../utils/detergentColorimetry.js';
 import { isEmbedded, postToParent } from '../utils/embed.js';
 
 const CONCENTRATIONS = [0, 0.01, 0.05, 0.1, 0.5, 1.0, 2.0];
@@ -37,6 +37,7 @@ const btnConfirmResult = document.getElementById('btnConfirmResult');
 // 区域确认 UI（动态创建，挂在 main 内）
 let regionActions = document.getElementById('regionActions');
 let regionHint = document.getElementById('regionHint');
+let blockActions = document.getElementById('blockActions');
 let regionLayer = document.getElementById('regionLayer');
 
 const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -50,9 +51,12 @@ const workCtx = workCanvas.getContext('2d', { willReadFrequently: true });
 let sourceImage = null;          // 原图 Image
 let locateCanvasSize = null;     // locateRegions 内部降采样后的尺寸 {width,height}
 let currentRegions = null;       // 归一化坐标 { cardRect:{x,y,w,h}, tube:{x,y,w,h}, modified }（相对定位 canvas）
+let currentBlocks = null;        // 色块微调层：归一化色块列表 [{x,y,w,h,concentration}]
+let blockLayer = null;           // 色块微调 DOM 覆盖层
 let initialLoc = null;           // 初次定位完整结果（含精确 blocks）
 let lastResult = null;           // 比色结果
-let stage = 'idle';              // idle | locating | region_confirm | analyzing | result
+let stage = 'idle';              // idle | locating | region_confirm | block_confirm | analyzing | result
+let currentMode = 'manual';     // 'manual'（两步手动调整）| 'template'（全自动模板）
 
 // ---------------------------------------------------------------------------
 // 初始化
@@ -70,12 +74,37 @@ function init() {
       if (f) loadFile(f);
     });
   }
-  btnSample?.addEventListener('click', () => { sourceImage = null; runSample(); });
+  btnSample?.addEventListener('click', () => {
+    sourceImage = null;
+    runSample(); // 合成测试图总是走手动两步流程（便于直接验证逻辑）
+  });
   btnClear?.addEventListener('click', resetAll);
   btnConfirmResult?.addEventListener('click', () => {
     if (!lastResult || !lastResult.ok) return;
     postToParent({ concentration: lastResult.mainValue, rawText: lastResult.mainValueText }, 'detergent');
   });
+
+  // 模式切换
+  const modeManual = document.getElementById('modeManual');
+  const modeTemplate = document.getElementById('modeTemplate');
+  const setMode = (m) => {
+    currentMode = m;
+    modeManual?.classList.toggle('active', m === 'manual');
+    modeTemplate?.classList.toggle('active', m === 'template');
+    const guide = document.getElementById('btnTemplateGuide');
+    if (guide) guide.style.display = m === 'template' ? 'inline-block' : 'none';
+    const tip = document.getElementById('modeTip');
+    if (tip) {
+      tip.innerHTML = m === 'template'
+        ? '<strong>全自动（模板）：</strong>按规范把比色卡/离心管放进标准指导卡对应插槽，俯拍上传即可自动定位识别。需先打印指导卡。'
+        : '<strong>手动调整：</strong>自动圈出比色卡/样品 → 你确认或拖框矫正 → 再微调 7 个色块 → 识别。';
+    }
+  };
+  modeManual?.addEventListener('click', () => setMode('manual'));
+  modeTemplate?.addEventListener('click', () => setMode('template'));
+  setMode('manual');
+
+  document.getElementById('btnTemplateGuide')?.addEventListener('click', showTemplateGuide);
 }
 
 // ---------------------------------------------------------------------------
@@ -90,7 +119,11 @@ function loadFile(file) {
   const reader = new FileReader();
   reader.onload = () => {
     const img = new Image();
-    img.onload = () => { sourceImage = img; runLocateStep(img); };
+    img.onload = () => {
+      sourceImage = img;
+      if (currentMode === 'template') runTemplateStep(img);
+      else runLocateStep(img);
+    };
     img.onerror = () => alert('图片加载失败');
     img.src = reader.result;
   };
@@ -109,6 +142,122 @@ async function runSample() {
   } else {
     console.warn('合成图模块不可用');
   }
+}
+
+// ---------------------------------------------------------------------------
+// 全自动方案：模板（A4 拍摄指导卡）识别
+// ---------------------------------------------------------------------------
+async function runTemplateStep(image) {
+  stage = 'analyzing';
+  clearManualOverride();
+  resultPanel.style.display = 'none';
+  resultLegend.style.display = 'none';
+  destroyRegionLayer();
+  destroyBlockLayer();
+  drawImageToCanvas(image);
+  drawWorkCanvas(image);
+  setBusy(true, '正在按拍摄指导卡定位…');
+
+  let res;
+  try {
+    res = analyzeWithTemplate(workCanvas, { concentrations: CONCENTRATIONS });
+  } catch (e) {
+    console.error(e);
+    res = { ok: false, stage: 'exception', error: 'TEMPLATE_FAIL', humanMessage: '模板识别失败：' + (e?.message || e) };
+  }
+  setBusy(false);
+
+  if (!res.ok) {
+    console.warn('[detergentDemo] 模板识别未成功：', res.humanMessage);
+    showTemplateFallback(res);
+    return;
+  }
+
+  stage = 'result';
+  lastResult = res;
+  // 模板模式也展示 7 个色块 + 样品框
+  drawOverlay(canvas, res, { scaleX: canvas.width / res.canvasSize.width, scaleY: canvas.height / res.canvasSize.height });
+  renderResult(res);
+  resultPanel.style.display = 'block';
+  resultLegend.style.display = 'block';
+  resultPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/** 模板识别失败时，提示并自动切回手动模式 */
+function showTemplateFallback(res) {
+  stage = 'result';
+  renderResult(res);
+  resultPanel.style.display = 'block';
+  resultLegend.style.display = 'block';
+  // 给出切回手动模式的入口
+  const note = document.createElement('div');
+  note.className = 'hint-box';
+  note.style.marginTop = '10px';
+  note.innerHTML = `💡 全自动模板未识别到定位黑框。请改用 <strong>「手动调整」模式</strong> 手动框选，或确认已按标准指导卡拍摄。`;
+  resultPanel.appendChild(note);
+}
+
+// ---------------------------------------------------------------------------
+// A4 拍摄指导卡（模板）预览 / 打印
+// ---------------------------------------------------------------------------
+// 设计：一张 A4 纸，印一个粗黑外框（detectTemplateFrame 据此定位）；
+// 框内按固定比例划分「比色卡插槽（下）」和「离心管插槽（上）」。
+// 用户把比色卡横放在下方插槽、离心管竖放在上方插槽，俯拍即可被全自动识别。
+function showTemplateGuide() {
+  const w = 794, h = 1123; // A4 @96dpi
+  const g = document.createElement('canvas');
+  g.width = w; g.height = h;
+  const c = g.getContext('2d');
+
+  // 白底
+  c.fillStyle = '#fff'; c.fillRect(0, 0, w, h);
+
+  // 粗黑外框（留 40px 边距）→ 内侧矩形
+  const margin = 40;
+  c.strokeStyle = '#000'; c.lineWidth = 10;
+  c.strokeRect(margin, margin, w - margin * 2, h - margin * 2);
+  // 再描一道更粗的实心边增强检测
+  c.lineWidth = 24;
+  c.strokeRect(margin + 12, margin + 12, w - margin * 2 - 24, h - margin * 2 - 24);
+
+  // 根据 TEMPLATE_LAYOUT 画插槽提示
+  const innerX = margin + 24, innerY = margin + 24;
+  const innerW = w - margin * 2 - 48, innerH = h - margin * 2 - 48;
+  const L = TEMPLATE_LAYOUT;
+
+  const cardR = { x: innerX + L.card.x * innerW, y: innerY + L.card.y * innerH, w: L.card.w * innerW, h: L.card.h * innerH };
+  const tubeR = { x: innerX + L.tube.x * innerW, y: innerY + L.tube.y * innerH, w: L.tube.w * innerW, h: L.tube.h * innerH };
+
+  // 比色卡插槽
+  c.fillStyle = '#eef2ff'; c.fillRect(cardR.x, cardR.y, cardR.w, cardR.h);
+  c.strokeStyle = '#2563eb'; c.lineWidth = 3; c.setLineDash([10, 6]);
+  c.strokeRect(cardR.x, cardR.y, cardR.w, cardR.h); c.setLineDash([]);
+  c.fillStyle = '#2563eb'; c.font = 'bold 28px sans-serif';
+  c.fillText('▼ 比色卡横放于此（7 色块一排，蓝框内）', cardR.x + 16, cardR.y - 14);
+
+  // 离心管插槽
+  c.fillStyle = '#fef2f2'; c.fillRect(tubeR.x, tubeR.y, tubeR.w, tubeR.h);
+  c.strokeStyle = '#dc2626'; c.lineWidth = 3; c.setLineDash([10, 6]);
+  c.strokeRect(tubeR.x, tubeR.y, tubeR.w, tubeR.h); c.setLineDash([]);
+  c.fillStyle = '#dc2626'; c.font = 'bold 28px sans-serif';
+  c.fillText('▲ 离心管竖放于此（红框内）', tubeR.x + 16, tubeR.y - 14);
+
+  // 标题
+  c.fillStyle = '#111'; c.font = 'bold 40px sans-serif';
+  c.fillText('阴离子洗涤剂残留 · 标准拍摄指导卡', margin + 24, margin + 70);
+  c.font = '20px sans-serif'; c.fillStyle = '#444';
+  c.fillText('① 打印本卡并平铺于桌面　② 比色卡横放下方蓝框、离心管竖放上方红框', margin + 24, margin + 104);
+  c.fillText('③ 手机俯拍 90°、均匀光照、确保黑框完整入镜　④ 上传照片选「全自动」模式', margin + 24, margin + 134);
+
+  // 打开预览（新窗口打印）
+  const url = g.toDataURL('image/png');
+  const win = window.open('', '_blank');
+  if (!win) { alert('预览被浏览器拦截，请允许弹出窗口'); return; }
+  win.document.write(`<html><head><title>拍摄指导卡</title></head><body style="margin:0;text-align:center;">
+    <img src="${url}" style="width:100%;max-width:794px;">
+    <p><button onclick="window.print()" style="padding:12px 24px;font-size:16px;">打印此 A4 指导卡</button></p>
+    </body></html>`);
+  win.document.close();
 }
 
 // ---------------------------------------------------------------------------
@@ -172,23 +321,161 @@ function startRegionConfirm(manual, hintText) {
   buildRegionLayer();
 }
 
-/** 确认区域 → 进入比色步骤 */
-async function confirmRegions() {
-  if (!currentRegions) return;
+// ---------------------------------------------------------------------------
+// 步骤二（微调）：色块确认层 —— 7 个色块各自可拖拽/缩放，第二次调整
+// ---------------------------------------------------------------------------
+function startBlockConfirm() {
+  stage = 'block_confirm';
+  ensureRegionUI();
+  showBlockActions(true);
+  showRegionHint('已自动识别 7 个色块。若个别色块未对准彩色格子，可直接拖动或拉角标微调；无误请点「开始比色识别」。', 'info');
+  buildBlockLayer();
+}
+
+/** 在 canvas 上叠加 7 个可拖拽/缩放的色块框 */
+function buildBlockLayer() {
+  destroyBlockLayer();
+  blockLayer = document.createElement('div');
+  blockLayer.id = 'blockLayer';
+  blockLayer.className = 'region-layer';
+  canvasWrap.appendChild(blockLayer);
+
+  currentBlocks.forEach((b, idx) => {
+    const box = createBlockBox(idx);
+    blockLayer.appendChild(box);
+  });
+  layoutBlockBoxes();
+  window.addEventListener('resize', layoutBlockBoxes);
+}
+
+function destroyBlockLayer() {
+  if (blockLayer) { blockLayer.remove(); blockLayer = null; }
+  window.removeEventListener('resize', layoutBlockBoxes);
+}
+
+function createBlockBox(idx) {
+  const box = document.createElement('div');
+  box.className = `block-box bb-${idx}`;
+  box.dataset.idx = idx;
+  const conc = CONCENTRATIONS[idx];
+  box.innerHTML = `<span class="bb-label">${conc} mg/L</span>`;
+  ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].forEach(handle => {
+    const h = document.createElement('span');
+    h.className = `rb-handle rb-${handle}`;
+    h.dataset.handle = handle;
+    box.appendChild(h);
+  });
+
+  box.addEventListener('mousedown', (e) => {
+    if (e.target.classList.contains('rb-handle')) return;
+    startBlockDrag(e, box, idx, 'move');
+  });
+  box.addEventListener('touchstart', (e) => {
+    if (e.target.classList.contains('rb-handle')) return;
+    startBlockDrag(e, box, idx, 'move', true);
+  }, { passive: false });
+  box.querySelectorAll('.rb-handle').forEach(h => {
+    h.addEventListener('mousedown', (e) => {
+      e.stopPropagation();
+      startBlockDrag(e, box, idx, 'resize', false, h.dataset.handle);
+    });
+    h.addEventListener('touchstart', (e) => {
+      e.stopPropagation();
+      startBlockDrag(e, box, idx, 'resize', true, h.dataset.handle);
+    }, { passive: false });
+  });
+  return box;
+}
+
+function layoutBlockBoxes() {
+  if (!blockLayer || !currentBlocks) return;
+  const rect = canvasWrap.getBoundingClientRect();
+  blockLayer.style.width = rect.width + 'px';
+  blockLayer.style.height = rect.height + 'px';
+  blockLayer.style.left = '0';
+  blockLayer.style.top = '0';
+  blockLayer.querySelectorAll('.block-box').forEach(box => {
+    const idx = +box.dataset.idx;
+    const r = currentBlocks[idx];
+    if (!r) return;
+    box.style.left = (r.x * 100) + '%';
+    box.style.top = (r.y * 100) + '%';
+    box.style.width = (r.w * 100) + '%';
+    box.style.height = (r.h * 100) + '%';
+  });
+}
+
+function startBlockDrag(e, box, idx, mode, isTouch, handle) {
+  e.preventDefault();
+  const clientPt = (ev) => {
+    const t = isTouch ? ev.touches[0] : ev;
+    return { x: t.clientX, y: t.clientY };
+  };
+  const wrapRect = canvasWrap.getBoundingClientRect();
+  const start = clientPt(e);
+  const r0 = { ...currentBlocks[idx] };
+  const toNorm = (clientX, clientY) => ({
+    x: (clientX - wrapRect.left) / wrapRect.width,
+    y: (clientY - wrapRect.top) / wrapRect.height,
+  });
+
+  const onMove = (ev) => {
+    const p = clientPt(ev);
+    const dx = (p.x - start.x) / wrapRect.width;
+    const dy = (p.y - start.y) / wrapRect.height;
+    let r = { ...r0 };
+    if (mode === 'move') {
+      r.x = clamp(r0.x + dx, 0, 1 - r.w);
+      r.y = clamp(r0.y + dy, 0, 1 - r.h);
+    } else {
+      const right = r0.x + r0.w, bottom = r0.y + r0.h;
+      let left = r0.x, top = r0.y, w = r0.w, h = r0.h;
+      if (handle.includes('w')) { left = clamp(r0.x + dx, 0, right - 0.01); w = right - left; }
+      if (handle.includes('e')) { w = clamp(r0.w + dx, 0.01, 1 - r0.x); }
+      if (handle.includes('n')) { top = clamp(r0.y + dy, 0, bottom - 0.01); h = bottom - top; }
+      if (handle.includes('s')) { h = clamp(r0.h + dy, 0.01, 1 - r0.y); }
+      r = { x: left, y: top, w, h };
+    }
+    currentBlocks[idx] = r;
+    box.style.left = (r.x * 100) + '%';
+    box.style.top = (r.y * 100) + '%';
+    box.style.width = (r.w * 100) + '%';
+    box.style.height = (r.h * 100) + '%';
+  };
+  const onUp = () => {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    document.removeEventListener('touchmove', onMove);
+    document.removeEventListener('touchend', onUp);
+  };
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+  document.addEventListener('touchmove', onMove, { passive: false });
+  document.addEventListener('touchend', onUp);
+}
+
+/** 色块微调完成后，用调整后的色块（真实取色）跑比色 */
+async function confirmBlocks() {
+  if (!currentBlocks) return;
   stage = 'analyzing';
-  showRegionActions(false);
-  destroyRegionLayer();
+  showBlockActions(false);
+  destroyBlockLayer();
   showRegionHint('', '');
   setBusy(true, '正在比色识别…');
 
-  // 把归一化区域还原成定位 canvas 像素坐标
   const regions = {
     cardRect: denormRect(currentRegions.cardRect, locateCanvasSize),
     tube: denormRect(currentRegions.tube, locateCanvasSize),
     tubeZone: 'manual',
-    // 用户未手动调整区域时，复用算法精确识别到的 7 个色块；
-    // 一旦手动调整，改用语义等距兜底（cardRect 整体等距拆分）。
-    blocks: currentRegions.modified ? null : (initialLoc?.blocks || null),
+    blocks: currentBlocks.map((b, i) => ({
+      x: Math.round(b.x * locateCanvasSize.width),
+      y: Math.round(b.y * locateCanvasSize.height),
+      w: Math.round(b.w * locateCanvasSize.width),
+      h: Math.round(b.h * locateCanvasSize.height),
+      concentration: CONCENTRATIONS[i],
+      measured: true,
+      inferred: false,
+    })),
   };
 
   let res;
@@ -202,7 +489,6 @@ async function confirmRegions() {
   stage = 'result';
   lastResult = res;
 
-  // 比色完成后，在结果里画出包括 7 个小色块的完整 overlay
   if (res.ok) {
     drawOverlay(canvas, res, { scaleX: canvas.width / res.canvasSize.width, scaleY: canvas.height / res.canvasSize.height });
   }
@@ -210,6 +496,57 @@ async function confirmRegions() {
   resultPanel.style.display = 'block';
   resultLegend.style.display = 'block';
   resultPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/** 仅用于 UI 兜底的等距色块（无算法检测时） */
+function inferBlocksForUI(cardRect, n) {
+  const blocks = [];
+  const step = cardRect.w / n;
+  for (let i = 0; i < n; i++) {
+    blocks.push({
+      x: Math.round(cardRect.x + i * step + step * 0.1),
+      y: cardRect.y, w: Math.round(step * 0.8), h: cardRect.h,
+      concentration: i,
+    });
+  }
+  return blocks;
+}
+
+/** 确认区域 → 进入「色块微调」步骤（第二次调整：每个色块可单独拖拽/缩放） */
+async function confirmRegions() {
+  if (!currentRegions) return;
+  destroyRegionLayer();
+  showRegionActions(false);
+  showRegionHint('', '');
+  setBusy(true, '正在色卡内识别 7 个色块…');
+
+  const regions = {
+    cardRect: denormRect(currentRegions.cardRect, locateCanvasSize),
+    tube: denormRect(currentRegions.tube, locateCanvasSize),
+    tubeZone: 'manual',
+  };
+
+  // 在用户框定的比色卡内检测真实色块
+  let blocks = null;
+  try {
+    blocks = detectBlocksInRect(workCanvas, regions.cardRect, CONCENTRATIONS.length);
+  } catch (e) { console.error(e); }
+  if (!blocks || blocks.length < 4) {
+    // 检测不到足够色块：用 cardRect 等距推断，至少让用户能调
+    blocks = inferBlocksForUI(regions.cardRect, CONCENTRATIONS.length);
+  }
+
+  // 存为「归一化色块列表」，供微调层展示
+  currentBlocks = blocks.map(b => ({
+    x: b.x / locateCanvasSize.width,
+    y: b.y / locateCanvasSize.height,
+    w: b.w / locateCanvasSize.width,
+    h: b.h / locateCanvasSize.height,
+    concentration: b.concentration,
+  }));
+
+  setBusy(false);
+  startBlockConfirm();
 }
 
 // ---------------------------------------------------------------------------
@@ -337,28 +674,43 @@ function clearManualOverride() {
 // 区域确认 UI（动态）
 // ---------------------------------------------------------------------------
 function ensureRegionUI() {
+  // 区域确认动作条
   if (!regionActions) {
     regionActions = document.createElement('div');
     regionActions.id = 'regionActions';
     regionActions.style.display = 'none';
     regionActions.innerHTML = `
       <div class="ra-btns">
-        <button class="btn primary" id="btnConfirmRegion"><i class="fas fa-check-circle"></i> 确认区域，开始识别</button>
+        <button class="btn primary" id="btnConfirmRegion"><i class="fas fa-check-circle"></i> 确认区域，下一步</button>
         <button class="btn ghost" id="btnReLocate"><i class="fas fa-redo"></i> 重新自动定位</button>
         <button class="btn ghost" id="btnCancelRegion"><i class="fas fa-times"></i> 取消</button>
       </div>`;
-    // 插入到 canvas 面板后面
     const canvasPanel = canvasWrap.closest('.panel');
     canvasPanel?.parentNode.insertBefore(regionActions, canvasPanel.nextSibling);
     document.getElementById('btnConfirmRegion').addEventListener('click', confirmRegions);
     document.getElementById('btnReLocate').addEventListener('click', () => { if (sourceImage) runLocateStep(sourceImage); });
     document.getElementById('btnCancelRegion').addEventListener('click', resetAll);
   }
+  // 色块微调动作条（第二次调整）
+  if (!blockActions) {
+    blockActions = document.createElement('div');
+    blockActions.id = 'blockActions';
+    blockActions.style.display = 'none';
+    blockActions.innerHTML = `
+      <div class="ra-btns">
+        <button class="btn primary" id="btnConfirmBlocks"><i class="fas fa-check-circle"></i> 开始比色识别</button>
+        <button class="btn ghost" id="btnBackRegions"><i class="fas fa-arrow-left"></i> 返回改区域</button>
+      </div>`;
+    const canvasPanel = canvasWrap.closest('.panel');
+    canvasPanel?.parentNode.insertBefore(blockActions, canvasPanel.nextSibling);
+    document.getElementById('btnConfirmBlocks').addEventListener('click', confirmBlocks);
+    document.getElementById('btnBackRegions').addEventListener('click', () => { if (currentRegions) startRegionConfirm(false, '可重新调整比色卡与样品区域。'); });
+  }
   if (!regionHint) {
     regionHint = document.createElement('div');
     regionHint.id = 'regionHint';
     regionHint.style.display = 'none';
-    regionActions?.parentNode.insertBefore(regionHint, regionActions);
+    blockActions?.parentNode.insertBefore(regionHint, blockActions);
   }
 }
 
@@ -367,6 +719,11 @@ function showRegionActions(show, manual) {
   regionActions.style.display = show ? 'block' : 'none';
   const reloc = document.getElementById('btnReLocate');
   if (reloc) reloc.style.display = manual ? 'none' : 'inline-block';
+}
+
+function showBlockActions(show) {
+  if (!blockActions) return;
+  blockActions.style.display = show ? 'block' : 'none';
 }
 
 function showRegionHint(text, kind) {
@@ -570,9 +927,12 @@ function resetAll() {
   stage = 'idle';
   sourceImage = null;
   currentRegions = null;
+  currentBlocks = null;
   lastResult = null;
   destroyRegionLayer();
+  destroyBlockLayer();
   showRegionActions(false);
+  showBlockActions(false);
   showRegionHint('', '');
   resultPanel.style.display = 'none';
   resultLegend.style.display = 'none';

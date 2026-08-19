@@ -623,7 +623,7 @@ function boundingRectOf(rects) {
  * @param {number} n 期望色块数（7）
  * @returns {Array|null} 检测到的色块数组（measured:true），不足时返回 null 让兜底介入
  */
-function detectBlocksInRect(canvas, cardRect, n) {
+export function detectBlocksInRect(canvas, cardRect, n) {
   const W = canvas.width, H = canvas.height;
   const x0 = Math.max(0, Math.round(cardRect.x));
   const y0 = Math.max(0, Math.round(cardRect.y));
@@ -768,6 +768,104 @@ export function analyzeWithRegions(srcCanvas, options = {}, regions = {}) {
     canvasSize: { width: W, height: H },
     regions: { cardRect, tube }, // 回传实际使用的区域（供二次矫正复用）
   };
+}
+
+// ============================================================================
+// 全自动方案：基于「固定拍摄指导卡（A4 模板）」的卡位定位
+// ============================================================================
+//
+// 指导卡设计（见 generateTemplateGuide 的说明）：A4 纸张上印一个粗黑外框，
+// 框内按固定比例划分出「比色卡插槽」和「离心管插槽」。用户把比色卡 / 离心管
+// 放进对应插槽、按规范俯拍后，算法只需找到这个黑框，就能 100% 复现卡位，
+// 无需任何手动调整。
+//
+// 模板内比色卡 / 样品的归一化坐标（相对「黑框内侧矩形」）：
+export const TEMPLATE_LAYOUT = {
+  // 比色卡插槽（横放，7 个色块一排）：偏下居中
+  card: { x: 0.08, y: 0.52, w: 0.84, h: 0.30 },
+  // 离心管插槽（竖放）：偏上居中
+  tube: { x: 0.30, y: 0.10, w: 0.40, h: 0.34 },
+};
+
+/**
+ * 在降采样 canvas 上寻找「拍摄指导卡」的粗黑外框。
+ * 策略：对每行/每列统计暗像素覆盖宽度，找出最稳定的那个矩形边框，
+ * 返回其内侧矩形（像素坐标）。找不到返回 null。
+ */
+function detectTemplateFrame(canvas) {
+  const W = canvas.width, H = canvas.height;
+  const imageData = canvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, W, H);
+  const data = imageData.data;
+  const isDark = (x, y) => {
+    const i = (y * W + x) * 4;
+    return (data[i] + data[i + 1] + data[i + 2]) / 3 < 90;
+  };
+
+  // 列暗像素密度
+  const colDark = new Float32Array(W);
+  const rowDark = new Float32Array(H);
+  for (let x = 0; x < W; x++) {
+    let c = 0;
+    for (let y = 0; y < H; y++) if (isDark(x, y)) c++;
+    colDark[x] = c / H;
+  }
+  for (let y = 0; y < H; y++) {
+    let c = 0;
+    for (let x = 0; x < W; x++) if (isDark(x, y)) c++;
+    rowDark[y] = c / W;
+  }
+
+  // 黑框边框的暗密度应很高（>0.6）。左右/上下各找一段连续高暗带作为边。
+  const EDGE_MIN = 0.55;
+  const leftEdges = [], rightEdges = [], topEdges = [], botEdges = [];
+  for (let x = 0; x < W; x++) if (colDark[x] > EDGE_MIN) leftEdges.push(x);
+  for (let x = W - 1; x >= 0; x--) if (colDark[x] > EDGE_MIN) rightEdges.push(x);
+  for (let y = 0; y < H; y++) if (rowDark[y] > EDGE_MIN) topEdges.push(y);
+  for (let y = H - 1; y >= 0; y--) if (rowDark[y] > EDGE_MIN) botEdges.push(y);
+
+  if (!leftEdges.length || !rightEdges.length || !topEdges.length || !botEdges.length) return null;
+  const x0 = Math.max(...leftEdges), x1 = W - 1 - Math.max(...rightEdges);
+  const y0 = Math.max(...topEdges), y1 = H - 1 - Math.max(...botEdges);
+  // 校验确实是“框”（左右边之间有较大空隙，而非整片黑）
+  if (x1 - x0 < W * 0.3 || y1 - y0 < H * 0.3) return null;
+
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+
+/**
+ * 全自动入口：检测拍摄指导卡黑框 → 按固定比例得到比色卡/样品区域 → 框内检测真实色块 → 比色。
+ * 找不到黑框时返回 ok:false，前端应提示改用「手动调整」模式或重新按模板拍摄。
+ */
+export function analyzeWithTemplate(srcCanvas, options = {}) {
+  const concentrations = options.concentrations || [0, 0.01, 0.05, 0.1, 0.5, 1.0, 2.0];
+  const canvas = downscaleImageData(srcCanvas, 800);
+  const W = canvas.width, H = canvas.height;
+
+  const frame = detectTemplateFrame(canvas);
+  if (!frame) {
+    return {
+      ok: false, stage: 'template',
+      error: 'TEMPLATE_NOT_FOUND',
+      humanMessage: '未识别到拍摄指导卡的定位黑框。请确认：① 使用了标准指导卡；② 黑框完整入镜、未被裁切/遮挡；③ 光照均匀。',
+      hint: '也可切换到「手动调整」模式，手动框选比色卡与样品。',
+    };
+  }
+
+  const L = TEMPLATE_LAYOUT;
+  const cardRect = {
+    x: Math.round(frame.x + L.card.x * frame.w),
+    y: Math.round(frame.y + L.card.y * frame.h),
+    w: Math.round(L.card.w * frame.w),
+    h: Math.round(L.card.h * frame.h),
+  };
+  const tube = {
+    x: Math.round(frame.x + L.tube.x * frame.w),
+    y: Math.round(frame.y + L.tube.y * frame.h),
+    w: Math.round(L.tube.w * frame.w),
+    h: Math.round(L.tube.h * frame.h),
+  };
+
+  return runColorimetryMatch(canvas, cardRect, tube, { concentrations, providedBlocks: null, tubeZone: 'template' });
 }
 
 /**
