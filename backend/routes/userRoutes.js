@@ -30,20 +30,38 @@ export function createUserRoutes(userManager) {
         Number(process.env.LOGIN_RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000)
     )
 
-    // 登录失败错误的统一出口：账号锁定（DS3-M2）返回 423 + 明确但不泄露细节的提示，
-    // 其余一律 401 通用文案（不区分用户不存在/密码错误/已禁用，防枚举与状态探测）
+    // 登录失败错误的统一出口：按错误 code 返回明确、可操作的提示文案
     function respondLoginError(res, error) {
-        if (error && error.code === 'ACCOUNT_LOCKED') {
-            return res.status(423).json({ error: '❌ 登录失败次数过多，该账号已被临时锁定，请稍后再试' })
+        // 服务器内部异常（未预期的错误）——明确告知服务器繁忙
+        if (!error || error.code === 'SERVER_BUSY' || error.code === 'INTERNAL') {
+            return res.status(500).json({ error: '❌ 服务器繁忙，请稍后重试', code: 'SERVER_BUSY' })
         }
-        if (error && error.code === 'ACCOUNT_DISABLED') {
+        // 账号因多次失败被自动停用（密码试错超阈值触发）
+        if (error.code === 'ACCOUNT_DISABLED_BY_ATTEMPTS') {
+            return res.status(403).json({ error: '❌ 尝试次数过多，账号已被自动停用。请联系管理员启用并重置密码', code: 'ACCOUNT_DISABLED_BY_ATTEMPTS' })
+        }
+        // 管理员手动停用
+        if (error.code === 'ACCOUNT_DISABLED') {
             return res.status(403).json({ error: '❌ 该账号已被停用，请联系管理员启用', code: 'ACCOUNT_DISABLED' })
         }
-        // q-2：被拒账号申请人登录时给出明确提示（不泄露其它账号状态）
-        if (error && error.code === 'APPLICATION_REJECTED') {
+        // 临时锁定（窗口内失败次数过多，但未达自动停用阈值）
+        if (error.code === 'ACCOUNT_LOCKED') {
+            return res.status(423).json({ error: '❌ 登录失败次数过多，该账号已被临时锁定，请稍后再试', code: 'ACCOUNT_LOCKED' })
+        }
+        // 密码错误（已明确区分，不泄露用户名是否存在）
+        if (error.code === 'PASSWORD_WRONG') {
+            return res.status(401).json({ error: '❌ 密码错误，请重新输入', code: 'PASSWORD_WRONG' })
+        }
+        // 用户名不存在（为防枚举，提示与密码错误一致但不暴露具体原因）
+        if (error.code === 'USER_NOT_FOUND') {
+            return res.status(401).json({ error: '❌ 用户名或密码错误', code: 'USER_NOT_FOUND' })
+        }
+        // q-2：被拒账号申请人登录时给出明确提示
+        if (error.code === 'APPLICATION_REJECTED') {
             return res.status(403).json({ error: error.message, code: 'APPLICATION_REJECTED' })
         }
-        return res.status(401).json({ error: `登录失败` })
+        // 兜底（未知错误）
+        return res.status(401).json({ error: '❌ 登录失败，请检查用户名和密码', code: 'UNKNOWN' })
     }
 
     // 验证令牌为未认证接口，单独限流避免被枚举攻击

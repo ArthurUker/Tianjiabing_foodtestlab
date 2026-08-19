@@ -329,7 +329,10 @@ export class UserManager {
                 await bcryptjs.compare(password, FAKE_BCRYPT_HASH)
                 // P2-03: 用户不存在时也记录失败登录（写入 SystemLog，因 AuditLog 需有效 user_id 外键）
                 await this.logFailedLogin(null, username)
-                throw new Error('用户不存在或密码错误')
+                const err = new Error('用户名或密码错误')
+                err.code = 'USER_NOT_FOUND'
+                err.status = 401
+                throw err
             }
 
             // 1.5 租户归属校验（防伪登录）：
@@ -341,7 +344,10 @@ export class UserManager {
                 // DS3-M3: 该分支同样执行假比较，保持与"密码错误"路径时序一致
                 await bcryptjs.compare(password, FAKE_BCRYPT_HASH)
                 await this.logFailedLogin(null, username)
-                throw new Error('用户不存在或密码错误')
+                const err = new Error('用户名或密码错误')
+                err.code = 'USER_NOT_FOUND'
+                err.status = 401
+                throw err
             }
 
             // 2. DS3-M2: 账号级失败锁定（窗口内 login_failed 达阈值 → 临时锁定）
@@ -359,16 +365,22 @@ export class UserManager {
             const passwordMatch = await bcryptjs.compare(password, user.password_hash)
 
             if (!passwordMatch) {
-                // 记录失败登录（同时作为 DS3-M2 账号锁定的计数依据）
+                // 记录失败登录（同时作为 DS3-M2 账号锁定的计数依据 + 自动停用计数）
                 await this.logFailedLogin(user.id, username)
-                throw new Error('用户不存在或密码错误')
+                const err = new Error('密码错误')
+                err.code = 'PASSWORD_WRONG'
+                err.status = 401
+                throw err
             }
 
             // 3.5 检查用户状态（此时已完成真实 bcrypt.compare，无时序差异；统一记入 logFailedLogin）
             if (user.status !== 'active') {
                 await this.logFailedLogin(user.id, username)
-                const err = new Error('该用户已被禁用')
-                err.code = 'ACCOUNT_DISABLED'
+                // 区分自动停用（由尝试次数过多触发）与手动停用
+                const autoDisabled = await this.isAutoDisabled(user.id)
+                const err = new Error(autoDisabled ? '尝试次数过多，账号已被自动停用' : '该用户已被禁用')
+                err.code = autoDisabled ? 'ACCOUNT_DISABLED_BY_ATTEMPTS' : 'ACCOUNT_DISABLED'
+                err.status = 403
                 throw err
             }
 
@@ -1270,6 +1282,26 @@ export class UserManager {
             console.error(`❌ 记录失败登录失败: ${error.message}`)
         }
     }
+
+        // 判断账号是否因「短时间多次密码试错」被自动停用（而非管理员手动停用）
+        // 逻辑：账号当前 status=disabled，且最近一个窗口内存在达到阈值的 login_failed 记录
+        async isAutoDisabled(userId) {
+            try {
+                const autoDisableThreshold = Number(process.env.AUTO_DISABLE_THRESHOLD || 5)
+                const autoDisableWindowMs = Number(process.env.AUTO_DISABLE_WINDOW_MS || 2 * 60 * 1000)
+                if (autoDisableThreshold <= 0) return false
+                const recentFailures = await this.prisma.auditLog.count({
+                    where: {
+                        user_id: userId,
+                        action: 'login_failed',
+                        created_at: { gte: new Date(Date.now() - autoDisableWindowMs) }
+                    }
+                })
+                return recentFailures >= autoDisableThreshold
+            } catch (e) {
+                return false
+            }
+        }
 
     verifyToken(token) {
         try {
