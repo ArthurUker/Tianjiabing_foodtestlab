@@ -216,6 +216,26 @@ function showTemplateGuide() {
   const px = (nx) => Math.round(nx * w);
   const py = (ny) => Math.round(ny * h);
 
+  // 文本自动换行工具
+  function wrapText(text, x, y, maxWidth, lineHeight) {
+    const words = text.split('');
+    let line = '';
+    const lines = [];
+    for (let i = 0; i < words.length; i++) {
+      const testLine = line + words[i];
+      const metrics = c.measureText(testLine);
+      if (metrics.width > maxWidth && line.length > 0) {
+        lines.push(line);
+        line = words[i];
+      } else {
+        line = testLine;
+      }
+    }
+    lines.push(line);
+    lines.forEach((l, idx) => c.fillText(l, x, y + idx * lineHeight));
+    return lines.length;
+  }
+
   // 画「回」字定位标：外黑实块 + 白环 + 中心黑点（同心三环，便于算法三环检测）
   function drawFinder(cx, cy, size) {
     const s = size, half = s / 2, q = s / 7;
@@ -227,11 +247,11 @@ function showTemplateGuide() {
     c.fillRect(cx - half + 2 * q, cy - half + 2 * q, s - 4 * q, s - 4 * q);
   }
 
-  // ===== 1. 顶部标题栏 + 方向标识 =====
-  c.fillStyle = '#111'; c.font = 'bold 36px sans-serif'; c.textAlign = 'left';
-  c.fillText('阴离子洗涤剂残留 · 标准拍摄指导卡', px(0.06), py(0.045));
+  // ===== 1. 顶部标题栏 + 方向标识（留出角标空间）=====
+  c.fillStyle = '#111'; c.font = 'bold 34px sans-serif'; c.textAlign = 'left';
+  c.fillText('阴离子洗涤剂残留 · 标准拍摄指导卡', px(0.16), py(0.050));
   c.font = 'bold 22px sans-serif'; c.fillStyle = '#dc2626';
-  c.fillText('↑ 此边朝上（文字方向，勿倒置拍摄）', px(0.06), py(0.085));
+  c.fillText('↑ 此边朝上 · 勿倒置拍摄', px(0.16), py(0.090));
 
   // ===== 2. 离心管摆放区（红框，竖放示意）=====
   const tubeR = { x: px(D.tubeSlot.x), y: py(D.tubeSlot.y), w: px(D.tubeSlot.w), h: px(D.tubeSlot.h) };
@@ -283,29 +303,38 @@ function showTemplateGuide() {
   c.fillStyle = '#2563eb'; c.font = 'bold 24px sans-serif'; c.textAlign = 'center';
   c.fillText('比色卡横放于此（蓝框内，与 7 格对齐）', cardR.x + cardR.w / 2, cardR.y - 8);
 
-  // ===== 4. 四角定位标（算法用，标注勿遮挡）=====
+  // ===== 4. 四角定位标（算法用，标注在角标外侧，避免重叠）=====
   const f = D.mainFinders;
   drawFinder(px(f.TL.x), py(f.TL.y), f.TL.size);
   drawFinder(px(f.TR.x), py(f.TR.y), f.TR.size);
   drawFinder(px(f.BL.x), py(f.BL.y), f.BL.size);
   drawFinder(px(f.BR.x), py(f.BR.y), f.BR.size);
-  c.fillStyle = '#000'; c.font = '13px sans-serif'; c.textAlign = 'center';
-  c.fillText('定位标·勿遮挡', px(f.TL.x), py(f.TL.y) + f.TL.size / 2 + 16);
-  c.fillText('定位标·勿遮挡', px(f.TR.x), py(f.TR.y) + f.TR.size / 2 + 16);
-  c.fillText('定位标·勿遮挡', px(f.BL.x), py(f.BL.y) + f.BL.size / 2 + 16);
-  c.fillText('定位标·勿遮挡', px(f.BR.x), py(f.BR.y) + f.BR.size / 2 + 16);
+  c.fillStyle = '#000'; c.font = '12px sans-serif'; c.textAlign = 'center';
+  c.fillText('定位标', px(f.TL.x), py(f.TL.y) + f.TL.size / 2 + 16);
+  c.fillText('勿遮挡', px(f.TL.x), py(f.TL.y) + f.TL.size / 2 + 30);
+  c.fillText('定位标', px(f.TR.x), py(f.TR.y) + f.TR.size / 2 + 16);
+  c.fillText('勿遮挡', px(f.TR.x), py(f.TR.y) + f.TR.size / 2 + 30);
+  c.fillText('定位标', px(f.BL.x), py(f.BL.y) - f.BL.size / 2 - 18);
+  c.fillText('勿遮挡', px(f.BL.x), py(f.BL.y) - f.BL.size / 2 - 4);
+  c.fillText('定位标', px(f.BR.x), py(f.BR.y) - f.BR.size / 2 - 18);
+  c.fillText('勿遮挡', px(f.BR.x), py(f.BR.y) - f.BR.size / 2 - 4);
 
-  // ===== 5. 底部操作说明 =====
-  c.textAlign = 'left'; c.fillStyle = '#111'; c.font = 'bold 20px sans-serif';
-  c.fillText('操作说明：', px(0.06), py(0.945));
-  c.font = '16px sans-serif'; c.fillStyle = '#333';
+  // ===== 5. 底部操作说明（整体下移，带换行）=====
+  const noteY = py(0.97);
+  c.textAlign = 'left'; c.fillStyle = '#111'; c.font = 'bold 18px sans-serif';
+  c.fillText('操作说明', px(0.06), noteY);
+  c.font = '15px sans-serif'; c.fillStyle = '#333';
   const tips = [
-    '① 打印本卡（建议 A4 彩色，卡纸更佳），平铺于纯色桌面，避免黑色背景。',
+    '① 打印本卡（建议 A4 彩色/卡纸），平铺于纯色桌面，避免黑色背景。',
     '② 比色卡横放下方蓝框、离心管竖放上方红框，与虚线框对齐居中。',
-    '③ 手机垂直俯拍，光照均匀，四角定位标完整入镜、不反光不遮挡。',
-    '④ 上传照片后在识别页选「全自动（模板）」模式，系统自动定位并比色。',
+    '③ 手机垂直俯拍，光照均匀，四角定位标完整入镜、不反光、不遮挡。',
+    '④ 上传照片后选「全自动（模板）」模式，系统自动定位并比色。',
   ];
-  tips.forEach((t, i) => c.fillText(t, px(0.06), py(0.965) + i * 26));
+  let y = noteY + 26;
+  for (const t of tips) {
+    const lines = wrapText(t, px(0.06), y, px(0.88), 22);
+    y += lines * 22 + 6;
+  }
 
   const url = g.toDataURL('image/png');
   const win = window.open('', '_blank');
