@@ -548,47 +548,52 @@ if (guestEnterBtn) {
     });
 }
 
-// ===== P13：访客自助注册 =====
-const guestRegisterTab = document.getElementById('guestRegisterTab');
+// ===== P13 衍生：登录页 viewer 账号申请（替代原访客自助注册）=====
+const guestApplyTab = document.getElementById('guestApplyTab');
 const guestQuickTab = document.getElementById('guestQuickTab');
-const guestRegisterPane = document.getElementById('guestRegisterPane');
+const guestApplyPane = document.getElementById('guestApplyPane');
 const guestQuickPane = document.getElementById('guestQuickPane');
-const guestRegisterBtn = document.getElementById('guestRegisterBtn');
-const guestRegUsername = document.getElementById('guestRegUsername');
-const guestRegPassword = document.getElementById('guestRegPassword');
-const guestRegFullName = document.getElementById('guestRegFullName');
-const guestRegEmail = document.getElementById('guestRegEmail');
-const guestRegPathogen = document.getElementById('guestRegPathogen');
+const appSubmitBtn = document.getElementById('appSubmitBtn');
+const appUsername = document.getElementById('appUsername');
+const appPassword = document.getElementById('appPassword');
+const appFullName = document.getElementById('appFullName');
+const appPhone = document.getElementById('appPhone');
+const appEmail = document.getElementById('appEmail');
+const appSuccessMsg = document.getElementById('appSuccessMsg');
 
-function switchGuestSubTab(toRegister) {
-    if (!guestRegisterTab || !guestQuickTab || !guestRegisterPane || !guestQuickPane) return;
-    guestRegisterTab.classList.toggle('text-green-600', toRegister);
-    guestRegisterTab.classList.toggle('border-green-600', toRegister);
-    guestRegisterTab.classList.toggle('text-gray-500', !toRegister);
-    guestRegisterTab.classList.toggle('border-transparent', !toRegister);
-    guestQuickTab.classList.toggle('text-gray-500', toRegister);
-    guestQuickTab.classList.toggle('border-transparent', toRegister);
-    guestQuickTab.classList.toggle('text-green-600', !toRegister);
-    guestQuickTab.classList.toggle('border-green-600', !toRegister);
-    guestRegisterPane.classList.toggle('hidden', !toRegister);
-    guestQuickPane.classList.toggle('hidden', toRegister);
+function switchGuestSubTab(toApply) {
+    if (!guestApplyTab || !guestQuickTab || !guestApplyPane || !guestQuickPane) return;
+    guestApplyTab.classList.toggle('text-green-600', toApply);
+    guestApplyTab.classList.toggle('border-green-600', toApply);
+    guestApplyTab.classList.toggle('text-gray-500', !toApply);
+    guestApplyTab.classList.toggle('border-transparent', !toApply);
+    guestQuickTab.classList.toggle('text-gray-500', toApply);
+    guestQuickTab.classList.toggle('border-transparent', toApply);
+    guestQuickTab.classList.toggle('text-green-600', !toApply);
+    guestQuickTab.classList.toggle('border-green-600', !toApply);
+    guestApplyPane.classList.toggle('hidden', !toApply);
+    guestQuickPane.classList.toggle('hidden', toApply);
     if (guestErrorMessage) guestErrorMessage.classList.add('hidden');
 }
 
-if (guestRegisterTab) guestRegisterTab.addEventListener('click', () => switchGuestSubTab(true));
+if (guestApplyTab) guestApplyTab.addEventListener('click', () => switchGuestSubTab(true));
 if (guestQuickTab) guestQuickTab.addEventListener('click', () => switchGuestSubTab(false));
 
-if (guestRegisterBtn) {
-    guestRegisterBtn.addEventListener('click', async function() {
+if (appSubmitBtn) {
+    appSubmitBtn.addEventListener('click', async function() {
         if (!enableGuestEntry) {
             showError('访客入口已暂时关闭，请使用管理员账号登录');
             return;
         }
-        const username = (guestRegUsername?.value || '').trim();
-        const password = guestRegPassword?.value || '';
-        const fullName = (guestRegFullName?.value || '').trim();
-        const email = (guestRegEmail?.value || '').trim();
-        const requestPathogen = !!guestRegPathogen?.checked;
+        if (!currentSchoolCode) {
+            showError('无法确定学校代码，无法提交申请');
+            return;
+        }
+        const username = (appUsername?.value || '').trim();
+        const password = appPassword?.value || '';
+        const fullName = (appFullName?.value || '').trim();
+        const phone = (appPhone?.value || '').trim();
+        const email = (appEmail?.value || '').trim();
 
         if (!username || !password) {
             showError('请填写用户名和密码');
@@ -605,19 +610,22 @@ if (guestRegisterBtn) {
 
         this.disabled = true;
         const defaultHtml = this.innerHTML;
-        this.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>正在注册...';
+        this.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>正在提交...';
         try {
-            const result = await guestAuthService.register(username, email, password, fullName, requestPathogen);
+            const result = await authService.submitAccountApplication({
+                username, password, fullName, phone, email, schoolCode: currentSchoolCode
+            });
             if (!result.success) {
-                showError(result.error || '注册失败');
+                showError(result.message || '提交申请失败');
                 this.disabled = false;
                 this.innerHTML = defaultHtml;
                 return;
             }
-            // 注册成功：进入访客仪表盘（可申请查看病原体 / 数据导出，走审批闭环）
-            window.location.href = './index.html';
+            if (guestErrorMessage) guestErrorMessage.classList.add('hidden');
+            if (appSuccessMsg) appSuccessMsg.classList.remove('hidden');
+            this.innerHTML = '已提交申请';
         } catch (err) {
-            showError('注册出错：' + (err.message || '请稍后重试'));
+            showError('提交出错：' + (err.message || '请稍后重试'));
             this.disabled = false;
             this.innerHTML = defaultHtml;
         }

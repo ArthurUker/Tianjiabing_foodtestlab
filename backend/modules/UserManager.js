@@ -316,7 +316,15 @@ export class UserManager {
                 where: { username }
             })
 
+            // q-2：被拒绝的 viewer 账号申请人在登录时收到明确提示（仅当该用户名确为 rejected 申请，
+            // 不向其它不存在的用户泄露信息；时序与「用户不存在」分支一致，防枚举）
             if (!user) {
+                if (await this.isRejectedApplicant(username, this.schoolCode)) {
+                    const err = new Error('该账号申请未通过审批，无法登录')
+                    err.code = 'APPLICATION_REJECTED'
+                    err.status = 403
+                    throw err
+                }
                 // DS-15: 用户不存在时也执行一次假哈希比较，拉平与"密码错误"路径的响应时间，防用户名枚举
                 await bcryptjs.compare(password, FAKE_BCRYPT_HASH)
                 // P2-03: 用户不存在时也记录失败登录（写入 SystemLog，因 AuditLog 需有效 user_id 外键）
@@ -1256,6 +1264,205 @@ export class UserManager {
                 error: error.message
             }
         }
+    }
+
+    // ========== 校外人员 viewer 账号申请（需学校 manager 审批）==========
+
+    /**
+     * 提交 viewer 账号申请（登录页公开入口，无需登录）
+     * schoolCode 决定申请落到哪个租户 schema。
+     */
+    async submitAccountApplication({ username, password, email, fullName, phone, schoolCode }) {
+        try {
+            if (!username || !password || !schoolCode) {
+                const err = new Error('缺少必要字段（用户名/密码/学校代码）')
+                err.validation = true
+                err.status = 400
+                throw err
+            }
+            if (String(password).length < 8) {
+                const err = new Error('密码至少8位')
+                err.validation = true
+                err.status = 400
+                throw err
+            }
+            if (!/^[a-zA-Z0-9_]{3,32}$/.test(username)) {
+                const err = new Error('用户名格式非法（需3-32位字母、数字或下划线）')
+                err.validation = true
+                err.status = 400
+                throw err
+            }
+
+            // 该租户 schema 内是否已存在同名用户
+            const existingUser = await this.prisma.user.findUnique({ where: { username } })
+            if (existingUser) {
+                const err = new Error('用户名已存在')
+                err.validation = true
+                err.code = 'USERNAME_EXISTS'
+                throw err
+            }
+            // 是否已有待审批/已通过的申请
+            const existingApp = await this.prisma.accountApplication.findUnique({ where: { username } })
+            if (existingApp && existingApp.status !== 'rejected') {
+                const err = new Error('该用户名已有申请在处理中')
+                err.validation = true
+                err.code = 'APP_EXISTS'
+                throw err
+            }
+
+            const passwordHash = await bcryptjs.hash(password, 10)
+            const app = await this.prisma.accountApplication.create({
+                data: {
+                    username,
+                    email: email || null,
+                    phone: phone || null,
+                    full_name: fullName || null,
+                    password_hash: passwordHash,
+                    view_pathogen: true, // 审批通过即开放全部含病原体（q-0 决策）
+                    status: 'pending',
+                    school_code: schoolCode
+                }
+            })
+
+            console.log(`📝 收到 viewer 账号申请: ${username} @ ${schoolCode}`)
+            return { success: true, applicationId: app.id }
+        } catch (error) {
+            if (error.validation) {
+                const err = new Error(error.message)
+                err.validation = true
+                err.status = error.status || 400
+                err.code = error.code
+                throw err
+            }
+            console.error('❌ 提交账号申请失败:', error)
+            throw error
+        }
+    }
+
+    /**
+     * 列出当前学校（req.user.schoolCode）的待审批申请（manager/admin）
+     */
+    async getPendingApplications(schoolCode) {
+        const list = await this.prisma.accountApplication.findMany({
+            where: { school_code: schoolCode, status: 'pending' },
+            orderBy: { created_at: 'desc' }
+        })
+        return list.map(a => ({
+            id: a.id,
+            username: a.username,
+            email: a.email,
+            phone: a.phone,
+            full_name: a.full_name,
+            view_pathogen: a.view_pathogen,
+            status: a.status,
+            created_at: a.created_at,
+            school_code: a.school_code
+        }))
+    }
+
+    /**
+     * 审批通过：创建 viewer 用户（can_view_pathogen=true，只读全部模块含病原体），并标记申请 approved
+     */
+    async approveApplication(applicationId, reviewerId, schoolCode) {
+        const app = await this.prisma.accountApplication.findUnique({ where: { id: applicationId } })
+        if (!app) {
+            const err = new Error('申请不存在')
+            err.validation = true
+            err.status = 404
+            throw err
+        }
+        if (app.status !== 'pending') {
+            const err = new Error('该申请已处理')
+            err.validation = true
+            err.status = 409
+            throw err
+        }
+        if (app.school_code !== schoolCode) {
+            const err = new Error('无权审批其他学校的申请')
+            err.validation = true
+            err.status = 403
+            throw err
+        }
+
+        // 幂等：审批通过时再次校验用户名冲突
+        const existingUser = await this.prisma.user.findUnique({ where: { username: app.username } })
+        if (existingUser) {
+            const err = new Error('用户名已被创建，无法重复审批')
+            err.validation = true
+            err.code = 'USERNAME_EXISTS'
+            throw err
+        }
+
+        await this.prisma.user.create({
+            data: {
+                username: app.username,
+                email: app.email,
+                phone: app.phone,
+                password_hash: app.password_hash,
+                full_name: app.full_name,
+                role: 'viewer',
+                status: 'active',
+                school_code: app.school_code,
+                can_view_pathogen: true // q-0：审批通过即开放全部含病原体只读
+            }
+        })
+
+        await this.prisma.accountApplication.update({
+            where: { id: applicationId },
+            data: { status: 'approved', reviewer_id: reviewerId, reviewed_at: new Date() }
+        })
+
+        console.log(`✅ viewer 账号申请已通过: ${app.username}（reviewer=${reviewerId}）`)
+        return { success: true }
+    }
+
+    /**
+     * 审批拒绝：标记 rejected，可选写入拒绝原因
+     */
+    async rejectApplication(applicationId, reviewerId, schoolCode, note) {
+        const app = await this.prisma.accountApplication.findUnique({ where: { id: applicationId } })
+        if (!app) {
+            const err = new Error('申请不存在')
+            err.validation = true
+            err.status = 404
+            throw err
+        }
+        if (app.status !== 'pending') {
+            const err = new Error('该申请已处理')
+            err.validation = true
+            err.status = 409
+            throw err
+        }
+        if (app.school_code !== schoolCode) {
+            const err = new Error('无权审批其他学校的申请')
+            err.validation = true
+            err.status = 403
+            throw err
+        }
+
+        await this.prisma.accountApplication.update({
+            where: { id: applicationId },
+            data: {
+                status: 'rejected',
+                reviewer_id: reviewerId,
+                review_note: note || null,
+                reviewed_at: new Date()
+            }
+        })
+
+        console.log(`🚫 viewer 账号申请已拒绝: ${app.username}（reviewer=${reviewerId}）`)
+        return { success: true }
+    }
+
+    /**
+     * 登录失败辅助（q-2）：该用户名是否存在「已被拒绝」的申请，用于返回特定提示。
+     * 仅在用户名确实对应 rejected application 时返回 true，避免向不存在的用户泄露信息。
+     */
+    async isRejectedApplicant(username, schoolCode) {
+        const app = await this.prisma.accountApplication.findUnique({ where: { username } })
+        if (!app) return false
+        if (schoolCode && app.school_code && app.school_code !== schoolCode) return false
+        return app.status === 'rejected'
     }
 }
 

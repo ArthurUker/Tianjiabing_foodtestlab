@@ -70,7 +70,14 @@ export class UserManagement {
                     </button>
                 </div>
 
-                <!-- 搜索与过滤 -->
+                <!-- 子标签：用户列表 / 账号申请审批 -->
+                <div class="flex border-b border-gray-200">
+                    <button id="tabUserList" class="px-4 py-2 font-medium text-blue-600 border-b-2 border-blue-600">用户列表</button>
+                    <button id="tabAccountApproval" class="px-4 py-2 font-medium text-gray-500 border-b-2 border-transparent hover:text-gray-700">账号申请审批 <span id="pendingAppBadge" class="hidden ml-1 px-2 py-0.5 text-xs bg-red-500 text-white rounded-full">0</span></button>
+                </div>
+
+                <!-- 用户列表面板 -->
+                <div id="userListPanel">
                 <div class="bg-white rounded-lg shadow-md p-4 flex gap-4">
                     <div class="flex-1">
                         <input 
@@ -122,6 +129,24 @@ export class UserManagement {
                         <button id="btnNextPage" class="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition">
                             下一页<i class="fas fa-chevron-right ml-2"></i>
                         </button>
+                    </div>
+                </div>
+                </div>
+
+                <!-- 账号申请审批面板（manager/admin） -->
+                <div id="approvalPanel" class="hidden">
+                    <div class="bg-white rounded-lg shadow-md overflow-hidden">
+                        <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                            <h3 class="text-lg font-semibold text-gray-800 flex items-center">
+                                <i class="fas fa-user-clock text-amber-500 mr-2"></i>待审批的 viewer 账号申请
+                            </h3>
+                            <button id="btnRefreshApplications" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm flex items-center">
+                                <i class="fas fa-sync-alt mr-1"></i>刷新
+                            </button>
+                        </div>
+                        <div id="applicationList" class="p-6">
+                            <p class="text-sm text-gray-400 text-center py-8">加载中...</p>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -193,6 +218,158 @@ export class UserManagement {
         // 模态框事件
         document.getElementById('btnCancelUserModal').addEventListener('click', () => this.closeModal(), { signal });
         document.getElementById('userForm').addEventListener('submit', (e) => this.handleFormSubmit(e), { signal });
+
+        // 子标签切换：用户列表 / 账号申请审批
+        const tabUserList = document.getElementById('tabUserList');
+        const tabAccountApproval = document.getElementById('tabAccountApproval');
+        const userListPanel = document.getElementById('userListPanel');
+        const approvalPanel = document.getElementById('approvalPanel');
+        const switchTab = (toApproval) => {
+            if (!tabUserList || !tabAccountApproval || !userListPanel || !approvalPanel) return;
+            tabUserList.classList.toggle('text-blue-600', !toApproval);
+            tabUserList.classList.toggle('border-blue-600', !toApproval);
+            tabUserList.classList.toggle('text-gray-500', toApproval);
+            tabUserList.classList.toggle('border-transparent', toApproval);
+            tabAccountApproval.classList.toggle('text-gray-500', !toApproval);
+            tabAccountApproval.classList.toggle('border-transparent', !toApproval);
+            tabAccountApproval.classList.toggle('text-blue-600', toApproval);
+            tabAccountApproval.classList.toggle('border-blue-600', toApproval);
+            userListPanel.classList.toggle('hidden', toApproval);
+            approvalPanel.classList.toggle('hidden', !toApproval);
+            if (toApproval) this.loadApplications();
+        };
+        if (tabUserList) tabUserList.addEventListener('click', () => switchTab(false), { signal });
+        if (tabAccountApproval) tabAccountApproval.addEventListener('click', () => switchTab(true), { signal });
+
+        // 审批面板刷新
+        const btnRefreshApplications = document.getElementById('btnRefreshApplications');
+        if (btnRefreshApplications) btnRefreshApplications.addEventListener('click', () => this.loadApplications(), { signal });
+    }
+
+    /**
+     * 加载待审批的 viewer 账号申请并渲染
+     */
+    async loadApplications() {
+        const container = document.getElementById('applicationList');
+        if (!container) return;
+        try {
+            const result = await authService.getPendingApplications();
+            if (!result.success) {
+                container.innerHTML = `<p class="text-sm text-red-500 text-center py-8">加载失败：${result.message || '未知错误'}</p>`;
+                return;
+            }
+            const apps = result.applications || [];
+            // 更新待审批角标
+            const badge = document.getElementById('pendingAppBadge');
+            if (badge) {
+                if (apps.length > 0) {
+                    badge.textContent = String(apps.length);
+                    badge.classList.remove('hidden');
+                } else {
+                    badge.classList.add('hidden');
+                }
+            }
+            if (apps.length === 0) {
+                container.innerHTML = `<p class="text-sm text-gray-400 text-center py-8">暂无待审批的账号申请</p>`;
+                return;
+            }
+            container.innerHTML = `
+                <table class="w-full">
+                    <thead class="bg-gray-50 border-b">
+                        <tr>
+                            <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600">用户名</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600">姓名</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600">手机</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600">邮箱</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600">申请时间</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y">
+                        ${apps.map(a => `
+                            <tr>
+                                <td class="px-4 py-2 text-sm text-gray-800">${this._esc(a.username)}</td>
+                                <td class="px-4 py-2 text-sm text-gray-600">${this._esc(a.full_name || '-')}</td>
+                                <td class="px-4 py-2 text-sm text-gray-600">${this._esc(a.phone || '-')}</td>
+                                <td class="px-4 py-2 text-sm text-gray-600">${this._esc(a.email || '-')}</td>
+                                <td class="px-4 py-2 text-sm text-gray-600">${this._fmtDate(a.created_at)}</td>
+                                <td class="px-4 py-2 text-sm space-x-2">
+                                    <button class="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 text-xs btn-approve-application" data-id="${a.id}">
+                                        <i class="fas fa-check mr-1"></i>通过
+                                    </button>
+                                    <button class="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 text-xs btn-reject-application" data-id="${a.id}">
+                                        <i class="fas fa-times mr-1"></i>拒绝
+                                    </button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            container.querySelectorAll('.btn-approve-application').forEach(btn => {
+                btn.addEventListener('click', () => this.approveApplication(btn.dataset.id), { signal: undefined });
+            });
+            container.querySelectorAll('.btn-reject-application').forEach(btn => {
+                btn.addEventListener('click', () => this.rejectApplication(btn.dataset.id), { signal: undefined });
+            });
+        } catch (error) {
+            console.error('❌ 加载账号申请错误:', error);
+            container.innerHTML = `<p class="text-sm text-red-500 text-center py-8">加载出错</p>`;
+        }
+    }
+
+    _esc(v) {
+        if (v === null || v === undefined) return '';
+        return String(v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    _fmtDate(v) {
+        if (!v) return '-';
+        try { return new Date(v).toLocaleString('zh-CN'); } catch (_) { return String(v); }
+    }
+
+    /**
+     * 审批通过 viewer 账号申请
+     */
+    async approveApplication(applicationId) {
+        const confirmed = await UINotification.confirm('通过后将创建该 viewer 账号（只读，含病原体数据），允许其登录。确认通过？', '通过申请');
+        if (!confirmed) return;
+        try {
+            UINotification.loading('正在审批...');
+            const result = await authService.approveApplication(applicationId);
+            if (!result.success) {
+                UINotification.error('审批失败：' + (result.message || '未知错误'));
+                return;
+            }
+            UINotification.success('已通过，viewer 账号已创建');
+            auditService.log('update', 'users', null, `审批通过 viewer 账号申请 ${applicationId}`);
+            this.loadApplications();
+        } catch (error) {
+            console.error('❌ 审批申请错误:', error);
+            UINotification.error('审批出错');
+        }
+    }
+
+    /**
+     * 拒绝 viewer 账号申请
+     */
+    async rejectApplication(applicationId) {
+        const note = window.prompt('拒绝原因（选填）：');
+        if (note === null) return; // 取消
+        try {
+            UINotification.loading('正在拒绝...');
+            const result = await authService.rejectApplication(applicationId, note);
+            if (!result.success) {
+                UINotification.error('拒绝失败：' + (result.message || '未知错误'));
+                return;
+            }
+            UINotification.success('已拒绝该申请');
+            auditService.log('update', 'users', null, `拒绝 viewer 账号申请 ${applicationId}`);
+            this.loadApplications();
+        } catch (error) {
+            console.error('❌ 拒绝申请错误:', error);
+            UINotification.error('拒绝出错');
+        }
     }
 
     /**

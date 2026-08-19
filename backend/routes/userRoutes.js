@@ -36,6 +36,10 @@ export function createUserRoutes(userManager) {
         if (error && error.code === 'ACCOUNT_LOCKED') {
             return res.status(423).json({ error: '❌ 登录失败次数过多，该账号已被临时锁定，请稍后再试' })
         }
+        // q-2：被拒账号申请人登录时给出明确提示（不泄露其它账号状态）
+        if (error && error.code === 'APPLICATION_REJECTED') {
+            return res.status(403).json({ error: error.message, code: 'APPLICATION_REJECTED' })
+        }
         return res.status(401).json({ error: `登录失败` })
     }
 
@@ -590,6 +594,69 @@ router.post('/change-password', authenticateUser, async (req, res) => {
             res.json(result)
         } catch (error) {
             res.status(error.status || 400).json({ error: error.status ? error.message : `删除用户失败` })
+        }
+    })
+
+    // ====== 校外人员 viewer 账号申请（需学校 manager 审批）======
+
+    // 提交 viewer 账号申请（公开，无需登录）
+    router.post('/application', async (req, res) => {
+        try {
+            const { username, password, email, fullName, phone, schoolCode } = req.body
+            const result = await userManager.forTenant(schoolCode).submitAccountApplication({
+                username, password, email, fullName, phone, schoolCode
+            })
+            res.status(201).json(result)
+        } catch (error) {
+            if (error.validation) {
+                return res.status(error.status || 400).json({ error: error.message, code: error.code })
+            }
+            console.error('❌ [user] 提交账号申请失败:', error)
+            res.status(400).json({ error: '提交申请失败' })
+        }
+    })
+
+    // 待审批列表（manager/admin）
+    router.get('/applications/pending', authenticateUser, authorizeRoles('manager', 'admin'), async (req, res) => {
+        try {
+            const list = await userManager.forTenant(req.user.schoolCode).getPendingApplications(req.user.schoolCode)
+            res.json({ success: true, applications: list })
+        } catch (error) {
+            console.error('❌ [user] 获取待审批申请失败:', error)
+            res.status(400).json({ error: '获取待审批申请失败' })
+        }
+    })
+
+    // 审批通过（manager/admin）
+    router.post('/application/:id/approve', authenticateUser, authorizeRoles('manager', 'admin'), async (req, res) => {
+        try {
+            const result = await userManager.forTenant(req.user.schoolCode).approveApplication(
+                req.params.id, req.user.userId, req.user.schoolCode
+            )
+            res.json(result)
+        } catch (error) {
+            if (error.validation) {
+                return res.status(error.status || 400).json({ error: error.message, code: error.code })
+            }
+            console.error('❌ [user] 审批申请失败:', error)
+            res.status(400).json({ error: '审批失败' })
+        }
+    })
+
+    // 审批拒绝（manager/admin）
+    router.post('/application/:id/reject', authenticateUser, authorizeRoles('manager', 'admin'), async (req, res) => {
+        try {
+            const { note } = req.body
+            const result = await userManager.forTenant(req.user.schoolCode).rejectApplication(
+                req.params.id, req.user.userId, req.user.schoolCode, note
+            )
+            res.json(result)
+        } catch (error) {
+            if (error.validation) {
+                return res.status(error.status || 400).json({ error: error.message, code: error.code })
+            }
+            console.error('❌ [user] 拒绝申请失败:', error)
+            res.status(400).json({ error: '拒绝失败' })
         }
     })
 

@@ -1029,6 +1029,95 @@ export class AuthService {
     }
 
     /**
+     * 提交 viewer 账号申请（登录页公开入口，无需登录）
+     * @param {object} payload - { username, password, email, fullName, phone, schoolCode }
+     * @returns {Promise<{success: boolean, message?: string}>}
+     */
+    async submitAccountApplication(payload) {
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/api/user/application`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                return { success: false, message: data.error || '提交申请失败', code: data.code };
+            }
+            return { success: true };
+        } catch (error) {
+            console.error('❌ 提交账号申请错误:', error.message);
+            return { success: false, message: error.message };
+        }
+    }
+
+    /**
+     * 获取当前学校待审批的 viewer 账号申请（manager/admin）
+     */
+    async getPendingApplications() {
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/api/user/applications/pending`, {
+                headers: { 'Authorization': `Bearer ${this.getToken()}` }
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                return { success: false, message: data.error || '获取申请列表失败', applications: [] };
+            }
+            return { success: true, applications: data.applications || [] };
+        } catch (error) {
+            console.error('❌ 获取待审批申请错误:', error.message);
+            return { success: false, message: error.message, applications: [] };
+        }
+    }
+
+    /**
+     * 审批通过 viewer 账号申请（manager/admin）
+     * @param {string} applicationId
+     */
+    async approveApplication(applicationId) {
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/api/user/application/${applicationId}/approve`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${this.getToken()}` }
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                return { success: false, message: data.error || '审批失败' };
+            }
+            return { success: true };
+        } catch (error) {
+            console.error('❌ 审批申请错误:', error.message);
+            return { success: false, message: error.message };
+        }
+    }
+
+    /**
+     * 拒绝 viewer 账号申请（manager/admin）
+     * @param {string} applicationId
+     * @param {string} [note] - 拒绝原因
+     */
+    async rejectApplication(applicationId, note) {
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/api/user/application/${applicationId}/reject`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.getToken()}`
+                },
+                body: JSON.stringify({ note: note || '' })
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                return { success: false, message: data.error || '拒绝失败' };
+            }
+            return { success: true };
+        } catch (error) {
+            console.error('❌ 拒绝申请错误:', error.message);
+            return { success: false, message: error.message };
+        }
+    }
+
+    /**
      * 删除用户 (管理员)
      * @param {string} userId - 用户 ID
      * @returns {Promise<{success: boolean, message: string}>}

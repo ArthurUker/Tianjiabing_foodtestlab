@@ -26,6 +26,8 @@ model User {
   role          String   @default("operator") // admin / manager / operator / viewer
   status        String   @default("active") // active / disabled
   school_code   String?  // 所属学校代码（方案②）；dev/test 共享 schema 时为空
+  // Viewer 账号申请审批（P13 衍生需求）：审批通过即开放全部模块（含病原体）只读。
+  can_view_pathogen Boolean @default(false)
   // M2（窗口2）：默认/临时密码账号首登强制改密标记。
   // 建校初始 manager、管理员重置密码时置 true；登录侧拦截由窗口1实现。
   must_change_password Boolean @default(false)
@@ -37,6 +39,29 @@ model User {
   test_records  TestRecord[]
   guests        Guest[]
   sessions      Session[]
+}
+
+// ========== 校外人员 viewer 账号申请（需学校 manager 审批）==========
+// 提交端：登录页「申请 viewer 账号」；审批端：学校端 UserManagement 审批标签页。
+// 状态机：pending → approved（创建 viewer User）| rejected。
+model AccountApplication {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  email        String?
+  phone        String?
+  full_name    String?
+  password_hash String
+  // 申请时是否要求查看病原体数据；审批通过后统一开放全部模块（含病原体）只读
+  view_pathogen Boolean @default(true)
+  status       String   @default("pending") // pending / approved / rejected
+  school_code  String?  // 申请人目标学校（提交时由前端传 schoolCode）
+  reviewer_id  String?  // 审批人 user.id
+  review_note  String?  // 审批备注/拒绝原因
+  created_at   DateTime @default(now())
+  reviewed_at  DateTime?
+
+  @@index([status])
+  @@index([school_code])
 }
 
 // ========== 审计日志 ==========
