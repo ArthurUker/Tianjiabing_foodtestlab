@@ -71,6 +71,24 @@ export function initAccountsView() {
                 loadSchoolUsersInline(schoolCode);
                 return;
             }
+            if (action === 'disable' || action === 'enable') {
+                const isActive = (action === 'enable');
+                const label = username ? `「${username}」` : `（id=${userId}）`;
+                if (!confirm(`确定${isActive ? '启用' : '停用'}用户 ${label} 吗？`)) return;
+                try {
+                    const res = await adminFetch(`/api/admin/schools/${encodeURIComponent(schoolCode)}/users/${encodeURIComponent(userId)}/status`, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ status: isActive ? 'active' : 'disabled' })
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) throw new Error((data && data.error) || '操作失败');
+                    showNotice(`✅ 用户已${isActive ? '启用' : '停用'}`, 'success');
+                    loadSchoolUsersInline(schoolCode);
+                } catch (e) {
+                    showNotice('❌ ' + (e && e.message ? e.message : String(e)), 'error');
+                }
+                return;
+            }
             showNotice(`⚠️ 未支持的动作：${action}`, 'error');
         } catch (e) {
             showNotice('❌ ' + (e && e.message ? e.message : String(e)), 'error');
@@ -278,6 +296,16 @@ export function initAccountsView() {
                 const safeUsername = escapeHtml(u.username || '');
                 const safeUserId = escapeHtml(userId);
                 const safeSchoolCode = escapeHtml(schoolCode);
+                // 已启用：编辑 / 重置密码 / 停用
+                // 已停用：编辑 / 重置密码 / 启用 / 删除
+                const actionBtns = enabled
+                    ? `<button class="text-sm text-blue-600 hover:underline" data-act="edit" data-id="${safeUserId}" data-school="${safeSchoolCode}">编辑</button>
+                       <button class="ml-3 text-sm text-orange-600 hover:underline" data-act="reset" data-id="${safeUserId}" data-school="${safeSchoolCode}">重置密码</button>
+                       <button class="ml-3 text-sm text-gray-500 hover:underline" data-act="disable" data-id="${safeUserId}" data-school="${safeSchoolCode}">停用</button>`
+                    : `<button class="text-sm text-blue-600 hover:underline" data-act="edit" data-id="${safeUserId}" data-school="${safeSchoolCode}">编辑</button>
+                       <button class="ml-3 text-sm text-orange-600 hover:underline" data-act="reset" data-id="${safeUserId}" data-school="${safeSchoolCode}">重置密码</button>
+                       <button class="ml-3 text-sm text-green-600 hover:underline" data-act="enable" data-id="${safeUserId}" data-school="${safeSchoolCode}">启用</button>
+                       <button class="ml-3 text-sm text-red-600 hover:underline" data-act="delete" data-id="${safeUserId}" data-school="${safeSchoolCode}">删除</button>`;
                 return `
                     <tr>
                         <td class="px-3 py-2 font-mono text-gray-800">${safeUsername || '-'}</td>
@@ -288,10 +316,8 @@ export function initAccountsView() {
                         <td class="px-3 py-2">
                             ${enabled ? '<span class="inline-flex px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs">已启用</span>' : '<span class="inline-flex px-2 py-0.5 bg-gray-200 text-gray-600 rounded-full text-xs">已停用</span>'}
                         </td>
-                        <td class="px-3 py-2 text-right">
-                            <button class="text-sm text-blue-600 hover:underline" data-act="edit" data-id="${safeUserId}" data-school="${safeSchoolCode}">编辑</button>
-                            <button class="ml-3 text-sm text-orange-600 hover:underline" data-act="reset" data-id="${safeUserId}" data-school="${safeSchoolCode}">重置密码</button>
-                            <button class="ml-3 text-sm text-red-600 hover:underline" data-act="delete" data-id="${safeUserId}" data-school="${safeSchoolCode}">删除</button>
+                        <td class="px-3 py-2 text-right whitespace-nowrap">
+                            ${actionBtns}
                         </td>
                     </tr>`;
             }).join('');
