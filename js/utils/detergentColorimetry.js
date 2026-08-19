@@ -915,3 +915,37 @@ export function drawRegionBoxes(canvas, regions, options = {}) {
   ctx.restore();
 }
 
+/**
+ * 生成识别结果的卡片网格 HTML（供 demo 页 / 嵌入页渲染）。
+ * 与原始 renderResult 的 result-grid 结构对应；人工覆盖逻辑仍由调用方处理，
+ * 本函数只负责"算法主判"的展示。
+ *
+ * @param {object} result  analyzeWithRegions / analyzeDetergentImage 的成功返回
+ * @returns {string} HTML 片段
+ */
+export function buildResultHtml(result) {
+  const mainV = result.mainValue;
+  const mainValueText = result.mainValueText ?? String(mainV ?? '');
+  const judgeClass = mainV === 0 ? 'pass'
+    : mainV <= 0.05 ? 'pass'
+    : mainV <= 0.1 ? 'warn'
+    : 'fail';
+  const judgeText = judgeClass === 'pass' ? '合格'
+    : judgeClass === 'warn' ? '警戒' : '不合格';
+
+  const card = (cls, label, value) =>
+    `<div class="result-card ${cls}"><div class="label">${label}</div><div class="value">${value}</div></div>`;
+
+  return [
+    card('main', '主判定', `${mainValueText} mg/L`),
+    card(judgeClass, '判定等级', judgeText),
+    card('', '参考值（插值）', `${result.refinedValue ?? '-'} mg/L`),
+    card('', '置信度', `${Math.round((result.confidence || 0) * 100)}%`),
+    card('', 'ΔE（主判）', `${result.deltaE ?? '-'}`),
+    card('', '色卡 7 色块', '已识别'),
+    card('', '离心管方向', `${result.tubeZone ?? '-'}`),
+    card('', '样品 RGB', `${(result.sampleColor || []).map(v => Math.round(v)).join(', ')}`),
+  ].join('');
+}
+
+
