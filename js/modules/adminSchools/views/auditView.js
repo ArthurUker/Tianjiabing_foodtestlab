@@ -379,7 +379,7 @@ export function initAuditView() {
                     const ts = l.created_at || l.createdAt || l.timestamp || '-';
                     const actor = l.user?.username || l.user?.full_name || l.user_id || '-';
                     const action = l.action || '-';
-                    const target = l.resource_type ? `${l.resource_type}#${l.resource_id || ''}` : '-';
+                    const target = getResourceLabel(l.resource_type, l.resource_id);
                     const description = describeAuditLog(l);
                     return `
                         <tr class="hover:bg-gray-50" data-log-id="${escapeHtml(String(l.id || ''))}">
@@ -672,7 +672,7 @@ export function initAuditView() {
                 <div><span class="text-gray-500">时间：</span>${escapeHtml(formatAuditTime(log.created_at || log.createdAt))}</div>
                 <div><span class="text-gray-500">操作者：</span>${escapeHtml(log.user?.username || log.user?.full_name || log.user_id || '-')}</div>
                 <div><span class="text-gray-500">动作：</span><span class="inline-flex px-2 py-0.5 ${getActionColor(log.action)} rounded-full text-xs">${escapeHtml(getActionLabel(log.action))}</span></div>
-                <div><span class="text-gray-500">目标：</span>${escapeHtml(log.resource_type || '-')}${log.resource_id ? ' <span class="font-mono text-gray-600">#' + escapeHtml(String(log.resource_id)) + '</span>' : ''}</div>
+                <div><span class="text-gray-500">目标：</span>${escapeHtml(getResourceLabel(log.resource_type, log.resource_id))}</div>
                 <div><span class="text-gray-500">IP 地址：</span>${escapeHtml(log.ip_address || '-')}</div>
                 <div><span class="text-gray-500">日志 ID：</span><span class="font-mono text-xs text-gray-600">${escapeHtml(String(log.id || '-'))}</span></div>
             </div>
@@ -722,6 +722,37 @@ export function initAuditView() {
             user_disable: 'bg-red-100 text-red-700', user_enable: 'bg-green-100 text-green-700',
         };
         return colors[action] || 'bg-indigo-100 text-indigo-700';
+    }
+
+    /**
+     * 将 resource_type 英文代码转为中文显示名称
+     * resource_id 过长时截断显示
+     */
+    function getResourceLabel(type, id) {
+        const labels = {
+            test_record: '检测记录',
+            tableware: '餐具检测',
+            pesticide: '农药残留',
+            oil: '食用油检测',
+            leanMeat: '瘦肉精检测',
+            pathogen: '致病菌检测',
+            user: '用户',
+            school: '学校',
+            backup: '备份',
+            system_log: '系统日志',
+            attachment: '附件',
+            guest: '访客',
+            export_request: '导出请求',
+            frequency_threshold: '检测频率',
+            detection_calendar: '检测日历',
+            field_option: '字段选项',
+            customization: '定制配置',
+        };
+        const name = labels[type] || type || '-';
+        if (!id) return name;
+        // ID 过长时截断
+        const shortId = String(id).length > 12 ? String(id).slice(0, 12) + '…' : String(id);
+        return `${name}（${shortId}）`;
     }
 
     function normalizeAuditDetails(d) {
