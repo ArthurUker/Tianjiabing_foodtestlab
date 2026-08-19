@@ -206,13 +206,14 @@ class AuditLog {
             );
         });
 
-        // 表格事件委派：点击行或"详情"按钮均打开弹窗（仅绑定一次）
+        // 表格事件委派：点击行或详情文字均打开弹窗
         document.getElementById('logTable')?.addEventListener('click', (e) => {
-            const tr = e.target.closest('tr[data-log-id]');
-            if (!tr) return;
-            const log = this.logs.find(l => l.id === tr.dataset.logId);
+            // 优先匹配带 data-log-id 的详情文字（或行上的 data-log-id）
+            const target = e.target.closest('[data-log-id]');
+            if (!target) return;
+            const logId = target.dataset.logId;
+            const log = this.logs.find(l => l.id === logId);
             if (!log) return;
-            // 若点在"详情"按钮上，明确阻止冒泡无关（事实上直接打开弹窗即可）
             this.openDetail(log);
         });
 
@@ -372,16 +373,9 @@ class AuditLog {
                     </td>
                     <td class="px-4 py-3 text-sm text-gray-600">${this.escapeHtml(log.resource_type || '-')}</td>
                     <td class="px-4 py-3 text-sm text-gray-600">
-                        <div class="flex items-center gap-2">
-                            <span class="truncate flex-1" title="${this.escapeHtml(detailsSummary.full)}">
-                                ${this.escapeHtml(detailsSummary.preview)}
-                            </span>
-                            ${detailsObj ? `
-                                <button class="audit-detail-btn px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition flex-shrink-0" title="查看完整详情">
-                                    <i class="fas fa-eye"></i>详情
-                                </button>
-                            ` : ''}
-                        </div>
+                        <span class="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer" title="${this.escapeHtml(detailsSummary.full)}${detailsSummary.full ? '\n点击查看完整详情' : ''}" data-log-id="${this.escapeHtml(log.id)}">
+                            ${this.escapeHtml(detailsSummary.preview) || '-'}
+                        </span>
                     </td>
                 </tr>
             `;
