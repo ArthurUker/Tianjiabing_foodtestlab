@@ -207,7 +207,7 @@ export function initAccountsView() {
                 return;
             }
             tbody.innerHTML = list.map((u) => {
-                const enabled = (u.enabled ?? u.isActive ?? true);
+                const enabled = !(u.status === 'disabled' || u.status === 'inactive' || u.enabled === false || u.isActive === false);
                 const createdAt = u.created_at || u.createdAt || '-';
                 const adminId = String(u.id || u._id || '');
                 superAdminsCache.set(adminId, u);  // 给 superAdminAction('edit', id) 提供完整对象
@@ -292,7 +292,7 @@ export function initAccountsView() {
             tbody.innerHTML = list.map((u) => {
                 const userId = String(u.id || u._id || '');
                 schoolUsersCache.set(cacheKey(schoolCode, userId), u);
-                const enabled = (u.enabled ?? u.isActive ?? true);
+                const enabled = !(u.status === 'disabled' || u.status === 'inactive' || u.enabled === false || u.isActive === false);
                 const safeUsername = escapeHtml(u.username || '');
                 const safeUserId = escapeHtml(userId);
                 const safeSchoolCode = escapeHtml(schoolCode);
