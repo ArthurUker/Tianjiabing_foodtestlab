@@ -100,7 +100,7 @@ export function initAuditView() {
                 const code = document.getElementById('saAuditSchoolSelect')?.value || '';
 
                 if (code) {
-                    fetch(`/api/audit-logs/school/${encodeURIComponent(code)}/date-range`, { credentials: 'include' })
+                    adminFetch(`/api/audit-logs/school/${encodeURIComponent(code)}/date-range`)
                         .then(r => r.json())
                         .then(res => {
                             if (res.success && res.data.earliest) {
