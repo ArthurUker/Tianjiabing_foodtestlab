@@ -249,6 +249,7 @@ function locateColorBlocks(canvas) {
     blocks: blocks.map(r => ({
       x: Math.round(r.x), y: Math.round(r.y),
       w: Math.round(r.w), h: Math.round(r.h),
+      measured: true,
     })),
     debug: { yCardTop, yCardBottom, peaks, gapMean },
   };
@@ -531,86 +532,125 @@ function formatConcentration(v) {
  * @param {number[]} options.concentrations - 浓度序列，如 [0, 0.01, 0.05, 0.1, 0.5, 1.0, 2.0]
  * @returns {object} 完整分析结果
  */
-export function analyzeDetergentImage(srcCanvas, options = {}) {
+// ============================================================================
+// 区域定位（仅定位，不取色）—— 供前端「先确认区域、再比色」两步流程使用
+// ============================================================================
+
+/**
+ * 步骤一：仅做区域定位，返回色卡整体外接矩形 + 离心管矩形。
+ * 不执行取色 / 比色，便于前端先把识别到的两个区域框展示给用户确认 / 手动矫正。
+ *
+ * @param {HTMLCanvasElement} srcCanvas
+ * @param {object} options { concentrations }
+ * @returns {object} 定位结果
+ *   成功: { ok:true, cardRect:{x,y,w,h}, tube:{x,y,w,h}, tubeZone, blocks, canvasSize }
+ *   失败: { ok:false, stage, error, humanMessage, hint? }
+ */
+export function locateRegions(srcCanvas, options = {}) {
   const concentrations = options.concentrations || [0, 0.01, 0.05, 0.1, 0.5, 1.0, 2.0];
 
-  // 0. 降采样到长边 800px
   const canvas = downscaleImageData(srcCanvas, 800);
   const W = canvas.width, H = canvas.height;
 
-  // 1. 找色卡 7 个色块
-  const cardResult = locateColorBlocks(canvas);
-  if (!cardResult.ok) {
-    return {
-      ok: false, stage: 'color_card',
-      error: cardResult.error,
-      humanMessage: humanMessageForError(cardResult.error),
-      info: cardResult,
-    };
-  }
-  const blocks = cardResult.blocks;
+  try {
+    const cardResult = locateColorBlocks(canvas);
+    if (!cardResult.ok) {
+      return {
+        ok: false, stage: 'color_card',
+        error: cardResult.error,
+        humanMessage: humanMessageForError(cardResult.error),
+        hint: cardResult.hint,
+        debug: cardResult.debug,
+      };
+    }
+    const blocks = cardResult.blocks;
 
-  // 2. 找离心管
-  const tubeResult = locateCentrifugeTube(canvas, blocks);
-  if (!tubeResult.ok) {
+    // 色卡整体外接矩形（含 7 个色块）
+    const cardRect = boundingRectOf(blocks);
+
+    const tubeResult = locateCentrifugeTube(canvas, blocks);
+    if (!tubeResult.ok) {
+      return {
+        ok: false, stage: 'tube',
+        error: tubeResult.error,
+        humanMessage: humanMessageForError(tubeResult.error),
+        cardRect,
+        blocks,
+      };
+    }
+
     return {
-      ok: false, stage: 'tube',
-      error: tubeResult.error,
-      humanMessage: humanMessageForError(tubeResult.error),
+      ok: true,
+      cardRect,
+      tube: tubeResult.rect,
+      tubeZone: tubeResult.zone,
       blocks,
+      canvasSize: { width: W, height: H },
+    };
+  } catch (e) {
+    return { ok: false, stage: 'locate', error: 'LOCATE_EXCEPTION', humanMessage: '区域定位异常：' + (e?.message || e) };
+  }
+}
+
+/** 计算一组矩形的最小外接矩形（像素） */
+function boundingRectOf(rects) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const r of rects) {
+    x0 = Math.min(x0, r.x); y0 = Math.min(y0, r.y);
+    x1 = Math.max(x1, r.x + r.w); y1 = Math.max(y1, r.y + r.h);
+  }
+  return { x: Math.round(x0), y: Math.round(y0), w: Math.round(x1 - x0), h: Math.round(y1 - y0) };
+}
+
+/**
+ * 步骤二：在给定（可能经人工矫正的）区域上做取色 + 比色匹配。
+ * @param {HTMLCanvasElement} srcCanvas
+ * @param {object} options { concentrations }
+ * @param {object} regions { cardRect:{x,y,w,h}, tube:{x,y,w,h}, tubeZone?, blocks? }
+ *   cardRect / tube 为像素坐标（基于降采样后的 canvas）；
+ *   未提供 blocks 时，用 cardRect 做"整块等距拆分"兜底取色（手动框选场景）。
+ * @returns {object} 完整分析结果（与 analyzeDetergentImage 同结构）
+ */
+export function analyzeWithRegions(srcCanvas, options = {}, regions = {}) {
+  const concentrations = options.concentrations || [0, 0.01, 0.05, 0.1, 0.5, 1.0, 2.0];
+
+  const cardRect = regions.cardRect || (regions.blocks ? boundingRectOf(regions.blocks) : null);
+  const tube = regions.tube || null;
+  const providedBlocks = regions.blocks || null;
+
+  if (!cardRect || !tube) {
+    return {
+      ok: false, stage: 'regions',
+      error: 'REGIONS_MISSING',
+      humanMessage: '缺少色卡或样品区域，请重新框选后再识别',
     };
   }
-  const tube = tubeResult.rect;
 
-  // 3. 给色块排序、补全缺失位置（用等距先验）
+  const canvas = downscaleImageData(srcCanvas, 800);
+  const W = canvas.width, H = canvas.height;
+
+  // 1. 色块：优先用定位阶段识别到的精确 blocks；
+  //    若用户手动框选（blocks 为空），用 cardRect 等距推断 7 个色块并实际取色。
+  let blocks = providedBlocks && providedBlocks.length ? providedBlocks : inferBlocksFromCardRect(cardRect, concentrations.length);
+
+  // 2. 给色块排序、补全缺失位置（用等距先验）
   const sortedBlocks = [...blocks].sort((a, b) => a.x - b.x);
-  // 估算 step（色块列间距）
   const step = sortedBlocks.length === 1
-    ? 60  // 单色块的兜底估算
+    ? 60
     : (sortedBlocks[sortedBlocks.length - 1].x - sortedBlocks[0].x) / (sortedBlocks.length - 1);
 
-  // 用等距先验补全全部 7 个色块位置
+  const yCardTop = cardRect.y;
+
   const fullBlocks = [];
-  // 推断起始位置：让补全色块尽量匹配现有可见色块位置
-  // 算法：尝试把 [block0_x, blockN_x] 当作最左可见-最右可见，再外推两端
   const leftmostX = sortedBlocks[0].x;
-  const rightmostX = sortedBlocks[sortedBlocks.length - 1].x;
-  // 已知最后可见色块索引 = sortedBlocks.length - 1，对应 totalIndex = 6 - (7 - sortedBlocks.length)
-  // 例如 4 个可见 [a, b, c, d] 可能是 [0, 1, 2, 3] 或 [3, 4, 5, 6]
-  // 默认假设缺失在右边（右侧被遮挡是常见情况），也支持左侧缺失
-  let firstIdx = 0; // 推断的最左可见色块在 7 色块中的索引
-  // 简化假设：色卡的 0 色块在最左，从左到右依次
-  // 我们把 sortedBlocks 看作 7 色块中从某位置开始的连续段
-  // 用"两端匹配"找最合理位置
-  let bestFirstIdx = -1, bestResidual = Infinity;
-  for (let trial = 0; trial <= 7 - sortedBlocks.length; trial++) {
-    // trial = 0: 第一个可见 = 0 / 1 / 2 ...
-    // 用最小二乘看拟合误差
-    let residual = 0;
-    for (let i = 0; i < sortedBlocks.length; i++) {
-      const expectedX = leftmostX + (i - 0) * step; // trial=0 时
-      // 调整为 trial 偏移
-      // 如果 firstIdx = trial，那么 sortedBlocks[0] 对应 trial 色块
-      const trialLeftX = leftmostX - trial * step;
-      const expectX = trialLeftX + i * step;
-      residual += Math.abs(expectX - sortedBlocks[i].x);
-    }
-    if (residual < bestResidual) {
-      bestResidual = residual;
-      bestFirstIdx = trial;
-    }
-  }
-  firstIdx = bestFirstIdx;
-  const trialLeftX = leftmostX - firstIdx * step;
+  const firstIdx = 0;
+  const trialLeftX = leftmostX;
   for (let i = 0; i < 7; i++) {
     const xCenter = trialLeftX + i * step;
     if (i >= firstIdx && i < firstIdx + sortedBlocks.length) {
       const b = sortedBlocks[i - firstIdx];
-      // 重要：locateColorBlocks 返回的 block 只有 {x,y,w,h}，必须显式注入 concentration，
-      // 否则 matchColorByLab 里 main.concentration 会变 undefined → formatConcentration(v) 报错
-      fullBlocks.push({ ...b, blockIdx: i, concentration: concentrations[i], inferred: false });
+      fullBlocks.push({ ...b, blockIdx: i, concentration: concentrations[i], inferred: !!b.inferred });
     } else {
-      // 缺失色块：根据相邻色块位置推算（用整个色卡的 y 范围 + 估算 x 范围）
       const halfW = (sortedBlocks[0].w || 20) / 2;
       const xCenterInt = Math.round(xCenter);
       fullBlocks.push({
@@ -619,32 +659,31 @@ export function analyzeDetergentImage(srcCanvas, options = {}) {
         x: xCenterInt - halfW,
         y: yCardTop,
         w: halfW * 2,
-        h: blocks[0]?.h || 30,
+        h: cardRect.h || 30,
         inferred: true,
       });
     }
   }
 
-  // 4. 取实测色（只在可见色块上做）
+  // 3. 取实测色（只在非推断的可见色块上做）
   fullBlocks.forEach(b => {
     if (b.inferred) return;
     b.color = avgRGB(canvas, b.x, b.y, b.w, b.h);
     b.lab = rgbToLab(b.color);
   });
 
-  // 5. 取样品色（离心管中心区域）
+  // 4. 取样品色（离心管中心区域）
   const sampleColor = avgRGB(canvas, tube.x, tube.y, tube.w, tube.h);
   const sampleLab = rgbToLab(sampleColor);
 
-  // 6. 比色匹配（只对可见色块）
+  // 5. 比色匹配（只对可见色块）
   const visibleBlocks = fullBlocks.filter(b => !b.inferred);
   const match = visibleBlocks.length >= 1
     ? matchColorByLab(sampleLab, visibleBlocks)
     : { ok: false, anomalySuspected: true, mainValueText: '?', deltaE: 99, confidence: 0, sortedDistances: [], refinementAvailable: false, mainValue: 0, refinedValue: 0 };
 
-  // 7. 整体质控
+  // 6. 整体质控
   const qc = runQualityControl({ blocks: fullBlocks, tube, match, canvas });
-  // 额外加：可见色块数提示
   if (visibleBlocks.length < 7) {
     qc.notes.push({
       level: 'warn',
@@ -656,13 +695,43 @@ export function analyzeDetergentImage(srcCanvas, options = {}) {
     ok: true,
     blocks: fullBlocks,
     tube,
-    tubeZone: tubeResult.zone,
+    tubeZone: regions.tubeZone || 'manual',
     sampleColor,
     sampleLab,
     ...match,
     qc,
     canvasSize: { width: W, height: H },
+    regions: { cardRect, tube }, // 回传实际使用的区域（供二次矫正复用）
   };
+}
+
+/**
+ * 当定位失败 / 用户完全手动框选时，从 cardRect 等距推断 7 个色块位置。
+ * 这些块拥有真实像素位置，会在下游被实际取色（不标记 inferred）。
+ */
+function inferBlocksFromCardRect(cardRect, n) {
+  const blocks = [];
+  const step = cardRect.w / n;
+  for (let i = 0; i < n; i++) {
+    blocks.push({
+      x: Math.round(cardRect.x + i * step + step * 0.1),
+      y: cardRect.y,
+      w: Math.round(step * 0.8),
+      h: cardRect.h,
+      measured: false,
+      inferred: false,
+    });
+  }
+  return blocks;
+}
+
+/**
+ * 分析一张图，输出浓度判定结果（兼容封装：定位 + 比色一步完成）
+ */
+export function analyzeDetergentImage(srcCanvas, options = {}) {
+  const loc = locateRegions(srcCanvas, options);
+  if (!loc.ok) return loc;
+  return analyzeWithRegions(srcCanvas, options, loc);
 }
 
 function humanMessageForError(code) {
@@ -793,3 +862,56 @@ export function drawOverlay(canvas, result, options = {}) {
 export function formatConcentrationList(concentrations) {
   return concentrations.map(formatConcentration).join(' / ');
 }
+
+/**
+ * 区域确认阶段绘制：只画「比色卡整体」和「样品」两个大框，不画 7 个小色块，
+ * 避免干扰用户判断算法是否圈对了位置。
+ *
+ * @param {HTMLCanvasElement} canvas  显示用 canvas（已绘制原图）
+ * @param {object} regions  { cardRect:{x,y,w,h}, tube:{x,y,w,h} } 基于定位 canvas(800) 像素坐标
+ * @param {object} [options] { canvasSize:{width,height} }  定位 canvas 尺寸（默认 800xH）
+ */
+export function drawRegionBoxes(canvas, regions, options = {}) {
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const srcW = (options.canvasSize && options.canvasSize.width) || regions.canvasSize?.width || 800;
+  const srcH = (options.canvasSize && options.canvasSize.height) || regions.canvasSize?.height || canvas.height;
+  const sx = canvas.width / srcW;
+  const sy = canvas.height / srcH;
+
+  ctx.save();
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (regions.cardRect) {
+    const c = regions.cardRect;
+    ctx.strokeStyle = '#16a34a';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([8, 5]);
+    ctx.strokeRect(c.x * sx, c.y * sy, c.w * sx, c.h * sy);
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(22,163,74,0.92)';
+    const label = '比色卡区域';
+    ctx.font = 'bold 15px sans-serif';
+    const tw = ctx.measureText(label).width;
+    ctx.fillRect(c.x * sx, c.y * sy - 22, tw + 12, 20);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(label, c.x * sx + 6, c.y * sy - 7);
+  }
+
+  if (regions.tube) {
+    const t = regions.tube;
+    ctx.strokeStyle = '#2563eb';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([8, 5]);
+    ctx.strokeRect(t.x * sx, t.y * sy, t.w * sx, t.h * sy);
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(37,99,235,0.92)';
+    const label = '样品区域';
+    ctx.font = 'bold 15px sans-serif';
+    const tw = ctx.measureText(label).width;
+    ctx.fillRect(t.x * sx, t.y * sy - 22, tw + 12, 20);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(label, t.x * sx + 6, t.y * sy - 7);
+  }
+  ctx.restore();
+}
+

@@ -309,3 +309,75 @@
       button.btn { padding: 10px 16px; font-size: 14px; }
       .upload-zone { padding: 22px 14px; }
     }
+
+    /* ============ 区域确认（两步式识别） ============ */
+    .region-hint {
+      margin: 0 0 12px; padding: 12px 16px; border-radius: 0.7rem;
+      font-size: 14px; line-height: 1.5; display: flex; align-items: flex-start; gap: 8px;
+    }
+    .region-hint i { margin-top: 2px; }
+    .region-hint.info { background: rgba(37, 99, 235, 0.10); color: #1e3a8a; border: 1px solid rgba(37, 99, 235, 0.25); }
+    .region-hint.warn { background: rgba(202, 138, 4, 0.12); color: #854d0e; border: 1px solid rgba(202, 138, 4, 0.30); }
+
+    #regionActions {
+      margin: 0 0 16px; padding: 14px; border-radius: 0.8rem;
+      background: rgba(255, 255, 255, 0.82);
+      border: 1px solid var(--c-border);
+      box-shadow: 0 4px 14px rgba(40, 60, 100, 0.08);
+    }
+    #regionActions .ra-btns { display: flex; flex-wrap: wrap; gap: 10px; }
+    #regionActions .btn.ghost {
+      background: #f8fafc; color: var(--c-muted);
+      border: 1px solid var(--c-border);
+    }
+    #regionActions .btn.ghost:hover { color: var(--c-text); border-color: var(--c-muted); }
+
+    /* 覆盖在画布上的可拖拽区域层 */
+    .region-layer {
+      position: absolute; left: 0; top: 0; width: 100%; height: 100%;
+      pointer-events: none; /* 子框再单独开启 */
+      z-index: 5;
+    }
+    .region-box {
+      position: absolute; pointer-events: auto; cursor: move;
+      border: 2px dashed; border-radius: 6px;
+      box-sizing: border-box;
+    }
+    .region-box.card { border-color: #16a34a; }
+    .region-box.tube { border-color: #2563eb; }
+    .region-box .rb-label {
+      position: absolute; top: -22px; left: 0;
+      font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 4px;
+      white-space: nowrap;
+    }
+    .region-box.card .rb-label { background: rgba(22, 163, 74, 0.92); color: #fff; }
+    .region-box.tube .rb-label { background: rgba(37, 99, 235, 0.92); color: #fff; }
+    .rb-handle {
+      position: absolute; width: 14px; height: 14px; border-radius: 50%;
+      background: #fff; border: 2px solid; box-sizing: border-box;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
+    .region-box.card .rb-handle { border-color: #16a34a; }
+    .region-box.tube .rb-handle { border-color: #2563eb; }
+    .rb-nw { left: -7px; top: -7px; cursor: nwse-resize; }
+    .rb-n  { left: 50%; top: -7px; transform: translateX(-50%); cursor: ns-resize; }
+    .rb-ne { right: -7px; top: -7px; cursor: nesw-resize; }
+    .rb-e  { right: -7px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
+    .rb-se { right: -7px; bottom: -7px; cursor: nwse-resize; }
+    .rb-s  { left: 50%; bottom: -7px; transform: translateX(-50%); cursor: ns-resize; }
+    .rb-sw { left: -7px; bottom: -7px; cursor: nesw-resize; }
+    .rb-w  { left: -7px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
+
+    /* ============ 处理中遮罩 ============ */
+    .busy-overlay {
+      position: absolute; inset: 0; z-index: 20;
+      display: none; align-items: center; justify-content: center; gap: 10px;
+      background: rgba(15, 23, 42, 0.45); color: #fff;
+      border-radius: 0.8rem; font-size: 14px;
+    }
+    .busy-overlay .spinner {
+      width: 22px; height: 22px; border: 3px solid rgba(255,255,255,0.4);
+      border-top-color: #fff; border-radius: 50%; animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
