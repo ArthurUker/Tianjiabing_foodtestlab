@@ -509,6 +509,8 @@ function matchColorByLab(sampleLab, calibratedBlocks) {
     sortedDistances: dists.map(d => ({
       concentration: d.concentration,
       deltaE: Number(d.deltaE.toFixed(2)),
+      color: d.color,
+      lab: d.lab,
     })),
     refinementAvailable,
     anomalySuspected,

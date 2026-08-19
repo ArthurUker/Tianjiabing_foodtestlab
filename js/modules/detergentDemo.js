@@ -259,7 +259,7 @@ function renderResult(result) {
   document.getElementById('blocksTable') && fillBlocksTable(result);
   document.getElementById('sampleInfo') && (sampleInfo.innerHTML =
     `离心管区域：x=${result.tube.x}, y=${result.tube.y}, w=${result.tube.w}, h=${result.tube.h}（zone: ${result.tubeZone}）<br>` +
-    `样品 RGB：${result.sampleColor.r},${result.sampleColor.g},${result.sampleColor.b}　Lab：L*${result.sampleLab.L?.toFixed?.(1)} a*${result.sampleLab.a?.toFixed?.(1)} b*${result.sampleLab.b?.toFixed?.(1)}`);
+    `样品 RGB：${result.sampleColor.map(v => Math.round(v)).join(', ')}　Lab：L*${result.sampleLab.L?.toFixed?.(1)} a*${result.sampleLab.a?.toFixed?.(1)} b*${result.sampleLab.b?.toFixed?.(1)}`);
 
   if (isEmbedded()) embedActions.style.display = 'block';
 }
@@ -284,7 +284,7 @@ function fillDistanceTable(result) {
   if (!tb) return;
   tb.innerHTML = '';
   (result.sortedDistances || []).forEach((d, i) => {
-    const sw = `rgb(${d.color.r},${d.color.g},${d.color.b})`;
+    const sw = `rgb(${d.color.map(v => Math.round(v)).join(',')})`;
     const tr = document.createElement('tr');
     tr.innerHTML = `<td>${d.concentration} mg/L <span class="swatch" style="background:${sw}"></span></td>` +
       `<td>${d.deltaE.toFixed(2)}</td><td>#${i + 1}</td>`;
@@ -298,7 +298,7 @@ function fillBlocksTable(result) {
   tb.innerHTML = '';
   (result.blocks || []).forEach((b, i) => {
     const col = b.color || b.lab;
-    const rgb = b.color ? `rgb(${b.color.r},${b.color.g},${b.color.b})` : '—';
+    const rgb = b.color ? `rgb(${b.color.map(v => Math.round(v)).join(',')})` : '—';
     const lab = b.lab ? `L*${b.lab.L?.toFixed?.(1)} a*${b.lab.a?.toFixed?.(1)} b*${b.lab.b?.toFixed?.(1)}` : '—';
     const tr = document.createElement('tr');
     tr.innerHTML = `<td>${i}</td><td>${b.concentration} mg/L</td><td><span class="swatch" style="background:${rgb}"></span> ${rgb}</td><td>${lab}</td>`;
