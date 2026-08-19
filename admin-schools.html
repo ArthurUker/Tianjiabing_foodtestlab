@@ -1285,8 +1285,13 @@
                         <input id="auStartDate" type="date" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80" aria-label="起始日期">
                         <label class="text-sm text-gray-700" for="auEndDate">截止</label>
                         <input id="auEndDate" type="date" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80" aria-label="截止日期">
+                        <div class="flex items-center gap-1 ml-1" role="group" aria-label="日期快捷选项">
+                            <button id="auDateAllBtn" type="button" class="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 transition" title="清除起止日期，查询全部时间（默认）"><i class="fas fa-infinity mr-1"></i>全部时间</button>
+                            <button id="auDate7Btn" type="button" class="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 transition" title="快捷设为最近 7 天"><i class="fas fa-calendar-week mr-1"></i>最近 7 天</button>
+                            <button id="auDate30Btn" type="button" class="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 transition" title="快捷设为最近 30 天"><i class="fas fa-calendar-alt mr-1"></i>最近 30 天</button>
+                        </div>
                         <label class="text-sm text-gray-700" for="auActor">操作人</label>
-                        <select id="auActor" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80 min-w-[160px]" aria-label="操作人">
+                        <select id="auActor" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80 min-w-[180px]" aria-label="操作人（按真名展示）">
                             <option value="">全部用户（加载中…）</option>
                         </select>
                         <label class="text-sm text-gray-700" for="auAction">动作</label>
@@ -1363,8 +1368,13 @@
                         <input id="saStartDate" type="date" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80" aria-label="起始日期">
                         <label class="text-sm text-gray-700" for="saEndDate">截止</label>
                         <input id="saEndDate" type="date" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80" aria-label="截止日期">
+                        <div class="flex items-center gap-1 ml-1" role="group" aria-label="日期快捷选项">
+                            <button id="saDateAllBtn" type="button" class="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 transition" title="清除起止日期，查询全部时间（默认）"><i class="fas fa-infinity mr-1"></i>全部时间</button>
+                            <button id="saDate7Btn" type="button" class="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 transition" title="快捷设为最近 7 天"><i class="fas fa-calendar-week mr-1"></i>最近 7 天</button>
+                            <button id="saDate30Btn" type="button" class="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 transition" title="快捷设为最近 30 天"><i class="fas fa-calendar-alt mr-1"></i>最近 30 天</button>
+                        </div>
                         <label class="text-sm text-gray-700" for="saActor">操作人</label>
-                        <select id="saActor" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80 min-w-[160px]" aria-label="操作人">
+                        <select id="saActor" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white/80 min-w-[180px]" aria-label="操作人（按真名展示）">
                             <option value="">全部用户</option>
                         </select>
                         <label class="text-sm text-gray-700" for="saAction">动作</label>

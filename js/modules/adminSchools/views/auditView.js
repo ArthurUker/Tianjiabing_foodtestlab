@@ -59,13 +59,13 @@ export function initAuditView() {
     }
 
     // ------------------------------------------------------------------
-    // 默认日期（最近 7 天，含今日）
+    // 日期快捷选项（用户需求：不预填日期，默认为「全部时间」；
+    // 同时提供「最近 7 / 30 天」快捷按钮，用户可一键缩小查询范围）
     // ------------------------------------------------------------------
-    function applyDefaultDateRange(prefix, days = 7) {
+    function applyDefaultDateRange(prefix, days) {
         const startEl = document.getElementById(prefix + 'StartDate');
         const endEl = document.getElementById(prefix + 'EndDate');
-        if (!startEl || !endEl) return;
-        // 若用户/调用方已显式设置过值（data-user-set=true），则保留不动
+        if (!startEl || !endEl || !days) return;
         if (startEl.dataset.userSet === 'true' || endEl.dataset.userSet === 'true') return;
         const end = new Date();
         const start = new Date();
@@ -78,6 +78,74 @@ export function initAuditView() {
         };
         startEl.value = fmt(start);
         endEl.value = fmt(end);
+    }
+
+    /**
+     * 「最近 N 天」快捷按钮：清空 user-set 标记后写入开始/截止。
+     * 与「全部时间」按钮互斥，最后一次点击生效。
+     */
+    function bindDateShortcuts(prefix) {
+        const clearBtn = document.getElementById(prefix + 'DateAllBtn');
+        const sevenBtn = document.getElementById(prefix + 'Date7Btn');
+        const thirtyBtn = document.getElementById(prefix + 'Date30Btn');
+        const startEl = document.getElementById(prefix + 'StartDate');
+        const endEl = document.getElementById(prefix + 'EndDate');
+
+        function applyAndReload(days) {
+            // 先清掉 user-set（让 applyDefaultDateRange 重新写入）
+            if (startEl) startEl.dataset.userSet = '';
+            if (endEl) endEl.dataset.userSet = '';
+            if (days == null) {
+                // 全部时间：清空两个日期
+                if (startEl) startEl.value = '';
+                if (endEl) endEl.value = '';
+                // 标记为 user-set 以阻止默认行为干扰（虽然都为 0，但保留显式语义）
+                if (startEl) startEl.dataset.userSet = 'true';
+                if (endEl) endEl.dataset.userSet = 'true';
+            } else {
+                applyDefaultDateRange(prefix, days);
+                // applyDefaultDateRange 不会写 userSet，标记为已设置避免被覆盖
+                if (startEl) startEl.dataset.userSet = 'true';
+                if (endEl) endEl.dataset.userSet = 'true';
+            }
+            // 高亮当前激活的快捷按钮
+            [clearBtn, sevenBtn, thirtyBtn].forEach((btn) => {
+                if (btn) btn.classList.remove('bg-indigo-100', 'text-indigo-700');
+            });
+            const active = days == null ? clearBtn : (days === 7 ? sevenBtn : thirtyBtn);
+            if (active) active.classList.add('bg-indigo-100', 'text-indigo-700');
+
+            const pane = prefix === 'au' ? consolePane : schoolPane;
+            if (pane) {
+                pane.state.page = 1;
+                pane.load();
+            }
+        }
+
+        if (clearBtn && !clearBtn.dataset.bound) {
+            clearBtn.dataset.bound = 'true';
+            clearBtn.addEventListener('click', () => applyAndReload(null));
+        }
+        if (sevenBtn && !sevenBtn.dataset.bound) {
+            sevenBtn.dataset.bound = 'true';
+            sevenBtn.addEventListener('click', () => applyAndReload(7));
+        }
+        if (thirtyBtn && !thirtyBtn.dataset.bound) {
+            thirtyBtn.dataset.bound = 'true';
+            thirtyBtn.addEventListener('click', () => applyAndReload(30));
+        }
+        // 初始激活态：默认 = 全部时间
+        if (clearBtn) clearBtn.classList.add('bg-indigo-100', 'text-indigo-700');
+    }
+
+    /**
+     * 标记当前查询模式为「全部时间」，避免下次 panel 切换时被旧值回填。
+     */
+    function setDateManualCleared(prefix) {
+        const startEl = document.getElementById(prefix + 'StartDate');
+        const endEl = document.getElementById(prefix + 'EndDate');
+        if (startEl) { startEl.value = ''; startEl.dataset.userSet = 'true'; }
+        if (endEl) { endEl.value = ''; endEl.dataset.userSet = 'true'; }
     }
 
     // ------------------------------------------------------------------
@@ -125,14 +193,21 @@ export function initAuditView() {
     }
 
     // 共用：根据用户行渲染下拉选项。row 形如 { id, username, full_name, role, status }
+    // 显示策略：以「真名（full_name）」为主、用户名为辅助 —— 用户体验上更符合
+    // "从系统选择某个用户（显示真名）"的诉求；如果只有 username 没有 full_name，
+    // 则回退显示 username。
     function renderUserSelect(sel, rows, keepValue) {
         const opts = ['<option value="">全部用户</option>'];
         const validValues = new Set(['']);
         rows.forEach((u) => {
             if (!u || !u.id) return;
-            const name = [u.username, u.full_name].filter(Boolean).join(' / ');
+            const realName = String(u.full_name || '').trim();
+            const userName = String(u.username || '').trim();
             const roleLabel = u.role === 'admin' ? '管理员' : (u.role === 'manager' ? '主管' : (u.role || ''));
-            const text = `${name || u.id}${roleLabel ? ` (${roleLabel})` : ''}${u.status === 'disabled' ? ' [已禁用]' : ''}`;
+            // 渲染文本：真名在前，没有真名就回退到用户名
+            const main = realName || userName || u.id;
+            const sub = realName && userName ? ` (${userName})` : '';
+            const text = `${main}${sub}${roleLabel ? ` · ${roleLabel}` : ''}${u.status === 'disabled' ? ' [已禁用]' : ''}`;
             opts.push(`<option value="${escapeHtml(String(u.id))}">${escapeHtml(text)}</option>`);
             validValues.add(String(u.id));
         });
@@ -142,19 +217,21 @@ export function initAuditView() {
     }
 
     // ------------------------------------------------------------------
-    // 重置筛选（清空日期用户设置、清空动作/操作人筛选、恢复默认 7 天区间）
+    // 重置筛选（用户需求：默认查询「全部时间」；重置也回到全部时间，仅清动作/操作人）
     // ------------------------------------------------------------------
     function bindResetFilters(prefix) {
         const btn = document.getElementById(prefix + 'ResetFiltersBtn');
         if (!btn || btn.dataset.bound) return;
         btn.dataset.bound = 'true';
         btn.addEventListener('click', () => {
-            // 清空日期用户标记，重新应用默认最近 7 天
-            const startEl = document.getElementById(prefix + 'StartDate');
-            const endEl = document.getElementById(prefix + 'EndDate');
-            if (startEl) startEl.dataset.userSet = '';
-            if (endEl) endEl.dataset.userSet = '';
-            applyDefaultDateRange(prefix, 7);
+            // 日期清空（全部时间）
+            setDateManualCleared(prefix);
+            // 重新激活「全部时间」按钮（高亮状态）
+            const clearBtn = document.getElementById(prefix + 'DateAllBtn');
+            const sevenBtn = document.getElementById(prefix + 'Date7Btn');
+            const thirtyBtn = document.getElementById(prefix + 'Date30Btn');
+            [clearBtn, sevenBtn, thirtyBtn].forEach((b) => b && b.classList.remove('bg-indigo-100', 'text-indigo-700'));
+            if (clearBtn) clearBtn.classList.add('bg-indigo-100', 'text-indigo-700');
 
             const actorEl = document.getElementById(prefix + 'Actor');
             if (actorEl) actorEl.value = '';
@@ -646,15 +723,29 @@ export function initAuditView() {
     // 一次性渲染两个子视图的动作下拉，确保动作清单完整
     renderActionOptions('au');
     renderActionOptions('sa');
-    // 默认日期（最近 7 天；用户手动改动后保留用户设置）
-    applyDefaultDateRange('au', 7);
-    applyDefaultDateRange('sa', 7);
+    // 用户需求：「按时间筛选默认是所有时间的审计日志」→ 进入时不预填日期，
+    // 通过快捷按钮（全部时间 / 最近 7 天 / 最近 30 天）调整。
+    setDateManualCleared('au');
+    setDateManualCleared('sa');
+    // 把"全部时间"按钮初始高亮（setDateManualCleared 不会触发 bindDateShortcuts.applyAndReload）
+    ['au', 'sa'].forEach((p) => {
+        const btn = document.getElementById(p + 'DateAllBtn');
+        if (btn) {
+            btn.classList.add('bg-indigo-100', 'text-indigo-700');
+            const s7 = document.getElementById(p + 'Date7Btn');
+            const s30 = document.getElementById(p + 'Date30Btn');
+            if (s7) s7.classList.remove('bg-indigo-100', 'text-indigo-700');
+            if (s30) s30.classList.remove('bg-indigo-100', 'text-indigo-700');
+        }
+    });
 
     // 控制台子视图：异步加载操作人下拉（平台超管可访问 /api/audit-logs/users）
     // 学校子视图的操作人下拉在用户选择学校时按需加载（见 schoolSelect.change）
     loadConsoleUsers();
     bindResetFilters('au');
     bindResetFilters('sa');
+    bindDateShortcuts('au');
+    bindDateShortcuts('sa');
 
     // 延迟加载学校列表：只有切到学校审计日志子视图时才填充一次
     function ensureSchoolOptions() {
