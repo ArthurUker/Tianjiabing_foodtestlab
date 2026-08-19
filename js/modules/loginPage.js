@@ -57,6 +57,41 @@ if (helpLink) {
     helpLink.href = '/help.html' + (currentSchoolCode ? '?school=' + encodeURIComponent(currentSchoolCode) : '');
 }
 
+// ===== P11：账号被停用后，后端返回 401 触发统一登出并跳转 ?banned=1 =====
+// 登录页展示醒目红色横幅，禁用/隐藏登录表单，避免用户反复尝试登录却无提示。
+(function handleBannedParam() {
+    try {
+        const params = new URLSearchParams(location.search);
+        if (params.get('banned') !== '1') return;
+
+        // 注入红色横幅（置于卡片顶部）
+        const card = document.querySelector('.login-container .glass') || document.querySelector('.login-container');
+        if (card) {
+            const banner = document.createElement('div');
+            banner.id = 'bannedBanner';
+            banner.style.cssText = 'background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;border-radius:12px;padding:14px 16px;margin-bottom:18px;font-size:14px;line-height:1.6;display:flex;align-items:flex-start;gap:10px;';
+            banner.innerHTML = '<i class="fas fa-ban" style="margin-top:2px;"></i><div><strong>账号已被停用</strong><br>您的账号已被管理员停用，暂时无法登录系统。如有疑问，请联系所在学校的学校管理员或平台超管处理。</div>';
+            card.insertBefore(banner, card.firstChild);
+        }
+
+        // 禁用管理员登录表单（隐藏输入与按钮，并阻止提交）
+        const adminForm = document.getElementById('loginForm');
+        if (adminForm) {
+            adminForm.querySelectorAll('input, button').forEach(el => { el.disabled = true; });
+            adminForm.style.opacity = '0.55';
+            adminForm.style.pointerEvents = 'none';
+            adminForm.addEventListener('submit', e => e.preventDefault(), true);
+        }
+        // 访客入口同样禁用
+        const guestFormEl = document.getElementById('guestForm');
+        if (guestFormEl) {
+            guestFormEl.querySelectorAll('input, button').forEach(el => { el.disabled = true; });
+        }
+        const guestTab = document.getElementById('guestTabBtn');
+        if (guestTab) guestTab.disabled = true;
+    } catch (e) { /* 横幅注入失败不应影响页面其余功能 */ }
+})();
+
 // 登录前拉取学校个性化配置（Logo / 主题色 / 名称），失败不阻断登录
 async function applySchoolTheme(schoolCode) {
     try {

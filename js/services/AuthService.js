@@ -1057,6 +1057,62 @@ export class AuthService {
     }
 
     /**
+     * 停用用户（管理员/超管）
+     * @param {string} userId - 用户 ID
+     * @returns {Promise<{success: boolean, message: string}>}
+     */
+    async disableUser(userId) {
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/api/user/${userId}/disable`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.getToken()}`
+                }
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || data.message || '停用用户失败');
+            }
+
+            console.log('✅ 用户已停用:', userId);
+            return { success: true };
+        } catch (error) {
+            console.error('❌ 停用用户错误:', error.message);
+            return { success: false, message: error.message };
+        }
+    }
+
+    /**
+     * 启用用户（管理员/超管）
+     * @param {string} userId - 用户 ID
+     * @returns {Promise<{success: boolean, message: string}>}
+     */
+    async enableUser(userId) {
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/api/user/${userId}/enable`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.getToken()}`
+                }
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || data.message || '启用用户失败');
+            }
+
+            console.log('✅ 用户已启用:', userId);
+            return { success: true };
+        } catch (error) {
+            console.error('❌ 启用用户错误:', error.message);
+            return { success: false, message: error.message };
+        }
+    }
+
+    /**
      * 更新用户信息 (管理员)
      * @param {string} userId - 用户 ID
      * @param {object} userData - {email, fullName, role}
@@ -1161,15 +1217,30 @@ export function installAuthRefreshFetchInterceptor(service) {
             const bodyRetryable = !init || init.body === undefined || typeof init.body === 'string';
             if (!headers.has('Authorization') || !bodyRetryable || typeof input !== 'string') return response;
 
-            if (!service.getRefreshToken()) return response;
+            // [P11] 无 refresh token 或刷新失败 → 用户已被停用/角色失效，立即统一登出，
+            // 不再透传 401（否则需二次刷新才被踢出且无任何提示）。
+            if (!service.getRefreshToken()) {
+                service.clearAuth();
+                window.location.href = './login.html?banned=1';
+                return response;
+            }
 
             const refreshed = await service.refreshToken();
-            if (!refreshed.success || !refreshed.token) return response;
+            if (!refreshed.success || !refreshed.token) {
+                service.clearAuth();
+                window.location.href = './login.html?banned=1';
+                return response;
+            }
 
             headers.set('Authorization', `Bearer ${refreshed.token}`);
             console.log('🔄 401 → Token 已静默刷新，重放原请求:', path);
             return rawFetch(input, { ...(init || {}), headers });
         } catch (e) {
+            // 刷新过程异常也按登出处理，避免停留在无法使用的会话中
+            try {
+                service.clearAuth();
+                window.location.href = './login.html?banned=1';
+            } catch (_) { /* 忽略 */ }
             return response;
         }
     };

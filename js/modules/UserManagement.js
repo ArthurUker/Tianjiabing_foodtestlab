@@ -277,6 +277,9 @@ export class UserManagement {
                     <button class="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm btn-edit-user" data-user-id="${user.id}">
                         <i class="fas fa-edit mr-1"></i>编辑
                     </button>
+                    <button class="px-3 py-1 ${user.is_active ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-green-500 hover:bg-green-600'} text-white rounded text-sm btn-toggle-user" data-user-id="${user.id}" data-active="${user.is_active}">
+                        <i class="fas ${user.is_active ? 'fa-user-slash' : 'fa-user-check'} mr-1"></i>${user.is_active ? '停用' : '启用'}
+                    </button>
                     <button class="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 text-sm btn-delete-user" data-user-id="${user.id}">
                         <i class="fas fa-trash mr-1"></i>删除
                     </button>
@@ -302,6 +305,53 @@ export class UserManagement {
             const userId = btn.dataset.userId;
             btn.addEventListener('click', () => this.deleteUser(userId));
         });
+
+        // 绑定停用/启用按钮（P11：学校端用户管理此前缺失该操作入口）
+        tableBody.querySelectorAll('.btn-toggle-user').forEach(btn => {
+            const userId = btn.dataset.userId;
+            const active = btn.dataset.active === 'true';
+            btn.addEventListener('click', () => this.toggleUserStatus(userId, active));
+        });
+    }
+
+    /**
+     * 停用 / 启用用户（P11 修复）
+     * @param {string} userId - 用户 ID
+     * @param {boolean} active - 当前是否启用（true=停用，false=启用）
+     */
+    async toggleUserStatus(userId, active) {
+        // 禁止操作当前登录账号（避免把自己锁死）
+        const currentUser = authService.getUser();
+        if (currentUser && String(currentUser.id) === String(userId)) {
+            UINotification.error('❌ 不能停用当前登录的账号');
+            return;
+        }
+
+        const user = this.users?.find(u => String(u.id) === String(userId)) || {};
+        const displayName = user.username || user.name || userId;
+        const actionLabel = active ? '停用' : '启用';
+        const confirmed = await UINotification.confirm(
+            `确定要${actionLabel}用户「${displayName}」吗？\n\n${active ? '停用后该用户将立即无法登录系统。' : '启用后该用户可恢复正常登录。'}`,
+            `${actionLabel}确认`
+        );
+        if (!confirmed) return;
+
+        try {
+            UINotification.loading(`正在${actionLabel}用户...`);
+            const result = active
+                ? await authService.disableUser(userId)
+                : await authService.enableUser(userId);
+            if (!result.success) {
+                UINotification.error(`${actionLabel}失败: ` + result.message);
+                return;
+            }
+            UINotification.success(`用户已${actionLabel}`);
+            auditService.log('update', 'users', null, `${actionLabel}用户 ${displayName || userId}`);
+            this.loadUsers();
+        } catch (error) {
+            console.error('❌ 切换用户状态错误:', error);
+            UINotification.error(`${actionLabel}用户时出错`);
+        }
     }
 
     /**
