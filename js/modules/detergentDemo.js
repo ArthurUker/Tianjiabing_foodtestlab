@@ -200,16 +200,16 @@ function showTemplateFallback(res) {
 // ---------------------------------------------------------------------------
 // A4 拍摄指导卡（模板）预览 / 打印 —— 与算法 TEMPLATE_DESIGN 严格一致
 // ---------------------------------------------------------------------------
-// 设计：四角各印一个「回」字嵌套方块角标，尺寸按角标身份递减：
-//   左上 TL 最大、右上 TR 次之、左下 BL 更小、右下 BR 最小。
-// 算法检测这 4 个角标，按尺寸识别身份，再用 4 点单应变换把设计坐标系
-// 精确还原到照片像素，从而读取比色卡/离心管 ROI。
+// 这是一张「打印出来给操作员摆放实物」的实物操作卡：
+//   - 四角印 4 个「回」字嵌套角标（算法定位用，尺寸递减便于识别身份）
+//   - 上方红框区画离心管轮廓（竖放示意）
+//   - 下方蓝框区画 7 色块轮廓（横放示意，带编号 0–6）
+//   - 顶部标题 + 方向标识，底部 4 步操作说明
 function showTemplateGuide() {
   const w = 794, h = 1123; // A4 @96dpi
   const g = document.createElement('canvas');
   g.width = w; g.height = h;
   const c = g.getContext('2d');
-
   c.fillStyle = '#fff'; c.fillRect(0, 0, w, h);
 
   const D = TEMPLATE_DESIGN;
@@ -218,58 +218,94 @@ function showTemplateGuide() {
 
   // 画「回」字定位标：外黑实块 + 白环 + 中心黑点（同心三环，便于算法三环检测）
   function drawFinder(cx, cy, size) {
-    const s = size, half = s / 2, q = s / 7; // 模块：外环 1，白 1，中心 3，白 1，外环 1
+    const s = size, half = s / 2, q = s / 7;
     c.fillStyle = '#000';
-    c.fillRect(cx - half, cy - half, s, s);            // 外黑块
+    c.fillRect(cx - half, cy - half, s, s);
     c.fillStyle = '#fff';
-    c.fillRect(cx - half + q, cy - half + q, s - 2 * q, s - 2 * q); // 白环
+    c.fillRect(cx - half + q, cy - half + q, s - 2 * q, s - 2 * q);
     c.fillStyle = '#000';
-    c.fillRect(cx - half + 2 * q, cy - half + 2 * q, s - 4 * q, s - 4 * q); // 中心黑块
+    c.fillRect(cx - half + 2 * q, cy - half + 2 * q, s - 4 * q, s - 4 * q);
   }
 
-  // 四个角标：尺寸递减，用于算法直接识别角标身份
+  // ===== 1. 顶部标题栏 + 方向标识 =====
+  c.fillStyle = '#111'; c.font = 'bold 36px sans-serif'; c.textAlign = 'left';
+  c.fillText('阴离子洗涤剂残留 · 标准拍摄指导卡', px(0.06), py(0.045));
+  c.font = 'bold 22px sans-serif'; c.fillStyle = '#dc2626';
+  c.fillText('↑ 此边朝上（文字方向，勿倒置拍摄）', px(0.06), py(0.085));
+
+  // ===== 2. 离心管摆放区（红框，竖放示意）=====
+  const tubeR = { x: px(D.tubeSlot.x), y: py(D.tubeSlot.y), w: px(D.tubeSlot.w), h: px(D.tubeSlot.h) };
+  c.fillStyle = '#fef2f2'; c.fillRect(tubeR.x, tubeR.y, tubeR.w, tubeR.h);
+  c.strokeStyle = '#dc2626'; c.lineWidth = 4; c.setLineDash([12, 8]);
+  c.strokeRect(tubeR.x, tubeR.y, tubeR.w, tubeR.h); c.setLineDash([]);
+  // 离心管轮廓（竖放）：管帽 + 管身 + 刻度
+  const tx = tubeR.x + tubeR.w / 2;
+  const tubeTop = tubeR.y + 18, tubeBot = tubeR.y + tubeR.h - 18;
+  const tubeW = Math.min(tubeR.w * 0.28, 70);
+  c.fillStyle = '#fff'; c.strokeStyle = '#dc2626'; c.lineWidth = 3;
+  // 管帽
+  c.fillRect(tx - tubeW / 2, tubeTop, tubeW, 16);
+  c.strokeRect(tx - tubeW / 2, tubeTop, tubeW, 16);
+  // 管身（下宽上窄）
+  c.beginPath();
+  c.moveTo(tx - tubeW / 2, tubeTop + 16);
+  c.lineTo(tx + tubeW / 2, tubeTop + 16);
+  c.lineTo(tx + tubeW * 0.62, tubeBot);
+  c.lineTo(tx - tubeW * 0.62, tubeBot);
+  c.closePath(); c.fill(); c.stroke();
+  // 刻度线
+  c.lineWidth = 1; c.strokeStyle = '#dc2626';
+  for (let i = 1; i <= 4; i++) {
+    const yy = tubeTop + 16 + (tubeBot - tubeTop - 16) * (i / 5);
+    c.beginPath(); c.moveTo(tx - tubeW * 0.6, yy); c.lineTo(tx - tubeW * 0.2, yy); c.stroke();
+  }
+  c.fillStyle = '#dc2626'; c.font = 'bold 24px sans-serif'; c.textAlign = 'center';
+  c.fillText('离心管竖放于此', tx, tubeR.y - 8);
+  c.font = '15px sans-serif'; c.fillStyle = '#7f1d1d';
+  c.fillText('（管口朝上，放红框内居中）', tx, tubeR.y + tubeR.h + 18);
+
+  // ===== 3. 比色卡摆放区（蓝框，横放 7 色块示意）=====
+  const cardR = { x: px(D.cardSlot.x), y: py(D.cardSlot.y), w: px(D.cardSlot.w), h: px(D.cardSlot.h) };
+  c.fillStyle = '#eef2ff'; c.fillRect(cardR.x, cardR.y, cardR.w, cardR.h);
+  c.strokeStyle = '#2563eb'; c.lineWidth = 4; c.setLineDash([12, 8]);
+  c.strokeRect(cardR.x, cardR.y, cardR.w, cardR.h); c.setLineDash([]);
+  // 7 个色块轮廓（带编号）
+  const bw = cardR.w / 7;
+  const bh = Math.min(cardR.h * 0.62, 78);
+  const by = cardR.y + (cardR.h - bh) / 2 + 6;
+  for (let i = 0; i < 7; i++) {
+    const bx = cardR.x + i * bw + 4;
+    c.fillStyle = '#fff'; c.fillRect(bx, by, bw - 8, bh);
+    c.strokeStyle = '#2563eb'; c.lineWidth = 2; c.strokeRect(bx, by, bw - 8, bh);
+    c.fillStyle = '#1e3a8a'; c.font = 'bold 20px sans-serif'; c.textAlign = 'center';
+    c.fillText(String(i), bx + (bw - 8) / 2, by + bh / 2 + 7);
+  }
+  c.fillStyle = '#2563eb'; c.font = 'bold 24px sans-serif'; c.textAlign = 'center';
+  c.fillText('比色卡横放于此（蓝框内，与 7 格对齐）', cardR.x + cardR.w / 2, cardR.y - 8);
+
+  // ===== 4. 四角定位标（算法用，标注勿遮挡）=====
   const f = D.mainFinders;
   drawFinder(px(f.TL.x), py(f.TL.y), f.TL.size);
   drawFinder(px(f.TR.x), py(f.TR.y), f.TR.size);
   drawFinder(px(f.BL.x), py(f.BL.y), f.BL.size);
   drawFinder(px(f.BR.x), py(f.BR.y), f.BR.size);
+  c.fillStyle = '#000'; c.font = '13px sans-serif'; c.textAlign = 'center';
+  c.fillText('定位标·勿遮挡', px(f.TL.x), py(f.TL.y) + f.TL.size / 2 + 16);
+  c.fillText('定位标·勿遮挡', px(f.TR.x), py(f.TR.y) + f.TR.size / 2 + 16);
+  c.fillText('定位标·勿遮挡', px(f.BL.x), py(f.BL.y) + f.BL.size / 2 + 16);
+  c.fillText('定位标·勿遮挡', px(f.BR.x), py(f.BR.y) + f.BR.size / 2 + 16);
 
-  // 比色卡插槽提示框（横放 7 色块）
-  const cardR = { x: px(D.cardSlot.x), y: py(D.cardSlot.y), w: px(D.cardSlot.w), h: px(D.cardSlot.h) };
-  c.fillStyle = '#eef2ff'; c.fillRect(cardR.x, cardR.y, cardR.w, cardR.h);
-  c.strokeStyle = '#2563eb'; c.lineWidth = 3; c.setLineDash([10, 6]);
-  c.strokeRect(cardR.x, cardR.y, cardR.w, cardR.h); c.setLineDash([]);
-  // 7 个等距定位点（辅助人眼对齐色块）
-  c.fillStyle = '#2563eb';
-  for (let i = 0; i < 7; i++) {
-    const cx = cardR.x + (i + 0.5) * (cardR.w / 7);
-    c.beginPath(); c.arc(cx, cardR.y + cardR.h / 2, 6, 0, Math.PI * 2); c.fill();
-  }
-  c.fillStyle = '#2563eb'; c.font = 'bold 26px sans-serif';
-  c.fillText('比色卡横放于此（7 色块一排，蓝框内）', cardR.x + 8, cardR.y - 12);
-
-  // 离心管插槽提示框（竖放）
-  const tubeR = { x: px(D.tubeSlot.x), y: py(D.tubeSlot.y), w: px(D.tubeSlot.w), h: px(D.tubeSlot.h) };
-  c.fillStyle = '#fef2f2'; c.fillRect(tubeR.x, tubeR.y, tubeR.w, tubeR.h);
-  c.strokeStyle = '#dc2626'; c.lineWidth = 3; c.setLineDash([10, 6]);
-  c.strokeRect(tubeR.x, tubeR.y, tubeR.w, tubeR.h); c.setLineDash([]);
-  c.fillStyle = '#dc2626'; c.font = 'bold 26px sans-serif';
-  c.fillText('离心管竖放于此（红框内）', tubeR.x + 8, tubeR.y - 12);
-
-  // 方向提示：确保用户不会把卡倒着拍
-  c.fillStyle = '#111'; c.font = 'bold 34px sans-serif';
-  c.fillText('阴离子洗涤剂残留 · 标准拍摄指导卡', px(0.10), py(0.06));
-  c.font = 'bold 24px sans-serif'; c.fillStyle = '#dc2626';
-  c.fillText('↑ 此边朝上（文字方向）', px(0.10), py(0.105));
-
-  c.font = '18px sans-serif'; c.fillStyle = '#444';
+  // ===== 5. 底部操作说明 =====
+  c.textAlign = 'left'; c.fillStyle = '#111'; c.font = 'bold 20px sans-serif';
+  c.fillText('操作说明：', px(0.06), py(0.945));
+  c.font = '16px sans-serif'; c.fillStyle = '#333';
   const tips = [
-    '① 打印本卡，平铺于纯色桌面（避免黑色背景干扰角标）',
-    '② 比色卡横放下方蓝框、离心管竖放上方红框，对齐虚线',
-    '③ 手机尽量垂直俯拍、均匀光照、四角定位标完整入镜',
-    '④ 上传照片后选「全自动（模板）」模式即可自动定位识别',
+    '① 打印本卡（建议 A4 彩色，卡纸更佳），平铺于纯色桌面，避免黑色背景。',
+    '② 比色卡横放下方蓝框、离心管竖放上方红框，与虚线框对齐居中。',
+    '③ 手机垂直俯拍，光照均匀，四角定位标完整入镜、不反光不遮挡。',
+    '④ 上传照片后在识别页选「全自动（模板）」模式，系统自动定位并比色。',
   ];
-  tips.forEach((t, i) => c.fillText(t, px(0.10), py(0.985) - (tips.length - 1 - i) * 26));
+  tips.forEach((t, i) => c.fillText(t, px(0.06), py(0.965) + i * 26));
 
   const url = g.toDataURL('image/png');
   const win = window.open('', '_blank');
