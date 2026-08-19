@@ -774,98 +774,207 @@ export function analyzeWithRegions(srcCanvas, options = {}, regions = {}) {
 // 全自动方案：基于「固定拍摄指导卡（A4 模板）」的卡位定位
 // ============================================================================
 //
-// 指导卡设计（见 generateTemplateGuide 的说明）：A4 纸张上印一个粗黑外框，
-// 框内按固定比例划分出「比色卡插槽」和「离心管插槽」。用户把比色卡 / 离心管
-// 放进对应插槽、按规范俯拍后，算法只需找到这个黑框，就能 100% 复现卡位，
-// 无需任何手动调整。
+// 设计思想（仿二维码 finder pattern）：
+//   指导卡上印若干「回」字定位标（外黑环 + 白环 + 中心黑点 = 同心三环），
+//   算法用三环结构精确定位这些标，再靠「标在设计图里的固定坐标」反推
+//   比色卡插槽、样品插槽的真实位置（带透视仿射还原）。
+//   物品放哪是「写死在设计图」的，算法靠定位标精确读取，不靠颜色猜测。
 //
-// 模板内比色卡 / 样品的归一化坐标（相对「黑框内侧矩形」）：
-export const TEMPLATE_LAYOUT = {
-  // 比色卡插槽（横放，7 个色块一排）：偏下居中
-  card: { x: 0.08, y: 0.52, w: 0.84, h: 0.30 },
-  // 离心管插槽（竖放）：偏上居中
-  tube: { x: 0.30, y: 0.10, w: 0.40, h: 0.34 },
+// 设计坐标（TEMPLATE_DESIGN，归一化，原点=指导卡左上，1.0=整卡宽/高）：
+//   3 个主定位标（大，用于建立坐标系）：TL / TR / BL；BR 角留给说明文字。
+//   2 个插槽定位标（小）：分别贴在比色卡插槽、离心管插槽的左上角。
+//   比色卡横放（7 格一排）、离心管竖放。
+export const TEMPLATE_DESIGN = {
+  // 主定位标中心在设计图里的归一化坐标
+  mainFinders: {
+    TL: { x: 0.08, y: 0.08 },
+    TR: { x: 0.92, y: 0.08 },
+    BL: { x: 0.08, y: 0.92 },
+  },
+  // 比色卡插槽：横放 7 色块，位于下方；以「插槽定位标」为中心向右下延展
+  cardSlot: { x: 0.16, y: 0.56, w: 0.78, h: 0.30 },
+  // 离心管插槽：竖放，位于上方居中
+  tubeSlot: { x: 0.40, y: 0.16, w: 0.40, h: 0.32 },
 };
 
 /**
- * 在降采样 canvas 上寻找「拍摄指导卡」的粗黑外框。
- * 策略：对每行/每列统计暗像素覆盖宽度，找出最稳定的那个矩形边框，
- * 返回其内侧矩形（像素坐标）。找不到返回 null。
+ * 在行/列上检测「三环」结构（黑-白-黑-白-黑，中心环最宽，约 3:1:1:1）。
+ * 返回该行/列上所有候选中心位置（像素坐标）与其评分。
  */
-function detectTemplateFrame(canvas) {
-  const W = canvas.width, H = canvas.height;
-  const imageData = canvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, W, H);
-  const data = imageData.data;
-  const isDark = (x, y) => {
-    const i = (y * W + x) * 4;
-    return (data[i] + data[i + 1] + data[i + 2]) / 3 < 90;
-  };
-
-  // 列暗像素密度
-  const colDark = new Float32Array(W);
-  const rowDark = new Float32Array(H);
-  for (let x = 0; x < W; x++) {
-    let c = 0;
-    for (let y = 0; y < H; y++) if (isDark(x, y)) c++;
-    colDark[x] = c / H;
+function scanRunsForFinder(getVal, len, darkThresh) {
+  // getVal(i) 返回该位置灰度(0-255)；暗为低。
+  const runs = [];
+  let i = 0;
+  while (i < len) {
+    const dark = getVal(i) < darkThresh;
+    let j = i;
+    while (j < len && (getVal(j) < darkThresh) === dark) j++;
+    runs.push({ dark, start: i, end: j - 1, w: j - i });
+    i = j;
   }
-  for (let y = 0; y < H; y++) {
-    let c = 0;
-    for (let x = 0; x < W; x++) if (isDark(x, y)) c++;
-    rowDark[y] = c / W;
+  // 找 pattern：dark-light-dark-light-dark，且宽度比约 1:1:3:1:1
+  const found = [];
+  for (let k = 2; k + 2 < runs.length; k++) {
+    const r0 = runs[k - 2], r1 = runs[k - 1], r2 = runs[k], r3 = runs[k + 1], r4 = runs[k + 2];
+    if (!(r0.dark && !r1.dark && r2.dark && !r3.dark && r4.dark)) continue;
+    const m = Math.min(r0.w, r1.w, r3.w, r4.w);
+    if (m <= 0) continue;
+    const ratio = r2.w / m;
+    // 中心环应明显宽于两侧（1.5~5 倍）
+    if (ratio < 1.8 || ratio > 6) continue;
+    // 两侧对称
+    const sym = Math.max(r0.w, r4.w) / Math.min(r0.w, r4.w);
+    if (sym > 2.2) continue;
+    const center = (r2.start + r2.end) / 2;
+    const score = ratio * (1 / sym);
+    found.push({ center, score });
   }
-
-  // 黑框边框的暗密度应很高（>0.6）。左右/上下各找一段连续高暗带作为边。
-  const EDGE_MIN = 0.55;
-  const leftEdges = [], rightEdges = [], topEdges = [], botEdges = [];
-  for (let x = 0; x < W; x++) if (colDark[x] > EDGE_MIN) leftEdges.push(x);
-  for (let x = W - 1; x >= 0; x--) if (colDark[x] > EDGE_MIN) rightEdges.push(x);
-  for (let y = 0; y < H; y++) if (rowDark[y] > EDGE_MIN) topEdges.push(y);
-  for (let y = H - 1; y >= 0; y--) if (rowDark[y] > EDGE_MIN) botEdges.push(y);
-
-  if (!leftEdges.length || !rightEdges.length || !topEdges.length || !botEdges.length) return null;
-  const x0 = Math.max(...leftEdges), x1 = W - 1 - Math.max(...rightEdges);
-  const y0 = Math.max(...topEdges), y1 = H - 1 - Math.max(...botEdges);
-  // 校验确实是“框”（左右边之间有较大空隙，而非整片黑）
-  if (x1 - x0 < W * 0.3 || y1 - y0 < H * 0.3) return null;
-
-  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+  return found;
 }
 
 /**
- * 全自动入口：检测拍摄指导卡黑框 → 按固定比例得到比色卡/样品区域 → 框内检测真实色块 → 比色。
- * 找不到黑框时返回 ok:false，前端应提示改用「手动调整」模式或重新按模板拍摄。
+ * 检测所有「回」字定位标。返回 { finders:[{x,y,size,score}], ok }
+ * 思路：先用行扫描找候选中心行，再用列扫描在候选行附近确认（双向三环），
+ * 最后对候选点聚类得到每个 finder 的中心与尺寸。
+ */
+function detectFinders(canvas) {
+  const W = canvas.width, H = canvas.height;
+  const imageData = canvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, W, H);
+  const data = imageData.data;
+  const gray = (x, y) => {
+    const i = (y * W + x) * 4;
+    return (data[i] + data[i + 1] + data[i + 2]) / 3;
+  };
+  const DARK = 100;
+
+  // 行扫描：每行若有合格三环，记录其 center y 与 x
+  const rowCandidates = []; // {x, y, score}
+  for (let y = 2; y < H - 2; y++) {
+    const hits = scanRunsForFinder((x) => gray(x, y), W, DARK);
+    for (const h of hits) rowCandidates.push({ x: h.center, y, score: h.score });
+  }
+  if (rowCandidates.length < 3) return { finders: [], ok: false };
+
+  // 列确认：对每个行候选，检查其所在列是否也有三环（增加精度，并估计尺寸）
+  const finders = [];
+  for (const rc of rowCandidates) {
+    const cx = Math.round(rc.x);
+    if (cx < 2 || cx >= W - 2) continue;
+    const colHits = scanRunsForFinder((y) => gray(cx, y), H, DARK);
+    // 找最接近 rc.y 的列命中
+    let best = null, bestD = Infinity;
+    for (const ch of colHits) {
+      const d = Math.abs(ch.center - rc.y);
+      if (d < bestD) { bestD = d; best = ch; }
+    }
+    if (best && bestD < 8) {
+      finders.push({ x: rc.x, y: rc.y, size: best.w * 2, score: rc.score * best.score });
+    }
+  }
+  if (finders.length < 3) return { finders: [], ok: false };
+
+  // 聚类：把相互距离 < 平均尺寸 的候选合并为中心点
+  const clustered = [];
+  const used = new Array(finders.length).fill(false);
+  for (let i = 0; i < finders.length; i++) {
+    if (used[i]) continue;
+    let sx = 0, sy = 0, ss = 0, sc = 0, n = 0;
+    for (let j = i; j < finders.length; j++) {
+      if (used[j]) continue;
+      const d = Math.hypot(finders[i].x - finders[j].x, finders[i].y - finders[j].y);
+      if (d < 40) { used[j] = true; sx += finders[j].x; sy += finders[j].y; ss += finders[j].size; sc += finders[j].score; n++; }
+    }
+    clustered.push({ x: sx / n, y: sy / n, size: ss / n, score: sc / n });
+  }
+  // 取评分最高的若干个（主标 + 插槽标，通常 5 个）
+  clustered.sort((a, b) => b.score - a.score);
+  return { finders: clustered, ok: true };
+}
+
+/** 由 3 个主定位标解出仿射变换，把设计坐标(dx,dy∈[0,1])映射到图像坐标 */
+function solveAffineFromFinders(detected, design) {
+  const pts = [
+    { d: design.mainFinders.TL, p: detected.TL },
+    { d: design.mainFinders.TR, p: detected.TR },
+    { d: design.mainFinders.BL, p: detected.BL },
+  ];
+  // 解 [dx,dy,1] -> [x,y] 的仿射：x = a*dx + b*dy + c
+  const A = [], Bx = [], By = [];
+  for (const { d, p } of pts) {
+    A.push([d.x, d.y, 1]); Bx.push(p.x); By.push(p.y);
+  }
+  const ax = solve3(A, Bx), ay = solve3(A, By);
+  return (dx, dy) => ({ x: ax[0] * dx + ax[1] * dy + ax[2], y: ay[0] * dx + ay[1] * dy + ay[2] });
+}
+
+function solve3(A, b) {
+  // 克拉默法则解 3x3：方程 A·[a,b,c]^T = b，返回 [a,b,c]
+  const det = (m) => m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+    - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+    + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+  const D = det(A);
+  if (Math.abs(D) < 1e-9) return [0, 0, 0];
+  // 分别用 b 替换第 0/1/2 列，求 a/b/c
+  const Mx = A.map((r, i) => [b[i], r[1], r[2]]);
+  const My = A.map((r, i) => [r[0], b[i], r[2]]);
+  const Mz = A.map((r, i) => [r[0], r[1], b[i]]);
+  return [det(Mx) / D, det(My) / D, det(Mz) / D];
+}
+
+/** 在检测到的定位标中，按相对位置挑出 TL / TR / BL 三个主标 */
+function pickMainFinders(finders) {
+  if (finders.length < 3) return null;
+  const sortedX = [...finders].sort((a, b) => a.x - b.x);
+  const sortedY = [...finders].sort((a, b) => a.y - b.y);
+  // TL: 最小 x 且 最小 y；TR: 最大 x 且 最小 y；BL: 最小 x 且 最大 y
+  const TL = finders.reduce((m, f) => (f.x + f.y < m.x + m.y ? f : m), finders[0]);
+  const TR = finders.reduce((m, f) => (f.x - f.y > m.x - m.y ? f : m), finders[0]);
+  const BL = finders.reduce((m, f) => (f.x - f.y < m.x - m.y ? f : m), finders[0]);
+  if (TL === TR || TL === BL || TR === BL) return null;
+  return { TL, TR, BL };
+}
+
+/**
+ * 全自动入口：检测定位标 → 仿射还原坐标系 → 按固定设计坐标读取比色卡/样品 ROI → 比色。
  */
 export function analyzeWithTemplate(srcCanvas, options = {}) {
   const concentrations = options.concentrations || [0, 0.01, 0.05, 0.1, 0.5, 1.0, 2.0];
   const canvas = downscaleImageData(srcCanvas, 800);
   const W = canvas.width, H = canvas.height;
 
-  const frame = detectTemplateFrame(canvas);
-  if (!frame) {
+  const { finders, ok } = detectFinders(canvas);
+  if (!ok || finders.length < 3) {
     return {
       ok: false, stage: 'template',
       error: 'TEMPLATE_NOT_FOUND',
-      humanMessage: '未识别到拍摄指导卡的定位黑框。请确认：① 使用了标准指导卡；② 黑框完整入镜、未被裁切/遮挡；③ 光照均匀。',
+      humanMessage: '未识别到拍摄指导卡的定位标（回字形角标）。请确认：① 使用了标准指导卡；② 三个角标完整入镜、未被裁切/遮挡；③ 光照均匀、角标清晰。',
       hint: '也可切换到「手动调整」模式，手动框选比色卡与样品。',
     };
   }
 
-  const L = TEMPLATE_LAYOUT;
-  const cardRect = {
-    x: Math.round(frame.x + L.card.x * frame.w),
-    y: Math.round(frame.y + L.card.y * frame.h),
-    w: Math.round(L.card.w * frame.w),
-    h: Math.round(L.card.h * frame.h),
-  };
-  const tube = {
-    x: Math.round(frame.x + L.tube.x * frame.w),
-    y: Math.round(frame.y + L.tube.y * frame.h),
-    w: Math.round(L.tube.w * frame.w),
-    h: Math.round(L.tube.h * frame.h),
-  };
+  const mains = pickMainFinders(finders);
+  if (!mains) {
+    return { ok: false, stage: 'template', error: 'FINDERS_AMBIGUOUS', humanMessage: '定位标位置无法判定，请确认指导卡摆放端正、无严重透视。' };
+  }
+
+  const toImg = solveAffineFromFinders(mains, TEMPLATE_DESIGN);
+  const D = TEMPLATE_DESIGN;
+  const cardRect = rectFromDesign(D.cardSlot, toImg);
+  const tube = rectFromDesign(D.tubeSlot, toImg);
 
   return runColorimetryMatch(canvas, cardRect, tube, { concentrations, providedBlocks: null, tubeZone: 'template' });
+}
+
+/** 把设计图归一化矩形经仿射映射到图像像素矩形 */
+function rectFromDesign(r, toImg) {
+  const tl = toImg(r.x, r.y);
+  const br = toImg(r.x + r.w, r.y + r.h);
+  return {
+    x: Math.round(Math.min(tl.x, br.x)),
+    y: Math.round(Math.min(tl.y, br.y)),
+    w: Math.round(Math.abs(br.x - tl.x)),
+    h: Math.round(Math.abs(br.y - tl.y)),
+  };
 }
 
 /**
