@@ -333,6 +333,17 @@
           padding: 20px;
           box-shadow: 0 6px 18px rgba(30, 44, 80, 0.08);
           margin-bottom: 16px;
+          /* 创建新的 stacking context，防止内部按钮被外部 fixed 元素（浏览器扩展等）遮挡 */
+          isolation: isolate;
+      }
+      /* FIX: 表格操作列按钮在全宽大屏下被浏览器扩展/fixed 元素遮挡无法点击 */
+      /* 提升 overflow 容器和操作列的层级 */
+      .admin-card .overflow-x-auto {
+          position: relative;
+      }
+      .admin-card table {
+          position: relative;
+          z-index: 1;
       }
       .admin-card h3 {
           font-size: 16px;
