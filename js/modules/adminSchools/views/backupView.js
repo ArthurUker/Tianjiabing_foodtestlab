@@ -226,23 +226,40 @@ export function initBackupView({ API_BASE, authHeaders, notify }) {
         const countEl = document.getElementById('singleSchoolCount');
         if (countEl) countEl.textContent = `共 ${list.length} 所学校`;
 
+        // 设计参考「恢复管理 → 目标学校」卡片：紧凑 3 列网格 + checkbox 视觉风格。
+        // 单点备份语义是「单选一所」：用 label/radio 替代 checkbox 表达排他选择，
+        // 但视觉与恢复管理完全一致（统一卡片尺寸、padding、选中态高亮）；
+        // 点击整张切换右侧详情面板。
         grid.innerHTML = list.length
             ? list.map((s) => {
                 const isActive = singleSelectedSchool && singleSelectedSchool.code === s.code;
                 return `
-                    <button type="button" class="single-school-card ${isActive ? 'active' : ''}" data-code="${escapeHtml(s.code)}">
-                        <span class="icon bg-gradient-to-br from-teal-400 to-blue-500">
-                            ${escapeHtml((s.name || s.code || '?').slice(0, 1))}
-                        </span>
-                        <div class="meta">
+                    <label class="single-school-card ${isActive ? 'active' : ''}" data-code="${escapeHtml(s.code)}" title="${escapeHtml(s.name || s.code)} · ${escapeHtml(s.code)}">
+                        <input type="radio" name="singleSchoolRadio" value="${escapeHtml(s.code)}" class="single-school-radio shrink-0" ${isActive ? 'checked' : ''}>
+                        <div class="flex-1 min-w-0">
                             <div class="title truncate">${escapeHtml(s.name || s.code)}</div>
                             <div class="code truncate">${escapeHtml(s.code)}</div>
                         </div>
-                        <span class="arrow"><i class="fas fa-chevron-right"></i></span>
-                    </button>
+                    </label>
                 `;
             }).join('')
-            : '<div class="text-center text-gray-400 py-8 text-sm">未找到匹配学校</div>';
+            : '<div class="text-center text-gray-400 text-sm py-6 col-span-full">未找到匹配学校</div>';
+
+        // 单击整张卡片即切换详情面板（与原版行为一致）
+        grid.querySelectorAll('.single-school-card').forEach((card) => {
+            if (card.dataset.bound) return;
+            card.dataset.bound = '1';
+            card.addEventListener('click', (e) => {
+                // 阻止双击导致的 radio 反复切换抖动（点击 label 会 toggle radio）
+                const code = card.dataset.code;
+                if (!code) return;
+                switchSingleSchool(code);
+                // 同步 radio 选中态
+                grid.querySelectorAll('.single-school-radio').forEach((r) => {
+                    r.checked = (r.value === code);
+                });
+            });
+        });
     }
 
     function switchSingleSchool(code) {

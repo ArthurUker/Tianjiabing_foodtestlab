@@ -1544,8 +1544,10 @@
                                     <i class="fas fa-sync mr-1"></i>刷新
                                 </button>
                             </div>
-                            <div id="singleSchoolGrid" class="flex flex-col gap-2 max-h-[520px] overflow-y-auto pr-1">
-                                <div class="text-center text-gray-400 py-8 text-sm">加载学校列表…</div>
+                            <!-- 单点备份 · 学校卡片网格：与恢复管理「目标学校」一致的紧凑 3 列网格，
+                                 视觉密度更高、视觉风格统一；点击整张切换右侧详情面板。 -->
+                            <div id="singleSchoolGrid" class="max-h-[520px] overflow-y-auto pr-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 content-start">
+                                <div class="text-center text-gray-400 text-sm py-6 col-span-full">加载学校列表…</div>
                             </div>
                         </div>
                     </div>
