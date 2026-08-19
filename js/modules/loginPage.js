@@ -547,3 +547,79 @@ if (guestEnterBtn) {
         }
     });
 }
+
+// ===== P13：访客自助注册 =====
+const guestRegisterTab = document.getElementById('guestRegisterTab');
+const guestQuickTab = document.getElementById('guestQuickTab');
+const guestRegisterPane = document.getElementById('guestRegisterPane');
+const guestQuickPane = document.getElementById('guestQuickPane');
+const guestRegisterBtn = document.getElementById('guestRegisterBtn');
+const guestRegUsername = document.getElementById('guestRegUsername');
+const guestRegPassword = document.getElementById('guestRegPassword');
+const guestRegFullName = document.getElementById('guestRegFullName');
+const guestRegEmail = document.getElementById('guestRegEmail');
+const guestRegPathogen = document.getElementById('guestRegPathogen');
+
+function switchGuestSubTab(toRegister) {
+    if (!guestRegisterTab || !guestQuickTab || !guestRegisterPane || !guestQuickPane) return;
+    guestRegisterTab.classList.toggle('text-green-600', toRegister);
+    guestRegisterTab.classList.toggle('border-green-600', toRegister);
+    guestRegisterTab.classList.toggle('text-gray-500', !toRegister);
+    guestRegisterTab.classList.toggle('border-transparent', !toRegister);
+    guestQuickTab.classList.toggle('text-gray-500', toRegister);
+    guestQuickTab.classList.toggle('border-transparent', toRegister);
+    guestQuickTab.classList.toggle('text-green-600', !toRegister);
+    guestQuickTab.classList.toggle('border-green-600', !toRegister);
+    guestRegisterPane.classList.toggle('hidden', !toRegister);
+    guestQuickPane.classList.toggle('hidden', toRegister);
+    if (guestErrorMessage) guestErrorMessage.classList.add('hidden');
+}
+
+if (guestRegisterTab) guestRegisterTab.addEventListener('click', () => switchGuestSubTab(true));
+if (guestQuickTab) guestQuickTab.addEventListener('click', () => switchGuestSubTab(false));
+
+if (guestRegisterBtn) {
+    guestRegisterBtn.addEventListener('click', async function() {
+        if (!enableGuestEntry) {
+            showError('访客入口已暂时关闭，请使用管理员账号登录');
+            return;
+        }
+        const username = (guestRegUsername?.value || '').trim();
+        const password = guestRegPassword?.value || '';
+        const fullName = (guestRegFullName?.value || '').trim();
+        const email = (guestRegEmail?.value || '').trim();
+        const requestPathogen = !!guestRegPathogen?.checked;
+
+        if (!username || !password) {
+            showError('请填写用户名和密码');
+            return;
+        }
+        if (String(password).length < 8) {
+            showError('密码至少8位');
+            return;
+        }
+        if (!/^[a-zA-Z0-9_]{3,32}$/.test(username)) {
+            showError('用户名格式非法（需3-32位字母、数字或下划线）');
+            return;
+        }
+
+        this.disabled = true;
+        const defaultHtml = this.innerHTML;
+        this.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>正在注册...';
+        try {
+            const result = await guestAuthService.register(username, email, password, fullName, requestPathogen);
+            if (!result.success) {
+                showError(result.error || '注册失败');
+                this.disabled = false;
+                this.innerHTML = defaultHtml;
+                return;
+            }
+            // 注册成功：进入访客仪表盘（可申请查看病原体 / 数据导出，走审批闭环）
+            window.location.href = './index.html';
+        } catch (err) {
+            showError('注册出错：' + (err.message || '请稍后重试'));
+            this.disabled = false;
+            this.innerHTML = defaultHtml;
+        }
+    });
+}
