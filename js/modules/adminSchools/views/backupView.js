@@ -258,6 +258,26 @@ export function initBackupView({ API_BASE, authHeaders, notify }) {
         loadSingleBackups(code, 1);
     }
 
+    /** 回到单点备份的学校列表态：清空选中学校与筛选，重置右侧详情面板 */
+    function backToSingleList() {
+        singleSelectedSchool = null;
+        singleFilter = '';
+        const filterInput = document.getElementById('singleSchoolFilter');
+        if (filterInput) filterInput.value = '';
+        const title = document.getElementById('singleDetailTitle');
+        if (title) title.textContent = '请选择学校';
+        const sub = document.getElementById('singleDetailSub');
+        if (sub) sub.textContent = '点击左侧学校查看备份记录并执行单点备份';
+        const runBtn = document.getElementById('singleRunBackup');
+        if (runBtn) runBtn.disabled = true;
+        const tbody = document.getElementById('bkSingleList');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="text-center text-gray-400 py-10">请先选择左侧学校</td></tr>';
+        const pager = document.getElementById('bkSinglePager');
+        if (pager) pager.innerHTML = '';
+        pagers.single = null; // 重建分页器，避免闭包引用旧学校
+        renderSingleSchoolGrid();
+    }
+
     async function loadSingleBackups(schoolCode, page = 1) {
         if (!pagers.single) {
             pagers.single = new TablePager({
