@@ -774,24 +774,25 @@ export function analyzeWithRegions(srcCanvas, options = {}, regions = {}) {
 // 全自动方案：基于「固定拍摄指导卡（A4 模板）」的卡位定位
 // ============================================================================
 //
-// 设计思想（仿二维码 finder pattern）：
-//   指导卡上印若干「回」字定位标（外黑环 + 白环 + 中心黑点 = 同心三环），
-//   算法用三环结构精确定位这些标，再靠「标在设计图里的固定坐标」反推
-//   比色卡插槽、样品插槽的真实位置（带透视仿射还原）。
-//   物品放哪是「写死在设计图」的，算法靠定位标精确读取，不靠颜色猜测。
+// 设计思想（仿 AprilTag/ArUco 的方形角标）：
+//   指导卡四角印 4 个「回」字嵌套方块角标，尺寸按角标身份递减：
+//     左上 TL 最大，右上 TR 次之，左下 BL 更小，右下 BR 最小。
+//   算法先检测所有三环嵌套方块，再按尺寸排序直接判定四角身份，
+//   最后用 4 点单应变换（homography，8 自由度）把设计图精确还原到照片像素。
+//   4 个角标建立完整透视模型，比 3 点仿射更能容忍拍摄倾角。
 //
 // 设计坐标（TEMPLATE_DESIGN，归一化，原点=指导卡左上，1.0=整卡宽/高）：
-//   3 个主定位标（大，用于建立坐标系）：TL / TR / BL；BR 角留给说明文字。
-//   2 个插槽定位标（小）：分别贴在比色卡插槽、离心管插槽的左上角。
-//   比色卡横放（7 格一排）、离心管竖放。
+//   4 个主定位标：TL / TR / BL / BR。
+//   比色卡横放（7 色块一排）位于下方；离心管竖放位于上方居中。
 export const TEMPLATE_DESIGN = {
-  // 主定位标中心在设计图里的归一化坐标
+  // 主定位标中心在设计图里的归一化坐标 + 打印尺寸（像素，按 A4 794x1123 @96dpi）
   mainFinders: {
-    TL: { x: 0.08, y: 0.08 },
-    TR: { x: 0.92, y: 0.08 },
-    BL: { x: 0.08, y: 0.92 },
+    TL: { x: 0.100, y: 0.092, size: 90 },
+    TR: { x: 0.900, y: 0.092, size: 70 },
+    BL: { x: 0.100, y: 0.908, size: 54 },
+    BR: { x: 0.900, y: 0.908, size: 42 },
   },
-  // 比色卡插槽：横放 7 色块，位于下方；以「插槽定位标」为中心向右下延展
+  // 比色卡插槽：横放 7 色块，位于下方
   cardSlot: { x: 0.16, y: 0.56, w: 0.78, h: 0.30 },
   // 离心管插槽：竖放，位于上方居中
   tubeSlot: { x: 0.40, y: 0.16, w: 0.40, h: 0.32 },
@@ -891,73 +892,181 @@ function detectFinders(canvas) {
   return { finders: clustered, ok: true };
 }
 
-/** 由 3 个主定位标解出仿射变换，把设计坐标(dx,dy∈[0,1])映射到图像坐标 */
-function solveAffineFromFinders(detected, design) {
-  const pts = [
-    { d: design.mainFinders.TL, p: detected.TL },
-    { d: design.mainFinders.TR, p: detected.TR },
-    { d: design.mainFinders.BL, p: detected.BL },
-  ];
-  // 解 [dx,dy,1] -> [x,y] 的仿射：x = a*dx + b*dy + c
-  const A = [], Bx = [], By = [];
-  for (const { d, p } of pts) {
-    A.push([d.x, d.y, 1]); Bx.push(p.x); By.push(p.y);
+/** 将点集平移缩放到均值≈0、平均绝对偏差≈1，提高单应求解数值稳定性 */
+function normalizePoints(pts) {
+  const n = pts.length;
+  let mx = 0, my = 0;
+  for (const p of pts) { mx += p.x; my += p.y; }
+  mx /= n; my /= n;
+  let sx = 0, sy = 0;
+  for (const p of pts) { sx += Math.abs(p.x - mx); sy += Math.abs(p.y - my); }
+  sx = Math.max(sx / n, 1e-9); sy = Math.max(sy / n, 1e-9);
+  const scaleX = 1 / sx, scaleY = 1 / sy;
+  const norm = pts.map(p => ({ x: (p.x - mx) * scaleX, y: (p.y - my) * scaleY }));
+  return { pts: norm, mx, my, scaleX, scaleY };
+}
+
+/** 用列主元高斯消元求 8x9 矩阵 A 的（一维）零空间向量，用于归一化 DLT */
+function nullSpaceVector(A) {
+  const M = A.map(row => [...row]);
+  const rows = 8, cols = 9;
+  const pivotCol = new Array(rows).fill(-1);
+  let r = 0;
+  for (let c = 0; c < cols && r < rows; c++) {
+    let maxR = r;
+    for (let i = r; i < rows; i++) {
+      if (Math.abs(M[i][c]) > Math.abs(M[maxR][c])) maxR = i;
+    }
+    if (Math.abs(M[maxR][c]) < 1e-12) continue;
+    [M[r], M[maxR]] = [M[maxR], M[r]];
+    pivotCol[r] = c;
+    const piv = M[r][c];
+    for (let j = c; j < cols; j++) M[r][j] /= piv;
+    for (let i = r + 1; i < rows; i++) {
+      const f = M[i][c];
+      if (Math.abs(f) < 1e-12) continue;
+      for (let j = c; j < cols; j++) M[i][j] -= f * M[r][j];
+    }
+    r++;
   }
-  const ax = solve3(A, Bx), ay = solve3(A, By);
-  return (dx, dy) => ({ x: ax[0] * dx + ax[1] * dy + ax[2], y: ay[0] * dx + ay[1] * dy + ay[2] });
+  const freeCol = M[0].map((_, j) => j).find(j => !pivotCol.includes(j));
+  if (freeCol === undefined) return null;
+  const h = new Array(cols).fill(0);
+  h[freeCol] = 1;
+  for (let i = rows - 1; i >= 0; i--) {
+    const pc = pivotCol[i];
+    if (pc < 0) continue;
+    let sum = 0;
+    for (let j = pc + 1; j < cols; j++) sum += M[i][j] * h[j];
+    h[pc] = -sum;
+  }
+  return h;
 }
 
-function solve3(A, b) {
-  // 克拉默法则解 3x3：方程 A·[a,b,c]^T = b，返回 [a,b,c]
-  const det = (m) => m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
-    - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
-    + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
-  const D = det(A);
-  if (Math.abs(D) < 1e-9) return [0, 0, 0];
-  // 分别用 b 替换第 0/1/2 列，求 a/b/c
-  const Mx = A.map((r, i) => [b[i], r[1], r[2]]);
-  const My = A.map((r, i) => [r[0], b[i], r[2]]);
-  const Mz = A.map((r, i) => [r[0], r[1], b[i]]);
-  return [det(Mx) / D, det(My) / D, det(Mz) / D];
+/** 3x3 矩阵乘法 */
+function matMul3x3(A, B) {
+  const C = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  for (let i = 0; i < 3; i++) {
+    for (let j = 0; j < 3; j++) {
+      for (let k = 0; k < 3; k++) C[i][j] += A[i][k] * B[k][j];
+    }
+  }
+  return C;
 }
 
-/** 在检测到的定位标中，按相对位置挑出 TL / TR / BL 三个主标 */
-function pickMainFinders(finders) {
-  if (finders.length < 3) return null;
-  const sortedX = [...finders].sort((a, b) => a.x - b.x);
-  const sortedY = [...finders].sort((a, b) => a.y - b.y);
-  // TL: 最小 x 且 最小 y；TR: 最大 x 且 最小 y；BL: 最小 x 且 最大 y
-  const TL = finders.reduce((m, f) => (f.x + f.y < m.x + m.y ? f : m), finders[0]);
-  const TR = finders.reduce((m, f) => (f.x - f.y > m.x - m.y ? f : m), finders[0]);
-  const BL = finders.reduce((m, f) => (f.x - f.y < m.x - m.y ? f : m), finders[0]);
-  if (TL === TR || TL === BL || TR === BL) return null;
-  return { TL, TR, BL };
+/** 由 4 对对应点求解 3x3 单应矩阵 H，使得 H·[x,y,1]^T ~ [x',y',1]^T */
+function solveHomography4(src, dst) {
+  const ns = normalizePoints(src);
+  const nd = normalizePoints(dst);
+  const A = [];
+  for (let i = 0; i < 4; i++) {
+    const s = ns.pts[i], d = nd.pts[i];
+    A.push([s.x, s.y, 1, 0, 0, 0, -s.x * d.x, -s.y * d.x, -d.x]);
+    A.push([0, 0, 0, s.x, s.y, 1, -s.x * d.y, -s.y * d.y, -d.y]);
+  }
+  const h = nullSpaceVector(A);
+  if (!h) return null;
+  const Hn = [
+    [h[0], h[1], h[2]],
+    [h[3], h[4], h[5]],
+    [h[6], h[7], h[8]],
+  ];
+  // 反归一化：H = inv(Tdst) * Hn * Tsrc
+  const Tsrc = [[ns.scaleX, 0, -ns.scaleX * ns.mx], [0, ns.scaleY, -ns.scaleY * ns.my], [0, 0, 1]];
+  const TdstInv = [[1 / nd.scaleX, 0, nd.mx], [0, 1 / nd.scaleY, nd.my], [0, 0, 1]];
+  const H = matMul3x3(TdstInv, matMul3x3(Hn, Tsrc));
+  const H33 = H[2][2];
+  if (Math.abs(H33) < 1e-9) return null;
+  return H.map(row => row.map(v => v / H33));
+}
+
+/** 应用单应矩阵，把设计坐标 (x,y) 映射到图像像素坐标 */
+function applyHomography(H, x, y) {
+  const w = H[2][0] * x + H[2][1] * y + H[2][2];
+  if (Math.abs(w) < 1e-9) return { x: 0, y: 0 };
+  return {
+    x: (H[0][0] * x + H[0][1] * y + H[0][2]) / w,
+    y: (H[1][0] * x + H[1][1] * y + H[1][2]) / w,
+  };
+}
+
+/** 由 4 个已识别的角标解出单应变换 */
+function solveHomographyFromFinders(detected, design) {
+  const src = ['TL', 'TR', 'BL', 'BR'].map(k => design.mainFinders[k]);
+  const dst = ['TL', 'TR', 'BL', 'BR'].map(k => detected[k]);
+  const H = solveHomography4(src, dst);
+  if (!H) return null;
+  return (x, y) => applyHomography(H, x, y);
+}
+
+/** 按检测尺寸排序直接判定四角身份：TL 最大，TR 次大，BL 更小，BR 最小 */
+function identifyMainFinders(finders) {
+  if (finders.length < 4) return null;
+  // 算法靠「回」字三环结构检测，真实角标尺寸大且清晰；按尺寸取前 4 最可靠
+  const sorted = [...finders].sort((a, b) => b.size - a.size);
+  const candidates = sorted.slice(0, 4);
+  if (candidates.length < 4) return null;
+  const detected = {
+    TL: candidates[0], TR: candidates[1], BL: candidates[2], BR: candidates[3],
+  };
+
+  // 几何校验：各角标的相对位置应符合设计坐标的大致方位
+  const { TL, TR, BL, BR } = detected;
+  const tlxy = TL.x + TL.y, trxy = TR.x + TR.y, blxy = BL.x + BL.y, brxy = BR.x + BR.y;
+  const checks = [
+    tlxy <= trxy + 20, // TL 应在 TR 左上
+    tlxy <= blxy + 20, // TL 应在 BL 左上
+    trxy <= brxy + 20, // TR 应在 BR 左上
+    blxy <= brxy + 20, // BL 应在 BR 左下
+    TL.x <= TR.x + 20,
+    BL.x <= BR.x + 20,
+    TL.y <= BL.y + 20,
+    TR.y <= BR.y + 20,
+  ];
+  const pass = checks.filter(Boolean).length;
+  if (pass < 6) {
+    // 校验失败：用纯几何位置再尝试一次
+    const pos = { TL: null, TR: null, BL: null, BR: null };
+    const list = [...candidates];
+    pos.TL = list.reduce((m, f) => (f.x + f.y < m.x + m.y ? f : m), list[0]);
+    list.splice(list.indexOf(pos.TL), 1);
+    pos.TR = list.reduce((m, f) => (f.x - f.y > m.x - m.y ? f : m), list[0]);
+    list.splice(list.indexOf(pos.TR), 1);
+    pos.BL = list.reduce((m, f) => (f.x - f.y < m.x - m.y ? f : m), list[0]);
+    list.splice(list.indexOf(pos.BL), 1);
+    pos.BR = list[0];
+    return pos;
+  }
+  return detected;
 }
 
 /**
- * 全自动入口：检测定位标 → 仿射还原坐标系 → 按固定设计坐标读取比色卡/样品 ROI → 比色。
+ * 全自动入口：检测 4 个角标 → 按尺寸识别身份 → 单应还原坐标系 → 读取 ROI → 比色。
  */
 export function analyzeWithTemplate(srcCanvas, options = {}) {
   const concentrations = options.concentrations || [0, 0.01, 0.05, 0.1, 0.5, 1.0, 2.0];
   const canvas = downscaleImageData(srcCanvas, 800);
-  const W = canvas.width, H = canvas.height;
 
   const { finders, ok } = detectFinders(canvas);
-  if (!ok || finders.length < 3) {
+  if (!ok || finders.length < 4) {
     return {
       ok: false, stage: 'template',
       error: 'TEMPLATE_NOT_FOUND',
-      humanMessage: '未识别到拍摄指导卡的定位标（回字形角标）。请确认：① 使用了标准指导卡；② 三个角标完整入镜、未被裁切/遮挡；③ 光照均匀、角标清晰。',
+      humanMessage: '未识别到拍摄指导卡的 4 个定位角标（回字形角标）。请确认：① 使用新版标准指导卡；② 四个角标完整入镜、未被裁切/遮挡；③ 光照均匀、角标清晰。',
       hint: '也可切换到「手动调整」模式，手动框选比色卡与样品。',
     };
   }
 
-  const mains = pickMainFinders(finders);
+  const mains = identifyMainFinders(finders);
   if (!mains) {
-    return { ok: false, stage: 'template', error: 'FINDERS_AMBIGUOUS', humanMessage: '定位标位置无法判定，请确认指导卡摆放端正、无严重透视。' };
+    return { ok: false, stage: 'template', error: 'FINDERS_AMBIGUOUS', humanMessage: '四个角标身份无法判定，请确认指导卡摆放端正、无严重透视。' };
   }
 
-  const toImg = solveAffineFromFinders(mains, TEMPLATE_DESIGN);
+  const toImg = solveHomographyFromFinders(mains, TEMPLATE_DESIGN);
+  if (!toImg) {
+    return { ok: false, stage: 'template', error: 'HOMOGRAPHY_FAIL', humanMessage: '四个角标共线或过于畸变，无法还原坐标系，请重新拍摄。' };
+  }
+
   const D = TEMPLATE_DESIGN;
   const cardRect = rectFromDesign(D.cardSlot, toImg);
   const tube = rectFromDesign(D.tubeSlot, toImg);
@@ -965,7 +1074,7 @@ export function analyzeWithTemplate(srcCanvas, options = {}) {
   return runColorimetryMatch(canvas, cardRect, tube, { concentrations, providedBlocks: null, tubeZone: 'template' });
 }
 
-/** 把设计图归一化矩形经仿射映射到图像像素矩形 */
+/** 把设计图归一化矩形经单应映射到图像像素矩形 */
 function rectFromDesign(r, toImg) {
   const tl = toImg(r.x, r.y);
   const br = toImg(r.x + r.w, r.y + r.h);
