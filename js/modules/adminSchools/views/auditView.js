@@ -382,7 +382,7 @@ export function initAuditView() {
                     const target = l.resource_type ? `${l.resource_type}#${l.resource_id || ''}` : '-';
                     const description = describeAuditLog(l);
                     return `
-                        <tr class="hover:bg-gray-50 cursor-pointer" data-log-id="${escapeHtml(String(l.id || ''))}">
+                        <tr class="hover:bg-gray-50" data-log-id="${escapeHtml(String(l.id || ''))}">
                             <td class="px-3 py-2 text-gray-700 whitespace-nowrap">${escapeHtml(formatAuditTime(ts))}</td>
                             <td class="px-3 py-2 text-gray-800">${escapeHtml(String(actor))}</td>
                             <td class="px-3 py-2"><span class="inline-flex px-2 py-0.5 ${getActionColor(action)} rounded-full text-xs">${escapeHtml(getActionLabel(action))}</span></td>
@@ -501,13 +501,15 @@ export function initAuditView() {
             actorEl.dataset.autoQueryBound = 'true';
         }
 
-        // 表格行点击 -> 详情弹窗
+        // 详情列文字点击 -> 详情弹窗（仅详情 span 可触发，非整行）
         const table = el('InlineList')?.closest('table');
         if (table && !table.dataset.listenerAttached) {
             table.addEventListener('click', (e) => {
-                const row = e.target.closest('tr[data-log-id]');
-                if (!row) return;
-                const log = state.logs.find((l) => String(l.id) === row.dataset.logId);
+                // 只响应详情列上带 data-log-id 的 span 点击
+                const target = e.target.closest('span[data-log-id]');
+                if (!target) return;
+                const logId = target.dataset.logId;
+                const log = state.logs.find((l) => String(l.id) === logId);
                 if (log) openAuditDetail(log, state);
             });
             table.dataset.listenerAttached = 'true';
