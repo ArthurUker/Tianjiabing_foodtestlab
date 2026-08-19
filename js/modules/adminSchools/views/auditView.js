@@ -97,10 +97,7 @@ export function initAuditView() {
             if (endEl) endEl.dataset.userSet = '';
             if (days == null) {
                 // 全部时间：查询该学校审计日志的最早时间，截止为当前时间
-                const schoolCode = document.getElementById('auSchoolSelect')?.value || '';
-                const isSchoolPane = prefix === 'au';
-                // 确定实际使用的 schoolCode：学校面板用 auSchoolSelect，控制台面板用 auSchoolSelect
-                const code = schoolCode;
+                const code = document.getElementById('saAuditSchoolSelect')?.value || '';
 
                 if (code) {
                     fetch(`/api/audit-logs/school/${encodeURIComponent(code)}/date-range`, { credentials: 'include' })
@@ -123,6 +120,11 @@ export function initAuditView() {
                             if (endEl) endEl.value = `${ny}-${nm}-${nd}`;
                             if (startEl) startEl.dataset.userSet = 'true';
                             if (endEl) endEl.dataset.userSet = 'true';
+                            // 高亮按钮
+                            [clearBtn, sevenBtn, thirtyBtn].forEach((btn) => {
+                                if (btn) btn.classList.remove('bg-indigo-100', 'text-indigo-700');
+                            });
+                            if (clearBtn) clearBtn.classList.add('bg-indigo-100', 'text-indigo-700');
                             // 触发加载
                             const pane = prefix === 'au' ? consolePane : schoolPane;
                             if (pane) { pane.state.page = 1; pane.load(); }
@@ -131,12 +133,20 @@ export function initAuditView() {
                             // 失败时回退到留空
                             if (startEl) { startEl.value = ''; startEl.dataset.userSet = 'true'; }
                             if (endEl) { endEl.value = ''; endEl.dataset.userSet = 'true'; }
+                            [clearBtn, sevenBtn, thirtyBtn].forEach((btn) => {
+                                if (btn) btn.classList.remove('bg-indigo-100', 'text-indigo-700');
+                            });
+                            if (clearBtn) clearBtn.classList.add('bg-indigo-100', 'text-indigo-700');
                             const pane = prefix === 'au' ? consolePane : schoolPane;
                             if (pane) { pane.state.page = 1; pane.load(); }
                         });
                 } else {
                     if (startEl) { startEl.value = ''; startEl.dataset.userSet = 'true'; }
                     if (endEl) { endEl.value = ''; endEl.dataset.userSet = 'true'; }
+                    [clearBtn, sevenBtn, thirtyBtn].forEach((btn) => {
+                        if (btn) btn.classList.remove('bg-indigo-100', 'text-indigo-700');
+                    });
+                    if (clearBtn) clearBtn.classList.add('bg-indigo-100', 'text-indigo-700');
                     const pane = prefix === 'au' ? consolePane : schoolPane;
                     if (pane) { pane.state.page = 1; pane.load(); }
                 }
@@ -377,11 +387,10 @@ export function initAuditView() {
                             <td class="px-3 py-2 text-gray-800">${escapeHtml(String(actor))}</td>
                             <td class="px-3 py-2"><span class="inline-flex px-2 py-0.5 ${getActionColor(action)} rounded-full text-xs">${escapeHtml(getActionLabel(action))}</span></td>
                             <td class="px-3 py-2 text-gray-600 font-mono">${escapeHtml(String(target))}</td>
-                            <td class="px-3 py-2 text-gray-600">
-                                <div class="flex items-center gap-2">
-                                    <span class="truncate max-w-xs" title="${escapeHtml(description.full)}">${escapeHtml(description.preview)}</span>
-                                    <button type="button" class="audit-view-detail-btn px-2 py-0.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 whitespace-nowrap" title="查看完整详情">查看</button>
-                                </div>
+                            <td class="px-3 py-2">
+                                <span class="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer" title="${escapeHtml(description.full)}${description.full ? '\n点击查看完整详情' : ''}" data-log-id="${escapeHtml(String(l.id || ''))}">
+                                    ${escapeHtml(description.preview) || '-'}
+                                </span>
                             </td>
                         </tr>`;
                 }).join('');
