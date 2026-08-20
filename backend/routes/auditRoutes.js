@@ -37,11 +37,14 @@ export function createAuditRoutes(userManager, prisma) {
     // ====== Authentication Middleware（统一从 authMiddleware.js 导入）======
     const { authenticateUser, authorizeAdmin } = createAuthMiddleware(userManager, prisma)
 
-    // 学校级管理员（admin 或 manager）均可访问审计统计/导出，与 /users 路由权限一致。
-    // 仅平台超管跨租户接口（/school/:schoolCode*）仍使用严格的 authorizeAdmin。
+    // 学校租户审计日志（本校范围）：学校 admin 或 manager 均可访问，与 /users 路由权限一致。
+    // 注意区分：
+    //   - 本组路由（/api/audit-logs、/stats/summary、/export）是「学校租户审计日志」，manager 可访问；
+    //   - 平台超管的「超管审计日志」在下方 /school/:schoolCode* 跨租户接口，仅 role==='admin'（平台超管）可访问，manager 不可访问。
+    // 本次仅修正"学校 manager 被 authorizeAdmin 误拦截"的问题，未改动超管审计日志的内容访问。
     const authorizeSchoolAdmin = (req, res, next) => {
         if (req.user && (req.user.role === 'admin' || req.user.role === 'manager')) return next()
-        return res.status(403).json({ error: '❌ 需要管理员权限' })
+        return res.status(403).json({ error: '❌ 需要学校管理员权限' })
     }
 
     // ====== Public Routes ======
