@@ -240,4 +240,38 @@ export async function provisionSchool({
   return { code, schema, created, managerCreated, adminUsername: managerUsername }
 }
 
-export default { provisionSchool, isValidSchoolCode, schemaNameOf }
+/**
+ * 仅对齐单个租户 schema 的表结构到当前 schema.prisma（幂等 prisma db push）。
+ *
+ * 与 provisionSchool 不同：只做【结构对齐】——不创建 schema、不建 manager 账号、
+ * 不写 public."School"/"SchoolCustomization" 系统记录。避免在恢复/对齐场景下
+ * 误触发建号或系统记录更新。
+ *
+ * 用途（防 P2022 漂移）：
+ *   - 恢复流程 restoreService 在影子恢复「原子切换」成功后调用，把备份带来的
+ *     旧结构（缺新列/新表）补齐到当前 Prisma 模型，根治「恢复旧备份 → 登录/查询
+ *     column does not exist」问题（2026-08-20 can_view_pathogen 事故）。
+ *   - 破坏性变更（改列类型/删列）仍须走 prisma migration，不适用本函数。
+ *
+ * @param {object} opts
+ * @param {string} [opts.code] 学校代码（非空，将推导 school_<code>）
+ * @param {string} [opts.schema] 显式 schema 名（影子恢复临时 schema 等场景，如 school_x_restore）
+ * @param {(m:string)=>void} [opts.log]
+ * @returns {Promise<string>} 对齐的 schema 名
+ */
+export async function alignTenantSchema({ code, schema, log = console.log }) {
+  const targetSchema = schema || schemaNameOf(code)
+  if (!targetSchema) throw new Error(`非法学校代码: ${code}（无法推导 schema）`)
+  assertSafeSchemaName(targetSchema)
+  const baseUrl = (process.env.DATABASE_URL || '').split('?')[0]
+  if (!baseUrl) throw new Error('缺少 DATABASE_URL，无法对齐 schema')
+  const tenantUrl = `${baseUrl}?schema=${encodeURIComponent(targetSchema)}`
+  log(`→ 对齐 ${targetSchema} 表结构与 schema.prisma ...`)
+  // 与 provisionSchool 步骤②同参：--skip-generate（客户端已在部署期生成）+ --accept-data-loss
+  // （增量加列/索引/约束安全；破坏性变更由 migration 约定兜底）
+  await runPrismaPush(['prisma', 'db', 'push', '--skip-generate', '--accept-data-loss'], tenantUrl, targetSchema)
+  log(`✅ ${targetSchema} 表结构已与 schema.prisma 对齐`)
+  return targetSchema
+}
+
+export default { provisionSchool, alignTenantSchema, isValidSchoolCode, schemaNameOf }

@@ -23,6 +23,7 @@ import { schemaNameOf, assertSafeSchemaName } from './tenantClient.js'
 import { verifyBackupFile } from './backupVerify.js'
 import { writeAdminOpsLog } from './auditLog.js'
 import { rewriteSchemaNames, extractSchemaSegment } from './restoreSqlUtils.js'
+import { alignTenantSchema } from './tenantProvisioner.js'
 
 const TAG = '[restoreService]'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -131,6 +132,22 @@ export async function runRestore({ prisma, backup, targetSchoolCode, actor, log 
     }
     const restoredCount = expectedTables ? expectedTables.length : Object.keys(meta.tableCounts || {}).length
     step('STAGING', `已恢复 ${restoredCount} 张表到临时 schema ${restoreSchema}`)
+
+    // ── 2.5 SCHEMA_ALIGN：把影子 schema 对齐到当前 schema.prisma（防 P2022 漂移，关键）──
+    // 背景：备份可能由旧版本生成（缺新列/新表）。若直接切换，当前 Prisma 客户端
+    // （已按最新 schema.prisma 重新 generate）查询时会抛 column/table does not exist，
+    // 导致恢复后登录/业务接口全面失败（2026-08-20 can_view_pathogen 事故的根因）。
+    // 因此在【切换之前】先对临时 schema 执行幂等 db push 补齐结构：
+    //   - 对齐失败 → 抛错进入 FAILED 清理，原 schema 零影响（影子恢复核心理念）；
+    //   - 对齐成功 → 继续行数校验，校验对象是"已补齐结构"的影子 schema，
+    //     切换后即与当前代码完全一致，杜绝恢复后 schema 漂移。
+    try {
+      await alignTenantSchema({ schema: restoreSchema, log: (m) => log(`${TAG} [align] ${m}`) })
+      step('SCHEMA_ALIGN', `影子 schema 已对齐 schema.prisma（新增列/索引已补齐）`)
+    } catch (alignErr) {
+      log(`${TAG} ❌ 影子 schema 对齐失败（不切换，原数据零影响）: ${alignErr.message}`)
+      throw new Error(`影子 schema 对齐失败: ${alignErr.message}`)
+    }
 
     // ── 3. VALIDATING：行数对比（meta.tableCounts 基线 vs 影子 schema 实际行数）──
     let mismatches = []

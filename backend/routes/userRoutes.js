@@ -32,6 +32,17 @@ export function createUserRoutes(userManager) {
 
     // 登录失败错误的统一出口：按错误 code 返回明确、可操作的提示文案
     function respondLoginError(res, error) {
+        // SCHEMA-MISMATCH：数据库结构与当前代码不一致（如从旧备份恢复后缺列/缺表，
+        // Prisma 抛 P2022 column/table does not exist）。必须明确暴露，不能伪装成
+        // "用户名或密码错误"——否则所有账号登录失败却无从排查（2026-08-20 事故）。
+        // 触发修复：管理员执行 npm run db:sync（恢复流程已内置自动对齐）。
+        if (error && (error.code === 'P2022' || /(column|table|relation)\s+["'`]?[^"'`]*["'`]?\s+does not exist/i.test(error.message || ''))) {
+            console.error('❌ [login] 数据库结构错误（schema 漂移）:', error.message)
+            return res.status(500).json({
+                error: '❌ 系统数据库结构异常（可能由旧备份恢复导致），请联系管理员执行 npm run db:sync 修复',
+                code: 'SCHEMA_MISMATCH'
+            })
+        }
         // 服务器内部异常（未预期的错误）——明确告知服务器繁忙
         if (!error || error.code === 'SERVER_BUSY' || error.code === 'INTERNAL') {
             return res.status(500).json({ error: '❌ 服务器繁忙，请稍后重试', code: 'SERVER_BUSY' })

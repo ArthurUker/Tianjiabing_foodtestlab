@@ -6,6 +6,8 @@
  */
 module.exports = {
   testEnvironment: 'jsdom',
+  // 全局 setup（在任何测试模块加载前执行）：为 supertest/superagent 补 TextEncoder
+  setupFiles: ['<rootDir>/tests/setup-env.js'],
   testMatch: ['**/tests/**/*.test.js'],
   // 并发竞态集成测试需要 live PostgreSQL，单独用 tests/integration/jest.integration.config.cjs 运行，
   // 不纳入默认单测套件（避免无 PG 环境 npm test 失败）。
