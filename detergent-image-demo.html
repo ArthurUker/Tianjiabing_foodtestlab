@@ -22,7 +22,11 @@
         <h2><i class="fas fa-camera"></i> 1. 上传照片</h2>
         <div class="mode-switch" id="modeSwitch">
           <button class="mode-btn active" id="modeManual"><i class="fas fa-hand-pointer"></i> 手动调整</button>
-          <button class="mode-btn" id="modeTemplate"><i class="fas fa-robot"></i> 全自动（模板）</button>
+          <button class="mode-btn" id="modeTemplate"><i class="fas fa-robot"></i> 全自动（模板）— 前端</button>
+          <button class="mode-btn" id="modeBackend"><i class="fas fa-server"></i> 全自动（模板）— 后端</button>
+        </div>
+        <div id="backendStatus" class="backend-status" style="display:none;margin:8px 0;padding:6px 10px;border-radius:6px;background:#f0f9ff;border:1px solid #bae6fd;color:#0369a1;font-size:12px;">
+          <i class="fas fa-info-circle"></i> 后端识别：图片会上传到服务器排队识别，请确保已登录系统。
         </div>
         <label class="upload-zone" id="uploadZone" for="fileInput">
           <i class="fas fa-cloud-upload-alt"></i>
@@ -37,6 +41,9 @@
         </div>
         <p class="mode-tip" id="modeTip">
           <strong>手动调整：</strong>自动圈出比色卡/样品 → 你确认或拖框矫正 → 再微调 7 个色块 → 识别。
+        </p>
+        <p class="mode-tip" id="resultSource" style="display:none;">
+          <strong>识别方式：</strong><span id="resultSourceText">—</span>
         </p>
       </div>
 

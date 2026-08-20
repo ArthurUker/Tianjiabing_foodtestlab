@@ -60,7 +60,7 @@ let blockLayer = null;           // 色块微调 DOM 覆盖层
 let initialLoc = null;           // 初次定位完整结果（含精确 blocks）
 let lastResult = null;           // 比色结果
 let stage = 'idle';              // idle | locating | region_confirm | block_confirm | analyzing | result
-let currentMode = 'manual';     // 'manual'（两步手动调整）| 'template'（全自动模板）
+let currentMode = 'manual';     // 'manual' | 'template'（前端本地）| 'backend'（服务器排队）
 
 // ---------------------------------------------------------------------------
 // 初始化
@@ -96,24 +96,33 @@ function init() {
     postToParent({ concentration: lastResult.mainValue, rawText: lastResult.mainValueText }, 'detergent');
   });
 
-  // 模式切换
+  // 模式切换（前端本地 / 后端排队）
   const modeManual = document.getElementById('modeManual');
   const modeTemplate = document.getElementById('modeTemplate');
+  const modeBackend = document.getElementById('modeBackend');
+  const backendStatus = document.getElementById('backendStatus');
   const setMode = (m) => {
     currentMode = m;
     modeManual?.classList.toggle('active', m === 'manual');
     modeTemplate?.classList.toggle('active', m === 'template');
+    modeBackend?.classList.toggle('active', m === 'backend');
+    if (backendStatus) backendStatus.style.display = m === 'backend' ? 'block' : 'none';
     const guide = document.getElementById('btnTemplateGuide');
-    if (guide) guide.style.display = m === 'template' ? 'inline-block' : 'none';
+    if (guide) guide.style.display = (m === 'template' || m === 'backend') ? 'inline-block' : 'none';
     const tip = document.getElementById('modeTip');
     if (tip) {
-      tip.innerHTML = m === 'template'
-        ? '<strong>全自动（模板）：</strong>按规范把比色卡/离心管放进标准指导卡对应插槽，俯拍上传即可自动定位识别。需先打印指导卡。'
-        : '<strong>手动调整：</strong>自动圈出比色卡/样品 → 你确认或拖框矫正 → 再微调 7 个色块 → 识别。';
+      if (m === 'template') {
+        tip.innerHTML = '<strong>全自动（模板）— 前端：</strong>浏览器本地调用 OpenCV.js 识别，不上传服务器。';
+      } else if (m === 'backend') {
+        tip.innerHTML = '<strong>全自动（模板）— 后端：</strong>图片上传服务器排队识别，同一时间只处理一个任务。';
+      } else {
+        tip.innerHTML = '<strong>手动调整：</strong>自动圈出比色卡/样品 → 你确认或拖框矫正 → 再微调 7 个色块 → 识别。';
+      }
     }
   };
   modeManual?.addEventListener('click', () => setMode('manual'));
   modeTemplate?.addEventListener('click', () => setMode('template'));
+  modeBackend?.addEventListener('click', () => setMode('backend'));
   setMode('manual');
 
   document.getElementById('btnTemplateGuide')?.addEventListener('click', showTemplateGuide);
@@ -134,6 +143,7 @@ function loadFile(file) {
     img.onload = () => {
       sourceImage = img;
       if (currentMode === 'template') runTemplateStep(img);
+      else if (currentMode === 'backend') runBackendStep(img);
       else runLocateStep(img);
     };
     img.onerror = () => alert('图片加载失败');
@@ -153,6 +163,7 @@ async function runSample() {
     const c = synth.generateSyntheticDetergentCanvas();
     sourceImage = c;
     if (currentMode === 'template') runTemplateStep(c);   // 一键验证 ArUco 模板识别
+    else if (currentMode === 'backend') runBackendStep(c); // 后端排队识别
     else runLocateStep(c);                                 // 手动两步流程
   } else {
     console.warn('合成图模块不可用');
@@ -163,6 +174,14 @@ async function runSample() {
 // 全自动方案：模板（A4 拍摄指导卡）识别
 // ---------------------------------------------------------------------------
 async function runTemplateStep(image) {
+  await runRecognitionInternal(image, 'browser');
+}
+
+async function runBackendStep(image) {
+  await runRecognitionInternal(image, 'server');
+}
+
+async function runRecognitionInternal(image, source) {
   stage = 'analyzing';
   clearManualOverride();
   resultPanel.style.display = 'none';
@@ -171,21 +190,26 @@ async function runTemplateStep(image) {
   destroyBlockLayer();
   drawImageToCanvas(image);
   drawWorkCanvas(image);
-  setBusy(true, '正在按拍摄指导卡定位（OpenCV 角标识别）…');
 
   let res;
   try {
-    // 统一 opencv 方案：浏览器本地识别（window.cv）
-    const raw = await recognize(workCanvas, { concentrations: CONCENTRATIONS });
-    res = adaptOpencvResult(raw, workCanvas);
+    if (source === 'server') {
+      setBusy(true, '正在上传到服务器排队识别…');
+      res = await recognizeBackend(workCanvas);
+    } else {
+      setBusy(true, '正在按拍摄指导卡定位（OpenCV 角标识别）…');
+      const raw = await recognize(workCanvas, { concentrations: CONCENTRATIONS });
+      res = adaptOpencvResult(raw, workCanvas);
+      res.recognitionSource = 'browser';
+    }
   } catch (e) {
     console.error(e);
-    res = { ok: false, stage: 'exception', error: 'TEMPLATE_FAIL', humanMessage: '模板识别失败：' + (e?.message || e) };
+    res = { ok: false, stage: 'exception', error: 'TEMPLATE_FAIL', humanMessage: (source === 'server' ? '后端识别失败：' : '模板识别失败：') + (e?.message || e) };
   }
   setBusy(false);
 
   if (!res.ok) {
-    console.warn('[detergentDemo] 模板识别未成功：', res.humanMessage);
+    console.warn('[detergentDemo] 识别未成功：', res.humanMessage);
     showTemplateFallback(res);
     return;
   }
@@ -197,6 +221,68 @@ async function runTemplateStep(image) {
   resultPanel.style.display = 'block';
   resultLegend.style.display = 'block';
   resultPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// 后端排队识别：上传 base64 → /api/recognize，轮询状态拿到结果
+async function recognizeBackend(canvasEl) {
+  const apiUrl = (window.API_BASE || '').replace(/\/$/, '') || '';
+  const token = localStorage.getItem('authToken') || localStorage.getItem('token') || '';
+  if (!token) {
+    return { ok: false, stage: 'auth', error: 'NO_TOKEN', humanMessage: '后端识别需要登录系统，请先登录再试。' };
+  }
+
+  const dataUrl = canvasEl.toDataURL('image/png');
+  setBusy(true, '正在提交到服务器…');
+
+  let jobId;
+  try {
+    const submit = await fetch(`${apiUrl}/api/recognize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ image: dataUrl, concentrations: CONCENTRATIONS }),
+    });
+    const submitJson = await submit.json().catch(() => ({}));
+    if (!submit.ok || !submitJson.ok || !submitJson.jobId) {
+      return { ok: false, stage: 'submit', error: submitJson.error || submit.status, humanMessage: submitJson.humanMessage || `提交失败：HTTP ${submit.status}` };
+    }
+    jobId = submitJson.jobId;
+  } catch (e) {
+    return { ok: false, stage: 'submit', error: 'NETWORK', humanMessage: '提交到服务器失败：' + (e?.message || e) };
+  }
+
+  // 轮询，最多 5 分钟
+  const deadline = Date.now() + 5 * 60 * 1000;
+  while (Date.now() < deadline) {
+    setBusy(true, '服务器识别中，请稍候…');
+    await new Promise(r => setTimeout(r, 1200));
+    try {
+      const poll = await fetch(`${apiUrl}/api/recognize/status/${jobId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const pollJson = await poll.json().catch(() => ({}));
+      if (!poll.ok) continue;
+
+      if (pollJson.status === 'queued') {
+        setBusy(true, `排队中，前方还有 ${pollJson.position || 0} 个任务…`);
+        continue;
+      }
+      if (pollJson.status === 'processing') {
+        setBusy(true, '服务器正在识别…');
+        continue;
+      }
+      if (pollJson.status === 'done' && pollJson.result) {
+        const adapted = adaptOpencvResult(pollJson.result, canvasEl);
+        adapted.recognitionSource = 'server';
+        return adapted;
+      }
+      if (pollJson.status === 'failed') {
+        return { ok: false, stage: 'failed', error: pollJson.error, humanMessage: pollJson.humanMessage || '服务器识别失败' };
+      }
+    } catch (e) {
+      console.warn('[recognizeBackend] 轮询异常', e);
+    }
+  }
+  return { ok: false, stage: 'timeout', error: 'TIMEOUT', humanMessage: '后端识别超时（>5分钟），请重试。' };
 }
 
 // 把 opencv recognizer 的结果适配为旧 renderResult 期望的格式
@@ -769,6 +855,16 @@ function renderResult(result) {
   manualOverrideSection.style.display = 'block';
   renderManualOverride(result);
   qcSection.innerHTML = renderQcNotes(result.qc);
+
+  const sourceEl = document.getElementById('resultSource');
+  const sourceText = document.getElementById('resultSourceText');
+  if (sourceEl && sourceText) {
+    const src = result.recognitionSource || 'browser';
+    sourceText.innerHTML = src === 'server'
+      ? '<span class="badge" style="background:#2563eb;color:#fff;padding:2px 8px;border-radius:4px;"><i class="fas fa-server"></i> 后端服务器识别</span>'
+      : '<span class="badge" style="background:#16a34a;color:#fff;padding:2px 8px;border-radius:4px;"><i class="fas fa-laptop"></i> 浏览器本地识别</span>';
+    sourceEl.style.display = 'block';
+  }
 
   document.getElementById('distanceTable') && fillDistanceTable(result);
   document.getElementById('blocksTable') && fillBlocksTable(result);

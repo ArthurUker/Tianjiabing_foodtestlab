@@ -11,6 +11,7 @@ import cvModule from '@techstark/opencv-js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { PNG } from 'pngjs';
 import { recognize, setCv } from '../../js/opencv/recognizer.js';
 
 function getCv(m) {
@@ -55,14 +56,25 @@ class RecognitionQueue {
       const mat = cv.matFromArray(image.height, image.width, cv.CV_8UC4, bytes);
       return mat;
     }
-    // base64 / 文件路径：Node 端 OpenCV 5 JS 的 imread 依赖浏览器 canvas 不可用，
+    // base64 dataUrl（API 上传，recognitionRoutes.js 传入 { dataUrl: image }）
+    // 前端固定输出 PNG dataUrl，用 pngjs 解码为像素数组后走 matFromArray。
+    // 避免使用 cv.imread：OpenCV 5 JS 在 Node 端依赖 document.createElement('canvas') 会失败。
+    if (image.dataUrl && typeof image.dataUrl === 'string') {
+      const b64 = image.dataUrl.includes(',') ? image.dataUrl.split(',')[1] : image.dataUrl;
+      const buf = Buffer.from(b64, 'base64');
+      const png = PNG.sync.read(buf);
+      const rgba = cv.matFromArray(png.height, png.width, cv.CV_8UC4, png.data);
+      if (!rgba || rgba.empty()) throw new Error('dataUrl 解码失败');
+      return rgba;
+    }
+    // 文件路径：Node 端 OpenCV 5 JS 的 imread 依赖浏览器 canvas 不可用，
     // 此处保留 filePath 兼容，但生产推荐前端传 rgba 像素。
     if (image.filePath) {
       const mat = cv.imread(image.filePath);
       if (!mat || mat.empty()) throw new Error('图片解码失败');
       return mat;
     }
-    throw new Error('不支持的图片数据格式（需 rgba 像素数组或 filePath）');
+    throw new Error('不支持的图片数据格式（需 rgba 像素数组 / dataUrl / filePath）');
   }
 
   async _process(task) {
