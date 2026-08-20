@@ -900,18 +900,8 @@ export class GenericTestModule {
                 }
             }
         }
-    }
 
-    setDefaultTestDate() {
-        const form = document.getElementById(this.formId);
-        if (!form) return;
-        const dateInput = form.querySelector('input[name="testDate"]');
-        if (dateInput && !dateInput.value) {
-            dateInput.value = getLocalDateStr();
-        }
-    }
-
-    getRecordDate(record) {
+        const tbody = document.getElementById(this.tableId);
         if (tbody) {
             const tableElement = tbody.closest('table');
 
@@ -998,6 +988,23 @@ export class GenericTestModule {
                 }
             }
         }
+    }
+
+    setDefaultTestDate() {
+        const form = document.getElementById(this.formId);
+        if (!form) return;
+        const dateInput = form.querySelector('input[name="testDate"]');
+        if (dateInput && !dateInput.value) {
+            dateInput.value = getLocalDateStr();
+        }
+    }
+
+    getRecordDate(record) {
+        if (!record || typeof record !== 'object') return null;
+        const raw = record.testDate || record.timestamp;
+        if (!raw) return null;
+        const d = new Date(raw);
+        return Number.isNaN(d.getTime()) ? null : d;
     }
 
     addRemarkField(container) {
@@ -1271,6 +1278,7 @@ export class GenericTestModule {
             
             e.target.reset();
             FormValidator.clearErrors(e.target);
+            this.setDefaultTestDate();
 
             const firstPoint = pointsContainer.children[0];
             pointsContainer.innerHTML = '';

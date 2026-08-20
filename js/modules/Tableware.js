@@ -803,7 +803,11 @@ function handleFormSubmit(e) {
         
         e.target.reset();
         FormValidator.clearErrors(e.target);
-        
+
+        // 重置后恢复默认当天日期
+        const dateInput = e.target.querySelector('input[name="testDate"]');
+        if (dateInput) dateInput.value = getLocalDateStr();
+
         // 重置点位
         const pointsContainer = document.getElementById('atpPointsContainer');
         if (pointsContainer) {
