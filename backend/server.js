@@ -24,6 +24,7 @@ import { createSyncRoutes } from './routes/syncRoutes.js'
 import { createAdminBackupRoutes } from './routes/adminBackupRoutes.js'
 import { createSchoolBackupRoutes } from './routes/schoolBackupRoutes.js'
 import { createTestResultRoutes } from './routes/testResultRoutes.js'
+import { createRecognitionRoutes } from './routes/recognitionRoutes.js'
 import { createSchoolRoutes, ensureRecycleBinInfra } from './routes/schoolRoutes.js'
 import { createRecordRoutes } from './routes/recordRoutes.js'
 import frequencyRoutes from './routes/frequencyRoutes.js'
@@ -304,6 +305,10 @@ app.use('/api/school/backups', schoolBackupRoutes)
 // ====== Test Result Routes（临时测试工具：测试结果上报，任意登录用户）======
 const testResultRoutes = createTestResultRoutes(userManager, prisma)
 app.use('/api/test-results', testResultRoutes)
+
+// ====== Detergent Colorimetry Recognition（后端 opencv 方案，单 Worker 排队）======
+const recognitionRoutes = createRecognitionRoutes(userManager, prisma)
+app.use('/api', recognitionRoutes)
 
 // N1/N2/N3: 检测频率阈值 / 检测日历 / 检测月报
 // 需 authenticateUser 注入 req.db/req.user(与 /api/test-records 等一致)

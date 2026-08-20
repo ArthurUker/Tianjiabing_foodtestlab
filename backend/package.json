@@ -32,6 +32,7 @@
   "license": "MIT",
   "dependencies": {
     "@prisma/client": "^5.10.0",
+    "@techstark/opencv-js": "^5.0.0-release.1",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.6",
     "dotenv": "^16.6.1",
@@ -39,6 +40,7 @@
     "jsonwebtoken": "^9.0.2"
   },
   "devDependencies": {
+    "pngjs": "^7.0.0",
     "prisma": "^5.10.0"
   }
 }
