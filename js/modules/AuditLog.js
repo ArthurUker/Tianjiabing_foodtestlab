@@ -635,4 +635,6 @@ const AuditLog = (() => {
     return { init };
 })();
 
+export const initAuditLog = () => AuditLog.init();
+
 window.AuditLog = AuditLog;
