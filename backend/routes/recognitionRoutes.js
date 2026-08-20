@@ -20,8 +20,8 @@ export function createRecognitionRoutes(userManager, prisma) {
   const { authenticateUser } = createAuthMiddleware(userManager, prisma);
   router.use(authenticateUser);
 
-  // 启动 Worker（懒启动，首次路由加载时）
-  recognitionQueue.start();
+  // 识别队列在 recognitionQueue 模块加载时已在构造函数内自动初始化（_init 中启动 _pump），
+  // 无需手动调用 start()。移除旧调用以修复 "recognitionQueue.start is not a function" 崩溃。
 
   // POST /api/recognize
   router.post('/recognize', (req, res) => {
