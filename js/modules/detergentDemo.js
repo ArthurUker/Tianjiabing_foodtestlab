@@ -9,8 +9,12 @@
  *   3) 在（可能矫正过的）区域上执行 analyzeWithRegions 比色，输出浓度
  */
 
-import { analyzeDetergentImage, locateRegions, analyzeWithRegions, analyzeWithTemplate, detectBlocksInRect, TEMPLATE_DESIGN, drawOverlay, drawRegionBoxes, buildResultHtml } from '../utils/detergentColorimetry.js';
 import { isEmbedded, postToParent } from '../utils/embed.js';
+import {
+  recognize, MARKER_DICT, TEMPLATE as OPENCV_TEMPLATE,
+  locateRegions, analyzeWithRegions, detectBlocksInRect,
+  analyzeDetergentImage, drawOverlay, buildResultHtml, getCv,
+} from '../opencv/recognizer.js';
 
 const CONCENTRATIONS = [0, 0.01, 0.05, 0.1, 0.5, 1.0, 2.0];
 
@@ -64,6 +68,14 @@ let currentMode = 'manual';     // 'manual'（两步手动调整）| 'template'�
 init();
 
 function init() {
+  // 识别引擎（opencv）加载状态提示
+  const cvBadge = document.getElementById('cvStatus');
+  getCv().then(() => {
+    if (cvBadge) { cvBadge.style.background = '#16a34a'; cvBadge.innerHTML = '<i class="fas fa-check"></i> 识别引擎就绪'; }
+  }).catch(() => {
+    if (cvBadge) { cvBadge.style.background = '#dc2626'; cvBadge.innerHTML = '<i class="fas fa-times"></i> 识别引擎加载失败'; }
+  });
+
   if (!fileInput) return;
   fileInput.addEventListener('change', handleFile);
   if (uploadZone) {
@@ -134,11 +146,14 @@ function loadFile(file) {
 // 合成测试图
 // ---------------------------------------------------------------------------
 async function runSample() {
+  const cv = await getCv().catch(() => null);
+  if (!cv) { alert('识别引擎尚未就绪，请稍候再试'); return; }
   const synth = await import('../utils/syntheticDetergent.js').catch(() => null);
   if (synth?.generateSyntheticDetergentCanvas) {
     const c = synth.generateSyntheticDetergentCanvas();
     sourceImage = c;
-    runLocateStep(c);
+    if (currentMode === 'template') runTemplateStep(c);   // 一键验证 ArUco 模板识别
+    else runLocateStep(c);                                 // 手动两步流程
   } else {
     console.warn('合成图模块不可用');
   }
@@ -156,11 +171,13 @@ async function runTemplateStep(image) {
   destroyBlockLayer();
   drawImageToCanvas(image);
   drawWorkCanvas(image);
-  setBusy(true, '正在按拍摄指导卡定位…');
+  setBusy(true, '正在按拍摄指导卡定位（OpenCV 角标识别）…');
 
   let res;
   try {
-    res = analyzeWithTemplate(workCanvas, { concentrations: CONCENTRATIONS });
+    // 统一 opencv 方案：浏览器本地识别（window.cv）
+    const raw = await recognize(workCanvas, { concentrations: CONCENTRATIONS });
+    res = adaptOpencvResult(raw, workCanvas);
   } catch (e) {
     console.error(e);
     res = { ok: false, stage: 'exception', error: 'TEMPLATE_FAIL', humanMessage: '模板识别失败：' + (e?.message || e) };
@@ -175,12 +192,72 @@ async function runTemplateStep(image) {
 
   stage = 'result';
   lastResult = res;
-  // 模板模式也展示 7 个色块 + 样品框
   drawOverlay(canvas, res, { scaleX: canvas.width / res.canvasSize.width, scaleY: canvas.height / res.canvasSize.height });
   renderResult(res);
   resultPanel.style.display = 'block';
   resultLegend.style.display = 'block';
   resultPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// 把 opencv recognizer 的结果适配为旧 renderResult 期望的格式
+function adaptOpencvResult(raw, canvasEl) {
+  if (!raw || !raw.ok) {
+    return { ok: false, humanMessage: raw?.humanMessage || '识别失败', stage: raw?.stage || 'unknown' };
+  }
+  const W = canvasEl.width, H = canvasEl.height;
+  const { cardSlot, tubeSlot } = OPENCV_TEMPLATE;
+  // 取色块/样品框（像素）
+  const tube = {
+    x: Math.round(tubeSlot.x * W), y: Math.round(tubeSlot.y * H),
+    w: Math.round(tubeSlot.w * W), h: Math.round(tubeSlot.h * H), zone: 'tube'
+  };
+  const sampleLab = raw.sampleLab || { L: 0, a: 0, b: 0 };
+  const sampleColor = labToRgb(sampleLab);
+  const blocks = (raw.blocks || []).map((b) => ({
+    concentration: b.concentration,
+    color: labToRgb(b.lab),
+    lab: b.lab,
+  }));
+  const qc = {
+    ok: !raw.anomalySuspected,
+    notes: raw.anomalySuspected ? [{ level: 'warn', text: '色差偏大，建议复核样品摆放与光照' }] : []
+  };
+  return {
+    ok: true,
+    canvasSize: { width: W, height: H },
+    mainValue: raw.mainValue,
+    refinedValue: raw.mainValue,
+    mainValueText: raw.mainValueText,
+    deltaE: raw.deltaE,
+    confidence: raw.confidence,
+    sampleColor, sampleLab, tube, tubeZone: 'tube',
+    blocks, qc,
+    sortedDistances: (raw.sortedDistances || []).map((d) => ({
+      concentration: d.concentration, deltaE: d.deltaE,
+      color: labToRgb(d.lab || { L: 0, a: 0, b: 0 })
+    })),
+  };
+}
+
+// Lab(OpenCV: L 0-255, a/b 已减128) -> RGB 0-255
+function labToRgb(lab) {
+  const L = (lab.L / 255) * 100;
+  const a = lab.a;
+  const b = lab.b;
+  let y = (L + 16) / 116;
+  let x = a / 500 + y;
+  let z = y - b / 200;
+  const f = (t) => (t ** 3 > 0.008856) ? t ** 3 : (t - 16 / 116) / 7.787;
+  const yr = f(y) * 100, xr = f(x), zr = f(z);
+  // D65 参考白
+  let R = xr * 3.2406 - f(y) * 1.5372 - f(z) * 0.4986;
+  let G = xr * -0.9689 + f(y) * 1.8758 + f(z) * 0.0415;
+  let B = xr * 0.0557 - f(y) * 0.2040 + f(z) * 1.0570;
+  const gamma = (c) => (c > 0.0031308) ? 1.055 * Math.pow(c, 1 / 2.4) - 0.055 : 12.92 * c;
+  R = Math.max(0, Math.min(1, gamma(R))) * 255;
+  G = Math.max(0, Math.min(1, gamma(G))) * 255;
+  B = Math.max(0, Math.min(1, gamma(B))) * 255;
+  return [Math.round(R), Math.round(G), Math.round(B)];
 }
 
 /** 模板识别失败时，提示并自动切回手动模式 */
@@ -205,16 +282,19 @@ function showTemplateFallback(res) {
 //   - 上方红框区画离心管轮廓（竖放示意）
 //   - 下方蓝框区画 7 色块轮廓（横放示意，带编号 0–6）
 //   - 顶部标题 + 方向标识，底部 4 步操作说明
-function showTemplateGuide() {
+async function showTemplateGuide() {
   const w = 794, h = 1123; // A4 @96dpi
   const g = document.createElement('canvas');
   g.width = w; g.height = h;
   const c = g.getContext('2d');
   c.fillStyle = '#fff'; c.fillRect(0, 0, w, h);
 
-  const D = TEMPLATE_DESIGN;
+  const D = OPENCV_TEMPLATE;
   const px = (nx) => Math.round(nx * w);
   const py = (ny) => Math.round(ny * h);
+
+  // 等待 opencv 就绪（vendor/opencv/opencv.js 挂 window.cv，可能是 promise-like）
+  const cv = await getCv();
 
   // 文本自动换行工具
   function wrapText(text, x, y, maxWidth, lineHeight) {
@@ -236,44 +316,47 @@ function showTemplateGuide() {
     return lines.length;
   }
 
-  // 画「回」字定位标：外黑实块 + 白环 + 中心黑点（同心三环，便于算法三环检测）
-  function drawFinder(cx, cy, size) {
-    const s = size, half = s / 2, q = s / 7;
-    c.fillStyle = '#000';
-    c.fillRect(cx - half, cy - half, s, s);
-    c.fillStyle = '#fff';
-    c.fillRect(cx - half + q, cy - half + q, s - 2 * q, s - 2 * q);
-    c.fillStyle = '#000';
-    c.fillRect(cx - half + 2 * q, cy - half + 2 * q, s - 4 * q, s - 4 * q);
+  // 画 ArUco 定位标（MIP_36h12，与算法同一字典）：生成 marker -> 加静区 -> drawImage
+  function drawAruco(cx, cy, cell, markerId) {
+    const mkSize = 200, pad = Math.round((cell - mkSize) / 2);
+    if (cv && cv.Mat && cv.generateImageMarker) {
+      const m = cv.Mat.zeros(mkSize, mkSize, cv.CV_8UC1);
+      cv.generateImageMarker(cv.getPredefinedDictionary(cv[MARKER_DICT]), markerId, mkSize, m, 1);
+      const off = document.createElement('canvas'); off.width = mkSize; off.height = mkSize;
+      cv.imshow(off, m);
+      // 静区白底
+      c.fillStyle = '#fff'; c.fillRect(cx - cell / 2, cy - cell / 2, cell, cell);
+      c.drawImage(off, cx - cell / 2 + pad, cy - cell / 2 + pad, mkSize, mkSize);
+      m.delete();
+    } else {
+      // opencv 未就绪兜底：画占位黑方块
+      c.fillStyle = '#000'; c.fillRect(cx - cell / 2, cy - cell / 2, cell, cell);
+    }
   }
 
   // ===== 1. 顶部标题栏 + 方向标识（留出角标空间）=====
   c.fillStyle = '#111'; c.font = 'bold 34px sans-serif'; c.textAlign = 'left';
-  c.fillText('阴离子洗涤剂残留 · 标准拍摄指导卡', px(0.16), py(0.050));
+  c.fillText('阴离子洗涤剂残留 · 标准拍摄指导卡', px(0.10), py(0.045));
   c.font = 'bold 22px sans-serif'; c.fillStyle = '#dc2626';
-  c.fillText('↑ 此边朝上 · 勿倒置拍摄', px(0.16), py(0.090));
+  c.fillText('↑ 此边朝上 · 勿倒置拍摄', px(0.10), py(0.085));
 
   // ===== 2. 离心管摆放区（红框，竖放示意）=====
   const tubeR = { x: px(D.tubeSlot.x), y: py(D.tubeSlot.y), w: px(D.tubeSlot.w), h: px(D.tubeSlot.h) };
   c.fillStyle = '#fef2f2'; c.fillRect(tubeR.x, tubeR.y, tubeR.w, tubeR.h);
   c.strokeStyle = '#dc2626'; c.lineWidth = 4; c.setLineDash([12, 8]);
   c.strokeRect(tubeR.x, tubeR.y, tubeR.w, tubeR.h); c.setLineDash([]);
-  // 离心管轮廓（竖放）：管帽 + 管身 + 刻度
   const tx = tubeR.x + tubeR.w / 2;
   const tubeTop = tubeR.y + 18, tubeBot = tubeR.y + tubeR.h - 18;
   const tubeW = Math.min(tubeR.w * 0.28, 70);
   c.fillStyle = '#fff'; c.strokeStyle = '#dc2626'; c.lineWidth = 3;
-  // 管帽
   c.fillRect(tx - tubeW / 2, tubeTop, tubeW, 16);
   c.strokeRect(tx - tubeW / 2, tubeTop, tubeW, 16);
-  // 管身（下宽上窄）
   c.beginPath();
   c.moveTo(tx - tubeW / 2, tubeTop + 16);
   c.lineTo(tx + tubeW / 2, tubeTop + 16);
   c.lineTo(tx + tubeW * 0.62, tubeBot);
   c.lineTo(tx - tubeW * 0.62, tubeBot);
   c.closePath(); c.fill(); c.stroke();
-  // 刻度线
   c.lineWidth = 1; c.strokeStyle = '#dc2626';
   for (let i = 1; i <= 4; i++) {
     const yy = tubeTop + 16 + (tubeBot - tubeTop - 16) * (i / 5);
@@ -289,7 +372,6 @@ function showTemplateGuide() {
   c.fillStyle = '#eef2ff'; c.fillRect(cardR.x, cardR.y, cardR.w, cardR.h);
   c.strokeStyle = '#2563eb'; c.lineWidth = 4; c.setLineDash([12, 8]);
   c.strokeRect(cardR.x, cardR.y, cardR.w, cardR.h); c.setLineDash([]);
-  // 7 个色块轮廓（带编号）
   const bw = cardR.w / 7;
   const bh = Math.min(cardR.h * 0.62, 78);
   const by = cardR.y + (cardR.h - bh) / 2 + 6;
@@ -303,31 +385,34 @@ function showTemplateGuide() {
   c.fillStyle = '#2563eb'; c.font = 'bold 24px sans-serif'; c.textAlign = 'center';
   c.fillText('比色卡横放于此（蓝框内，与 7 格对齐）', cardR.x + cardR.w / 2, cardR.y - 8);
 
-  // ===== 4. 四角定位标（算法用，标注在角标外侧，避免重叠）=====
-  const f = D.mainFinders;
-  drawFinder(px(f.TL.x), py(f.TL.y), f.TL.size);
-  drawFinder(px(f.TR.x), py(f.TR.y), f.TR.size);
-  drawFinder(px(f.BL.x), py(f.BL.y), f.BL.size);
-  drawFinder(px(f.BR.x), py(f.BR.y), f.BR.size);
-  c.fillStyle = '#000'; c.font = '12px sans-serif'; c.textAlign = 'center';
-  c.fillText('定位标', px(f.TL.x), py(f.TL.y) + f.TL.size / 2 + 16);
-  c.fillText('勿遮挡', px(f.TL.x), py(f.TL.y) + f.TL.size / 2 + 30);
-  c.fillText('定位标', px(f.TR.x), py(f.TR.y) + f.TR.size / 2 + 16);
-  c.fillText('勿遮挡', px(f.TR.x), py(f.TR.y) + f.TR.size / 2 + 30);
-  c.fillText('定位标', px(f.BL.x), py(f.BL.y) - f.BL.size / 2 - 18);
-  c.fillText('勿遮挡', px(f.BL.x), py(f.BL.y) - f.BL.size / 2 - 4);
-  c.fillText('定位标', px(f.BR.x), py(f.BR.y) - f.BR.size / 2 - 18);
-  c.fillText('勿遮挡', px(f.BR.x), py(f.BR.y) - f.BR.size / 2 - 4);
+  // ===== 4. 四角 ArUco 定位标（算法用，标注在外侧）=====
+  const fm = D.markers;
+  const cellPx = Math.round(0.16 * w); // 角标占位（含静区）约 16% 页宽
+  const markers = [
+    { role: 'TL', p: fm.TL, id: 0 }, { role: 'TR', p: fm.TR, id: 1 },
+    { role: 'BL', p: fm.BL, id: 2 }, { role: 'BR', p: fm.BR, id: 3 },
+  ];
+  for (const mk of markers) {
+    const cx = px(mk.p.x), cy = py(mk.p.y);
+    drawAruco(cx, cy, cellPx, mk.id);
+    c.fillStyle = '#000'; c.font = '12px sans-serif'; c.textAlign = 'center';
+    const off = cellPx / 2 + 14;
+    if (mk.role === 'TL' || mk.role === 'TR') {
+      c.fillText('定位标', cx, cy + off); c.fillText('勿遮挡', cx, cy + off + 14);
+    } else {
+      c.fillText('定位标', cx, cy - off); c.fillText('勿遮挡', cx, cy - off + 14);
+    }
+  }
 
-  // ===== 5. 底部操作说明（整体下移，带换行）=====
-  const noteY = py(0.97);
+  // ===== 5. 底部操作说明 =====
+  const noteY = py(0.95);
   c.textAlign = 'left'; c.fillStyle = '#111'; c.font = 'bold 18px sans-serif';
   c.fillText('操作说明', px(0.06), noteY);
   c.font = '15px sans-serif'; c.fillStyle = '#333';
   const tips = [
     '① 打印本卡（建议 A4 彩色/卡纸），平铺于纯色桌面，避免黑色背景。',
     '② 比色卡横放下方蓝框、离心管竖放上方红框，与虚线框对齐居中。',
-    '③ 手机垂直俯拍，光照均匀，四角定位标完整入镜、不反光、不遮挡。',
+    '③ 手机垂直俯拍，光照均匀，四角 ArUco 定位标完整入镜、不反光、不遮挡。',
     '④ 上传照片后选「全自动（模板）」模式，系统自动定位并比色。',
   ];
   let y = noteY + 26;
@@ -364,7 +449,7 @@ async function runLocateStep(image) {
 
   let loc;
   try {
-    loc = locateRegions(workCanvas, { concentrations: CONCENTRATIONS });
+    loc = await locateRegions(workCanvas, { concentrations: CONCENTRATIONS });
   } catch (e) {
     console.error(e);
     loc = { ok: false, stage: 'exception', error: 'LOCATE_FAIL', humanMessage: '区域定位失败：' + (e?.message || e) };
@@ -576,7 +661,14 @@ async function confirmBlocks() {
   lastResult = res;
 
   if (res.ok) {
-    drawOverlay(canvas, res, { scaleX: canvas.width / res.canvasSize.width, scaleY: canvas.height / res.canvasSize.height });
+    const cardRect = currentRegions?.cardRect
+      ? denormRect(currentRegions.cardRect, locateCanvasSize)
+      : null;
+    drawOverlay(canvas, res, {
+      scaleX: canvas.width / res.canvasSize.width,
+      scaleY: canvas.height / res.canvasSize.height,
+      cardRect,
+    });
   }
   renderResult(res);
   resultPanel.style.display = 'block';

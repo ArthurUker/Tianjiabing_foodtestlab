@@ -49,7 +49,7 @@
 
 ## 4. 洗涤剂残留自动识别（8/11）
 
-- 前端纯 Canvas 色度算法（`js/utils/detergentColorimetry.js`）+ 演示页 + Tableware 模块接入。
+- 基于 OpenCV.js（WASM）的 ArUco 定位 + 单应校正 + ΔE2000 比色，前后端共用 `js/opencv/recognizer.js`；演示页与 Tableware 模块接入。
 - 拍照识别按钮改为按需注入/移除 DOM，消除 CSS 缓存导致的按钮残留。
 
 ---
