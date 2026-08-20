@@ -404,7 +404,9 @@ async function showTemplateGuide() {
 
   // 画 ArUco 定位标（MIP_36h12，与算法同一字典）：生成 marker -> 加静区 -> drawImage
   function drawAruco(cx, cy, cell, markerId) {
-    const mkSize = 200, pad = Math.round((cell - mkSize) / 2);
+    // marker 图案占 cell 的 65%，四周保留 17.5% 白色静区，避免 pad 为负导致黑块溢出
+    const mkSize = Math.max(32, Math.round(cell * 0.65));
+    const pad = Math.round((cell - mkSize) / 2);
     if (cv && cv.Mat && cv.generateImageMarker) {
       const m = cv.Mat.zeros(mkSize, mkSize, cv.CV_8UC1);
       cv.generateImageMarker(cv.getPredefinedDictionary(cv[MARKER_DICT]), markerId, mkSize, m, 1);
@@ -415,8 +417,9 @@ async function showTemplateGuide() {
       c.drawImage(off, cx - cell / 2 + pad, cy - cell / 2 + pad, mkSize, mkSize);
       m.delete();
     } else {
-      // opencv 未就绪兜底：画占位黑方块
-      c.fillStyle = '#000'; c.fillRect(cx - cell / 2, cy - cell / 2, cell, cell);
+      // opencv 未就绪兜底：白底黑方块（仍保留静区）
+      c.fillStyle = '#fff'; c.fillRect(cx - cell / 2, cy - cell / 2, cell, cell);
+      c.fillStyle = '#000'; c.fillRect(cx - cell / 2 + pad, cy - cell / 2 + pad, mkSize, mkSize);
     }
   }
 
@@ -472,30 +475,16 @@ async function showTemplateGuide() {
   c.fillStyle = '#2563eb'; c.font = 'bold 24px sans-serif'; c.textAlign = 'center';
   c.fillText('比色卡横放于此（蓝框内，与 7 格对齐）', cardR.x + cardR.w / 2, cardR.y - 8);
 
-  // ===== 4. 四角 ArUco 定位标（算法用，尺寸收窄并贴角，文字在角标外侧）=====
+  // ===== 4. 四角 ArUco 定位标（算法用，图案保持干净，不印任何文字）=====
+  // 参考常见 ArUco 打印页做法：marker 图案本身不带文字说明，统一在底部操作说明中提示。
   const fm = D.markers;
-  const cellPx = Math.round(0.105 * w); // 角标占位（含静区）收窄为约 10.5% 页宽，避免侵入标题/说明
+  const cellPx = Math.round(0.14 * w); // 角标占位（含静区）约 14% 页宽，识别更稳定
   const markers = [
     { role: 'TL', p: fm.TL, id: 0 }, { role: 'TR', p: fm.TR, id: 1 },
     { role: 'BL', p: fm.BL, id: 2 }, { role: 'BR', p: fm.BR, id: 3 },
   ];
-  c.textBaseline = 'top';
   for (const mk of markers) {
-    const cx = px(mk.p.x), cy = py(mk.p.y);
-    drawAruco(cx, cy, cellPx, mk.id);
-    c.fillStyle = '#374151'; c.font = 'bold 12px sans-serif'; c.textAlign = 'center';
-    // 文字明确放在角标静区外侧，并用 textBaseline='top' 避免基线歧义
-    const half = cellPx / 2;
-    const isTop = mk.role === 'TL' || mk.role === 'TR';
-    if (isTop) {
-      // 放在角标正上方（远离卡片中心）
-      c.fillText('定位标', cx, cy - half - 34);
-      c.fillText('勿遮挡', cx, cy - half - 18);
-    } else {
-      // 放在角标正下方（远离卡片中心）
-      c.fillText('定位标', cx, cy + half + 8);
-      c.fillText('勿遮挡', cx, cy + half + 24);
-    }
+    drawAruco(px(mk.p.x), py(mk.p.y), cellPx, mk.id);
   }
 
   // ===== 5. 底部操作说明 =====
@@ -505,9 +494,10 @@ async function showTemplateGuide() {
   c.font = '15px sans-serif'; c.fillStyle = '#333';
   const tips = [
     '① 打印本卡（建议 A4 彩色/卡纸），平铺于纯色桌面，避免黑色背景。',
-    '② 比色卡横放下方蓝框、离心管竖放上方红框，与虚线框对齐居中。',
-    '③ 手机垂直俯拍，光照均匀，四角 ArUco 定位标完整入镜、不反光、不遮挡。',
-    '④ 上传照片后选「全自动（模板）」模式，系统自动定位并比色。',
+    '② 四角黑白方块为 ArUco 定位标，打印后请勿遮挡、涂改、折叠或覆盖。',
+    '③ 比色卡横放下方蓝框、离心管竖放上方红框，与虚线框对齐居中。',
+    '④ 手机垂直俯拍，光照均匀，四角定位标完整入镜、不反光、不遮挡。',
+    '⑤ 上传照片后选「全自动（模板）」模式，系统自动定位并比色。',
   ];
   let y = noteY + 26;
   for (const t of tips) {
