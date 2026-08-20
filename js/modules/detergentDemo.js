@@ -420,11 +420,12 @@ async function showTemplateGuide() {
     }
   }
 
-  // ===== 1. 顶部标题栏 + 方向标识（留出角标空间）=====
-  c.fillStyle = '#111'; c.font = 'bold 34px sans-serif'; c.textAlign = 'left';
-  c.fillText('阴离子洗涤剂残留 · 标准拍摄指导卡', px(0.10), py(0.045));
-  c.font = 'bold 22px sans-serif'; c.fillStyle = '#dc2626';
-  c.fillText('↑ 此边朝上 · 勿倒置拍摄', px(0.10), py(0.085));
+  // ===== 1. 顶部标题栏 + 方向标识（居中，避开四角定位标）=====
+  c.textAlign = 'center';
+  c.fillStyle = '#111'; c.font = 'bold 32px sans-serif';
+  c.fillText('阴离子洗涤剂残留 · 标准拍摄指导卡', w / 2, py(0.035));
+  c.font = 'bold 20px sans-serif'; c.fillStyle = '#dc2626';
+  c.fillText('↑ 此边朝上 · 勿倒置拍摄', w / 2, py(0.072));
 
   // ===== 2. 离心管摆放区（红框，竖放示意）=====
   const tubeR = { x: px(D.tubeSlot.x), y: py(D.tubeSlot.y), w: px(D.tubeSlot.w), h: px(D.tubeSlot.h) };
@@ -471,22 +472,29 @@ async function showTemplateGuide() {
   c.fillStyle = '#2563eb'; c.font = 'bold 24px sans-serif'; c.textAlign = 'center';
   c.fillText('比色卡横放于此（蓝框内，与 7 格对齐）', cardR.x + cardR.w / 2, cardR.y - 8);
 
-  // ===== 4. 四角 ArUco 定位标（算法用，标注在外侧）=====
+  // ===== 4. 四角 ArUco 定位标（算法用，尺寸收窄并贴角，文字在角标外侧）=====
   const fm = D.markers;
-  const cellPx = Math.round(0.16 * w); // 角标占位（含静区）约 16% 页宽
+  const cellPx = Math.round(0.105 * w); // 角标占位（含静区）收窄为约 10.5% 页宽，避免侵入标题/说明
   const markers = [
     { role: 'TL', p: fm.TL, id: 0 }, { role: 'TR', p: fm.TR, id: 1 },
     { role: 'BL', p: fm.BL, id: 2 }, { role: 'BR', p: fm.BR, id: 3 },
   ];
+  c.textBaseline = 'top';
   for (const mk of markers) {
     const cx = px(mk.p.x), cy = py(mk.p.y);
     drawAruco(cx, cy, cellPx, mk.id);
-    c.fillStyle = '#000'; c.font = '12px sans-serif'; c.textAlign = 'center';
-    const off = cellPx / 2 + 14;
-    if (mk.role === 'TL' || mk.role === 'TR') {
-      c.fillText('定位标', cx, cy + off); c.fillText('勿遮挡', cx, cy + off + 14);
+    c.fillStyle = '#374151'; c.font = 'bold 12px sans-serif'; c.textAlign = 'center';
+    // 文字明确放在角标静区外侧，并用 textBaseline='top' 避免基线歧义
+    const half = cellPx / 2;
+    const isTop = mk.role === 'TL' || mk.role === 'TR';
+    if (isTop) {
+      // 放在角标正上方（远离卡片中心）
+      c.fillText('定位标', cx, cy - half - 34);
+      c.fillText('勿遮挡', cx, cy - half - 18);
     } else {
-      c.fillText('定位标', cx, cy - off); c.fillText('勿遮挡', cx, cy - off + 14);
+      // 放在角标正下方（远离卡片中心）
+      c.fillText('定位标', cx, cy + half + 8);
+      c.fillText('勿遮挡', cx, cy + half + 24);
     }
   }
 
