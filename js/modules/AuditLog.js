@@ -35,11 +35,12 @@ const AuditLog = (() => {
         { value: 'reset', label: '重置' }
     ];
 
-    // 操作类型展示标签（完整覆盖 15 项）
+    // 操作类型展示标签（覆盖 15 项 + 后端已有的 role_change）
     const actionLabels = {
         login: '登录', logout: '登出', create: '新增', update: '修改', delete: '删除',
         export: '导出', import: '导入', print: '打印', view: '查看', search: '搜索',
-        download: '下载', upload: '上传', assign: '分配', unassign: '取消分配', reset: '重置'
+        download: '下载', upload: '上传', assign: '分配', unassign: '取消分配', reset: '重置',
+        role_change: '角色变更'
     };
 
     // 资源类型展示标签（与超管 auditView.resourceTypes 一致）
@@ -245,11 +246,11 @@ const AuditLog = (() => {
                     <label class="block text-xs text-gray-500 mb-1">结束日期</label>
                     <input type="date" id="audit-end-date" value="${state.filters.endDate}" class="border rounded px-3 py-2 text-sm">
                 </div>
-                <div class="flex items-end gap-1">
-                    <button id="audit-range-all" class="audit-quick px-3 py-2 text-xs rounded border border-gray-200 hover:bg-gray-50">全部时间</button>
-                    <button id="audit-range-today" class="audit-quick px-3 py-2 text-xs rounded border border-gray-200 hover:bg-gray-50">今天</button>
-                    <button id="audit-range-7" class="audit-quick px-3 py-2 text-xs rounded border border-gray-200 hover:bg-gray-50">最近7天</button>
-                    <button id="audit-range-30" class="audit-quick px-3 py-2 text-xs rounded border border-gray-200 hover:bg-gray-50">最近30天</button>
+                <div class="flex items-end gap-1" id="audit-quick-btns">
+                    <button data-range="all" class="audit-quick px-3 py-2 text-xs rounded border border-gray-200 hover:bg-gray-50">全部时间</button>
+                    <button data-range="today" class="audit-quick px-3 py-2 text-xs rounded border border-gray-200 hover:bg-gray-50">今天</button>
+                    <button data-range="7" class="audit-quick px-3 py-2 text-xs rounded border border-gray-200 hover:bg-gray-50">最近7天</button>
+                    <button data-range="30" class="audit-quick px-3 py-2 text-xs rounded border border-gray-200 hover:bg-gray-50">最近30天</button>
                 </div>
                 <div class="flex items-end gap-2">
                     <button id="audit-search-btn" class="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700"><i class="fas fa-search mr-1"></i>搜索</button>
@@ -266,10 +267,16 @@ const AuditLog = (() => {
     function statCardsHTML() {
         const s = state.stats;
         if (!s) return '';
-        const topUser = (s.topUsers && s.topUsers[0]) || null;
-        const userText = topUser
-            ? `${topUser.full_name || topUser.username} (${topUser.count})`
-            : '—';
+        const topUserRaw = (s.topUsers && s.topUsers[0]) || null;
+        let userText = '—';
+        if (topUserRaw && topUserRaw.user_id) {
+            const u = state.users.find((x) => x.id === topUserRaw.user_id);
+            const name = u ? (u.full_name || u.username) : topUserRaw.user_id;
+            const count = topUserRaw._count && topUserRaw._count.id != null
+                ? topUserRaw._count.id
+                : (topUserRaw.count || 0);
+            userText = `${name} (${count})`;
+        }
         return `
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
             <div class="bg-white rounded-lg shadow-sm p-4 border border-gray-100">
@@ -497,61 +504,61 @@ const AuditLog = (() => {
         const exportBtn = document.getElementById('audit-export-btn');
         const selfOnly = document.getElementById('audit-self-only');
         const userFilter = document.getElementById('audit-user-filter');
+        const actionFilter = document.getElementById('audit-action-filter');
+        const startDate = document.getElementById('audit-start-date');
+        const endDate = document.getElementById('audit-end-date');
 
-        if (searchBtn) searchBtn.addEventListener('click', reload);
+        // 从 UI 读取筛选条件并自动搜索
+        const applyAndReload = () => { applyFiltersFromUI(); reload(); };
+
+        if (searchBtn) searchBtn.addEventListener('click', applyAndReload);
+        if (actionFilter) actionFilter.addEventListener('change', applyAndReload);
+        if (userFilter) userFilter.addEventListener('change', applyAndReload);
+        if (startDate) startDate.addEventListener('change', applyAndReload);
+        if (endDate) endDate.addEventListener('change', applyAndReload);
+        if (selfOnly) selfOnly.addEventListener('change', applyAndReload);
+
         if (resetBtn) resetBtn.addEventListener('click', () => {
             state.filters = { action: '', userId: '', startDate: '', endDate: '', selfOnly: false };
             state.currentPage = 1;
-            const af = document.getElementById('audit-action-filter');
-            const uf = document.getElementById('audit-user-filter');
-            const sd = document.getElementById('audit-start-date');
-            const ed = document.getElementById('audit-end-date');
-            if (af) af.value = '';
-            if (uf) uf.value = '';
-            if (sd) sd.value = '';
-            if (ed) ed.value = '';
+            if (actionFilter) actionFilter.value = '';
+            if (userFilter) userFilter.value = '';
+            if (startDate) startDate.value = '';
+            if (endDate) endDate.value = '';
             if (selfOnly) selfOnly.checked = false;
+            highlightQuickBtn('all');
             loadData().then(render);
         });
         if (refreshBtn) refreshBtn.addEventListener('click', () => loadData().then(render));
         if (exportBtn) exportBtn.addEventListener('click', exportLogs);
 
-        // 「仅本人」与用户下拉互斥
-        if (selfOnly) selfOnly.addEventListener('change', () => {
-            if (selfOnly.checked && userFilter) userFilter.value = '';
-        });
-        if (userFilter) userFilter.addEventListener('change', () => {
-            if (userFilter.value && selfOnly) selfOnly.checked = false;
-        });
-
         // 日期快捷按钮（与超管一致：全部时间 / 今天 / 最近7天 / 最近30天）
-        const bindQuick = (id, fn) => {
-            const el = document.getElementById(id);
-            if (el) el.addEventListener('click', () => {
-                fn();
-                const sd = document.getElementById('audit-start-date');
-                const ed = document.getElementById('audit-end-date');
-                if (sd) sd.value = state.filters.startDate;
-                if (ed) ed.value = state.filters.endDate;
-            });
+        const isoToday = () => new Date().toISOString().slice(0, 10);
+        const setQuickRange = (range) => {
+            if (range === 'all') {
+                state.filters.startDate = '';
+                state.filters.endDate = '';
+            } else if (range === 'today') {
+                state.filters.startDate = isoToday();
+                state.filters.endDate = isoToday();
+            } else {
+                const n = parseInt(range, 10);
+                const end = new Date();
+                const start = new Date();
+                start.setDate(start.getDate() - n);
+                state.filters.startDate = start.toISOString().slice(0, 10);
+                state.filters.endDate = end.toISOString().slice(0, 10);
+            }
+            if (startDate) startDate.value = state.filters.startDate;
+            if (endDate) endDate.value = state.filters.endDate;
+            highlightQuickBtn(range);
+            reload();
         };
-        const today = () => {
-            const t = new Date();
-            const iso = t.toISOString().slice(0, 10);
-            state.filters.startDate = iso;
-            state.filters.endDate = iso;
-        };
-        const daysAgo = (n) => {
-            const t = new Date();
-            t.setDate(t.getDate() - n);
-            state.filters.startDate = t.toISOString().slice(0, 10);
-            const now = new Date();
-            state.filters.endDate = now.toISOString().slice(0, 10);
-        };
-        bindQuick('audit-range-all', () => { state.filters.startDate = ''; state.filters.endDate = ''; });
-        bindQuick('audit-range-today', today);
-        bindQuick('audit-range-7', () => daysAgo(7));
-        bindQuick('audit-range-30', () => daysAgo(30));
+
+        document.querySelectorAll('#audit-quick-btns .audit-quick').forEach((btn) => {
+            btn.addEventListener('click', () => setQuickRange(btn.getAttribute('data-range')));
+        });
+        highlightQuickBtn(detectQuickRange());
 
         // 行点击 → 详情弹窗
         document.querySelectorAll('#audit-table-container tr[data-log-id]').forEach((tr) => {
@@ -594,6 +601,32 @@ const AuditLog = (() => {
         if (detailClose) detailClose.addEventListener('click', closeDetail);
         const modal = document.getElementById('audit-detail-modal');
         if (modal) modal.addEventListener('click', (e) => { if (e.target === modal) closeDetail(); });
+    }
+
+    // 根据当前 state.filters 判断对应哪个快捷按钮
+    function detectQuickRange() {
+        const { startDate, endDate } = state.filters;
+        if (!startDate && !endDate) return 'all';
+        const today = new Date().toISOString().slice(0, 10);
+        if (startDate === today && endDate === today) return 'today';
+        const d7 = new Date(); d7.setDate(d7.getDate() - 7);
+        if (startDate === d7.toISOString().slice(0, 10) && endDate === today) return '7';
+        const d30 = new Date(); d30.setDate(d30.getDate() - 30);
+        if (startDate === d30.toISOString().slice(0, 10) && endDate === today) return '30';
+        return '';
+    }
+
+    function highlightQuickBtn(range) {
+        document.querySelectorAll('#audit-quick-btns .audit-quick').forEach((btn) => {
+            const active = btn.getAttribute('data-range') === range;
+            if (active) {
+                btn.classList.add('bg-blue-50', 'text-blue-700', 'border-blue-300');
+                btn.classList.remove('border-gray-200');
+            } else {
+                btn.classList.remove('bg-blue-50', 'text-blue-700', 'border-blue-300');
+                btn.classList.add('border-gray-200');
+            }
+        });
     }
 
     // ====================== 导出 ======================
