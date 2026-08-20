@@ -528,7 +528,7 @@ function updateFormStructure() {
         topFieldsContainer.innerHTML = `
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">检测日期 <span class="text-red-500">*</span></label>
-                <input type="date" name="testDate" required class="w-full border border-gray-300 p-2 rounded-md shadow-sm">
+                <input type="date" name="testDate" required class="w-full border border-gray-300 p-2 rounded-md shadow-sm" value="${new Date().toISOString().split('T')[0]}">
             </div>
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">食堂编号 <span class="text-red-500">*</span></label>

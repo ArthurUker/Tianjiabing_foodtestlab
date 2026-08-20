@@ -93,7 +93,27 @@ function init() {
   btnClear?.addEventListener('click', resetAll);
   btnConfirmResult?.addEventListener('click', () => {
     if (!lastResult || !lastResult.ok) return;
-    postToParent({ concentration: lastResult.mainValue, rawText: lastResult.mainValueText }, 'detergent');
+
+    // 兼容多种结果字段：优先 mainValue，其次 refinedValue，最后从 mainValueText 解析
+    let val = lastResult.mainValue ?? lastResult.refinedValue;
+    if (val === undefined || val === null || String(val) === '') {
+      const parsed = parseFloat(lastResult.mainValueText);
+      if (!Number.isNaN(parsed)) val = parsed;
+    }
+
+    const valueText = lastResult.mainValueText || (val != null ? `${val} mg/L` : '');
+    // GB 14934 洗涤剂残留判定：≤0.005 mg/100cm² 合格（与 Tableware.js 保持一致）
+    let judge = '';
+    if (val != null && !Number.isNaN(Number(val))) {
+      judge = Number(val) <= 0.005 ? '合格 (≤0.005)' : '不合格 (>0.005)';
+    }
+
+    postToParent({
+      value: val != null ? String(val) : '',
+      valueText,
+      judge,
+      detail: lastResult,
+    }, 'detergent');
   });
 
   // 模式切换（前端本地 / 后端排队）
@@ -216,7 +236,14 @@ async function runRecognitionInternal(image, source) {
 
   stage = 'result';
   lastResult = res;
-  drawOverlay(canvas, res, { scaleX: canvas.width / res.canvasSize.width, scaleY: canvas.height / res.canvasSize.height });
+  if (res.tightCardRect) currentRegions = Object.assign({}, currentRegions, { tightCardRect: normRect(res.tightCardRect, res.canvasSize) });
+  drawOverlay(canvas, res, {
+    scaleX: canvas.width / res.canvasSize.width,
+    scaleY: canvas.height / res.canvasSize.height,
+    tightCardRect: res.tightCardRect
+      ? { xPx: res.tightCardRect.xPx, yPx: res.tightCardRect.yPx, wPx: res.tightCardRect.wPx, hPx: res.tightCardRect.hPx }
+      : null,
+  });
   renderResult(res);
   resultPanel.style.display = 'block';
   resultLegend.style.display = 'block';
@@ -556,6 +583,7 @@ async function runLocateStep(image) {
   currentRegions = {
     cardRect: normRect(loc.cardRect, loc.canvasSize),
     tube: normRect(loc.tube, loc.canvasSize),
+    tightCardRect: loc.tightCardRect ? normRect(loc.tightCardRect, loc.canvasSize) : null,
     modified: false,
   };
 
@@ -748,10 +776,17 @@ async function confirmBlocks() {
     const cardRect = currentRegions?.cardRect
       ? denormRect(currentRegions.cardRect, locateCanvasSize)
       : null;
+    const tight = currentRegions?.tightCardRect
+      ? denormRect(currentRegions.tightCardRect, locateCanvasSize)
+      : null;
     drawOverlay(canvas, res, {
       scaleX: canvas.width / res.canvasSize.width,
       scaleY: canvas.height / res.canvasSize.height,
       cardRect,
+      tightCardRect: tight
+        ? { xPx: Math.round(tight.x * res.canvasSize.width), yPx: Math.round(tight.y * res.canvasSize.height),
+            wPx: Math.round(tight.w * res.canvasSize.width), hPx: Math.round(tight.h * res.canvasSize.height) }
+        : null,
     });
   }
   renderResult(res);

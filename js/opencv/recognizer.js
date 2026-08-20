@@ -226,6 +226,85 @@ function deltaE2000(lab1, lab2) {
 }
 
 // ----------------------------------------------------------------------------
+// 实测色卡精框：在 cardSlot 大框 ROI 内找真实比色卡的最小包围盒（显示用）
+//   思路：把 ROI 转 HSV，对饱和度通道做"逐列积分"找左右边界、"逐行积分"找上下边界，
+//   再按 7 格比色卡合理纵横比（约 6.7:1）裁剪，避免把桌面/空白也圈进去。
+// ----------------------------------------------------------------------------
+function findTightColorCard(cv, warped, cardSlotNorm, width, height) {
+  const x = Math.round(cardSlotNorm.x * width);
+  const y = Math.round(cardSlotNorm.y * height);
+  const w = Math.max(1, Math.round(cardSlotNorm.w * width));
+  const h = Math.max(1, Math.round(cardSlotNorm.h * height));
+  const roi = warped.roi(new cv.Rect(x, y, w, h));
+
+  const hsv = new cv.Mat();
+  cv.cvtColor(roi, hsv, cv.COLOR_RGBA2RGB);   // warped 是 RGBA
+  cv.cvtColor(hsv, hsv, cv.COLOR_RGB2HSV);
+  const s = new cv.Mat();
+  cv.extractChannel(hsv, s, 1); // 1 = S 通道
+
+  const rows = s.rows, cols = s.cols;
+  const colSum = new Array(cols).fill(0);
+  const rowSum = new Array(rows).fill(0);
+  const sd = s.data; // Uint8 单通道
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const v = sd[r * cols + c];
+      colSum[c] += v;
+      rowSum[r] += v;
+    }
+  }
+  hsv.delete(); s.delete();
+
+  // 列积分阈值（相对峰值）
+  const maxCol = Math.max(...colSum, 1);
+  const colThr = maxCol * 0.18;
+  let left = -1, right = -1;
+  for (let c = 0; c < cols; c++) { if (colSum[c] > colThr) { left = c; break; } }
+  for (let c = cols - 1; c >= 0; c--) { if (colSum[c] > colThr) { right = c; break; } }
+  // 行积分阈值
+  const maxRow = Math.max(...rowSum, 1);
+  const rowThr = maxRow * 0.18;
+  let top = -1, bot = -1;
+  for (let r = 0; r < rows; r++) { if (rowSum[r] > rowThr) { top = r; break; } }
+  for (let r = rows - 1; r >= 0; r--) { if (rowSum[r] > rowThr) { bot = r; break; } }
+
+  roi.delete();
+
+  // 兜底：找不到明显色块列则退回大框
+  if (left < 0 || right < 0 || top < 0 || bot < 0 || right - left < cols * 0.1 || bot - top < rows * 0.1) {
+    return { x: cardSlotNorm.x, y: cardSlotNorm.y, w: cardSlotNorm.w, h: cardSlotNorm.h };
+  }
+
+  // 按 7 格比色卡合理纵横比（宽:高 ≈ 6.7:1）对称裁剪，避免把空白边圈进
+  let tW = right - left + 1, tH = bot - top + 1;
+  const aspect = 6.7;
+  if (tW / tH > aspect * 1.6) {
+    // 太宽：以高度为准收窄宽度
+    const wantW = Math.round(tH * aspect);
+    const cxMid = left + (right - left) / 2;
+    left = Math.max(0, Math.round(cxMid - wantW / 2));
+    right = Math.min(cols - 1, left + wantW);
+    tW = right - left + 1;
+  } else if (tH / tW > 1 / aspect * 1.6) {
+    // 太高：以宽度为准压低高度
+    const wantH = Math.round(tW / aspect);
+    const cyMid = top + (bot - top) / 2;
+    top = Math.max(0, Math.round(cyMid - wantH / 2));
+    bot = Math.min(rows - 1, top + wantH);
+    tH = bot - top + 1;
+  }
+
+  // 归一化（相对整图）
+  return {
+    x: (x + left) / width,
+    y: (y + top) / height,
+    w: tW / width,
+    h: tH / height,
+  };
+}
+
+// ----------------------------------------------------------------------------
 // 主识别
 // ----------------------------------------------------------------------------
 export async function recognize(img, options = {}) {
@@ -295,6 +374,12 @@ export async function recognize(img, options = {}) {
 
     warped.delete();
 
+    // 4.5) 在 cardSlot 大框内计算「真实色卡最小包围盒」精框（仅用于显示对齐，不参与比色）
+    let tightCardNorm = null;
+    try {
+      tightCardNorm = findTightColorCard(cv, warped, TEMPLATE.cardSlot, width, height);
+    } catch (e) { console.warn('findTightColorCard failed', e); }
+
     return {
       ok: true,
       mainValue: main.concentration,
@@ -303,6 +388,11 @@ export async function recognize(img, options = {}) {
       confidence: Number(confidence.toFixed(2)),
       sampleLab: tubeLab,
       blocks: cardLab.map((lab, i) => ({ concentration: concentrations[i], lab })),
+      tightCardRect: tightCardNorm
+        ? { x: tightCardNorm.x, y: tightCardNorm.y, w: tightCardNorm.w, h: tightCardNorm.h,
+            xPx: Math.round(tightCardNorm.x * width), yPx: Math.round(tightCardNorm.y * height),
+            wPx: Math.round(tightCardNorm.w * width), hPx: Math.round(tightCardNorm.h * height) }
+        : null,
       sortedDistances: dists.map(d => ({
         concentration: d.concentration, deltaE: Number(d.deltaE.toFixed(2)), lab: d.lab,
       })),
@@ -374,9 +464,17 @@ export async function locateRegions(img, options = {}) {
     if (markers.length >= 4) {
       const roles = assignMarkerRoles(markers);
       if (roles) {
+        const cardRectPx = px(TEMPLATE.cardSlot, width, height);
+        let tightCardPx = null;
+        try {
+          const tightNorm = findTightColorCard(cv, mat, TEMPLATE.cardSlot, width, height);
+          tightCardPx = { x: Math.round(tightNorm.x * width), y: Math.round(tightNorm.y * height),
+            w: Math.round(tightNorm.w * width), h: Math.round(tightNorm.h * height) };
+        } catch (e) { console.warn('locateRegions tightCard failed', e); }
         return {
           ok: true, canvasSize: { width, height },
-          cardRect: px(TEMPLATE.cardSlot, width, height),
+          cardRect: cardRectPx,
+          tightCardRect: tightCardPx,
           tube: px(TEMPLATE.tubeSlot, width, height),
           blocks: inferBlocks(regionsPx(TEMPLATE.cardSlot, width, height), concentrations.length, false),
         };
@@ -528,6 +626,20 @@ export function drawOverlay(canvasEl, result, opts = {}) {
   if (cardRect) {
     ctx.strokeStyle = '#16a34a';
     ctx.strokeRect(cardRect.x * scaleX, cardRect.y * scaleY, cardRect.w * scaleX, cardRect.h * scaleY);
+  }
+
+  // 实测色卡精框（蓝色实线，画在大框内部，用于视觉对齐真实比色卡）
+  const tight = result.tightCardRect || opts.tightCardRect;
+  if (tight) {
+    const tx = (tight.xPx != null ? tight.xPx : tight.x * W) * scaleX;
+    const ty = (tight.yPx != null ? tight.yPx : tight.y * H) * scaleY;
+    const tw = (tight.wPx != null ? tight.wPx : tight.w * W) * scaleX;
+    const th = (tight.hPx != null ? tight.hPx : tight.h * H) * scaleY;
+    ctx.save();
+    ctx.strokeStyle = '#2563eb';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(tx, ty, tw, th);
+    ctx.restore();
   }
 
   // 样品区框（蓝色）
