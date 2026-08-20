@@ -872,7 +872,7 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
             if (!schema) return res.status(400).json({ error: '无效的学校代码' })
             const tenantPrisma = createTenantClient(prisma, code)
             const users = await tenantPrisma.$queryRawUnsafe(
-                `SELECT "id","username","role","status","created_at","last_login"
+                `SELECT "id","username","role","status","disabled_reason","created_at","last_login"
                  FROM "${schema}"."User" ORDER BY "created_at" DESC`
             )
             // 标记非法角色（仅作可见性提示；不允许前端编辑/重置密码/停用）

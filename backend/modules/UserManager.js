@@ -820,7 +820,7 @@ export class UserManager {
 
             await this.prisma.user.update({
                 where: { id: userId },
-                data: { status: 'disabled' }
+                data: { status: 'disabled', disabled_reason: 'manual' }
             })
 
             // H4: 强制服务端审计
@@ -855,7 +855,7 @@ export class UserManager {
 
             await this.prisma.user.update({
                 where: { id: userId },
-                data: { status: 'active' }
+                data: { status: 'active', disabled_reason: null }
             })
 
             // H4: 强制服务端审计
@@ -1270,9 +1270,9 @@ export class UserManager {
                     if (recentFailures >= autoDisableThreshold) {
                         await this.prisma.user.update({
                             where: { id: userId },
-                            data: { status: 'disabled' }
+                            data: { status: 'disabled', disabled_reason: 'auto_attempts' }
                         })
-                        console.warn(`⚠️ 用户 ${username}(id=${userId}) 因 ${autoDisableWindowMs / 1000} 秒内连续 ${recentFailures} 次登录失败，已自动停用`)
+                        console.warn(`⚠️ 用户 ${username}(id=${userId}) 因 ${autoDisableWindowMs / 1000} 秒内连续 ${recentFailures} 次登录失败，已被系统自动停用（disabled_reason=auto_attempts）`)
                     }
                 }
             } catch (autoErr) {

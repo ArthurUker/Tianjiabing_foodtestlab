@@ -41,6 +41,14 @@ export async function loadUsers(schoolCode) {
                    </div>`
                 : (roleMap[u.role] || escapeHtml(u.role));
             const disabledAttrs = isInvalid ? 'disabled title="该账号角色非法，请在右侧点击『自动降级』收敛后操作"' : '';
+            // P-account-auto-disable-visibility: 区分自动停用与手动停用，便于超管针对性恢复
+            const isAutoDisabled = (u.status || 'active') !== 'active' && u.disabled_reason === 'auto_attempts';
+            const statusBadge = (() => {
+                const s = u.status || 'active';
+                if (s === 'active') return '<span class="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs">启用</span>';
+                if (u.disabled_reason === 'auto_attempts') return '<span class="px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full text-xs" title="登录失败次数过多，已被系统自动停用，可点『启用』恢复">自动停用</span>';
+                return '<span class="px-2 py-0.5 bg-gray-200 text-gray-600 rounded-full text-xs">已停用</span>';
+            })();
             const opsCell = isInvalid
                 ? `<button class="px-2 py-1 text-xs bg-emerald-50 text-emerald-700 rounded hover:bg-emerald-100 transition btn-demote-admin" data-id="${escapeHtml(u.id)}" data-username="${escapeHtml(u.username)}" title="将该账号立即降级为 manager（重新初始化流）"${disabledAttrs}><i class="fas fa-shield-alt mr-1"></i>立即自动降级</button>`
                 : `
@@ -57,7 +65,7 @@ export async function loadUsers(schoolCode) {
                 <td class="font-mono">${escapeHtml(u.username)}</td>
                 <td>${escapeHtml(u.full_name || '-')}</td>
                 <td>${roleCell}</td>
-                <td>${(u.status || 'active') === 'active' ? '<span class="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs">启用</span>' : '<span class="px-2 py-0.5 bg-gray-200 text-gray-600 rounded-full text-xs">停用</span>'}</td>
+                <td>${statusBadge}${isAutoDisabled ? '<div class="text-[11px] text-orange-500 mt-0.5">可点『启用』恢复</div>' : ''}</td>
                 <td class="text-xs text-gray-500">${u.created_at ? new Date(u.created_at).toLocaleDateString() : ''}</td>
                 <td class="text-xs text-gray-500">${u.last_login ? new Date(u.last_login).toLocaleDateString() : '—'}</td>
                 <td class="space-x-1 whitespace-nowrap">${opsCell}</td>

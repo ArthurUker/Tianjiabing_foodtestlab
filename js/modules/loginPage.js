@@ -57,38 +57,27 @@ if (helpLink) {
     helpLink.href = '/help.html' + (currentSchoolCode ? '?school=' + encodeURIComponent(currentSchoolCode) : '');
 }
 
-// ===== P11：账号被停用后，后端返回 401 触发统一登出并跳转 ?banned=1 =====
-// 登录页展示醒目红色横幅，禁用/隐藏登录表单，避免用户反复尝试登录却无提示。
+// ===== P11：后端 401 统一登出后会跳转 ?banned=1 =====
+// 这里的 "banned" 实际涵盖了"会话过期 / Token 失效 / 账号被停用"等多种场景，
+// 因此只展示提示横幅，不再禁用表单。这样即使 URL 残留 banned=1，或管理员
+// 已在后台重新启用账号，用户仍可正常输入账号密码重新登录，避免"后台显示
+// 已启用、前台却完全无法登录"的矛盾状态。
 (function handleBannedParam() {
     try {
         const params = new URLSearchParams(location.search);
         if (params.get('banned') !== '1') return;
 
-        // 注入红色横幅（置于卡片顶部）
+        // 注入黄色/红色提示横幅（置于卡片顶部），但不阻止用户继续尝试登录
         const card = document.querySelector('.login-container .glass') || document.querySelector('.login-container');
         if (card) {
             const banner = document.createElement('div');
             banner.id = 'bannedBanner';
             banner.style.cssText = 'background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;border-radius:12px;padding:14px 16px;margin-bottom:18px;font-size:14px;line-height:1.6;display:flex;align-items:flex-start;gap:10px;';
-            banner.innerHTML = '<i class="fas fa-ban" style="margin-top:2px;"></i><div><strong>账号已被停用</strong><br>您的账号已被管理员停用，暂时无法登录系统。如有疑问，请联系所在学校的学校管理员或平台超管处理。</div>';
+            banner.innerHTML = '<i class="fas fa-exclamation-circle" style="margin-top:2px;"></i><div><strong>登录状态异常</strong><br>您的会话已过期或账号状态发生变化，请重新登录。若仍无法登录，请联系学校管理员或平台超管处理。</div>';
             card.insertBefore(banner, card.firstChild);
         }
 
-        // 禁用管理员登录表单（隐藏输入与按钮，并阻止提交）
-        const adminForm = document.getElementById('loginForm');
-        if (adminForm) {
-            adminForm.querySelectorAll('input, button').forEach(el => { el.disabled = true; });
-            adminForm.style.opacity = '0.55';
-            adminForm.style.pointerEvents = 'none';
-            adminForm.addEventListener('submit', e => e.preventDefault(), true);
-        }
-        // 访客入口同样禁用
-        const guestFormEl = document.getElementById('guestForm');
-        if (guestFormEl) {
-            guestFormEl.querySelectorAll('input, button').forEach(el => { el.disabled = true; });
-        }
-        const guestTab = document.getElementById('guestTabBtn');
-        if (guestTab) guestTab.disabled = true;
+        // 不再禁用表单：用户可以继续输入并提交，由后端返回最新真实状态。
     } catch (e) { /* 横幅注入失败不应影响页面其余功能 */ }
 })();
 

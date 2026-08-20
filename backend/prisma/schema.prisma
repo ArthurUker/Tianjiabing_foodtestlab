@@ -25,6 +25,9 @@ model User {
   phone         String?
   role          String   @default("operator") // admin / manager / operator / viewer
   status        String   @default("active") // active / disabled
+  // 停用原因：auto_attempts（登录失败次数过多被系统自动停用）/ manual（管理员手动停用）/ null（启用或未停用）
+  // 用于超管平台区分「自动锁定」与「人工停用」，便于针对性恢复（P-account-auto-disable-visibility, 2026-08-20）
+  disabled_reason String?
   school_code   String?  // 所属学校代码（方案②）；dev/test 共享 schema 时为空
   // Viewer 账号申请审批（P13 衍生需求）：审批通过即开放全部模块（含病原体）只读。
   can_view_pathogen Boolean @default(false)
