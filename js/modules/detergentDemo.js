@@ -535,9 +535,18 @@ async function showTemplateGuide() {
   const url = g.toDataURL('image/png');
   const win = window.open('', '_blank');
   if (!win) { alert('预览被浏览器拦截，请允许弹出窗口'); return; }
-  win.document.write(`<html><head><title>拍摄指导卡</title></head><body style="margin:0;text-align:center;">
-    <img src="${url}" style="width:100%;max-width:794px;">
-    <p><button onclick="window.print()" style="padding:12px 24px;font-size:16px;">打印此 A4 指导卡</button></p>
+  win.document.write(`<html><head><title>拍摄指导卡</title>
+    <style>
+      @page { size: A4; margin: 0; }
+      html, body { margin: 0; padding: 0; }
+      img { display: block; width: 210mm; height: 297mm; }
+      .bar { position: fixed; left: 0; right: 0; bottom: 0; text-align: center;
+             padding: 10px 0; background: #fff; border-top: 1px solid #ddd; }
+      .bar button { padding: 12px 24px; font-size: 16px; }
+      @media print { .bar { display: none; } }
+    </style></head><body>
+    <img src="${url}">
+    <div class="bar"><button onclick="window.print()">打印此 A4 指导卡（请选「实际大小/100%」，勿缩放）</button></div>
     </body></html>`);
   win.document.close();
 }
