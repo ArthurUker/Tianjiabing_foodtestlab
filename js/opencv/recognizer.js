@@ -31,7 +31,10 @@ export const TEMPLATE = {
   },
   // 比色卡与离心管上下分开，避免拍摄指导卡重叠，同时给单应校正后采样留出清晰区域
   tubeSlot: { x: 0.40, y: 0.18, w: 0.20, h: 0.22 }, // 离心管区（上方，竖放）
-  cardSlot: { x: 0.20, y: 0.52, w: 0.60, h: 0.14 }, // 比色卡区（下方，横放）
+  // 比色卡区：真实比色卡 89mm × 52mm（宽×高，纵横比 ≈1.71:1）。
+  // 相对整张 A4 拍摄卡（210×297mm）：宽 89/210≈0.424，高 52/297≈0.175；
+  // 下方居中摆放（x 居中、y 取 0.52 处），标记框精确等于真实比色卡尺寸。
+  cardSlot: { x: 0.288, y: 0.52, w: 0.424, h: 0.175 },
   blockCount: 7,
 };
 
@@ -228,7 +231,7 @@ function deltaE2000(lab1, lab2) {
 // ----------------------------------------------------------------------------
 // 实测色卡精框：在 cardSlot 大框 ROI 内找真实比色卡的最小包围盒（显示用）
 //   思路：把 ROI 转 HSV，对饱和度通道做"逐列积分"找左右边界、"逐行积分"找上下边界，
-//   再按 7 格比色卡合理纵横比（约 6.7:1）裁剪，避免把桌面/空白也圈进去。
+//   再按真实比色卡合理纵横比（宽:高 ≈ 1.71:1，即 89mm × 52mm）裁剪，避免把桌面/空白也圈进去。
 // ----------------------------------------------------------------------------
 function findTightColorCard(cv, warped, cardSlotNorm, width, height) {
   const x = Math.round(cardSlotNorm.x * width);
@@ -276,9 +279,9 @@ function findTightColorCard(cv, warped, cardSlotNorm, width, height) {
     return { x: cardSlotNorm.x, y: cardSlotNorm.y, w: cardSlotNorm.w, h: cardSlotNorm.h };
   }
 
-  // 按 7 格比色卡合理纵横比（宽:高 ≈ 6.7:1）对称裁剪，避免把空白边圈进
+  // 按真实比色卡合理纵横比（宽:高 ≈ 1.71:1，89mm×52mm）对称裁剪，避免把空白边圈进
   let tW = right - left + 1, tH = bot - top + 1;
-  const aspect = 6.7;
+  const aspect = 1.71;
   if (tW / tH > aspect * 1.6) {
     // 太宽：以高度为准收窄宽度
     const wantW = Math.round(tH * aspect);
