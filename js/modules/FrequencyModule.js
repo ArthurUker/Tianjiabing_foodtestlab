@@ -40,20 +40,33 @@ const TYPE_NAMES = {
     pathogen: '病原体'
 };
 
+const DAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+
+function formatTodayText(json) {
+    const now = new Date(json.data.date || new Date());
+    const weekDay = DAY_NAMES[now.getDay()];
+    const dateStr = `${now.getMonth() + 1}月${now.getDate()}日`;
+    const items = (json.data && json.data.items) || [];
+    const names = items.map(i => TYPE_NAMES[i.test_type] || i.name || i.test_type);
+    const prefix = `📅 ${dateStr} ${weekDay} | 今日待检测：`;
+    if (!names.length) {
+        return `${prefix} ✅ 已全部完成 / 暂无安排`;
+    }
+    return `${prefix}${names.join('、')}`;
+}
+
 // ========== N2: 每日登录提示今日检测项目 ==========
 export async function showTodayDetectionHint() {
     try {
         const resp = await fetch(`${API_BASE}/api/frequency/today`, { headers: authHeaders() });
         const json = await resp.json();
         if (!json.success) return;
-        const items = (json.data && json.data.items) || [];
-        if (!items.length) return;
         const todayKey = `today_hint_${extractSchoolCode()}_${new Date().toISOString().slice(0, 10)}`;
         if (sessionStorage.getItem(todayKey)) return;
         sessionStorage.setItem(todayKey, '1');
-        const names = items.map(i => i.name).join('、');
+        const msg = formatTodayText(json);
         setTimeout(() => {
-            UINotification.info(`📅 今日待检测: ${names}`);
+            UINotification.info(msg, 5000);
         }, 1200);
     } catch (e) {
         console.warn('今日检测提示获取失败:', e.message);
@@ -74,15 +87,9 @@ export async function loadDailyReminderBar() {
             return;
         }
 
-        const items = json.data.items || [];
-        if (items.length === 0) {
-            bar.classList.add('hidden');
-            return;
-        }
-
+        const line = formatTodayText(json);
         // 构建滚动内容：用两份相同内容实现无缝循环滚动
-        const names = items.map(i => `【${i.name}】`).join('');
-        const scrollText = `${names}　　${names}`;
+        const scrollText = `${line}　　　　${line}　　　　`;
 
         contentEl.textContent = scrollText;
         bar.classList.remove('hidden');
