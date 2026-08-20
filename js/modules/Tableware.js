@@ -528,7 +528,7 @@ function updateFormStructure() {
         topFieldsContainer.innerHTML = `
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">检测日期 <span class="text-red-500">*</span></label>
-                <input type="date" name="testDate" required class="w-full border border-gray-300 p-2 rounded-md shadow-sm" value="${new Date().toISOString().split('T')[0]}">
+                <input type="date" name="testDate" required class="w-full border border-gray-300 p-2 rounded-md shadow-sm">
             </div>
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">食堂编号 <span class="text-red-500">*</span></label>
@@ -543,6 +543,15 @@ function updateFormStructure() {
                 <input type="text" name="inspector" placeholder="输入姓名" required class="w-full border border-gray-300 p-2 rounded-md shadow-sm">
             </div>
         `;
+        // JS 显式兜底：即使 HTML 缓存或 value 属性被覆盖，也能保证默认当天
+        const dateInput = topFieldsContainer.querySelector('input[name="testDate"]');
+        if (dateInput && !dateInput.value) {
+            const today = new Date();
+            const yyyy = today.getFullYear();
+            const mm = String(today.getMonth() + 1).padStart(2, '0');
+            const dd = String(today.getDate()).padStart(2, '0');
+            dateInput.value = `${yyyy}-${mm}-${dd}`;
+        }
     }
         // 点位容器
     const pointsContainer = document.getElementById('atpPointsContainer');
