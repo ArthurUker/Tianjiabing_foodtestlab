@@ -175,7 +175,9 @@ const AuditLog = (() => {
     async function fetchUsers() {
         try {
             const json = await fetchApi('/api/audit-logs/users');
-            state.users = json.data || [];
+            // 后端返回结构为 { success:true, data:{ users:[...], deletedIds:[...] } }
+            const users = (json.data && json.data.users) || json.users || [];
+            state.users = Array.isArray(users) ? users : [];
         } catch (e) {
             state.users = [];
         }

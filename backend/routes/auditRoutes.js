@@ -37,6 +37,13 @@ export function createAuditRoutes(userManager, prisma) {
     // ====== Authentication Middleware（统一从 authMiddleware.js 导入）======
     const { authenticateUser, authorizeAdmin } = createAuthMiddleware(userManager, prisma)
 
+    // 学校级管理员（admin 或 manager）均可访问审计统计/导出，与 /users 路由权限一致。
+    // 仅平台超管跨租户接口（/school/:schoolCode*）仍使用严格的 authorizeAdmin。
+    const authorizeSchoolAdmin = (req, res, next) => {
+        if (req.user && (req.user.role === 'admin' || req.user.role === 'manager')) return next()
+        return res.status(403).json({ error: '❌ 需要管理员权限' })
+    }
+
     // ====== Public Routes ======
 
     /**
@@ -182,7 +189,7 @@ export function createAuditRoutes(userManager, prisma) {
      * （仅管理员可访问）
      * P1-27: 静态路由前移至 /:logId 之前，遵循 Express 最佳实践
      */
-    router.get('/stats/summary', authenticateUser, authorizeAdmin, async (req, res) => {
+    router.get('/stats/summary', authenticateUser, authorizeSchoolAdmin, async (req, res) => {
         try {
             // P2-25: 支持 date 查询参数按指定日期过滤（格式 YYYY-MM-DD）
             const { date } = req.query
@@ -245,7 +252,7 @@ export function createAuditRoutes(userManager, prisma) {
      * （仅管理员可访问）
      * P1-27: 新增导出路由，对齐前端 AuditLogService.exportLogs() 调用
      */
-    router.get('/export', authenticateUser, authorizeAdmin, async (req, res) => {
+    router.get('/export', authenticateUser, authorizeSchoolAdmin, async (req, res) => {
         try {
             const { start_date, end_date } = req.query
 
