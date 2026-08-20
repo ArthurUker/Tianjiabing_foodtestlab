@@ -210,6 +210,35 @@
         @media (min-width: 769px) {
             #sbToggle { display: none !important; }
         }
+
+        /* 每日检测滚动提醒条样式 */
+        .daily-reminder-bar {
+            background: linear-gradient(90deg, #f59e0b, #ef4444, #f59e0b);
+            background-size: 200% 100%;
+            animation: reminderGradient 3s ease infinite;
+            color: white;
+            overflow: hidden;
+            position: relative;
+            z-index: 40;
+        }
+        .daily-reminder-bar.hidden { display: none !important; }
+        .daily-reminder-inner {
+            display: flex;
+            align-items: center;
+            padding: 0.5rem 1rem;
+            white-space: nowrap;
+            animation: reminderScroll 18s linear infinite;
+        }
+        .daily-reminder-inner:hover { animation-play-state: paused; }
+        @keyframes reminderGradient {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        @keyframes reminderScroll {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(-50%); }
+        }
     </style>
 </head>
 <body>
@@ -248,6 +277,14 @@
             </div>
         </div>
     </nav>
+
+    <!-- 每日检测滚动提醒条 -->
+    <div id="dailyReminderBar" class="daily-reminder-bar hidden">
+        <div class="daily-reminder-inner">
+            <i class="fas fa-bell mr-2"></i><span class="font-semibold">今日待检测：</span>
+            <span id="dailyReminderContent"></span>
+        </div>
+    </div>
 
     <!-- 手机端侧边栏遮罩 -->
     <div id="sbOverlay" class="sb-overlay" style="display:none"></div>

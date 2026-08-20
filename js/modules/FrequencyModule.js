@@ -60,6 +60,44 @@ export async function showTodayDetectionHint() {
     }
 }
 
+// ========== 顶部滚动提醒条：今日待检测项目（排除已完成的）==========
+export async function loadDailyReminderBar() {
+    try {
+        const bar = document.getElementById('dailyReminderBar');
+        const contentEl = document.getElementById('dailyReminderContent');
+        if (!bar || !contentEl) return;
+
+        const resp = await fetch(`${API_BASE}/api/frequency/today`, { headers: authHeaders() });
+        const json = await resp.json();
+        if (!json.success || !json.data) {
+            bar.classList.add('hidden');
+            return;
+        }
+
+        const items = json.data.items || [];
+        if (items.length === 0) {
+            bar.classList.add('hidden');
+            return;
+        }
+
+        // 构建滚动内容：用两份相同内容实现无缝循环滚动
+        const names = items.map(i => `【${i.name}】`).join('');
+        const scrollText = `${names}　　${names}`;
+
+        contentEl.textContent = scrollText;
+        bar.classList.remove('hidden');
+    } catch (e) {
+        console.warn('每日提醒条加载失败:', e.message);
+        const bar = document.getElementById('dailyReminderBar');
+        if (bar) bar.classList.add('hidden');
+    }
+}
+
+// 提供手动刷新方法（完成检测后调用）
+export function refreshDailyReminderBar() {
+    loadDailyReminderBar();
+}
+
 // ========== N1 + N3: 渲染「检测频率与月报」页(所有登录用户可看) ==========
 export async function renderFrequencyCards(container) {
     // 页面骨架(与其他模块一致: glass 主容器 + 标题 + 子面板)
@@ -359,4 +397,4 @@ export function initFrequencySettings(panel) {
     render();
 }
 
-export default { showTodayDetectionHint, renderFrequencyCards, initFrequencySettings };
+export default { showTodayDetectionHint, renderFrequencyCards, initFrequencySettings, loadDailyReminderBar, refreshDailyReminderBar };

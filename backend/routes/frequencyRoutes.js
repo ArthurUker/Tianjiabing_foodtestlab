@@ -251,7 +251,7 @@ router.put('/calendar', requireManagerOrAbove, async (req, res) => {
     }
 })
 
-// GET /api/frequency/today —— N2 每日提示: 今日(按星期几)待检测项目
+// GET /api/frequency/today —— N2 每日提示: 今日(按星期几)待检测项目(排除当日已完成的)
 router.get('/today', async (req, res) => {
     try {
         const db = req.db
@@ -259,10 +259,30 @@ router.get('/today', async (req, res) => {
         await ensureSeed(db, schoolCode)
         const now = new Date()
         const dayOfWeek = now.getDay() === 0 ? 7 : now.getDay() // 周一=1...周日=7
+
+        // 获取今日日历安排的检测项目
         const rows = await db.detectionCalendar.findMany({
             where: { school_code: schoolCode, day_of_week: dayOfWeek, enabled: true }
         })
-        const items = rows.map(r => ({ test_type: r.test_type, name: (TEST_TYPES[r.test_type] || {}).name || r.test_type }))
+
+        // 获取当日已完成的检测记录（按 test_type 去重，同一类型完成一次即视为已完成）
+        const todayStart = new Date(now)
+        todayStart.setHours(0, 0, 0, 0)
+        const todayEnd = new Date(now)
+        todayEnd.setHours(23, 59, 59, 999)
+
+        const completedRows = await db.$queryRawUnsafe(
+            `SELECT DISTINCT test_type FROM "TestRecord"
+             WHERE created_at >= $1 AND created_at < $2 AND status = 'completed'`,
+            todayStart, todayEnd
+        )
+        const completedTypes = new Set(completedRows.map(r => r.test_type))
+
+        // 过滤掉当日已完成的检测项目
+        const items = rows
+            .filter(r => !completedTypes.has(r.test_type))
+            .map(r => ({ test_type: r.test_type, name: (TEST_TYPES[r.test_type] || {}).name || r.test_type }))
+
         res.json({ success: true, data: { date: now.toISOString(), day_of_week: dayOfWeek, items } })
     } catch (error) {
         console.error('❌ Get today error:', error)

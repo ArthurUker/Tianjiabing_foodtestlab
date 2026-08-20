@@ -25,7 +25,7 @@ import { authService } from './services/AuthService.js';
 import { GuestDashboard } from './modules/GuestDashboard.js';
 // 6. ✨ 引入会话管理服务
 // N1/N2/N3: 检测频率/日历/月报模块
-import { showTodayDetectionHint, renderFrequencyCards, initFrequencySettings } from './modules/FrequencyModule.js';
+import { showTodayDetectionHint, renderFrequencyCards, initFrequencySettings, loadDailyReminderBar } from './modules/FrequencyModule.js';
 // P0-quickAccess: 快速访问模式检测 + CSS 注入收敛为单一事实来源（原 index.html ~330 行散落逻辑）
 import { isQuickAccessMode, injectQuickAccessStyle } from './modules/quickAccess.js';
 
@@ -296,6 +296,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
                 // N2: 每日登录提示今日检测项目
                 showTodayDetectionHint();
+                // 顶部滚动提醒条：今日待检测项目（排除已完成的）
+                loadDailyReminderBar();
                 // N1/N2: 检测日历/频率设置页(manager+) - 直接渲染到区块
                 const settingsEl = document.getElementById('frequency-settings');
                 if (settingsEl) {
