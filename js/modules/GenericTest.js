@@ -11,6 +11,7 @@ import { collectCustomFieldValues, getSchoolCustomization, getSchoolCanteens } f
 // 隐藏规则失效，被管理端隐藏的字段会随提交再次落库。
 import { extractSchoolCode } from '../utils/schoolCode.js';
 import { escapeHtml } from '../utils/schoolCustomization/shared.js';
+import { getLocalDateStr } from '../utils/dateUtil.js';
 
 export class GenericTestModule {
     constructor(config) {
@@ -54,6 +55,7 @@ export class GenericTestModule {
             } else {
                 form.addEventListener('submit', (e) => this.handleSubmit(e), { signal });
                 this.updateFormStructure();
+                this.setDefaultTestDate();
 
                 if (this.moduleName === 'oil') {
                     this.initOilQualityAutoUpdate();
@@ -898,8 +900,18 @@ export class GenericTestModule {
                 }
             }
         }
+    }
 
-        const tbody = document.getElementById(this.tableId);
+    setDefaultTestDate() {
+        const form = document.getElementById(this.formId);
+        if (!form) return;
+        const dateInput = form.querySelector('input[name="testDate"]');
+        if (dateInput && !dateInput.value) {
+            dateInput.value = getLocalDateStr();
+        }
+    }
+
+    getRecordDate(record) {
         if (tbody) {
             const tableElement = tbody.closest('table');
 

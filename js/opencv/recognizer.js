@@ -375,13 +375,14 @@ export async function recognize(img, options = {}) {
     else if (main.deltaE <= 18) confidence = 0.45;
     else confidence = 0.30;
 
-    warped.delete();
-
     // 4.5) 在 cardSlot 大框内计算「真实色卡最小包围盒」精框（仅用于显示对齐，不参与比色）
+    // 必须在使用 warped 之前调用，避免在 warped.delete() 之后误用已释放的 Mat。
     let tightCardNorm = null;
     try {
       tightCardNorm = findTightColorCard(cv, warped, TEMPLATE.cardSlot, width, height);
     } catch (e) { console.warn('findTightColorCard failed', e); }
+
+    warped.delete();
 
     return {
       ok: true,

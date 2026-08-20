@@ -12,6 +12,7 @@ import { collectCustomFieldValues, getSchoolCustomization, getSchoolCanteens } f
 // `if (!schoolCode) return {}` 始终返回空对象，FieldOption 级联配置读不到，级联下拉永远
 // fallback 到 Tableware.js 内置硬编码（包含「密胺类餐具」），导致管理端删除无效。
 import { extractSchoolCode } from '../utils/schoolCode.js';
+import { getLocalDateStr } from '../utils/dateUtil.js';
 
 const storage = new StorageService('tableware');
 let currentPage = 1;
@@ -521,8 +522,8 @@ function updateFormStructure() {
     `;
     form.insertBefore(formHeader, form.firstChild);
     
-    // 顶部字段
-    const topFieldsContainer = form.querySelector('.grid.grid-cols-3');
+    // 顶部字段：通过日期输入框反查容器，兼容 md:grid-cols-3 响应式类名
+    const topFieldsContainer = form.querySelector('input[name="testDate"]')?.closest('.grid');
     if (topFieldsContainer) {
         topFieldsContainer.className = 'grid grid-cols-1 md:grid-cols-3 gap-6 p-5 bg-gray-50 rounded-lg border border-gray-200';
         topFieldsContainer.innerHTML = `
@@ -546,11 +547,7 @@ function updateFormStructure() {
         // JS 显式兜底：即使 HTML 缓存或 value 属性被覆盖，也能保证默认当天
         const dateInput = topFieldsContainer.querySelector('input[name="testDate"]');
         if (dateInput && !dateInput.value) {
-            const today = new Date();
-            const yyyy = today.getFullYear();
-            const mm = String(today.getMonth() + 1).padStart(2, '0');
-            const dd = String(today.getDate()).padStart(2, '0');
-            dateInput.value = `${yyyy}-${mm}-${dd}`;
+            dateInput.value = getLocalDateStr();
         }
     }
         // 点位容器

@@ -10,6 +10,7 @@
  */
 
 import { isEmbedded, postToParent } from '../utils/embed.js';
+import { authService } from '../services/AuthService.js';
 import {
   recognize, MARKER_DICT, TEMPLATE as OPENCV_TEMPLATE,
   locateRegions, analyzeWithRegions, detectBlocksInRect,
@@ -253,7 +254,9 @@ async function runRecognitionInternal(image, source) {
 // 后端排队识别：上传 base64 → /api/recognize，轮询状态拿到结果
 async function recognizeBackend(canvasEl) {
   const apiUrl = (window.API_BASE || '').replace(/\/$/, '') || '';
-  const token = localStorage.getItem('authToken') || localStorage.getItem('token') || '';
+  // 统一从 AuthService 取令牌（系统按 auth_token__<schoolCode> 命名空间存储，非裸 key）
+  const token = (typeof authService !== 'undefined' && authService?.getToken && authService.getToken())
+    || localStorage.getItem('authToken') || localStorage.getItem('token') || '';
   if (!token) {
     return { ok: false, stage: 'auth', error: 'NO_TOKEN', humanMessage: '后端识别需要登录系统，请先登录再试。' };
   }
@@ -431,8 +434,8 @@ async function showTemplateGuide() {
 
   // 画 ArUco 定位标（MIP_36h12，与算法同一字典）：生成 marker -> 加静区 -> drawImage
   function drawAruco(cx, cy, cell, markerId) {
-    // marker 图案占 cell 的 65%，四周保留 17.5% 白色静区，避免 pad 为负导致黑块溢出
-    const mkSize = Math.max(32, Math.round(cell * 0.65));
+    // marker 图案占 cell 的 72%，四周保留约 14% 白色静区，兼顾识别率与防溢出
+    const mkSize = Math.max(32, Math.round(cell * 0.72));
     const pad = Math.round((cell - mkSize) / 2);
     if (cv && cv.Mat && cv.generateImageMarker) {
       const m = cv.Mat.zeros(mkSize, mkSize, cv.CV_8UC1);
