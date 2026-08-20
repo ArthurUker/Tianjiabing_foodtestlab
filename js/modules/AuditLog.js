@@ -8,7 +8,14 @@
  * 接口：window.AuditLog.init()
  */
 
+// 统一从 AuthService 取令牌：系统 token 按 auth_token__<schoolCode> 命名空间存储，
+// 直接读裸 key 'auth_token' 在带 schoolCode 部署时永远为空 → 后端 401 缺令牌。
+// AuthService.getToken() 已正确处理命名空间 + 内存态 + 多源回退。
+import { authService } from '../services/AuthService.js';
+
 const AuditLog = (() => {
+    const _getToken = () => (authService && typeof authService.getToken === 'function' ? (authService.getToken() || '') : (localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token') || ''));
+
     // 操作类型（与超管 auditView.actionTypes 一致：完整 15 项）
     const actionTypes = [
         { value: 'login', label: '登录' },
@@ -119,7 +126,7 @@ const AuditLog = (() => {
 
     // 统一 fetch 封装（保持与现有实现一致）
     async function fetchApi(path, options = {}) {
-        const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+        const token = _getToken();
         const headers = Object.assign({}, options.headers || {}, {
             'Content-Type': 'application/json'
         });
@@ -594,7 +601,7 @@ const AuditLog = (() => {
             if (state.filters.startDate) params.set('start_date', state.filters.startDate);
             if (state.filters.endDate) params.set('end_date', state.filters.endDate);
             if (state.filters.action) params.set('action', state.filters.action);
-            const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+            const token = _getToken();
             const resp = await fetch(`/api/audit-logs/export?${params.toString()}`, {
                 headers: token ? { Authorization: 'Bearer ' + token } : {}
             });
