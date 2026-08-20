@@ -115,7 +115,7 @@ export function createAuditRoutes(userManager, prisma) {
      */
     router.get('/', authenticateUser, async (req, res) => {
         try {
-            const { userId, username, action, limit = 100, offset = 0 } = req.query
+            const { userId, username, action, limit = 100, offset = 0, startDate, endDate } = req.query
 
             // 普通用户只能查看自己的日志，管理员可以查看所有
             let where = {}
@@ -128,6 +128,22 @@ export function createAuditRoutes(userManager, prisma) {
             }
 
             if (action) where.action = action
+
+            // TD-Timezone-Chaos：以 Asia/Shanghai 日历日为准处理日期范围（与 export 端点一致）
+            if (startDate || endDate) {
+                where.created_at = {}
+                if (startDate) {
+                    const s = new Date(startDate + 'T00:00:00+08:00')
+                    if (!isNaN(s.getTime())) where.created_at.gte = s
+                }
+                if (endDate) {
+                    const e = new Date(endDate + 'T00:00:00+08:00')
+                    if (!isNaN(e.getTime())) {
+                        e.setDate(e.getDate() + 1)
+                        where.created_at.lt = e
+                    }
+                }
+            }
 
             const logs = await req.db.auditLog.findMany({
                 where,
