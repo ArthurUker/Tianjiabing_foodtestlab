@@ -98,7 +98,6 @@ export function initPathogen() {
     // P1-18: 基于权限矩阵，访客（含快速访问模式）无 module:pathogen 权限，禁止初始化病原体模块
     // 原守卫 if (isGuest && !isQuickAccess) 放行快速访问访客，与权限矩阵矛盾
     if (isGuest || isQuickAccess) {
-        console.warn('⛔ 访客无权访问病原体检测模块');
         UINotification.warning('您无权访问病原体检测模块');
         // 同时隐藏模块容器，防止通过菜单/hash直接看到空白或缓存数据
         document.getElementById('pathogen-test')?.classList.add('hidden');
