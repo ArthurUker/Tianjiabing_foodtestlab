@@ -26,12 +26,17 @@ const DEFAULT_CANTEENS = ['一食堂', '二食堂', '三食堂'];
 // RK3：看板应尊重该校 visible_types——未开启的模块不显示统计卡片且不计入总计。
 // 缺省回退到全部 5 个模块（与注册中心默认可见集一致）。
 function getDashboardVisibleTypes() {
+    let types;
     try {
-        const types = getVisibleTypes(getSchoolCustomization(extractSchoolCode()));
-        return Array.isArray(types) && types.length ? types : ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'];
+        types = getVisibleTypes(getSchoolCustomization(extractSchoolCode()));
+        if (!Array.isArray(types) || !types.length) types = ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'];
     } catch (e) {
-        return ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'];
+        types = ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'];
     }
+    // 访客/快速访问模式始终排除 pathogen：该模块对访客不可见（后端返回 403），
+    // 避免看板各处（initCanteenFilter / 趋势图 / 合格率统计等）请求无权数据
+    const isGuestLike = guestAuthService.isLoggedIn() || guestAuthService.isQuickAccessMode();
+    return isGuestLike ? types.filter(t => t !== 'pathogen') : types;
 }
 
 // 全局图表对象

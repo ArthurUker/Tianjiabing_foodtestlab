@@ -838,6 +838,17 @@
                             <div class="text-xs text-gray-600 mt-0.5">共 ${newIssueRecords.length} 项反馈 · 逐条保存 · 与汇总报告同步</div>
                         </div>
                     </div>
+                    <!-- TD-RemindRetest: 复测提醒横幅 -->
+                    <div class="mx-6 mt-4 mb-2 px-4 py-3 rounded-xl bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200/70 flex items-start gap-3 shadow-sm">
+                        <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-yellow-500 flex items-center justify-center text-white shrink-0 mt-0.5">
+                            <i class="fas fa-user-check text-sm"></i>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="text-sm font-semibold text-amber-800">复测提醒</div>
+                            <div class="text-xs text-amber-700 mt-0.5 leading-relaxed">以下新问题需要请 <span class="font-bold text-amber-900">曾水平</span> 进行复测确认，完成反馈填写后将与汇总报告同步收口状态。</div>
+                        </div>
+                    </div>
+                    </div>
                     <div class="divide-y divide-white/40">
                         ${newIssueRecords.map((rec) => renderNewIssueRow(rec, recordsMap)).join('')}
                     </div>
