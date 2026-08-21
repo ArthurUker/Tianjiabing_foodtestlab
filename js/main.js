@@ -266,96 +266,126 @@ document.addEventListener('DOMContentLoaded', async () => {
             console.error('❌ 跨标签页配置同步注册失败:', e);
         }
 
-        // 3. 看板初始化
-        try {
-            const result = initDashboard();
-            // 看板由 initDashboard 动态重建，必须在构建完成后再次应用小标题覆盖
-            applySchoolCustomizationToTitles(customization);
+        // DS-16 / 访客隔离：普通访客（非快速访问）必须进入专用访客视图，
+        // 不得初始化普通看板、病原体、打印导出等业务模块，避免左侧完整菜单泄漏。
+        const isGuestLoggedIn = guestAuthService.isLoggedIn();
+        const isQuickAccess = guestAuthService.isQuickAccessMode();
+        const isRegularGuest = isGuestLoggedIn && !isQuickAccess;
 
-            // 🔥 强制确保Dashboard显示正确标题
-            setTimeout(() => {
-                const dashboardH2 = document.querySelector('#dashboard h2');
-                if (dashboardH2 && dashboardH2.textContent.includes('实时数据概览')) {
-                    console.warn('⚠️ Dashboard标题未更新，强制纠正...');
-                    if (typeof createDashboardStructure === 'function') {
-                        createDashboardStructure();
+        if (isRegularGuest) {
+            // ========== 普通访客模式：仅初始化访客看板并隔离管理菜单 ==========
+            try {
+                const guestDashboard = new GuestDashboard();
+                await guestDashboard.init();
+
+                // 隐藏普通看板，显示访客看板
+                document.getElementById('dashboard')?.classList.add('hidden');
+                document.getElementById('guest-dashboard')?.classList.remove('hidden');
+
+                // 隐藏左侧完整业务导航，仅保留退出登录
+                const sidebarNav = document.querySelector('aside nav');
+                if (sidebarNav) sidebarNav.classList.add('hidden');
+
+                // 显示访客菜单（若有）
+                document.querySelectorAll('.guest-menu-section').forEach(el => {
+                    el.classList.remove('hidden');
+                });
+            } catch (error) {
+                console.error('❌ GuestDashboard 初始化失败:', error);
+            }
+        } else {
+            // ========== 普通员工 / 管理员 / 快速访问模式 ==========
+            // 3. 看板初始化
+            try {
+                const result = initDashboard();
+                // 看板由 initDashboard 动态重建，必须在构建完成后再次应用小标题覆盖
+                applySchoolCustomizationToTitles(customization);
+
+                // 🔥 强制确保Dashboard显示正确标题
+                setTimeout(() => {
+                    const dashboardH2 = document.querySelector('#dashboard h2');
+                    if (dashboardH2 && dashboardH2.textContent.includes('实时数据概览')) {
+                        console.warn('⚠️ Dashboard标题未更新，强制纠正...');
+                        if (typeof createDashboardStructure === 'function') {
+                            createDashboardStructure();
+                        }
                     }
-                }
-            }, 500);
-        } catch (error) {
-            console.error('❌ initDashboard 执行出错:', error.message, error.stack);
-        }
-
-        // N1/N2/N3: 检测频率卡片(月报) + 每日提示 + 配置页初始化
-        if (!quickAccessMode) {
-            try {
-                // N1+N3: 月报卡片渲染到独立区块 #frequency-report(侧栏菜单切换可见)
-                const reportEl = document.getElementById('frequency-report');
-                if (reportEl) {
-                    renderFrequencyCards(reportEl);
-                }
-                // N2: 每日登录提示今日检测项目
-                showTodayDetectionHint();
-                // 顶部滚动提醒条：今日待检测项目（排除已完成的）
-                loadDailyReminderBar();
-                // N1/N2: 检测日历/频率设置页(manager+) - 直接渲染到区块
-                const settingsEl = document.getElementById('frequency-settings');
-                if (settingsEl) {
-                    initFrequencySettings(settingsEl);
-                }
-            } catch (e) {
-                console.error('❌ 检测频率模块初始化失败:', e.message);
-            }
-        }
-
-        // 4. 看板快速导出功能 (仅非快速访问模式)
-        if (!quickAccessMode) {
-            document.getElementById('btnExportDashboard')?.addEventListener('click', () => {
-                ExportService.generatePDF('dashboard', '食品安全日报');
-            });
-        }
-
-        // 5. 初始化数据导出报告模块 (仅非快速访问模式)
-        if (!quickAccessMode) {
-            try {
-                const exportService = new ExportService();
-                exportService.init();
+                }, 500);
             } catch (error) {
-                console.error('❌ ExportService 初始化失败:', error);
+                console.error('❌ initDashboard 执行出错:', error.message, error.stack);
             }
-        }
 
-        // 5b. ✨ 初始化数据备份与恢复模块 (仅非快速访问模式)
-        if (!quickAccessMode) {
-            try {
-                const backupRestore = new BackupRestoreService();
-                backupRestore.init();
-            } catch (error) {
-                console.error('❌ BackupRestoreService 初始化失败:', error);
-            }
-        }
-
-        // 6. ✨ 初始化用户管理模块 (仅管理员可访问)
-        if (!quickAccessMode) {
-            try {
-                if (router.isAdmin() || permissionService.hasRole('manager')) {
-                    initUserManagement();
+            // N1/N2/N3: 检测频率卡片(月报) + 每日提示 + 配置页初始化
+            if (!quickAccessMode) {
+                try {
+                    // N1+N3: 月报卡片渲染到独立区块 #frequency-report(侧栏菜单切换可见)
+                    const reportEl = document.getElementById('frequency-report');
+                    if (reportEl) {
+                        renderFrequencyCards(reportEl);
+                    }
+                    // N2: 每日登录提示今日检测项目
+                    showTodayDetectionHint();
+                    // 顶部滚动提醒条：今日待检测项目（排除已完成的）
+                    loadDailyReminderBar();
+                    // N1/N2: 检测日历/频率设置页(manager+) - 直接渲染到区块
+                    const settingsEl = document.getElementById('frequency-settings');
+                    if (settingsEl) {
+                        initFrequencySettings(settingsEl);
+                    }
+                } catch (e) {
+                    console.error('❌ 检测频率模块初始化失败:', e.message);
                 }
-            } catch (error) {
-                console.error('❌ UserManagement 初始化失败:', error);
             }
-        }
 
-        // 7. ✨ 初始化审计日志模块 (admin/manager 可访问,与 README §7.1 及后端权限一致)
-        // P15: 原仅 router.isAdmin() 导致 manager 登录见空白页;放宽为与用户管理同条件
-        // P2-10：动态导航通过 import 的 initAuditLog 直接调用，无需挂 window
-        if (!quickAccessMode) {
-            try {
-                if (router.isAdmin() || permissionService.hasRole('manager')) {
-                    initAuditLog();
+            // 4. 看板快速导出功能 (仅非快速访问模式)
+            if (!quickAccessMode) {
+                document.getElementById('btnExportDashboard')?.addEventListener('click', () => {
+                    ExportService.generatePDF('dashboard', '食品安全日报');
+                });
+            }
+
+            // 5. 初始化数据导出报告模块 (仅非快速访问模式)
+            if (!quickAccessMode) {
+                try {
+                    const exportService = new ExportService();
+                    exportService.init();
+                } catch (error) {
+                    console.error('❌ ExportService 初始化失败:', error);
                 }
-            } catch (error) {
-                console.error('❌ AuditLog 初始化失败:', error);
+            }
+
+            // 5b. ✨ 初始化数据备份与恢复模块 (仅非快速访问模式)
+            if (!quickAccessMode) {
+                try {
+                    const backupRestore = new BackupRestoreService();
+                    backupRestore.init();
+                } catch (error) {
+                    console.error('❌ BackupRestoreService 初始化失败:', error);
+                }
+            }
+
+            // 6. ✨ 初始化用户管理模块 (仅管理员可访问)
+            if (!quickAccessMode) {
+                try {
+                    if (router.isAdmin() || permissionService.hasRole('manager')) {
+                        initUserManagement();
+                    }
+                } catch (error) {
+                    console.error('❌ UserManagement 初始化失败:', error);
+                }
+            }
+
+            // 7. ✨ 初始化审计日志模块 (admin/manager 可访问,与 README §7.1 及后端权限一致)
+            // P15: 原仅 router.isAdmin() 导致 manager 登录见空白页;放宽为与用户管理同条件
+            // P2-10：动态导航通过 import 的 initAuditLog 直接调用，无需挂 window
+            if (!quickAccessMode) {
+                try {
+                    if (router.isAdmin() || permissionService.hasRole('manager')) {
+                        initAuditLog();
+                    }
+                } catch (error) {
+                    console.error('❌ AuditLog 初始化失败:', error);
+                }
             }
         }
 
@@ -364,48 +394,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             sessionManager.init();
         } catch (error) {
             console.error('❌ SessionManager 初始化失败:', error);
-        }
-
-        // 10. ✨ 初始化访客中心 (仅访客登录用户可访问)
-        try {
-            // 🎯 关键修复：只有当访客已登录且管理员未登录时，才显示访客仪表板
-            const isAdminLoggedIn = router.getToken ? router.getToken() : authService.getToken();
-            const isGuestLoggedIn = guestAuthService.isLoggedIn();
-            
-            // DS-16: 仅打印是否持有 token 的布尔值，严禁输出 token 内容
-            
-            if (isGuestLoggedIn && !isAdminLoggedIn) {
-                
-                // 检查是否为快速访问模式
-                const isQuickAccess = guestAuthService.isQuickAccessMode();
-                
-                const guestDashboard = new GuestDashboard();
-                await guestDashboard.init();
-                
-                // 显示访客菜单
-                document.querySelectorAll('.guest-menu-section').forEach(el => {
-                    el.classList.remove('hidden');
-                });
-                
-                // ✨ 隐藏管理员仪表板，显示访客仪表板
-                const adminDashboard = document.getElementById('dashboard');
-                const guestDashboardEl = document.getElementById('guest-dashboard');
-                
-                if (adminDashboard) {
-                    adminDashboard.classList.add('hidden');
-                }
-                
-                if (guestDashboardEl) {
-                    guestDashboardEl.classList.remove('hidden');
-                }
-                
-                // 隐藏管理员菜单项
-                document.querySelectorAll('[data-admin-only]').forEach(el => {
-                    el.classList.add('hidden');
-                });
-            }
-        } catch (error) {
-            console.error('❌ GuestDashboard 初始化失败:', error);
         }
 
         // ✨ 导航已在初始化开始时设置，无需重复调用
