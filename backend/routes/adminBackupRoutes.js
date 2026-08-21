@@ -21,6 +21,7 @@ import crypto from 'node:crypto'
 import { runBackup } from '../lib/backupService.js'
 import { verifyBackupFile } from '../lib/backupVerify.js'
 import { runRestore } from '../lib/restoreService.js'
+import { compareAllSchemaSnapshots, compareSchemaSnapshot } from '../lib/schemaCompatibility.js'
 import { writeAdminOpsLog } from '../lib/auditLog.js'
 
 const TAG = '[adminBackupRoutes]'
@@ -65,22 +66,66 @@ export function createAdminBackupRoutes({ prisma, authenticateUser, requirePlatf
         prisma.backupRun.count({ where }),
         prisma.backupRun.findMany({ where, orderBy: { created_at: 'desc' }, skip, take }),
       ])
+
+      // 批量读取当前数据库中这些备份涉及的所有 schema 的列结构（一次性查询，避免 N+1）
+      const allBackupSchemas = [...new Set(items.flatMap((r) => Object.keys(r.schema_snapshot || {})))]
+      const currentSchemaMap = {}
+      if (allBackupSchemas.length > 0) {
+        const colRows = await prisma.$queryRawUnsafe(
+          `SELECT table_schema, table_name, column_name, data_type
+           FROM information_schema.columns
+           WHERE table_schema = ANY($1::text[]) AND table_name != '_prisma_migrations'
+           ORDER BY table_schema, table_name, ordinal_position`,
+          allBackupSchemas
+        )
+        for (const row of colRows) {
+          const sc = row.table_schema
+          const tbl = row.table_name
+          if (!currentSchemaMap[sc]) currentSchemaMap[sc] = {}
+          if (!currentSchemaMap[sc][tbl]) currentSchemaMap[sc][tbl] = []
+          currentSchemaMap[sc][tbl].push({ column: row.column_name, type: row.data_type })
+        }
+      }
+
       res.json({
         success: true,
-        data: items.map((r) => ({
-          id: r.id,
-          runType: r.run_type,
-          scope: r.scope,
-          schemaName: r.schema_name,
-          schoolCode: r.school_code,
-          fileSize: r.file_size,
-          tableCounts: r.table_counts,
-          checksum: r.checksum,
-          encrypted: r.encrypted,
-          status: r.status,
-          verifyStatus: r.verify_status,
-          createdAt: r.created_at,
-        })),
+        data: items.map((r) => {
+          const snap = r.schema_snapshot || {}
+          const reports = {}
+          let schemaCompatible = null
+          let schemaCompatSummary = '无结构快照'
+          if (Object.keys(snap).length > 0) {
+            let allCompat = true
+            for (const [schema, snapshot] of Object.entries(snap)) {
+              const current = currentSchemaMap[schema] || {}
+              const report = compareSchemaSnapshot(snapshot, current)
+              reports[schema] = report
+              if (!report.compatible) allCompat = false
+            }
+            schemaCompatible = allCompat
+            schemaCompatSummary = allCompat
+              ? '结构兼容：与当前代码一致'
+              : `结构偏旧：恢复将自动补齐 ${Object.values(reports).reduce((n, rep) => n + rep.details.length, 0)} 项差异`
+          }
+          return {
+            id: r.id,
+            runType: r.run_type,
+            scope: r.scope,
+            schemaName: r.schema_name,
+            schoolCode: r.school_code,
+            fileSize: r.file_size,
+            tableCounts: r.table_counts,
+            schemaSnapshot: r.schema_snapshot,
+            checksum: r.checksum,
+            encrypted: r.encrypted,
+            status: r.status,
+            verifyStatus: r.verify_status,
+            schemaCompatible,
+            schemaCompatSummary,
+            schemaCompatReports: reports,
+            createdAt: r.created_at,
+          }
+        }),
         total,
         page: Number(page) || 1,
         pageSize: take,

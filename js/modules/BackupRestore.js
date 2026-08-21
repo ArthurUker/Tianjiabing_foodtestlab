@@ -112,12 +112,13 @@ export class BackupRestoreService {
                                     <th class="px-3 py-2">时间</th>
                                     <th class="px-3 py-2">大小</th>
                                     <th class="px-3 py-2">校验</th>
+                                    <th class="px-3 py-2">结构兼容</th>
                                     <th class="px-3 py-2">触发</th>
                                     <th class="px-3 py-2 text-right">操作</th>
                                 </tr>
                             </thead>
                             <tbody id="bkList" class="text-gray-700">
-                                <tr><td colspan="5" class="text-center text-gray-400 py-6">加载中…</td></tr>
+                                <tr><td colspan="6" class="text-center text-gray-400 py-6">加载中…</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -145,6 +146,10 @@ export class BackupRestoreService {
                             即将把所选备份恢复为学校 <code class="bg-gray-100 px-1 rounded font-mono" id="bkRestoreSchoolCode">-</code> 的当前数据。
                             恢复流程采用影子恢复：先在临时 schema 还原并校验，通过后再原子切换，原数据被替换为新数据。
                         </p>
+                        <div id="bkRestoreSchemaCompat" class="hidden bg-blue-50 border border-blue-200 text-blue-800 p-3 rounded text-xs mb-4">
+                            <i class="fas fa-info-circle mr-1"></i>
+                            <span id="bkRestoreSchemaCompatText"></span>
+                        </div>
                         <div class="bg-red-50 border border-red-200 text-red-800 p-3 rounded text-xs mb-4">
                             <i class="fas fa-skull-crossbones mr-1"></i>
                             <strong>危险操作</strong>：恢复将覆盖当前生产数据；恢复过程中请勿刷新或关闭页面。
@@ -259,13 +264,13 @@ export class BackupRestoreService {
     async loadList() {
         const tbody = document.getElementById('bkList');
         if (!tbody) return;
-        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-400 py-6">加载中…</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-gray-400 py-6">加载中…</td></tr>';
         try {
             const j = await this._apiFetch(`/api/school/backups?page=${this._page}&pageSize=${BACKUP_PAGE_SIZE}`);
             const list = (j && j.data) || [];
             this._total = (j && j.total) || 0;
             if (!list.length) {
-                tbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-400 py-6">暂无备份</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center text-gray-400 py-6">暂无备份</td></tr>';
                 this.refreshKpi([]);
                 this.updatePager();
                 return;
@@ -274,7 +279,7 @@ export class BackupRestoreService {
             this.refreshKpi(list);
             this.updatePager();
         } catch (e) {
-            tbody.innerHTML = `<tr><td colspan="5" class="text-center text-red-500 py-6">加载失败：${escapeHtml(e.message || String(e))}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="6" class="text-center text-red-500 py-6">加载失败：${escapeHtml(e.message || String(e))}</td></tr>`;
             this.refreshKpi([]);
             this.updatePager();
         }
@@ -294,6 +299,8 @@ export class BackupRestoreService {
         const scopeBadge = isAll
             ? '<span class="inline-flex items-center px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-xs"><i class="fas fa-database mr-1"></i>全库</span>'
             : `<span class="inline-flex items-center px-2 py-0.5 bg-gray-100 text-gray-700 rounded-full text-xs">${escapeHtml(trigger)}</span>`;
+        const compat = fmtSchemaCompat(r);
+        const compatSummary = escapeHtml(r.schemaCompatSummary || (compat.label === '无快照' ? '无结构快照' : compat.label));
         const downloadBtns = isAll ? '' : `
                     <button class="text-sm text-blue-600 hover:underline" data-act="download-enc" data-id="${escapeHtml(id)}"><i class="fas fa-lock mr-1"></i>AES</button>
                     <button class="ml-2 text-sm text-blue-600 hover:underline" data-act="download-plain" data-id="${escapeHtml(id)}"><i class="fas fa-file mr-1"></i>明文</button>`;
@@ -302,13 +309,14 @@ export class BackupRestoreService {
                 <td class="px-3 py-2 text-gray-700 whitespace-nowrap">${escapeHtml(fmtTime(r.createdAt))}</td>
                 <td class="px-3 py-2 text-gray-600">${escapeHtml(size)}</td>
                 <td class="px-3 py-2">${verified}</td>
+                <td class="px-3 py-2">${compat.badge}</td>
                 <td class="px-3 py-2">${scopeBadge}</td>
                 <td class="px-3 py-2 text-right whitespace-nowrap">
                     <button class="text-sm text-blue-600 hover:underline" data-act="verify" data-id="${escapeHtml(id)}">验证</button>
                     <span class="mx-1 text-gray-300">|</span>
                     ${downloadBtns}
                     ${isAll ? '' : '<span class="mx-1 text-gray-300">|</span>'}
-                    <button class="text-sm text-red-600 hover:underline" data-act="restore" data-id="${escapeHtml(id)}">恢复</button>
+                    <button class="text-sm text-red-600 hover:underline" data-act="restore" data-id="${escapeHtml(id)}" data-compat-summary="${compatSummary}">恢复</button>
                 </td>
             </tr>`;
     }
@@ -365,7 +373,8 @@ export class BackupRestoreService {
         try {
             const j = await this._apiFetch(`/api/school/backups/${encodeURIComponent(id)}/verify`, { method: 'POST', body: {} });
             const ok = j && j.success;
-            const lines = (j.checks || []).map(([k, v]) => `${k}: ${v}`).join('\n') || (j.error || '无附加信息');
+            const compatLine = j.schemaCompatSummary ? `结构兼容：${j.schemaCompatSummary}` : '';
+            const lines = ((j.checks || []).map(([k, v]) => `${k}: ${v}`).join('\n') || (j.error || '无附加信息')) + (compatLine ? `\n${compatLine}` : '');
             if (ok) {
                 UINotification.success(`验证完成 ✅\n${lines}`);
             } else {
@@ -415,6 +424,19 @@ export class BackupRestoreService {
         const doBtn = document.getElementById('bkRestoreDo');
         if (input) input.value = '';
         if (doBtn) doBtn.disabled = true;
+        // 显示结构兼容提示
+        const triggerBtn = document.querySelector(`button[data-act="restore"][data-id="${CSS.escape(id)}"]`);
+        const compatSummary = triggerBtn ? triggerBtn.getAttribute('data-compat-summary') : '';
+        const compatBox = document.getElementById('bkRestoreSchemaCompat');
+        const compatText = document.getElementById('bkRestoreSchemaCompatText');
+        if (compatBox && compatText) {
+            if (compatSummary) {
+                compatText.textContent = compatSummary;
+                compatBox.classList.remove('hidden');
+            } else {
+                compatBox.classList.add('hidden');
+            }
+        }
         const modal = document.getElementById('bkRestoreModal');
         if (modal) modal.classList.remove('hidden');
         setTimeout(() => { try { input && input.focus(); } catch (e) { console.warn('[BackupRestore] input.focus 失败:', e && e.message ? e.message : e); } }, 50);
@@ -435,7 +457,8 @@ export class BackupRestoreService {
                 body: { confirmText: 'RESTORE' },
             });
             const ok = j && j.success;
-            const lines = (j.checks || []).map(([k, v]) => `${k}: ${v}`).join('\n') || (j.error || '无附加信息');
+            const compatLine = j.schemaCompatSummary ? `结构兼容：${j.schemaCompatSummary}` : '';
+            const lines = ((j.checks || []).map(([k, v]) => `${k}: ${v}`).join('\n') || (j.error || '无附加信息')) + (compatLine ? `\n${compatLine}` : '');
             if (ok) {
                 UINotification.success(`恢复完成 ✅\n${lines}`);
             } else {
@@ -479,4 +502,23 @@ function fmtVerify(s) {
         return '<span class="inline-flex items-center gap-1 px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded-full text-xs"><i class="fas fa-clock"></i>' + escapeHtml(t) + '</span>';
     }
     return '<span class="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs">' + escapeHtml(t || '-') + '</span>';
+}
+
+function fmtSchemaCompat(r) {
+    if (r.schemaCompatible === true) {
+        return {
+            label: '结构一致',
+            badge: '<span class="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs"><i class="fas fa-check"></i>结构一致</span>'
+        };
+    }
+    if (r.schemaCompatible === false) {
+        return {
+            label: '结构偏旧',
+            badge: '<span class="inline-flex items-center gap-1 px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full text-xs"><i class="fas fa-exclamation-triangle"></i>结构偏旧</span>'
+        };
+    }
+    return {
+        label: '无快照',
+        badge: '<span class="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs">无快照</span>'
+    };
 }

@@ -24,6 +24,7 @@ import { verifyBackupFile } from './backupVerify.js'
 import { writeAdminOpsLog } from './auditLog.js'
 import { rewriteSchemaNames, extractSchemaSegment } from './restoreSqlUtils.js'
 import { alignTenantSchema } from './tenantProvisioner.js'
+import { readCurrentSchemaColumns, compareSchemaSnapshot } from './schemaCompatibility.js'
 
 const TAG = '[restoreService]'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -149,6 +150,27 @@ export async function runRestore({ prisma, backup, targetSchoolCode, actor, log 
       throw new Error(`影子 schema 对齐失败: ${alignErr.message}`)
     }
 
+    // ── 2.6 SCHEMA_COMPAT：生成「备份结构 vs 当前代码结构」兼容性报告 ──
+    // 从 meta.schemaSnapshot 取出目标 schema 备份时的结构，与对齐后影子 schema 对比。
+    // 若备份来自旧版本（缺列/缺表），此处会明确列出补齐项，写入审计日志与返回结果。
+    const backupSchemaSnapshot = (meta.schemaSnapshot && meta.schemaSnapshot[schema]) || null
+    const currentTables = await readCurrentSchemaColumns(prisma, restoreSchema)
+    const compat = compareSchemaSnapshot(backupSchemaSnapshot, currentTables)
+    checks.push(['SCHEMA_COMPAT', compat.summary])
+    if (!compat.compatible) {
+      step('SCHEMA_COMPAT', `结构差异已自动补齐（${compat.details.length} 项）`)
+      for (const d of compat.details.slice(0, 20)) {
+        log(`${TAG} [compat] ${d}`)
+        checks.push(['SCHEMA_COMPAT_DETAIL', d])
+      }
+      if (compat.details.length > 20) {
+        log(`${TAG} [compat] ... 还有 ${compat.details.length - 20} 项差异未列出`)
+        checks.push(['SCHEMA_COMPAT_DETAIL', `... 还有 ${compat.details.length - 20} 项差异`])
+      }
+    } else {
+      step('SCHEMA_COMPAT', '备份结构与当前 schema.prisma 一致')
+    }
+
     // ── 3. VALIDATING：行数对比（meta.tableCounts 基线 vs 影子 schema 实际行数）──
     let mismatches = []
     const countEntries = expectedTables || Object.entries(meta.tableCounts || {})
@@ -194,19 +216,27 @@ export async function runRestore({ prisma, backup, targetSchoolCode, actor, log 
       step('COMPLETE', `恢复完成，目标 schema=${schema}，旧 schema=${oldSchema}（待人工清理）`)
     }
 
-    // 审计（平台级操作）
+    // 审计（平台级操作）：写入 schema 兼容性摘要，便于控制台展示与问题排查
     try {
       await writeAdminOpsLog(prisma, {
         action: 'backup_restore',
         actor,
         targetId: backup.id,
         targetSchoolCode,
-        details: { schema, oldSchema, files: path.basename(aesPath), checkedTables: Object.keys(meta.tableCounts || {}).length },
-        level: 'warn',
+        details: {
+          schema,
+          oldSchema,
+          files: path.basename(aesPath),
+          checkedTables: Object.keys(meta.tableCounts || {}).length,
+          schemaCompatible: compat.compatible,
+          schemaCompatSummary: compat.summary,
+          schemaCompatDetails: compat.details.slice(0, 10),
+        },
+        level: compat.compatible ? 'warn' : 'error',
       })
     } catch (e) { log(`${TAG} ⚠️ 审计写入失败: ${e.message}`) }
 
-    return { ok: true, schema, restoreSchema, oldSchema, checks }
+    return { ok: true, schema, restoreSchema, oldSchema, checks, schemaCompatibility: compat }
   } catch (e) {
     // 失败清理：DROP 临时 schema（原数据零影响）
     await runPsql({ command: `DROP SCHEMA IF EXISTS "${restoreSchema}" CASCADE` }).catch(() => {})

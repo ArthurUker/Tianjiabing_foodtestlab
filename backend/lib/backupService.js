@@ -120,6 +120,33 @@ export async function collectTableCounts(prisma, schemas) {
   return counts
 }
 
+/**
+ * 采集一组 schema 的表结构快照（用于恢复时的 schema 兼容性校验）。
+ * 返回 {"schema": {"table": [{column_name, data_type}]}}，排除 _prisma_migrations。
+ * 设计目的：备份时记录结构版本，恢复前可对比"备份结构"与"当前 schema.prisma 期望的结构"，
+ * 若列缺失/类型不一致可提前告警并自动对齐（2026-08-20 can_view_pathogen 事故的延伸修复）。
+ */
+export async function collectSchemaSnapshot(prisma, schemas) {
+  const snapshot = {}
+  for (const schema of schemas) {
+    if (schema !== 'public') assertSafeSchemaName(schema)
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT table_name, column_name, data_type
+       FROM information_schema.columns
+       WHERE table_schema = $1 AND table_name != '_prisma_migrations'
+       ORDER BY table_name, ordinal_position`,
+      schema
+    )
+    const tables = {}
+    for (const r of rows) {
+      if (!tables[r.table_name]) tables[r.table_name] = []
+      tables[r.table_name].push({ column: r.column_name, type: r.data_type })
+    }
+    snapshot[schema] = tables
+  }
+  return snapshot
+}
+
 // ─────────────────────────────────────────────────────────────
 // pg_dump 执行
 // ─────────────────────────────────────────────────────────────
@@ -330,6 +357,9 @@ async function executeBackup({ prisma, scope, schoolCode, createdBy = 'system', 
   const tableCounts = await collectTableCounts(prisma, dumpSchemas)
   const totalTables = Object.keys(tableCounts).length
 
+  // ②.5 schema 结构快照（用于恢复时校验"备份结构"与"当前代码期望结构"是否一致）
+  const schemaSnapshot = await collectSchemaSnapshot(prisma, dumpSchemas)
+
   // ③ pg_dump
   const ts = localNow().toISOString().replace(/[-:]/g, '').slice(0, 15) // 上海时区 YYYYMMDD_HHMMSS
   const baseName = `${scope === 'all' ? 'all-databases' : dumpSchema}.${ts}`
@@ -356,6 +386,8 @@ async function executeBackup({ prisma, scope, schoolCode, createdBy = 'system', 
     ;({ meta } = await encryptGzStreaming(tmpGz, aesPath))
     // meta 内嵌 tableCounts：L2 恢复后行数对比基线，且使 meta.json 自包含（不依赖 BackupRun 表）
     meta.tableCounts = tableCounts
+    // meta 内嵌 schemaSnapshot：恢复前可对比备份结构与当前代码期望结构（P-schema-compat）
+    meta.schemaSnapshot = schemaSnapshot
     // meta.json 含 DEK 密文（信封外层），权限 600
     await fsp.writeFile(metaPath, JSON.stringify(meta, null, 2), { mode: 0o600 })
     await fsp.unlink(tmpGz).catch(() => {})
@@ -380,6 +412,7 @@ async function executeBackup({ prisma, scope, schoolCode, createdBy = 'system', 
         file_path: aesPath,
         file_size: size,
         table_counts: tableCounts,
+        schema_snapshot: schemaSnapshot,
         checksum: meta.sha256 || null,
         encrypted: true,
         status: 'ok',

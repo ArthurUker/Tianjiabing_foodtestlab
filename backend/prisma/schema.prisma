@@ -213,8 +213,9 @@ model BackupRun {
   school_code   String?  // 学校代码（UI 展示 / 筛选用）
   file_path     String   @unique
   file_size     Int?
-  table_counts  Json?  // JSON {"schema.table": count}，供 L2 恢复后行数对比 (P1-4: 升级 jsonb)
-  checksum      String?  // 备份文件（gz 压缩流）的 sha256（与 meta.json 同值，恢复时校验）
+  table_counts    Json?  // JSON {"schema.table": count}，供 L2 恢复后行数对比 (P1-4: 升级 jsonb)
+  schema_snapshot Json?  // JSON {"schema": {"table": [{column,type}]}}，备份时结构快照 (2026-08-20)
+  checksum        String?  // 备份文件（gz 压缩流）的 sha256（与 meta.json 同值，恢复时校验）
   encrypted     Boolean  @default(true)
   status        String   @default("pending") // pending | running | ok | error
   verify_status String?  // pending | passed | failed（L1/L2 自动验证结果）

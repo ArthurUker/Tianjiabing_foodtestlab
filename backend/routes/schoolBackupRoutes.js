@@ -21,6 +21,7 @@ import { runBackup } from '../lib/backupService.js'
 import { verifyBackupFile } from '../lib/backupVerify.js'
 import { runRestore } from '../lib/restoreService.js'
 import { writeTenantAuditLog } from '../lib/auditLog.js'
+import { compareSchemaSnapshot } from '../lib/schemaCompatibility.js'
 
 const TAG = '[schoolBackupRoutes]'
 
@@ -44,14 +45,52 @@ export function createSchoolBackupRoutes({ prisma, authenticateUser }) {
     next()
   }
 
-  /** 拉一条 BackupRun 并强制校验它属于本校（不匹配返回 403）。 */
+  // 判断某条 BackupRun 当前学校是否可访问：
+  //   - 单校备份：school_code 必须 === 本校
+  //   - 全库备份（scope='all', school_code=null）：方案B 下对所有学校可见，
+  //     允许 verify / restore（restore 内 runRestore 只提取本校 schema 段，不触及其他租户），
+  //     但 download 仍禁止（download 端点单独拦截，见下）。
+  function isBackupVisibleToSchool(run, schoolCode) {
+    if (!run) return false
+    if (run.scope === 'all') return true
+    return run.school_code === schoolCode
+  }
+
+  // 为学校侧构建 schema 兼容报告：仅暴露本校 schema + public，避免泄露其他租户结构。
+  function buildSchoolSchemaCompat(run, schoolCode, currentSchemaMap) {
+    const snap = run.schema_snapshot || {}
+    const relevantSchemas = run.scope === 'all'
+      ? Object.keys(snap).filter((s) => s === schoolCode || s === 'public')
+      : Object.keys(snap).filter((s) => s === schoolCode)
+    if (relevantSchemas.length === 0) {
+      return { schemaCompatible: null, schemaCompatSummary: '无结构快照', schemaCompatReports: {} }
+    }
+    const reports = {}
+    let allCompat = true
+    for (const schema of relevantSchemas) {
+      const current = currentSchemaMap[schema] || {}
+      const report = compareSchemaSnapshot(snap[schema], current)
+      reports[schema] = report
+      if (!report.compatible) allCompat = false
+    }
+    const diffCount = Object.values(reports).reduce((n, rep) => n + rep.details.length, 0)
+    return {
+      schemaCompatible: allCompat,
+      schemaCompatSummary: allCompat
+        ? '结构兼容：与当前代码一致'
+        : `结构偏旧：恢复将自动补齐 ${diffCount} 项差异`,
+      schemaCompatReports: reports,
+    }
+  }
+
+  /** 拉一条 BackupRun 并强制校验它属于本校（不匹配返回 403）。全库备份对本校可见（verify/restore 用）。 */
   async function loadRunOwnedBySchool(id, schoolCode, res) {
     const run = await prisma.backupRun.findUnique({ where: { id } })
     if (!run || !run.file_path) {
       res.status(404).json({ success: false, error: '备份记录或文件不存在' })
       return null
     }
-    if (run.school_code !== schoolCode) {
+    if (!isBackupVisibleToSchool(run, schoolCode)) {
       // 防止猜测 ID 跨校读取 BackupRun 元数据
       res.status(403).json({ success: false, error: '该备份不属于当前学校，无权访问' })
       return null
@@ -106,25 +145,50 @@ export function createSchoolBackupRoutes({ prisma, authenticateUser }) {
           take,
         }),
       ])
+
+      // 学校侧只关心本校 schema + 全库备份中的 public 系统表，避免暴露其他租户结构信息。
+      const currentSchemaMap = {}
+      const schemasToCheck = [schoolCode, 'public']
+      const colRows = await prisma.$queryRawUnsafe(
+        `SELECT table_schema, table_name, column_name, data_type
+         FROM information_schema.columns
+         WHERE table_schema = ANY($1::text[]) AND table_name != '_prisma_migrations'
+         ORDER BY table_schema, table_name, ordinal_position`,
+        schemasToCheck
+      )
+      for (const row of colRows) {
+        const sc = row.table_schema
+        const tbl = row.table_name
+        if (!currentSchemaMap[sc]) currentSchemaMap[sc] = {}
+        if (!currentSchemaMap[sc][tbl]) currentSchemaMap[sc][tbl] = []
+        currentSchemaMap[sc][tbl].push({ column: row.column_name, type: row.data_type })
+      }
+
       res.json({
         success: true,
-        data: items.map((r) => ({
-          id: r.id,
-          runType: r.run_type,
-          scope: r.scope,
-          schemaName: r.schema_name,
-          schoolCode: r.school_code,
-          // 手动/定时区分：手动触发时 created_by 以 "manual_" 前缀开头
-          // （见 POST /run 的 createdBy 拼接），run_type 恒为 scheduled_*，不能作为判断依据
-          createdBy: r.created_by,
-          fileSize: r.file_size,
-          tableCounts: r.table_counts,
-          checksum: r.checksum,
-          encrypted: r.encrypted,
-          status: r.status,
-          verifyStatus: r.verify_status,
-          createdAt: r.created_at,
-        })),
+        data: items.map((r) => {
+          const compat = buildSchoolSchemaCompat(r, schoolCode, currentSchemaMap)
+          return {
+            id: r.id,
+            runType: r.run_type,
+            scope: r.scope,
+            schemaName: r.schema_name,
+            schoolCode: r.school_code,
+            // 手动/定时区分：手动触发时 created_by 以 "manual_" 前缀开头
+            // （见 POST /run 的 createdBy 拼接），run_type 恒为 scheduled_*，不能作为判断依据
+            createdBy: r.created_by,
+            fileSize: r.file_size,
+            tableCounts: r.table_counts,
+            checksum: r.checksum,
+            encrypted: r.encrypted,
+            status: r.status,
+            verifyStatus: r.verify_status,
+            schemaCompatible: compat.schemaCompatible,
+            schemaCompatSummary: compat.schemaCompatSummary,
+            schemaCompatReports: compat.schemaCompatReports,
+            createdAt: r.created_at,
+          }
+        }),
         total,
         page: Number(page) || 1,
         pageSize: take,
@@ -229,12 +293,47 @@ export function createSchoolBackupRoutes({ prisma, authenticateUser }) {
         where: { id: run.id },
         data: { verify_status: result.ok ? 'passed' : 'failed' },
       }).catch(() => {})
+
+      // 学校侧 schema 兼容报告（本校 + public）
+      let compat = { schemaCompatible: null, schemaCompatSummary: '无结构快照', schemaCompatReports: {} }
+      if (fs.existsSync(metaPath)) {
+        try {
+          const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'))
+          const currentSchemaMap = {}
+          const schemasToCheck = [schoolCode, 'public']
+          const colRows = await prisma.$queryRawUnsafe(
+            `SELECT table_schema, table_name, column_name, data_type
+             FROM information_schema.columns
+             WHERE table_schema = ANY($1::text[]) AND table_name != '_prisma_migrations'
+             ORDER BY table_schema, table_name, ordinal_position`,
+            schemasToCheck
+          )
+          for (const row of colRows) {
+            const sc = row.table_schema
+            const tbl = row.table_name
+            if (!currentSchemaMap[sc]) currentSchemaMap[sc] = {}
+            if (!currentSchemaMap[sc][tbl]) currentSchemaMap[sc][tbl] = []
+            currentSchemaMap[sc][tbl].push({ column: row.column_name, type: row.data_type })
+          }
+          compat = buildSchoolSchemaCompat({ schema_snapshot: meta.schemaSnapshot, scope: run.scope }, schoolCode, currentSchemaMap)
+        } catch (metaErr) {
+          console.warn(`${TAG} 读取 meta 计算 schema 兼容失败:`, metaErr.message)
+        }
+      }
+
       await audit(req, 'backup_verify', run.id, {
         ok: result.ok,
         schoolCode,
         error: result.error || null,
       })
-      res.json({ success: result.ok, checks: result.checks, error: result.error || null })
+      res.json({
+        success: result.ok,
+        checks: result.checks,
+        error: result.error || null,
+        schemaCompatible: compat.schemaCompatible,
+        schemaCompatSummary: compat.schemaCompatSummary,
+        schemaCompatReports: compat.schemaCompatReports,
+      })
     } catch (e) {
       console.error(`${TAG} 验证失败:`, e)
       res.status(500).json({ success: false, error: e.message || '验证失败' })
@@ -280,6 +379,9 @@ export function createSchoolBackupRoutes({ prisma, authenticateUser }) {
         error: result.error || null,
         schema: result.schema,
         oldSchema: result.oldSchema,
+        schemaCompatible: result.schemaCompatibility?.compatible ?? null,
+        schemaCompatSummary: result.schemaCompatibility?.summary ?? '无结构快照',
+        schemaCompatReports: result.schemaCompatibility?.reports ?? {},
       })
     } catch (e) {
       console.error(`${TAG} 恢复失败:`, e)

@@ -42,6 +42,14 @@ function verifyBadge(r) {
     return '<span class="text-gray-400 text-xs">未验证</span>';
 }
 
+// P-schema-compat: 备份结构兼容性徽章（2026-08-20）
+// schemaCompatible: true=与当前代码一致, false=偏旧(恢复将自动对齐), null=无快照(旧备份)
+function schemaCompatBadge(r) {
+    if (r.schemaCompatible === true) return '<span class="text-green-600 text-xs" title="备份表结构与当前 schema.prisma 一致"><i class="fas fa-check-circle mr-1"></i>结构一致</span>';
+    if (r.schemaCompatible === false) return '<span class="text-orange-600 text-xs" title="备份结构偏旧，恢复时将自动补齐差异"><i class="fas fa-exclamation-triangle mr-1"></i>结构偏旧</span>';
+    return '<span class="text-gray-400 text-xs" title="旧版本备份，未记录结构快照"><i class="fas fa-question-circle mr-1"></i>无快照</span>';
+}
+
 function typeBadge(r) {
     return r.scope === 'all'
         ? '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-blue-50 text-blue-600 border border-blue-100"><i class="fas fa-globe mr-1"></i>全局</span>'
@@ -160,7 +168,7 @@ export function initBackupView({ API_BASE, authHeaders, notify }) {
         }
         pagers.global.setPage(page);
         const tbody = document.getElementById('bkGlobalList');
-        if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="text-center text-gray-400 py-6">加载中…</td></tr>';
+        if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="text-center text-gray-400 py-6">加载中…</td></tr>';
         try {
             const j = await api(`/?scope=all&page=${page}&pageSize=${pagers.global.perPage}`);
             const rows = j.data || [];
@@ -333,7 +341,7 @@ export function initBackupView({ API_BASE, authHeaders, notify }) {
         const runBtn = document.getElementById('singleRunBackup');
         if (runBtn) runBtn.disabled = true;
         const tbody = document.getElementById('bkSingleList');
-        if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="text-center text-gray-400 py-10">请先选择左侧学校</td></tr>';
+        if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-400 py-10">请先选择左侧学校</td></tr>';
         const pager = document.getElementById('bkSinglePager');
         if (pager) pager.innerHTML = '';
         pagers.single = null; // 重建分页器，避免闭包引用旧学校
@@ -353,7 +361,7 @@ export function initBackupView({ API_BASE, authHeaders, notify }) {
         }
         pagers.single.setPage(page);
         const tbody = document.getElementById('bkSingleList');
-        if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="text-center text-gray-400 py-6">加载中…</td></tr>';
+        if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-400 py-6">加载中…</td></tr>';
         try {
             const j = await api(`/?scope=single&schoolCode=${encodeURIComponent(schoolCode)}&page=${page}&pageSize=${pagers.single.perPage}`);
             const rows = j.data || [];
@@ -642,7 +650,7 @@ export function initBackupView({ API_BASE, authHeaders, notify }) {
         const tbody = document.getElementById(tbodyId);
         if (!tbody) return;
         if (!rows.length) {
-            tbody.innerHTML = `<tr><td colspan="6" class="px-3 py-8 text-center text-gray-400 text-sm">暂无备份记录</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="7" class="px-3 py-8 text-center text-gray-400 text-sm">暂无备份记录</td></tr>`;
             return;
         }
         tbody.innerHTML = rows.map((r) => {
@@ -664,6 +672,7 @@ export function initBackupView({ API_BASE, authHeaders, notify }) {
                     <td class="px-3 py-2 text-xs">${escapeHtml(r.schoolCode || '全部学校')}</td>
                     <td class="px-3 py-2 text-xs">${fmtBytes(r.fileSize)}</td>
                     <td class="px-3 py-2 text-xs">${verifyBadge(r)}</td>
+                    <td class="px-3 py-2 text-xs">${schemaCompatBadge(r)}</td>
                 </tr>
             `;
         }).join('');
@@ -960,10 +969,20 @@ export function initBackupView({ API_BASE, authHeaders, notify }) {
                     <strong>批量恢复（不可逆）</strong>：将使用全库备份对所选 <b>${codes.length}</b> 所学校逐一执行影子恢复（每校独立事务、原子切换）；
                     单校失败不影响其它学校，整体完成前请勿关闭页面。`;
             } else if (codes.length === 1) {
+                // P-schema-compat: 若选择旧结构备份，在警告区明确提示将自动对齐
+                let compatHint = '';
+                if (restoreSourceTab === 'server' && restoreSelectedBackupId) {
+                    const item = restoreCurrentBackups.find((r) => r.id === restoreSelectedBackupId);
+                    if (item && item.schemaCompatible === false) {
+                        compatHint = `<div class="mt-1 text-orange-700"><i class="fas fa-layer-group mr-1"></i>该备份结构偏旧（如缺列），恢复时将自动执行 <code>prisma db push</code> 补齐差异后再切换，不影响原数据。</div>`;
+                    } else if (item && item.schemaCompatible === null) {
+                        compatHint = `<div class="mt-1 text-gray-600"><i class="fas fa-question-circle mr-1"></i>该备份为旧版本备份（无结构快照），恢复时将尝试自动对齐 schema。</div>`;
+                    }
+                }
                 warnEl.innerHTML = `
                     <i class="fas fa-exclamation-triangle mr-1"></i>
                     <strong>危险操作</strong>：影子恢复过程会先在临时 schema 还原并校验，通过后单事务原子切换生产 schema；
-                    切换前任何校验失败都不会影响原数据，一旦切换则不可逆，请确认目标学校与数据源无误后再执行。`;
+                    切换前任何校验失败都不会影响原数据，一旦切换则不可逆，请确认目标学校与数据源无误后再执行。${compatHint}`;
             } else {
                 warnEl.innerHTML = `
                     <i class="fas fa-info-circle mr-1"></i>
@@ -1230,7 +1249,7 @@ export function initBackupView({ API_BASE, authHeaders, notify }) {
         const { showType = true } = opts;
         const tbody = document.getElementById(tbodyId);
         if (!tbody) return;
-        const cols = 5 + (showType ? 1 : 0);
+        const cols = 6 + (showType ? 1 : 0);
 
         tbody.innerHTML = rows.length
             ? rows.map((r) => `
@@ -1240,6 +1259,7 @@ export function initBackupView({ API_BASE, authHeaders, notify }) {
                     <td class="px-3 py-2 text-xs">${escapeHtml(r.schoolCode || '全部学校')}</td>
                     <td class="px-3 py-2 text-xs">${fmtBytes(r.fileSize)}</td>
                     <td class="px-3 py-2 text-xs">${verifyBadge(r)}</td>
+                    <td class="px-3 py-2 text-xs">${schemaCompatBadge(r)}</td>
                     <td class="px-3 py-2 text-xs whitespace-nowrap text-right">
                         ${btn('fa-check', '验证', 'border-gray-300 text-gray-600 hover:bg-gray-100', `data-act="verify" data-id="${r.id}"`)}
                         ${btn('fa-download', '下载加密', 'border-gray-300 text-gray-600 hover:bg-gray-100', `data-act="download-enc" data-id="${r.id}"`)}

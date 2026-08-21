@@ -71,5 +71,27 @@ export async function verifyBackupFile(aesPath, metaPath) {
   }
   checks.push(['数据', `${(text.match(/^COPY/gm) || []).length} 张表含数据（COPY 语句）`])
 
+  // ⑤ schema 结构快照校验（新增）：meta 应携带 schemaSnapshot，且其表集合与 tableCounts 一致
+  // 作用：
+  //   - 防 meta 被篡改：schemaSnapshot 由备份时从 information_schema 采集，与 tableCounts 一一对应；
+  //   - 恢复前可据此判断"备份结构"与"当前代码期望结构"是否兼容（列缺失/类型漂移）。
+  const snap = meta.schemaSnapshot
+  if (!snap || typeof snap !== 'object' || Object.keys(snap).length === 0) {
+    checks.push(['结构快照', '缺失（旧版本备份，恢复时将尝试自动对齐）'])
+  } else {
+    const snapTables = new Set()
+    for (const [schema, tables] of Object.entries(snap)) {
+      for (const tableName of Object.keys(tables)) snapTables.add(`${schema}.${tableName}`)
+    }
+    const tcTables = new Set(Object.keys(tc || {}))
+    const onlyInSnap = [...snapTables].filter((t) => !tcTables.has(t))
+    const onlyInTc = [...tcTables].filter((t) => !snapTables.has(t))
+    if (onlyInSnap.length || onlyInTc.length) {
+      checks.push(['结构快照', `异常（snap 与 tableCounts 不一致：仅 snap=${onlyInSnap.length}, 仅 tc=${onlyInTc.length}）`])
+      return { ok: false, checks, error: 'schemaSnapshot 与 tableCounts 表集合不一致，meta 可能损坏' }
+    }
+    checks.push(['结构快照', `通过（${snapTables.size} 张表，含列结构）`])
+  }
+
   return { ok: true, checks, meta, sqlText: text }
 }
