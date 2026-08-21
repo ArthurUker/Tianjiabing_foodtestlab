@@ -596,6 +596,14 @@ if (appSubmitBtn) {
             showError('用户名格式非法（需3-32位字母、数字或下划线）');
             return;
         }
+        if (!phone) {
+            showError('请填写手机号');
+            return;
+        }
+        if (!/^1[3-9]\d{9}$/.test(phone)) {
+            showError('手机号格式不正确');
+            return;
+        }
 
         this.disabled = true;
         const defaultHtml = this.innerHTML;
