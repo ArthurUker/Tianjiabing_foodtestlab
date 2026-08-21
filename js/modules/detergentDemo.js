@@ -251,14 +251,29 @@ async function runRecognitionInternal(image, source) {
   resultPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
+// 统一读取有效 token：优先 AuthService 命名空间 token，兼容旧裸 key
+function getEffectiveToken() {
+  return (typeof authService !== 'undefined' && authService?.getToken && authService.getToken())
+    || localStorage.getItem('authToken') || localStorage.getItem('token') || '';
+}
+
 // 后端排队识别：上传 base64 → /api/recognize，轮询状态拿到结果
 async function recognizeBackend(canvasEl) {
   const apiUrl = (window.API_BASE || '').replace(/\/$/, '') || '';
-  // 统一从 AuthService 取令牌（系统按 auth_token__<schoolCode> 命名空间存储，非裸 key）
-  const token = (typeof authService !== 'undefined' && authService?.getToken && authService.getToken())
-    || localStorage.getItem('authToken') || localStorage.getItem('token') || '';
+  let token = getEffectiveToken();
+
+  // token 为空时先尝试静默刷新（access token 30 分钟过期是常态，refresh token 7 天有效）
+  if (!token && typeof authService !== 'undefined' && authService?.refreshToken) {
+    try {
+      const refreshed = await authService.refreshToken();
+      if (refreshed.success) token = getEffectiveToken();
+    } catch (e) {
+      console.warn('[detergentDemo] 静默刷新失败:', e?.message || e);
+    }
+  }
+
   if (!token) {
-    return { ok: false, stage: 'auth', error: 'NO_TOKEN', humanMessage: '后端识别需要登录系统，请先登录再试。' };
+    return { ok: false, stage: 'auth', error: 'NO_TOKEN', humanMessage: '登录已过期，请重新登录后再试。' };
   }
 
   const dataUrl = canvasEl.toDataURL('image/png');
@@ -271,11 +286,35 @@ async function recognizeBackend(canvasEl) {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ image: dataUrl, concentrations: CONCENTRATIONS }),
     });
-    const submitJson = await submit.json().catch(() => ({}));
-    if (!submit.ok || !submitJson.ok || !submitJson.jobId) {
-      return { ok: false, stage: 'submit', error: submitJson.error || submit.status, humanMessage: submitJson.humanMessage || `提交失败：HTTP ${submit.status}` };
+    if (submit.status === 401) {
+      // 提交瞬间 token 过期：再尝试一次刷新
+      if (typeof authService !== 'undefined' && authService?.refreshToken) {
+        const refreshed = await authService.refreshToken();
+        if (refreshed.success) {
+          token = getEffectiveToken();
+          const retry = await fetch(`${apiUrl}/api/recognize`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ image: dataUrl, concentrations: CONCENTRATIONS }),
+          });
+          const retryJson = await retry.json().catch(() => ({}));
+          if (!retry.ok || !retryJson.ok || !retryJson.jobId) {
+            return { ok: false, stage: 'submit', error: retryJson.error || retry.status, humanMessage: retryJson.humanMessage || `提交失败：HTTP ${retry.status}` };
+          }
+          jobId = retryJson.jobId;
+        } else {
+          return { ok: false, stage: 'auth', error: 'TOKEN_EXPIRED', humanMessage: '登录已过期，请重新登录后再试。' };
+        }
+      } else {
+        return { ok: false, stage: 'auth', error: 'TOKEN_EXPIRED', humanMessage: '登录已过期，请重新登录后再试。' };
+      }
+    } else {
+      const submitJson = await submit.json().catch(() => ({}));
+      if (!submit.ok || !submitJson.ok || !submitJson.jobId) {
+        return { ok: false, stage: 'submit', error: submitJson.error || submit.status, humanMessage: submitJson.humanMessage || `提交失败：HTTP ${submit.status}` };
+      }
+      jobId = submitJson.jobId;
     }
-    jobId = submitJson.jobId;
   } catch (e) {
     return { ok: false, stage: 'submit', error: 'NETWORK', humanMessage: '提交到服务器失败：' + (e?.message || e) };
   }
@@ -286,9 +325,20 @@ async function recognizeBackend(canvasEl) {
     setBusy(true, '服务器识别中，请稍候…');
     await new Promise(r => setTimeout(r, 1200));
     try {
+      const currentToken = getEffectiveToken() || token;
       const poll = await fetch(`${apiUrl}/api/recognize/status/${jobId}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${currentToken}` },
       });
+      if (poll.status === 401) {
+        if (typeof authService !== 'undefined' && authService?.refreshToken) {
+          const refreshed = await authService.refreshToken();
+          if (refreshed.success) token = getEffectiveToken();
+          else return { ok: false, stage: 'auth', error: 'TOKEN_EXPIRED', humanMessage: '登录已过期，请重新登录后再试。' };
+        } else {
+          return { ok: false, stage: 'auth', error: 'TOKEN_EXPIRED', humanMessage: '登录已过期，请重新登录后再试。' };
+        }
+        continue;
+      }
       const pollJson = await poll.json().catch(() => ({}));
       if (!poll.ok) continue;
 
