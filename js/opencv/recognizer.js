@@ -17,7 +17,7 @@
 //   CONCENTRATIONS      -> 默认浓度序列
 // ============================================================================
 
-export const MARKER_DICT = 'DICT_6X6_250';
+export const MARKER_DICT = 'DICT_6X6_1000';
 export const CONCENTRATIONS = [0, 0.01, 0.05, 0.1, 0.5, 1.0, 2.0];
 
 // 标准模板归一化坐标（与旧 TEMPLATE_DESIGN 一致，原点=卡片左上，1.0=整卡宽/高）
@@ -30,22 +30,25 @@ export const TEMPLATE = {
     BR: { x: 0.87, y: 0.87 },
   },
   // 比色卡与离心管上下分开，避免拍摄指导卡重叠，同时给单应校正后采样留出清晰区域
-  tubeSlot: { x: 0.40, y: 0.18, w: 0.20, h: 0.22 }, // 离心管区（上方，竖放）
-  // 比色卡区：真实比色卡 89mm × 52mm（宽×高，纵横比 ≈1.71:1）。
+  // 以下两个 *Slot 仅为「放置提示框」（实物摆放位置），不再承担识别职责——
+  // 实际识别定位由下方同名的 *Grid 方形矩阵完成。
+  tubeSlot: { x: 0.40, y: 0.18, w: 0.20, h: 0.22 }, // 离心管放置提示框（上方，竖放）
+  // 比色卡放置提示框：真实比色卡 89mm × 52mm（宽×高，纵横比 ≈1.71:1）。
   // 相对整张 A4 拍摄卡（210×297mm）：宽 89/210≈0.424，高 52/297≈0.175；
   // 下方居中摆放（x 居中、y 取 0.52 处），标记框精确等于真实比色卡尺寸。
   cardSlot: { x: 0.288, y: 0.52, w: 0.424, h: 0.175 },
   blockCount: 7,
   // ----------------------------------------------------------------------
   // 方形定位标识矩阵（fiducial grid）：
-  //   在比色卡区 / 样品区各铺一张已知 id 布局的 ArUco 小标矩阵。
-  //   实物放上去会盖住一部分标；算法检测"哪些标还露着"，
-  //   用露出标的 已知理论坐标 + 实测角点 拟合仿射，
-  //   反推被遮挡标的位置 -> 得到物体的精确包围盒 / 偏移 / 旋转。
-  //   id 段：比色卡 100..100+rows*cols-1，样品 200..200+rows*cols-1。
+  //   在比色卡 / 样品放置区四周更大范围铺一张已知 id 布局的 ArUco 小标矩阵，
+  //   矩阵区域（*Grid）比实物放置提示框（*Slot）四周外扩，
+  //   实物放上去只盖住中央，外围一圈标露出；
+  //   算法检测露出标 -> 用 已知理论坐标 + 实测角点 拟合仿射 ->
+  //   反推物体真实位置 / 偏移 / 旋转（再用仿射把 *Slot 映射到真实比色区）。
+  //   id 段：比色卡 100..100+rows*cols-1，样品 300..300+rows*cols-1（DICT_6X6_1000 支持 0-999）。
   // ----------------------------------------------------------------------
-  cardGrid: { rows: 6, cols: 5, baseId: 100, inset: 0.12 }, // 5×6，铺满蓝框内
-  tubeGrid: { rows: 5, cols: 4, baseId: 200, inset: 0.12 }, // 4×5，铺满红框内
+  cardGrid: { x: 0.255, y: 0.49, w: 0.49, h: 0.235, rows: 7, cols: 9, baseId: 100, inset: 0.08 }, // 9×7=63 标，覆盖比色卡四周（间距>标尺寸，避免重叠）
+  tubeGrid: { x: 0.365, y: 0.14, w: 0.27, h: 0.30, rows: 9, cols: 7, baseId: 300, inset: 0.08 }, // 7×9=63 标，覆盖离心管四周
 };
 
 // ----------------------------------------------------------------------------
@@ -409,12 +412,18 @@ function locateByGrid(cv, warped, width, height, slot, grid, minVisible = 4) {
 
   const clamp = (v) => Math.max(0, Math.min(1, v));
   return {
+    affine: { a, b, c0, e, d, f },
     x: clamp(minX), y: clamp(minY),
     w: clamp(maxX) - clamp(minX),
     h: clamp(maxY) - clamp(minY),
     visibleCount: visible.length,
     totalCount: grid.rows * grid.cols,
   };
+}
+
+// 用拟合仿射把模板归一化坐标 (nx,ny) 映射到真实（校正后）归一化坐标
+function applyAffine(aff, nx, ny) {
+  return { x: aff.a * nx + aff.b * ny + aff.c0, y: aff.e * nx + aff.d * ny + aff.f };
 }
 
 // ----------------------------------------------------------------------------
@@ -462,14 +471,21 @@ export async function recognize(img, options = {}) {
     H.delete();
 
     // 4) 取色：7 色块 + 样品区（通过方形定位标识矩阵反推真实区域）
-    // 比色卡：先尝试用矩阵遮挡推断得到真实包围盒，回退到固定 cardSlot
+    // 比色卡：先用外扩矩阵（cardGrid 区域）做遮挡推断，得到仿射；
+    //   再用仿射把「比色卡放置提示框 cardSlot」映射到真实比色区（精确 7 等分）。
+    //   矩阵未检出时回退到固定 cardSlot。
     let cardSlotUsed = TEMPLATE.cardSlot;
     let cardGridLoc = null;
     try {
-      cardGridLoc = locateByGrid(cv, warped, width, height, TEMPLATE.cardSlot, TEMPLATE.cardGrid, 4);
+      // 理论坐标基于矩阵大区域（grid.slot 已与 cardGrid 定义一致）
+      cardGridLoc = locateByGrid(cv, warped, width, height, TEMPLATE.cardGrid, TEMPLATE.cardGrid, 4);
     } catch (e) { console.warn('locateByGrid(card) failed', e); }
-    if (cardGridLoc && cardGridLoc.w > 0.05 && cardGridLoc.h > 0.02) {
-      cardSlotUsed = cardGridLoc;
+    if (cardGridLoc && cardGridLoc.w > 0.05 && cardGridLoc.h > 0.02 && cardGridLoc.affine) {
+      // 用仿射把比色卡放置框映射到真实位置
+      const a = cardGridLoc.affine;
+      const p1 = applyAffine(a, TEMPLATE.cardSlot.x, TEMPLATE.cardSlot.y);
+      const p2 = applyAffine(a, TEMPLATE.cardSlot.x + TEMPLATE.cardSlot.w, TEMPLATE.cardSlot.y + TEMPLATE.cardSlot.h);
+      cardSlotUsed = { x: p1.x, y: p1.y, w: p2.x - p1.x, h: p2.y - p1.y };
     } else {
       cardGridLoc = null; // 矩阵未检出 -> 用固定区域兜底
     }
@@ -480,14 +496,17 @@ export async function recognize(img, options = {}) {
       cardLab.push(sampleAvgLab(cv, warped,
         { x: cx + i * blockW + blockW * 0.15, y: cy + ch * 0.15, w: blockW * 0.7, h: ch * 0.7 }, width, height));
     }
-    // 样品区：同样用矩阵反推真实包围盒（红框内离心管位置/旋转）
+    // 样品区：同样用外扩矩阵反推仿射，映射到离心管放置框真实位置
     let tubeSlotUsed = TEMPLATE.tubeSlot;
     let tubeGridLoc = null;
     try {
-      tubeGridLoc = locateByGrid(cv, warped, width, height, TEMPLATE.tubeSlot, TEMPLATE.tubeGrid, 4);
+      tubeGridLoc = locateByGrid(cv, warped, width, height, TEMPLATE.tubeGrid, TEMPLATE.tubeGrid, 4);
     } catch (e) { console.warn('locateByGrid(tube) failed', e); }
-    if (tubeGridLoc && tubeGridLoc.w > 0.03 && tubeGridLoc.h > 0.03) {
-      tubeSlotUsed = tubeGridLoc;
+    if (tubeGridLoc && tubeGridLoc.w > 0.03 && tubeGridLoc.h > 0.03 && tubeGridLoc.affine) {
+      const a = tubeGridLoc.affine;
+      const p1 = applyAffine(a, TEMPLATE.tubeSlot.x, TEMPLATE.tubeSlot.y);
+      const p2 = applyAffine(a, TEMPLATE.tubeSlot.x + TEMPLATE.tubeSlot.w, TEMPLATE.tubeSlot.y + TEMPLATE.tubeSlot.h);
+      tubeSlotUsed = { x: p1.x, y: p1.y, w: p2.x - p1.x, h: p2.y - p1.y };
     } else {
       tubeGridLoc = null;
     }

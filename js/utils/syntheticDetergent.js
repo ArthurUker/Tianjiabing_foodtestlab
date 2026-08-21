@@ -69,8 +69,8 @@ export function generateSyntheticDetergentCanvas(size = 2000) {
       }
     }
   };
-  drawGrid(TEMPLATE.cardSlot, TEMPLATE.cardGrid);
-  drawGrid(TEMPLATE.tubeSlot, TEMPLATE.tubeGrid);
+  drawGrid(TEMPLATE.cardGrid, TEMPLATE.cardGrid);
+  drawGrid(TEMPLATE.tubeGrid, TEMPLATE.tubeGrid);
 
   // 将灰度 ArUco Mat 绘制到临时 canvas 再 drawImage 到主画布，完全绕开 cv.imshow
   // （cv.imshow 对灰度 Mat→canvas 在浏览器 UMD 版行为不可靠，会覆盖整张画布）
