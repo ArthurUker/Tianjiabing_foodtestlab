@@ -355,7 +355,16 @@ async function exportDashboardToPDF() {
 
 function createDashboardStructure() {
     const dashboardSection = document.getElementById('dashboard');
-    
+
+    // 访客/快速访问模式不渲染打印导出按钮（避免绕过导出权限）
+    const isGuestLike = guestAuthService.isLoggedIn() || guestAuthService.isQuickAccessMode();
+    const exportButtonHtml = isGuestLike ? '' : `
+        <!-- 🆕 导出按钮 -->
+        <button id="btnExportDashboardPDF" class="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition text-sm">
+            <i class="fas fa-print mr-1"></i>打印 / 另存为 PDF
+        </button>
+    `;
+
     // 创建增强版看板HTML
     dashboardSection.innerHTML = `
         <table class="print-doc">
@@ -400,10 +409,7 @@ function createDashboardStructure() {
                     <button id="btnFilterDashboard" class="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm">
                         <i class="fas fa-filter mr-1"></i>筛选
                     </button>
-                    <!-- 🆕 导出按钮 -->
-                    <button id="btnExportDashboardPDF" class="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition text-sm">
-                        <i class="fas fa-print mr-1"></i>打印 / 另存为 PDF
-                    </button>
+                    ${exportButtonHtml}
                 </div>
             </div>
             <!-- 1. 统计卡片区域 -->

@@ -100,6 +100,8 @@ export function initPathogen() {
     if (isGuest || isQuickAccess) {
         console.warn('⛔ 访客无权访问病原体检测模块');
         UINotification.warning('您无权访问病原体检测模块');
+        // 同时隐藏模块容器，防止通过菜单/hash直接看到空白或缓存数据
+        document.getElementById('pathogen-test')?.classList.add('hidden');
         return; // 访客无权访问，直接返回
     }
     

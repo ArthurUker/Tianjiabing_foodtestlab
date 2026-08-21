@@ -358,10 +358,21 @@
                 }
                 for (const id in allMap) allMap[id].sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0))
             } catch { /* 拉取失败时回退到默认空渲染 */ }
-            renderGroups(map, allMap)
+
+            // TD-NewIssueInMainForm: 额外拉取 new_问题 组的记录，用于在主表单区域渲染
+            let newIssueRecords = []
+            try {
+                const r2 = await fetch(`/api/test-results?case_group=${encodeURIComponent(NEW_ISSUE_GROUP)}&pageSize=500`, { headers: apiHeaders() })
+                const j2 = await r2.json()
+                newIssueRecords = (j2.data || []).filter((it) => !CLOSED_CASE_IDS.has(it.case_id))
+            } catch { /* 拉取失败时忽略 */ }
+
+            renderGroups(map, allMap, newIssueRecords)
             // renderGroups 内 select 已根据 recordsMap 预填 selected & result-* 类；
             // 此处再回填 detail textarea / evidence 分步 / 已保存时间，确保首次渲染即为最终态。
             restoreFromRecords(map)
+            // 回填 new_问题 组的记录
+            restoreNewIssueRecords(newIssueRecords, map)
             loadSummary()
             loadMyIssues()
         }
@@ -380,6 +391,25 @@
                 try { renderSteps(id, evidenceSteps(rec.evidence || '')) } catch (e) { /* 忽略单条异常 */ }
                 const st = $(`st_${id}`)
                 if (st && rec.updated_at) st.textContent = `已保存 ${new Date(rec.updated_at).toLocaleString('zh-CN')} · 操作人 ${rec.submitted_by || '—'}`
+            }
+        }
+
+        // TD-NewIssueInMainForm: 回填 new_问题 组的记录到主表单区域
+        function restoreNewIssueRecords(newIssueRecords, map) {
+            for (const rec of newIssueRecords) {
+                const id = rec.case_id
+                if (!id || CLOSED_CASE_IDS.has(id)) continue
+                const hasContent = (rec.detail && rec.detail.trim()) || (rec.evidence && rec.evidence.trim()) || (rec.result && rec.result !== 'pending')
+                if (!hasContent) continue
+                const det = $(`det_${id}`)
+                if (det) det.value = rec.detail || ''
+                const evi = $(`evi_${id}`)
+                if (evi) evi.value = rec.evidence || ''
+                try { renderSteps(id, evidenceSteps(rec.evidence || '')) } catch (e) { /* 忽略 */ }
+                const st = $(`st_${id}`)
+                if (st && rec.updated_at) st.textContent = `已保存 ${new Date(rec.updated_at).toLocaleString('zh-CN')} · 操作人 ${rec.submitted_by || '—'}`
+                // 同时更新 recordsMap 以便后续 saveCase 能正确处理
+                map[id] = rec
             }
         }
 
@@ -617,12 +647,147 @@
             return j.urls || []
         }
 
+        // ═══ 渲染单个正式用例行（供 renderGroups 调用）═══
+        function renderCaseRow(c, g, recordsMap) {
+            const rec = recordsMap[c.id]
+            const hasContent = rec && ((rec.detail && rec.detail.trim()) || (rec.evidence && rec.evidence.trim()) || (rec.result && rec.result !== 'pending'))
+            const cur = hasContent ? rec.result : ''
+            const stText = hasContent && rec.updated_at ? `已保存 ${new Date(rec.updated_at).toLocaleString('zh-CN')} · 操作人 ${rec.submitted_by || '—'}` : ''
+            return `
+            <div class="case-row px-6 py-5 transition-colors">
+                <!-- 第一行：ID+标题 | 结果 | 保存按钮 -->
+                <div class="flex items-start gap-3 flex-wrap">
+                    <div class="flex-1 min-w-[200px] ${c.fixNote ? 'relative pl-3 border-l-4 border-emerald-400 rounded-l-md' : ''}">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <span class="inline-flex items-center px-3 py-1 rounded-lg text-xs font-mono font-semibold bg-gradient-to-r from-indigo-100 to-emerald-100 text-indigo-700 border border-white/60">${esc(c.id)}</span>
+                            ${c.fixNote ? `<span title="${esc(c.fixNote)}" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-sm shadow-emerald-200/60 border border-emerald-300/50"><i class="fas fa-wrench text-[10px]"></i>已修复 · 请复测</span>` : ''}
+                            <span id="st_${esc(c.id)}" class="text-xs text-gray-500"></span>
+                            ${c.guide ? `<button type="button" data-guide="${esc(c.id)}" class="guide-toggle inline-flex items-center gap-1.5 text-xs font-medium text-amber-700 hover:text-amber-900 bg-amber-50/80 hover:bg-amber-100/90 border border-amber-200/60 rounded-lg px-2.5 py-1 transition-colors" title="点击展开/收起测试步骤指导">
+                                <i class="fas fa-list-check"></i><span>测试步骤</span><i class="guide-arrow fas fa-chevron-down text-[10px]"></i>
+                            </button>` : ''}
+                        </div>
+                        <div class="text-sm text-gray-800 mt-2 leading-snug font-medium">${esc(c.title)}</div>
+                        ${c.fixNote ? `<div class="mt-2 flex items-start gap-1.5 rounded-lg px-2.5 py-1.5 text-xs bg-emerald-50 text-emerald-700 border border-emerald-200/70"><i class="fas fa-info-circle mt-0.5 text-emerald-500"></i><span>${esc(c.fixNote)}</span></div>` : ''}
+                        ${c.guide ? `<div id="guide_${esc(c.id)}" class="guide-panel hidden mt-2 rounded-xl glass-section p-3 text-sm leading-relaxed text-gray-700 whitespace-pre-line">${esc(c.guide)}</div>` : ''}
+                    </div>
+                    <div class="w-full sm:w-auto sm:min-w-[140px]">
+                        <select id="sel_${esc(c.id)}" class="w-full glass-input rounded-xl px-3 py-2.5 text-sm result-${cur || 'empty'}"
+                            onchange="this.classList.remove('result-passed','result-failed','result-skipped','result-empty'); this.classList.add('result-'+(this.value||'empty'))">
+                            ${RESULT_OPTIONS.map(([v, l]) => `<option value="${v}"${v === cur ? ' selected' : ''}>${l}</option>`).join('')}
+                        </select>
+                        <span id="st_${esc(c.id)}" class="text-xs text-gray-500 mt-1 block">${esc(stText)}</span>
+                    </div>
+                    <button type="button" data-case="${esc(c.id)}" data-title="${esc(c.title)}" data-group="${esc(g.group)}"
+                        class="save-btn inline-flex items-center justify-center px-5 py-2.5 text-sm btn-primary rounded-xl whitespace-nowrap">
+                        <i class="fas fa-save mr-1.5"></i>保存
+                    </button>
+                </div>
+                <!-- 第二行：实际表现（左侧）+ 截图区域（右侧） -->
+                <div class="mt-4 grid grid-cols-1 md:grid-cols-5 gap-4">
+                    <div class="md:col-span-2">
+                        <label class="block text-sm font-medium text-gray-700 mb-1.5">
+                            <i class="fas fa-comment-dots text-gray-500 mr-1"></i>实际表现
+                            <span class="text-red-500 ml-0.5">*</span>
+                            <span class="text-xs text-gray-500 font-normal ml-1">(失败必填，说明现象)</span>
+                        </label>
+                        <textarea id="det_${esc(c.id)}" rows="3" class="w-full glass-input rounded-xl px-3 py-2.5 text-sm resize-none" placeholder="写清看到什么、复现步骤、期望 vs 实际"></textarea>
+                    </div>
+                    <div class="md:col-span-3">
+                        <div class="flex items-center justify-between mb-1.5">
+                            <span class="text-sm font-medium text-gray-700">
+                                <i class="fas fa-images text-emerald-500 mr-1"></i>分步截图
+                                <span class="text-xs text-gray-500 font-normal ml-1">(按 bug 出现顺序添加)</span>
+                            </span>
+                            <button type="button" data-case="${esc(c.id)}" title="按顺序新增一步（先做第1步再测的，就按顺序加）"
+                                class="step-add inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-lg bg-emerald-50/80 text-emerald-700 border border-emerald-200/60 hover:bg-emerald-100/90 transition-colors">
+                                <i class="fas fa-plus mr-1"></i>添加一步
+                            </button>
+                        </div>
+                        <div id="stepWrap_${esc(c.id)}" class="space-y-2">
+                            <button type="button" data-case="${esc(c.id)}" class="step-add-empty w-full border-2 border-dashed border-emerald-300/60 rounded-xl py-3 text-sm text-emerald-700 hover:bg-emerald-50/60 hover:border-emerald-400 transition-colors">
+                                <i class="fas fa-plus-circle mr-1"></i>点此处添加第 1 步（上传本步骤截图 + 写步骤说明）
+                            </button>
+                        </div>
+                        <input type="hidden" id="evi_${esc(c.id)}" value="">
+                        <input type="file" id="file_${esc(c.id)}" accept="image/png,image/jpeg,image/webp,image/gif" multiple class="hidden">
+                    </div>
+                </div>
+            </div>`
+        }
+
+        // TD-NewIssueInMainForm: 渲染单个 new_问题 行（与正式用例相同的反馈流程）
+        function renderNewIssueRow(rec, recordsMap) {
+            const id = rec.case_id
+            const title = rec.case_title || id
+            const hasContent = (rec.detail && rec.detail.trim()) || (rec.evidence && rec.evidence.trim()) || (rec.result && rec.result !== 'pending')
+            const cur = hasContent ? rec.result : ''
+            const stText = hasContent && rec.updated_at ? `已保存 ${new Date(rec.updated_at).toLocaleString('zh-CN')} · 操作人 ${rec.submitted_by || '—'}` : ''
+            return `
+            <div class="case-row px-6 py-5 transition-colors bg-red-50/20">
+                <!-- 第一行：ID+标题 | 结果 | 保存按钮 -->
+                <div class="flex items-start gap-3 flex-wrap">
+                    <div class="flex-1 min-w-[200px] relative pl-3 border-l-4 border-red-400 rounded-l-md">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <span class="inline-flex items-center px-3 py-1 rounded-lg text-xs font-mono font-semibold bg-gradient-to-r from-red-100 to-orange-100 text-red-700 border border-white/60">${esc(id)}</span>
+                            <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold bg-gradient-to-r from-red-500 to-orange-500 text-white shadow-sm shadow-red-200/60 border border-red-300/50">
+                                <i class="fas fa-bug text-[10px]"></i>新问题反馈
+                            </span>
+                            <span id="st_${esc(id)}" class="text-xs text-gray-500"></span>
+                        </div>
+                        <div class="text-sm text-gray-800 mt-2 leading-snug font-medium">${esc(title)}</div>
+                    </div>
+                    <div class="w-full sm:w-auto sm:min-w-[140px]">
+                        <select id="sel_${esc(id)}" class="w-full glass-input rounded-xl px-3 py-2.5 text-sm result-${cur || 'empty'}"
+                            onchange="this.classList.remove('result-passed','result-failed','result-skipped','result-empty'); this.classList.add('result-'+(this.value||'empty'))">
+                            ${RESULT_OPTIONS.map(([v, l]) => `<option value="${v}"${v === cur ? ' selected' : ''}>${l}</option>`).join('')}
+                        </select>
+                        <span id="st_${esc(id)}" class="text-xs text-gray-500 mt-1 block">${esc(stText)}</span>
+                    </div>
+                    <button type="button" data-case="${esc(id)}" data-title="${esc(title)}" data-group="${NEW_ISSUE_GROUP}"
+                        class="save-btn inline-flex items-center justify-center px-5 py-2.5 text-sm btn-primary rounded-xl whitespace-nowrap">
+                        <i class="fas fa-save mr-1.5"></i>保存
+                    </button>
+                </div>
+                <!-- 第二行：实际表现（左侧）+ 截图区域（右侧） -->
+                <div class="mt-4 grid grid-cols-1 md:grid-cols-5 gap-4">
+                    <div class="md:col-span-2">
+                        <label class="block text-sm font-medium text-gray-700 mb-1.5">
+                            <i class="fas fa-comment-dots text-gray-500 mr-1"></i>实际表现
+                            <span class="text-red-500 ml-0.5">*</span>
+                            <span class="text-xs text-gray-500 font-normal ml-1">(失败必填，说明现象)</span>
+                        </label>
+                        <textarea id="det_${esc(id)}" rows="3" class="w-full glass-input rounded-xl px-3 py-2.5 text-sm resize-none" placeholder="写清看到什么、复现步骤、期望 vs 实际">${esc(rec.detail || '')}</textarea>
+                    </div>
+                    <div class="md:col-span-3">
+                        <div class="flex items-center justify-between mb-1.5">
+                            <span class="text-sm font-medium text-gray-700">
+                                <i class="fas fa-images text-emerald-500 mr-1"></i>分步截图
+                                <span class="text-xs text-gray-500 font-normal ml-1">(按 bug 出现顺序添加)</span>
+                            </span>
+                            <button type="button" data-case="${esc(id)}" title="按顺序新增一步（先做第1步再测的，就按顺序加）"
+                                class="step-add inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-lg bg-emerald-50/80 text-emerald-700 border border-emerald-200/60 hover:bg-emerald-100/90 transition-colors">
+                                <i class="fas fa-plus mr-1"></i>添加一步
+                            </button>
+                        </div>
+                        <div id="stepWrap_${esc(id)}" class="space-y-2">
+                            <button type="button" data-case="${esc(id)}" class="step-add-empty w-full border-2 border-dashed border-emerald-300/60 rounded-xl py-3 text-sm text-emerald-700 hover:bg-emerald-50/60 hover:border-emerald-400 transition-colors">
+                                <i class="fas fa-plus-circle mr-1"></i>点此处添加第 1 步（上传本步骤截图 + 写步骤说明）
+                            </button>
+                        </div>
+                        <input type="hidden" id="evi_${esc(id)}" value="${esc(rec.evidence || '')}">
+                        <input type="file" id="file_${esc(id)}" accept="image/png,image/jpeg,image/webp,image/gif" multiple class="hidden">
+                    </div>
+                </div>
+            </div>`
+        }
+
         // ═══ 渲染分组表单 ═══
         // recordsMap: 可选 { case_id -> {result, detail, evidence, updated_at} }，用于首次渲染时直接预填
         // "已填写"用例的结果与"已保存"时间，避免依赖异步 fillRow 二次刷新。
-        function renderGroups(recordsMap, allRecordsMap) {
+        function renderGroups(recordsMap, allRecordsMap, newIssueRecords) {
             recordsMap = recordsMap || {}
             allRecordsMap = allRecordsMap || {}
+            newIssueRecords = newIssueRecords || []
             const wrap = $('groupsWrap')
             // TD-Close: 把已收口用例从主列表剔除，单独渲染到"已完成（已收口）"折叠区
             const openGroups = CASE_DEFS.map((g) => ({
@@ -650,74 +815,29 @@
                         </div>
                     </div>
                     <div class="divide-y divide-white/40">
-                        ${g.cases.map((c) => `
-                        <div class="case-row px-6 py-5 transition-colors">
-                            <!-- 第一行：ID+标题 | 结果 | 保存按钮 -->
-                            <div class="flex items-start gap-3 flex-wrap">
-                                <div class="flex-1 min-w-[200px] ${c.fixNote ? 'relative pl-3 border-l-4 border-emerald-400 rounded-l-md' : ''}">
-                                    <div class="flex items-center gap-2 flex-wrap">
-                                        <span class="inline-flex items-center px-3 py-1 rounded-lg text-xs font-mono font-semibold bg-gradient-to-r from-indigo-100 to-emerald-100 text-indigo-700 border border-white/60">${esc(c.id)}</span>
-                                        ${c.fixNote ? `<span title="${esc(c.fixNote)}" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-sm shadow-emerald-200/60 border border-emerald-300/50"><i class="fas fa-wrench text-[10px]"></i>已修复 · 请复测</span>` : ''}
-                                        <span id="st_${esc(c.id)}" class="text-xs text-gray-500"></span>
-                                        ${c.guide ? `<button type="button" data-guide="${esc(c.id)}" class="guide-toggle inline-flex items-center gap-1.5 text-xs font-medium text-amber-700 hover:text-amber-900 bg-amber-50/80 hover:bg-amber-100/90 border border-amber-200/60 rounded-lg px-2.5 py-1 transition-colors" title="点击展开/收起测试步骤指导">
-                                            <i class="fas fa-list-check"></i><span>测试步骤</span><i class="guide-arrow fas fa-chevron-down text-[10px]"></i>
-                                        </button>` : ''}
-                                    </div>
-                                    <div class="text-sm text-gray-800 mt-2 leading-snug font-medium">${esc(c.title)}</div>
-                                    ${c.fixNote ? `<div class="mt-2 flex items-start gap-1.5 rounded-lg px-2.5 py-1.5 text-xs bg-emerald-50 text-emerald-700 border border-emerald-200/70"><i class="fas fa-info-circle mt-0.5 text-emerald-500"></i><span>${esc(c.fixNote)}</span></div>` : ''}
-                                    ${c.guide ? `<div id="guide_${esc(c.id)}" class="guide-panel hidden mt-2 rounded-xl glass-section p-3 text-sm leading-relaxed text-gray-700 whitespace-pre-line">${esc(c.guide)}</div>` : ''}
-                                </div>
-                                <div class="w-full sm:w-auto sm:min-w-[140px]">
-                                    ${(() => {
-                                        const rec = recordsMap[c.id]
-                                        const hasContent = rec && ((rec.detail && rec.detail.trim()) || (rec.evidence && rec.evidence.trim()) || (rec.result && rec.result !== 'pending'))
-                                        const cur = hasContent ? rec.result : ''
-                                        const stText = hasContent && rec.updated_at ? `已保存 ${new Date(rec.updated_at).toLocaleString('zh-CN')} · 操作人 ${rec.submitted_by || '—'}` : ''
-                                        return `<select id="sel_${esc(c.id)}" class="w-full glass-input rounded-xl px-3 py-2.5 text-sm result-${cur || 'empty'}"
-                                            onchange="this.classList.remove('result-passed','result-failed','result-skipped','result-empty'); this.classList.add('result-'+(this.value||'empty'))">
-                                            ${RESULT_OPTIONS.map(([v, l]) => `<option value="${v}"${v === cur ? ' selected' : ''}>${l}</option>`).join('')}
-                                        </select>
-                                        <span id="st_${esc(c.id)}" class="text-xs text-gray-500 mt-1 block">${esc(stText)}</span>`
-                                    })()}
-                                </div>
-                                <button type="button" data-case="${esc(c.id)}" data-title="${esc(c.title)}" data-group="${esc(g.group)}"
-                                    class="save-btn inline-flex items-center justify-center px-5 py-2.5 text-sm btn-primary rounded-xl whitespace-nowrap">
-                                    <i class="fas fa-save mr-1.5"></i>保存
-                                </button>
-                            </div>
-                            <!-- 第二行：实际表现（左侧）+ 截图区域（右侧） -->
-                            <div class="mt-4 grid grid-cols-1 md:grid-cols-5 gap-4">
-                                <div class="md:col-span-2">
-                                    <label class="block text-sm font-medium text-gray-700 mb-1.5">
-                                        <i class="fas fa-comment-dots text-gray-500 mr-1"></i>实际表现
-                                        <span class="text-red-500 ml-0.5">*</span>
-                                        <span class="text-xs text-gray-500 font-normal ml-1">(失败必填，说明现象)</span>
-                                    </label>
-                                    <textarea id="det_${esc(c.id)}" rows="3" class="w-full glass-input rounded-xl px-3 py-2.5 text-sm resize-none" placeholder="写清看到什么、复现步骤、期望 vs 实际"></textarea>
-                                </div>
-                                <div class="md:col-span-3">
-                                    <div class="flex items-center justify-between mb-1.5">
-                                        <span class="text-sm font-medium text-gray-700">
-                                            <i class="fas fa-images text-emerald-500 mr-1"></i>分步截图
-                                            <span class="text-xs text-gray-500 font-normal ml-1">(按 bug 出现顺序添加)</span>
-                                        </span>
-                                        <button type="button" data-case="${esc(c.id)}" title="按顺序新增一步（先做第1步再测的，就按顺序加）"
-                                            class="step-add inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-lg bg-emerald-50/80 text-emerald-700 border border-emerald-200/60 hover:bg-emerald-100/90 transition-colors">
-                                            <i class="fas fa-plus mr-1"></i>添加一步
-                                        </button>
-                                    </div>
-                                    <div id="stepWrap_${esc(c.id)}" class="space-y-2">
-                                        <button type="button" data-case="${esc(c.id)}" class="step-add-empty w-full border-2 border-dashed border-emerald-300/60 rounded-xl py-3 text-sm text-emerald-700 hover:bg-emerald-50/60 hover:border-emerald-400 transition-colors">
-                                            <i class="fas fa-plus-circle mr-1"></i>点此处添加第 1 步（上传本步骤截图 + 写步骤说明）
-                                        </button>
-                                    </div>
-                                    <input type="hidden" id="evi_${esc(c.id)}" value="">
-                                    <input type="file" id="file_${esc(c.id)}" accept="image/png,image/jpeg,image/webp,image/gif" multiple class="hidden">
-                                </div>
-                            </div>
-                        </div>`).join('')}
+                        ${g.cases.map((c) => renderCaseRow(c, g, recordsMap)).join('')}
                     </div>
                 </div>`).join('')
+
+            // TD-NewIssueInMainForm: 在主表单区域追加渲染 new_问题 组（与正式用例相同的反馈流程）
+            if (newIssueRecords.length > 0) {
+                const newIssueHtml = `
+                <div class="glass-card overflow-hidden">
+                    <div class="px-6 py-4 bg-gradient-to-r from-red-50/60 to-orange-50/60 border-b border-white/60 flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-red-400 to-orange-500 flex items-center justify-center text-white shadow-md shrink-0">
+                            <i class="fas fa-bug text-base"></i>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <h2 class="text-base font-semibold text-gray-800">新问题 / 缺陷反馈（数据上报）</h2>
+                            <div class="text-xs text-gray-600 mt-0.5">共 ${newIssueRecords.length} 项反馈 · 逐条保存 · 与汇总报告同步</div>
+                        </div>
+                    </div>
+                    <div class="divide-y divide-white/40">
+                        ${newIssueRecords.map((rec) => renderNewIssueRow(rec, recordsMap)).join('')}
+                    </div>
+                </div>`
+                wrap.insertAdjacentHTML('beforeend', newIssueHtml)
+            }
 
             // TD-Close: 已收口用例单独列在「已完成（已收口）」折叠区
             if (closedTotal > 0) {

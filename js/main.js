@@ -268,9 +268,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // DS-16 / 访客隔离：普通访客（非快速访问）必须进入专用访客视图，
         // 不得初始化普通看板、病原体、打印导出等业务模块，避免左侧完整菜单泄漏。
+        // 注意：判断条件要与 Router.updateUserDisplay() 保持一致，避免"标签是访客但跑普通视图"。
         const isGuestLoggedIn = guestAuthService.isLoggedIn();
+        const hasGuestInfo = !!guestAuthService.getCurrentGuest();
+        const isGuestSession = isGuestLoggedIn || hasGuestInfo;
         const isQuickAccess = guestAuthService.isQuickAccessMode();
-        const isRegularGuest = isGuestLoggedIn && !isQuickAccess;
+        const isRegularGuest = isGuestSession && !isQuickAccess;
 
         if (isRegularGuest) {
             // ========== 普通访客模式：仅初始化访客看板并隔离管理菜单 ==========
