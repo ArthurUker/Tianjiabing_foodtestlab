@@ -1331,8 +1331,8 @@ export class UserManager {
      */
     async submitAccountApplication({ username, password, email, fullName, phone, schoolCode }) {
         try {
-            if (!username || !password || !schoolCode || !phone) {
-                const err = new Error('缺少必要字段（用户名/密码/手机号/学校代码）')
+            if (!username || !password || !schoolCode || !phone || !fullName) {
+                const err = new Error('缺少必要字段（用户名/密码/姓名/手机号/学校代码）')
                 err.validation = true
                 err.status = 400
                 throw err

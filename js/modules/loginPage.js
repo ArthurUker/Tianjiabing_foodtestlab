@@ -584,8 +584,8 @@ if (appSubmitBtn) {
         const phone = (appPhone?.value || '').trim();
         const email = (appEmail?.value || '').trim();
 
-        if (!username || !password) {
-            showError('请填写用户名和密码');
+        if (!username || !password || !fullName) {
+            showError('请填写用户名、密码和姓名');
             return;
         }
         if (String(password).length < 8) {
