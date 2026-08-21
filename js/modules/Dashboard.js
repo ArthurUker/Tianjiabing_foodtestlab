@@ -736,13 +736,11 @@ function loadDashboardData() {
     });
 
     // 统计各模块数据（传入食堂筛选参数）
-    const stats = {
-        tableware: getStats('tableware', startDate, endDate, selectedCanteen),
-        pesticide: getStats('pesticide', startDate, endDate, selectedCanteen),
-        oil: getStats('oil', startDate, endDate, selectedCanteen),
-        leanMeat: getStats('leanMeat', startDate, endDate, selectedCanteen),
-        pathogen: getStats('pathogen', startDate, endDate, selectedCanteen)
-    };
+    // 仅统计 visibleTypes 中启用的模块，访客/快速访问模式下 pathogen 已被 getDashboardVisibleTypes 排除
+    const stats = {};
+    visibleTypes.forEach(type => {
+        stats[type] = getStats(type, startDate, endDate, selectedCanteen);
+    });
     
     // 🎯 DEBUG
     console.log('🎯 Dashboard stats:', stats);
@@ -752,11 +750,13 @@ function loadDashboardData() {
     updateCard('pesticide', stats.pesticide);
     updateCard('oil', stats.oil);
     
-    // 病原体特殊处理
-    const pathogenCountEl = document.getElementById('card_pathogen_count');
-    const pathogenPositiveEl = document.getElementById('card_pathogen_positive');
-    if(pathogenCountEl) pathogenCountEl.textContent = stats.pathogen.count;
-    if(pathogenPositiveEl) pathogenPositiveEl.textContent = stats.pathogen.positiveCount;
+    // 病原体特殊处理（仅当 pathogen 对当前用户可见时）
+    if (visibleTypes.includes('pathogen')) {
+        const pathogenCountEl = document.getElementById('card_pathogen_count');
+        const pathogenPositiveEl = document.getElementById('card_pathogen_positive');
+        if(pathogenCountEl) pathogenCountEl.textContent = stats.pathogen.count;
+        if(pathogenPositiveEl) pathogenPositiveEl.textContent = stats.pathogen.positiveCount;
+    }
 
     // 获取肉蛋农残分类统计
     const leanMeatByType = getLeanMeatStatsByType(startDate, endDate, selectedCanteen);
@@ -786,10 +786,10 @@ function loadDashboardData() {
     // 更新概览列表（始终显示全局最新5条，不受日期筛选影响，仅受食堂筛选影响）
     const OVERVIEW_START = new Date(0);
     const OVERVIEW_END = new Date(2099, 11, 31);
-    updateOverviewList('tableware', getStats('tableware', OVERVIEW_START, OVERVIEW_END, selectedCanteen).records);
-    updateOverviewList('pesticide', getStats('pesticide', OVERVIEW_START, OVERVIEW_END, selectedCanteen).records);
-    updateOverviewList('oil', getStats('oil', OVERVIEW_START, OVERVIEW_END, selectedCanteen).records);
-    updateOverviewList('pathogen', getStats('pathogen', OVERVIEW_START, OVERVIEW_END, selectedCanteen).records);
+    if (visibleTypes.includes('tableware')) updateOverviewList('tableware', getStats('tableware', OVERVIEW_START, OVERVIEW_END, selectedCanteen).records);
+    if (visibleTypes.includes('pesticide')) updateOverviewList('pesticide', getStats('pesticide', OVERVIEW_START, OVERVIEW_END, selectedCanteen).records);
+    if (visibleTypes.includes('oil')) updateOverviewList('oil', getStats('oil', OVERVIEW_START, OVERVIEW_END, selectedCanteen).records);
+    if (visibleTypes.includes('pathogen')) updateOverviewList('pathogen', getStats('pathogen', OVERVIEW_START, OVERVIEW_END, selectedCanteen).records);
 
     // 更新风险提示
     updateRiskAlerts(stats, leanMeatByType);
@@ -1142,7 +1142,7 @@ function updateRiskAlerts(stats, leanMeatByType) {
     });
     
     // ✅ 修改：病原体风险提示 - 增加食堂信息显示
-    if (stats.pathogen.positiveCount > 0) {
+    if (stats.pathogen && stats.pathogen.positiveCount > 0) {
         const pathogenRecords = stats.pathogen.records || [];
         const pathogenDetails = [];
         
@@ -1623,7 +1623,8 @@ function updateCharts(startDate, endDate, selectedCanteen = 'all') {
 // ✅ 重写：计算食堂趋势（自适应粒度 + 统一合格率口径 + 空桶留空不填 100）
 // metric: 'rate' = 合格率(%)，'volume' = 检测量(次数)
 function calculateCanteenTrends(startDate, endDate, selectedCanteen = 'all', metric = 'rate') {
-    const types = ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'];
+    // 使用看板可见类型（访客/快速访问模式下 pathogen 已被 getDashboardVisibleTypes 排除）
+    const types = getDashboardVisibleTypes();
 
     // 1) 按时间范围选择聚合粒度，减少点数、降低线密度
     const spanDays = Math.round((endDate - startDate) / 86400000) + 1;
