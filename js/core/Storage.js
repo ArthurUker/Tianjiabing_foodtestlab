@@ -245,7 +245,12 @@ export class StorageService {
                 headers: this._getHeaders(),
                 signal: controller.signal
             });
-            if (!res.ok) throw new Error(`Fetch failed: ${res.status} ${res.statusText}`);
+            if (!res.ok) {
+                // 401/403 属于预期的权限拒绝（如访客无权访问 pathogen 模块），
+                // 不应视为同步故障，静默返回避免误导性的 Sync failed 报错。
+                if (res.status === 401 || res.status === 403) return;
+                throw new Error(`Fetch failed: ${res.status} ${res.statusText}`);
+            }
 
             const response = await res.json();
             const serverRows = Array.isArray(response) ? response : (response.data || []);

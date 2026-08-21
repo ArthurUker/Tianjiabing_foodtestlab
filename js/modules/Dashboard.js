@@ -1,4 +1,5 @@
 import { StorageService } from '../core/Storage.js';
+import guestAuthService from '../services/GuestAuthService.js';
 
 // TD-EventLeak / TD-EventLeak-Phase2: 模块级 AbortController 与 sync 监听句柄，
 // 在 init 重新执行时先注销旧监听，避免监听器随导航/重渲染累加
@@ -137,7 +138,12 @@ export function initDashboard() {
         console.log('🔧 加载初始数据...');
         // TD-DashboardZero: 首次进入看板前强制 force-sync 各 StorageService，绕过 30s cooldown，
         // 否则冷却期内 getAll() 永远返回上次的 localStorage 缓存，新会话登录会看到一片 0
-        Promise.allSettled(Object.values(services).map((s) => s._syncFromApi(true))).then(() => {
+        // 访客/快速访问模式跳过 pathogen：该模块对访客始终不可见（后端亦返回 403），避免无效请求
+        const isGuestLikeForSync = guestAuthService.isLoggedIn() || guestAuthService.isQuickAccessMode();
+        const syncServices = isGuestLikeForSync
+            ? Object.values(services).filter(s => s.tableName !== 'pathogen')
+            : Object.values(services);
+        Promise.allSettled(syncServices.map((s) => s._syncFromApi(true))).then(() => {
             loadDashboardData()
         })
         // 即便 Promise.allSettled 触发延迟，也立即同步渲染一次（使用本地缓存）

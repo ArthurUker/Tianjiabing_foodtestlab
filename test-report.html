@@ -340,6 +340,9 @@
         // 修订：先异步拉取已保存记录，再调用 renderGroups(map) 渲染，
         // 使"已填写用例"首次渲染即为正确状态，避免依赖后置 fillRow 二次刷新（用户硬刷可见）。
         // 未填写过的用例在 renderGroups 中预判 result/detail/evidence 后保持默认"待测"空状态。
+        // TD-NewIssueInMainForm: 全局缓存主表单区域的 new_问题 记录，用于 loadMyIssues 过滤
+        let mainFormNewIssueIds = new Set() // 已在主表单区域渲染的 new_问题 case_id 集合
+
         async function loadAll() {
             let map = {}
             let allMap = {}
@@ -366,6 +369,9 @@
                 const j2 = await r2.json()
                 newIssueRecords = (j2.data || []).filter((it) => !CLOSED_CASE_IDS.has(it.case_id))
             } catch { /* 拉取失败时忽略 */ }
+
+            // 缓存主表单区域的 new_问题 ID，供 loadMyIssues 过滤使用
+            mainFormNewIssueIds = new Set(newIssueRecords.map((r) => r.case_id))
 
             renderGroups(map, allMap, newIssueRecords)
             // renderGroups 内 select 已根据 recordsMap 预填 selected & result-* 类；
@@ -1117,13 +1123,17 @@
                 // 业务口径（已确认）：全校共享，不做 submitted_by 过滤
                 const r = await fetch(`/api/test-results?case_group=${encodeURIComponent(NEW_ISSUE_GROUP)}&pageSize=500`, { headers: apiHeaders() })
                 const j = await r.json()
-                // TD-PreviewEcho: 缓存已反馈列表给 updateIssuePreview() 用（②-b 分支显示"已反馈 N 项"摘要）。
-                // API 通常按 updated_at DESC 返回，但为防极端情况按 updated_at 再排一次。
-                const items = (j.data || []).slice().sort((a, b) => {
-                    const ta = a.updated_at ? Date.parse(a.updated_at) : 0
-                    const tb = b.updated_at ? Date.parse(b.updated_at) : 0
-                    return tb - ta
-                })
+                // TD-NewIssueInMainForm: 过滤掉已在主表单区域渲染的 new_问题
+                // 主表单区域已有完整反馈流程（分步截图/保存），"我已反馈的问题"列表只显示
+                // 尚未进入主表单区域的"纯新问题"（提醒用户去填写新反馈）
+                const items = (j.data || [])
+                    .filter((it) => !mainFormNewIssueIds.has(it.case_id))
+                    .slice()
+                    .sort((a, b) => {
+                        const ta = a.updated_at ? Date.parse(a.updated_at) : 0
+                        const tb = b.updated_at ? Date.parse(b.updated_at) : 0
+                        return tb - ta
+                    })
                 issueListCache = items
                 const list = $('issueList')
                 list.innerHTML = items.length
