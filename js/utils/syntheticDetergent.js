@@ -72,6 +72,21 @@ export function generateSyntheticDetergentCanvas(size = 1000) {
   drawGrid(TEMPLATE.cardSlot, TEMPLATE.cardGrid);
   drawGrid(TEMPLATE.tubeSlot, TEMPLATE.tubeGrid);
 
+  // 将灰度 ArUco Mat 绘制到临时 canvas 再 drawImage 到主画布，完全绕开 cv.imshow
+  // （cv.imshow 对灰度 Mat→canvas 在浏览器 UMD 版行为不可靠，会覆盖整张画布）
+  function matToCanvas(cv, m) {
+    const tmp = document.createElement('canvas');
+    tmp.width = m.cols; tmp.height = m.rows;
+    const tctx = tmp.getContext('2d');
+    const img = tctx.createImageData(m.cols, m.rows);
+    const d = m.data; // CV_8UC1
+    for (let i = 0; i < d.length; i++) {
+      const v = d[i]; img.data[i * 4] = v; img.data[i * 4 + 1] = v; img.data[i * 4 + 2] = v; img.data[i * 4 + 3] = 255;
+    }
+    tctx.putImageData(img, 0, 0);
+    return tmp;
+  }
+
   // 四角 ArUco 定位标（需安静区白边）
   const cell = size * 0.13;        // 标中心到角的距离
   const mkSize = Math.round(size * 0.045);
@@ -86,9 +101,9 @@ export function generateSyntheticDetergentCanvas(size = 1000) {
       const dict = cv.getPredefinedDictionary(cv[MARKER_DICT]);
       const m = new cv.Mat();
       cv.generateImageMarker(dict, id, mkSize, m, 1);
-      cv.imshow(canvas, m); // 直接绘制到画布（含覆盖）
+      const tmp = matToCanvas(cv, m);
       m.delete();
-      // imshow 会覆盖整张？opencv imshow 只绘制 marker 到 canvas 指定位置，这里用 drawImage 偏移
+      ctx.drawImage(tmp, x + pad, y + pad);
     } else {
       // 无 opencv 时的降级：画一个方块占位（无法被算法识别，仅用于视觉）
       ctx.fillStyle = '#000000';
@@ -99,7 +114,7 @@ export function generateSyntheticDetergentCanvas(size = 1000) {
     }
   };
 
-  // 注意：cv.imshow 会覆盖整个 canvas，因此改为先把 marker 画到临时 canvas 再 drawImage
+  // 网格标：同样先生成 Mat，转临时 canvas，再带静区 drawImage 到主画布
   const drawArucoSafe = (cx, cy, id, gsize, gpad) => {
     const x = cx, y = cy;
     const mk = (gsize != null) ? gsize : mkSize;
@@ -108,9 +123,7 @@ export function generateSyntheticDetergentCanvas(size = 1000) {
       const dict = cv.getPredefinedDictionary(cv[MARKER_DICT]);
       const m = new cv.Mat();
       cv.generateImageMarker(dict, id, mk, m, 1);
-      const tmp = document.createElement('canvas');
-      tmp.width = m.cols; tmp.height = m.rows;
-      cv.imshow(tmp, m);
+      const tmp = matToCanvas(cv, m);
       m.delete();
       const dx = Math.round(x - m.cols / 2 - gp);
       const dy = Math.round(y - m.rows / 2 - gp);

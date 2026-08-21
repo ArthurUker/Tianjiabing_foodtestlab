@@ -482,24 +482,45 @@ async function showTemplateGuide() {
     return lines.length;
   }
 
+  // 将灰度 ArUco Mat 安全绘制到临时 canvas（绕开 cv.imshow 的不可靠行为）
+  function matToCanvas(m) {
+    const tmp = document.createElement('canvas');
+    tmp.width = m.cols; tmp.height = m.rows;
+    const tctx = tmp.getContext('2d');
+    const img = tctx.createImageData(m.cols, m.rows);
+    const d = m.data; // CV_8UC1
+    for (let i = 0; i < d.length; i++) {
+      const v = d[i]; img.data[i * 4] = v; img.data[i * 4 + 1] = v; img.data[i * 4 + 2] = v; img.data[i * 4 + 3] = 255;
+    }
+    tctx.putImageData(img, 0, 0);
+    return tmp;
+  }
+
   // 画 ArUco 定位标（MIP_36h12，与算法同一字典）：生成 marker -> 加静区 -> drawImage
   function drawAruco(cx, cy, cell, markerId) {
-    // marker 图案占 cell 的 72%，四周保留约 14% 白色静区，兼顾识别率与防溢出
-    const mkSize = Math.max(32, Math.round(cell * 0.72));
-    const pad = Math.round((cell - mkSize) / 2);
-    if (cv && cv.Mat && cv.generateImageMarker) {
-      const m = cv.Mat.zeros(mkSize, mkSize, cv.CV_8UC1);
-      cv.generateImageMarker(cv.getPredefinedDictionary(cv[MARKER_DICT]), markerId, mkSize, m, 1);
-      const off = document.createElement('canvas'); off.width = mkSize; off.height = mkSize;
-      cv.imshow(off, m);
-      // 静区白底
-      c.fillStyle = '#fff'; c.fillRect(cx - cell / 2, cy - cell / 2, cell, cell);
-      c.drawImage(off, cx - cell / 2 + pad, cy - cell / 2 + pad, mkSize, mkSize);
-      m.delete();
-    } else {
-      // opencv 未就绪兜底：白底黑方块（仍保留静区）
-      c.fillStyle = '#fff'; c.fillRect(cx - cell / 2, cy - cell / 2, cell, cell);
-      c.fillStyle = '#000'; c.fillRect(cx - cell / 2 + pad, cy - cell / 2 + pad, mkSize, mkSize);
+    // marker 图案占 cell 的 72%，四周保留白色静区；最小边长保护避免 opencv 抛错
+    const cellI = Math.max(16, Math.round(cell));
+    const mkSize = Math.max(20, Math.round(cellI * 0.72)); // 最小 20px 保证可被检测
+    const pad = Math.max(1, Math.round((cellI - mkSize) / 2));
+    try {
+      if (cv && cv.Mat && cv.generateImageMarker) {
+        const m = new cv.Mat(); // 空 Mat，让 opencv 自行分配正确尺寸
+        cv.generateImageMarker(cv.getPredefinedDictionary(cv[MARKER_DICT]), markerId, mkSize, m, 1);
+        const off = matToCanvas(m);
+        m.delete();
+        // 静区白底 + 绘制
+        c.fillStyle = '#fff'; c.fillRect(cx - cellI / 2, cy - cellI / 2, cellI, cellI);
+        c.drawImage(off, cx - cellI / 2 + pad, cy - cellI / 2 + pad);
+      } else {
+        // opencv 未就绪兜底：白底黑方块（仍保留静区）
+        c.fillStyle = '#fff'; c.fillRect(cx - cellI / 2, cy - cellI / 2, cellI, cellI);
+        c.fillStyle = '#000'; c.fillRect(cx - cellI / 2 + pad, cy - cellI / 2 + pad, mkSize, mkSize);
+      }
+    } catch (err) {
+      // 极端情况下（标过小或 opencv 异常）兜底为可见黑方块，保证打印卡可出
+      console.warn('drawAruco failed id=' + markerId, err);
+      c.fillStyle = '#fff'; c.fillRect(cx - cellI / 2, cy - cellI / 2, cellI, cellI);
+      c.fillStyle = '#000'; c.fillRect(cx - cellI / 2 + pad, cy - cellI / 2 + pad, mkSize, mkSize);
     }
   }
 
@@ -575,8 +596,8 @@ async function showTemplateGuide() {
     const x0 = px(slot.x + slot.w * ins), x1 = px(slot.x + slot.w * (1 - ins));
     const y0 = py(slot.y + slot.h * ins), y1 = py(slot.y + slot.h * (1 - ins));
     const gcell = Math.min((x1 - x0) / (grid.cols - 1), (y1 - y0) / (grid.rows - 1));
-    const gs = Math.max(14, Math.round(gcell * 0.66)); // 小标尺寸
-    const gpad = Math.round((gcell - gs) / 2);
+    const gs = Math.max(20, Math.round(gcell * 0.66)); // 小标最小 20px，保证 opencv 生成有效码
+    const gpad = Math.max(1, Math.round((gcell - gs) / 2));
     for (let r = 0; r < grid.rows; r++) {
       for (let c = 0; c < grid.cols; c++) {
         const gx = x0 + (grid.cols === 1 ? (x1 - x0) / 2 : (x1 - x0) * (c / (grid.cols - 1)));
