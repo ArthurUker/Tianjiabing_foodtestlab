@@ -19,7 +19,7 @@ function concColor(c) {
   ];
 }
 
-export function generateSyntheticDetergentCanvas(size = 1000) {
+export function generateSyntheticDetergentCanvas(size = 2000) {
   const cv = (typeof window !== 'undefined' && window.cv) ? window.cv : null;
   const canvas = document.createElement('canvas');
   canvas.width = size;
@@ -59,7 +59,7 @@ export function generateSyntheticDetergentCanvas(size = 1000) {
     const x0 = (slot.x + slot.w * ins) * size, x1 = (slot.x + slot.w * (1 - ins)) * size;
     const y0 = (slot.y + slot.h * ins) * size, y1 = (slot.y + slot.h * (1 - ins)) * size;
     const gcell = Math.min((x1 - x0) / (grid.cols - 1), (y1 - y0) / (grid.rows - 1));
-    const gs = Math.max(10, Math.round(gcell * 0.6));
+    const gs = Math.max(40, Math.round(gcell * 0.6));
     const gpad = Math.round((gcell - gs) / 2);
     for (let r = 0; r < grid.rows; r++) {
       for (let c = 0; c < grid.cols; c++) {

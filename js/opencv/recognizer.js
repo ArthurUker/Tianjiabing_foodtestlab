@@ -17,7 +17,7 @@
 //   CONCENTRATIONS      -> 默认浓度序列
 // ============================================================================
 
-export const MARKER_DICT = 'DICT_ARUCO_MIP_36';
+export const MARKER_DICT = 'DICT_6X6_250';
 export const CONCENTRATIONS = [0, 0.01, 0.05, 0.1, 0.5, 1.0, 2.0];
 
 // 标准模板归一化坐标（与旧 TEMPLATE_DESIGN 一致，原点=卡片左上，1.0=整卡宽/高）

@@ -449,7 +449,8 @@ function showTemplateFallback(res) {
 //   - 下方蓝框区画 7 色块轮廓（横放示意，带编号 0–6）
 //   - 顶部标题 + 方向标识，底部 4 步操作说明
 async function showTemplateGuide() {
-  const w = 794, h = 1123; // A4 @96dpi
+  const SCALE = 2;                 // 2× DPI，让矩阵小标像素翻倍可生成清晰 ArUco
+  const w = 794 * SCALE, h = 1123 * SCALE; // A4 @192dpi
   const g = document.createElement('canvas');
   g.width = w; g.height = h;
   const c = g.getContext('2d');
@@ -526,55 +527,55 @@ async function showTemplateGuide() {
 
   // ===== 1. 顶部标题栏 + 方向标识（居中，避开四角定位标）=====
   c.textAlign = 'center';
-  c.fillStyle = '#111'; c.font = 'bold 32px sans-serif';
+  c.fillStyle = '#111'; c.font = `bold ${32 * SCALE}px sans-serif`;
   c.fillText('阴离子洗涤剂残留 · 标准拍摄指导卡', w / 2, py(0.035));
-  c.font = 'bold 20px sans-serif'; c.fillStyle = '#dc2626';
+  c.font = `bold ${20 * SCALE}px sans-serif`; c.fillStyle = '#dc2626';
   c.fillText('↑ 此边朝上 · 勿倒置拍摄', w / 2, py(0.072));
 
   // ===== 2. 离心管摆放区（红框，竖放示意）=====
   const tubeR = { x: px(D.tubeSlot.x), y: py(D.tubeSlot.y), w: px(D.tubeSlot.w), h: px(D.tubeSlot.h) };
   c.fillStyle = '#fef2f2'; c.fillRect(tubeR.x, tubeR.y, tubeR.w, tubeR.h);
-  c.strokeStyle = '#dc2626'; c.lineWidth = 4; c.setLineDash([12, 8]);
+  c.strokeStyle = '#dc2626'; c.lineWidth = 4 * SCALE; c.setLineDash([12 * SCALE, 8 * SCALE]);
   c.strokeRect(tubeR.x, tubeR.y, tubeR.w, tubeR.h); c.setLineDash([]);
   const tx = tubeR.x + tubeR.w / 2;
-  const tubeTop = tubeR.y + 18, tubeBot = tubeR.y + tubeR.h - 18;
-  const tubeW = Math.min(tubeR.w * 0.28, 70);
-  c.fillStyle = '#fff'; c.strokeStyle = '#dc2626'; c.lineWidth = 3;
-  c.fillRect(tx - tubeW / 2, tubeTop, tubeW, 16);
-  c.strokeRect(tx - tubeW / 2, tubeTop, tubeW, 16);
+  const tubeTop = tubeR.y + 18 * SCALE, tubeBot = tubeR.y + tubeR.h - 18 * SCALE;
+  const tubeW = Math.min(tubeR.w * 0.28, 70 * SCALE);
+  c.fillStyle = '#fff'; c.strokeStyle = '#dc2626'; c.lineWidth = 3 * SCALE;
+  c.fillRect(tx - tubeW / 2, tubeTop, tubeW, 16 * SCALE);
+  c.strokeRect(tx - tubeW / 2, tubeTop, tubeW, 16 * SCALE);
   c.beginPath();
-  c.moveTo(tx - tubeW / 2, tubeTop + 16);
-  c.lineTo(tx + tubeW / 2, tubeTop + 16);
+  c.moveTo(tx - tubeW / 2, tubeTop + 16 * SCALE);
+  c.lineTo(tx + tubeW / 2, tubeTop + 16 * SCALE);
   c.lineTo(tx + tubeW * 0.62, tubeBot);
   c.lineTo(tx - tubeW * 0.62, tubeBot);
   c.closePath(); c.fill(); c.stroke();
-  c.lineWidth = 1; c.strokeStyle = '#dc2626';
+  c.lineWidth = 1 * SCALE; c.strokeStyle = '#dc2626';
   for (let i = 1; i <= 4; i++) {
-    const yy = tubeTop + 16 + (tubeBot - tubeTop - 16) * (i / 5);
+    const yy = tubeTop + 16 * SCALE + (tubeBot - tubeTop - 16 * SCALE) * (i / 5);
     c.beginPath(); c.moveTo(tx - tubeW * 0.6, yy); c.lineTo(tx - tubeW * 0.2, yy); c.stroke();
   }
-  c.fillStyle = '#dc2626'; c.font = 'bold 24px sans-serif'; c.textAlign = 'center';
-  c.fillText('离心管竖放于此', tx, tubeR.y - 8);
-  c.font = '15px sans-serif'; c.fillStyle = '#7f1d1d';
-  c.fillText('（管口朝上，放红框内居中）', tx, tubeR.y + tubeR.h + 18);
+  c.fillStyle = '#dc2626'; c.font = `bold ${24 * SCALE}px sans-serif`; c.textAlign = 'center';
+  c.fillText('离心管竖放于此', tx, tubeR.y - 8 * SCALE);
+  c.font = `${15 * SCALE}px sans-serif`; c.fillStyle = '#7f1d1d';
+  c.fillText('（管口朝上，放红框内居中）', tx, tubeR.y + tubeR.h + 18 * SCALE);
 
   // ===== 3. 比色卡摆放区（蓝框，横放 7 色块示意）=====
   const cardR = { x: px(D.cardSlot.x), y: py(D.cardSlot.y), w: px(D.cardSlot.w), h: px(D.cardSlot.h) };
   c.fillStyle = '#eef2ff'; c.fillRect(cardR.x, cardR.y, cardR.w, cardR.h);
-  c.strokeStyle = '#2563eb'; c.lineWidth = 4; c.setLineDash([12, 8]);
+  c.strokeStyle = '#2563eb'; c.lineWidth = 4 * SCALE; c.setLineDash([12 * SCALE, 8 * SCALE]);
   c.strokeRect(cardR.x, cardR.y, cardR.w, cardR.h); c.setLineDash([]);
   const bw = cardR.w / 7;
-  const bh = Math.min(cardR.h * 0.62, 78);
-  const by = cardR.y + (cardR.h - bh) / 2 + 6;
+  const bh = Math.min(cardR.h * 0.62, 78 * SCALE);
+  const by = cardR.y + (cardR.h - bh) / 2 + 6 * SCALE;
   for (let i = 0; i < 7; i++) {
-    const bx = cardR.x + i * bw + 4;
-    c.fillStyle = '#fff'; c.fillRect(bx, by, bw - 8, bh);
-    c.strokeStyle = '#2563eb'; c.lineWidth = 2; c.strokeRect(bx, by, bw - 8, bh);
-    c.fillStyle = '#1e3a8a'; c.font = 'bold 20px sans-serif'; c.textAlign = 'center';
-    c.fillText(String(i), bx + (bw - 8) / 2, by + bh / 2 + 7);
+    const bx = cardR.x + i * bw + 4 * SCALE;
+    c.fillStyle = '#fff'; c.fillRect(bx, by, bw - 8 * SCALE, bh);
+    c.strokeStyle = '#2563eb'; c.lineWidth = 2 * SCALE; c.strokeRect(bx, by, bw - 8 * SCALE, bh);
+    c.fillStyle = '#1e3a8a'; c.font = `bold ${20 * SCALE}px sans-serif`; c.textAlign = 'center';
+    c.fillText(String(i), bx + (bw - 8 * SCALE) / 2, by + bh / 2 + 7 * SCALE);
   }
-  c.fillStyle = '#2563eb'; c.font = 'bold 24px sans-serif'; c.textAlign = 'center';
-  c.fillText('比色卡横放于此（蓝框内，与 7 格对齐）', cardR.x + cardR.w / 2, cardR.y - 8);
+  c.fillStyle = '#2563eb'; c.font = `bold ${24 * SCALE}px sans-serif`; c.textAlign = 'center';
+  c.fillText('比色卡横放于此（蓝框内，与 7 格对齐）', cardR.x + cardR.w / 2, cardR.y - 8 * SCALE);
 
   // ===== 4. 四角 ArUco 定位标（算法用，图案保持干净，不印任何文字）=====
   // 参考常见 ArUco 打印页做法：marker 图案本身不带文字说明，统一在底部操作说明中提示。
@@ -596,7 +597,7 @@ async function showTemplateGuide() {
     const x0 = px(slot.x + slot.w * ins), x1 = px(slot.x + slot.w * (1 - ins));
     const y0 = py(slot.y + slot.h * ins), y1 = py(slot.y + slot.h * (1 - ins));
     const gcell = Math.min((x1 - x0) / (grid.cols - 1), (y1 - y0) / (grid.rows - 1));
-    const gs = Math.max(20, Math.round(gcell * 0.66)); // 小标最小 20px，保证 opencv 生成有效码
+    const gs = Math.max(40, Math.round(gcell * 0.66)); // 小标最小 40px（2x DPI 下），保证 opencv 生成清晰可识别码
     const gpad = Math.max(1, Math.round((gcell - gs) / 2));
     for (let r = 0; r < grid.rows; r++) {
       for (let c = 0; c < grid.cols; c++) {
@@ -612,9 +613,9 @@ async function showTemplateGuide() {
 
   // ===== 5. 底部操作说明 =====
   const noteY = py(0.95);
-  c.textAlign = 'left'; c.fillStyle = '#111'; c.font = 'bold 18px sans-serif';
+  c.textAlign = 'left'; c.fillStyle = '#111'; c.font = `bold ${18 * SCALE}px sans-serif`;
   c.fillText('操作说明', px(0.06), noteY);
-  c.font = '15px sans-serif'; c.fillStyle = '#333';
+  c.font = `${15 * SCALE}px sans-serif`; c.fillStyle = '#333';
   const tips = [
     '① 打印本卡（建议 A4 彩色/卡纸），平铺于纯色桌面，避免黑色背景。',
     '② 四角黑白方块为 ArUco 定位标，打印后请勿遮挡、涂改、折叠或覆盖。',
@@ -623,10 +624,10 @@ async function showTemplateGuide() {
     '⑤ 手机垂直俯拍，光照均匀，四角定位标完整入镜、不反光、不遮挡。',
     '⑥ 上传照片后选「全自动（模板）」模式，系统自动定位并比色。',
   ];
-  let y = noteY + 26;
+  let y = noteY + 26 * SCALE;
   for (const t of tips) {
-    const lines = wrapText(t, px(0.06), y, px(0.88), 22);
-    y += lines * 22 + 6;
+    const lines = wrapText(t, px(0.06), y, px(0.88), 22 * SCALE);
+    y += lines * 22 * SCALE + 6 * SCALE;
   }
 
   const url = g.toDataURL('image/png');
