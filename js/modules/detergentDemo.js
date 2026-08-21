@@ -567,6 +567,28 @@ async function showTemplateGuide() {
     drawAruco(px(mk.p.x), py(mk.p.y), cellPx, mk.id);
   }
 
+  // ===== 4.5 方形定位标识矩阵（fiducial grid）：铺在红/蓝框内 =====
+  //   比色卡区 5×6、样品区 4×5，id 段与算法一致（100+ / 200+）。
+  //   实物放上会遮住部分标，算法靠露出的标反推物体真实位置/旋转。
+  const drawGrid = (slot, grid, color) => {
+    const ins = grid.inset;
+    const x0 = px(slot.x + slot.w * ins), x1 = px(slot.x + slot.w * (1 - ins));
+    const y0 = py(slot.y + slot.h * ins), y1 = py(slot.y + slot.h * (1 - ins));
+    const gcell = Math.min((x1 - x0) / (grid.cols - 1), (y1 - y0) / (grid.rows - 1));
+    const gs = Math.max(14, Math.round(gcell * 0.66)); // 小标尺寸
+    const gpad = Math.round((gcell - gs) / 2);
+    for (let r = 0; r < grid.rows; r++) {
+      for (let c = 0; c < grid.cols; c++) {
+        const gx = x0 + (grid.cols === 1 ? (x1 - x0) / 2 : (x1 - x0) * (c / (grid.cols - 1)));
+        const gy = y0 + (grid.rows === 1 ? (y1 - y0) / 2 : (y1 - y0) * (r / (grid.rows - 1)));
+        const id = grid.baseId + r * grid.cols + c;
+        drawAruco(gx, gy, gs + gpad * 2, id);
+      }
+    }
+  };
+  drawGrid(D.cardSlot, D.cardGrid, '#2563eb');
+  drawGrid(D.tubeSlot, D.tubeGrid, '#dc2626');
+
   // ===== 5. 底部操作说明 =====
   const noteY = py(0.95);
   c.textAlign = 'left'; c.fillStyle = '#111'; c.font = 'bold 18px sans-serif';
@@ -575,9 +597,10 @@ async function showTemplateGuide() {
   const tips = [
     '① 打印本卡（建议 A4 彩色/卡纸），平铺于纯色桌面，避免黑色背景。',
     '② 四角黑白方块为 ArUco 定位标，打印后请勿遮挡、涂改、折叠或覆盖。',
-    '③ 比色卡横放下方蓝框、离心管竖放上方红框，与虚线框对齐居中。',
-    '④ 手机垂直俯拍，光照均匀，四角定位标完整入镜、不反光、不遮挡。',
-    '⑤ 上传照片后选「全自动（模板）」模式，系统自动定位并比色。',
+    '③ 蓝/红框内的细小黑白方块是定位矩阵，请确保比色卡/离心管完整盖住对应框，算法靠露出的方块定位物体。',
+    '④ 比色卡横放下方蓝框、离心管竖放上方红框，与虚线框对齐居中。',
+    '⑤ 手机垂直俯拍，光照均匀，四角定位标完整入镜、不反光、不遮挡。',
+    '⑥ 上传照片后选「全自动（模板）」模式，系统自动定位并比色。',
   ];
   let y = noteY + 26;
   for (const t of tips) {

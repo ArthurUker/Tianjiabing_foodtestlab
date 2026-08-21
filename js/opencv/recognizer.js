@@ -36,6 +36,16 @@ export const TEMPLATE = {
   // 下方居中摆放（x 居中、y 取 0.52 处），标记框精确等于真实比色卡尺寸。
   cardSlot: { x: 0.288, y: 0.52, w: 0.424, h: 0.175 },
   blockCount: 7,
+  // ----------------------------------------------------------------------
+  // 方形定位标识矩阵（fiducial grid）：
+  //   在比色卡区 / 样品区各铺一张已知 id 布局的 ArUco 小标矩阵。
+  //   实物放上去会盖住一部分标；算法检测"哪些标还露着"，
+  //   用露出标的 已知理论坐标 + 实测角点 拟合仿射，
+  //   反推被遮挡标的位置 -> 得到物体的精确包围盒 / 偏移 / 旋转。
+  //   id 段：比色卡 100..100+rows*cols-1，样品 200..200+rows*cols-1。
+  // ----------------------------------------------------------------------
+  cardGrid: { rows: 6, cols: 5, baseId: 100, inset: 0.12 }, // 5×6，铺满蓝框内
+  tubeGrid: { rows: 5, cols: 4, baseId: 200, inset: 0.12 }, // 4×5，铺满红框内
 };
 
 // ----------------------------------------------------------------------------
@@ -308,6 +318,106 @@ function findTightColorCard(cv, warped, cardSlotNorm, width, height) {
 }
 
 // ----------------------------------------------------------------------------
+// 方形定位标识矩阵定位（遮挡推断）：
+//   输入：校正后 warped（标准正视图）+ 区域 slot 归一化 + grid 定义
+//   流程：
+//     1. 在 slot 区域附近检测所有 ArUco，按 id 段筛选属于该矩阵的标
+//     2. 每个露出的标：已知其在网格中的 (r,c) -> 理论 slot 内坐标；实测其角点中心
+//     3. 用露出标（理论->实测）拟合仿射（估算平移/缩放/旋转）
+//     4. 反推整张网格所有格点的真实像素位置 -> 取 min/max 得物体包围盒
+//     5. 露出的标数量 < minVisible 视为"区域内无物体"
+//   返回 null 表示未检测到物体（调用方据此报错或 fallback）。
+// ----------------------------------------------------------------------------
+function gridTheoreticalPoints(grid, slot) {
+  // 返回 grid 内每个 (r,c) 对应的 slot 内归一化坐标（含 inset 边界收缩）
+  const ins = grid.inset;
+  const x0 = slot.x + slot.w * ins;
+  const x1 = slot.x + slot.w * (1 - ins);
+  const y0 = slot.y + slot.h * ins;
+  const y1 = slot.y + slot.h * (1 - ins);
+  const pts = [];
+  for (let r = 0; r < grid.rows; r++) {
+    for (let c = 0; c < grid.cols; c++) {
+      const nx = grid.cols === 1 ? (x0 + x1) / 2 : x0 + (x1 - x0) * (c / (grid.cols - 1));
+      const ny = grid.rows === 1 ? (y0 + y1) / 2 : y0 + (y1 - y0) * (r / (grid.rows - 1));
+      pts.push({ id: grid.baseId + r * grid.cols + c, r, c, tx: nx, ty: ny });
+    }
+  }
+  return pts;
+}
+
+function locateByGrid(cv, warped, width, height, slot, grid, minVisible = 4) {
+  // 在 slot 略放宽的区域里检测 ArUco（允许物体轻微越界导致边缘标露出）
+  const ex = 0.06;
+  const det = detectMarkersNormalized(cv, warped, width, height);
+  const visible = det.filter(m => m.id >= grid.baseId && m.id < grid.baseId + grid.rows * grid.cols);
+  if (visible.length < minVisible) return null;
+
+  const theory = gridTheoreticalPoints(grid, slot);
+  const byId = new Map(theory.map(p => [p.id, p]));
+
+  // 收集 (理论归一化坐标 -> 实测归一化中心) 配对
+  const pairs = [];
+  for (const m of visible) {
+    const t = byId.get(m.id);
+    if (!t) continue;
+    pairs.push({ tx: t.tx, ty: t.ty, px: m.cx, py: m.cy });
+  }
+  if (pairs.length < minVisible) return null;
+
+  // 最小二乘仿射拟合：实测 = A * 理论 + b  （2x2 + 平移，容许旋转/缩放/错切）
+  // 解独立的两个三元一次方程组（含平移项），用 Cramer 法则避免尺度偏差
+  let Sxx = 0, Sxy = 0, Syy = 0, Sx = 0, Sy = 0;
+  let Sx_px = 0, Sy_px = 0, Sx_py = 0, Sy_py = 0, sum_px = 0, sum_py = 0;
+  const n = pairs.length;
+  for (const p of pairs) {
+    Sxx += p.tx * p.tx; Sxy += p.tx * p.ty; Syy += p.ty * p.ty;
+    Sx += p.tx; Sy += p.ty;
+    Sx_px += p.tx * p.px; Sy_px += p.ty * p.px;
+    Sx_py += p.tx * p.py; Sy_py += p.ty * p.py;
+    sum_px += p.px; sum_py += p.py;
+  }
+  let a = 1, b = 0, c0 = 0, d = 1, e = 0, f = 0;
+  const detX = Sxx * Syy - Sxy * Sxy;
+  if (Math.abs(detX) >= 1e-12) {
+    const M3 = (r1, r2, r3) => (r1[0] * (r2[1] * r3[2] - r2[2] * r3[1]) - r1[1] * (r2[0] * r3[2] - r2[2] * r3[0]) + r1[2] * (r2[0] * r3[1] - r2[1] * r3[0]));
+    const A = [Sxx, Sxy, Sx], B = [Sxy, Syy, Sy], C = [Sx, Sy, n];
+    const Dm = M3(A, B, C);
+    a = M3([Sx_px, Sy_px, sum_px], B, C) / Dm;
+    b = M3(A, [Sx_px, Sy_px, sum_px], C) / Dm;
+    c0 = M3(A, B, [Sx_px, Sy_px, sum_px]) / Dm;
+    e = M3([Sx_py, Sy_py, sum_py], B, C) / Dm;
+    d = M3(A, [Sx_py, Sy_py, sum_py], C) / Dm;
+    f = M3(A, B, [Sx_py, Sy_py, sum_py]) / Dm;
+  }
+  const map = (nx, ny) => ({ x: a * nx + b * ny + c0, y: e * nx + d * ny + f });
+
+  // 反推整张网格所有格点的真实位置，取包围盒
+  let minX = 1, minY = 1, maxX = 0, maxY = 0;
+  for (const p of theory) {
+    const q = map(p.tx, p.ty);
+    if (q.x < minX) minX = q.x; if (q.y < minY) minY = q.y;
+    if (q.x > maxX) maxX = q.x; if (q.y > maxY) maxY = q.y;
+  }
+  // 中心外扩回网格边缘（露出标在物体边缘外，需补半格）：沿拟合中心方向
+  const cxFit = (minX + maxX) / 2, cyFit = (minY + maxY) / 2;
+  const halfW = (maxX - minX) / 2, halfH = (maxY - minY) / 2;
+  const extX = halfW * (grid.cols / Math.max(1, grid.cols - 1));
+  const extY = halfH * (grid.rows / Math.max(1, grid.rows - 1));
+  minX = cxFit - extX; maxX = cxFit + extX;
+  minY = cyFit - extY; maxY = cyFit + extY;
+
+  const clamp = (v) => Math.max(0, Math.min(1, v));
+  return {
+    x: clamp(minX), y: clamp(minY),
+    w: clamp(maxX) - clamp(minX),
+    h: clamp(maxY) - clamp(minY),
+    visibleCount: visible.length,
+    totalCount: grid.rows * grid.cols,
+  };
+}
+
+// ----------------------------------------------------------------------------
 // 主识别
 // ----------------------------------------------------------------------------
 export async function recognize(img, options = {}) {
@@ -351,15 +461,37 @@ export async function recognize(img, options = {}) {
     cv.warpPerspective(mat, warped, H, new cv.Size(width, height));
     H.delete();
 
-    // 4) 取色：7 色块 + 样品区（均在标准模板归一化坐标内）
+    // 4) 取色：7 色块 + 样品区（通过方形定位标识矩阵反推真实区域）
+    // 比色卡：先尝试用矩阵遮挡推断得到真实包围盒，回退到固定 cardSlot
+    let cardSlotUsed = TEMPLATE.cardSlot;
+    let cardGridLoc = null;
+    try {
+      cardGridLoc = locateByGrid(cv, warped, width, height, TEMPLATE.cardSlot, TEMPLATE.cardGrid, 4);
+    } catch (e) { console.warn('locateByGrid(card) failed', e); }
+    if (cardGridLoc && cardGridLoc.w > 0.05 && cardGridLoc.h > 0.02) {
+      cardSlotUsed = cardGridLoc;
+    } else {
+      cardGridLoc = null; // 矩阵未检出 -> 用固定区域兜底
+    }
     const cardLab = [];
-    const { x: cx, y: cy, w: cw, h: ch } = TEMPLATE.cardSlot;
+    const { x: cx, y: cy, w: cw, h: ch } = cardSlotUsed;
     const blockW = cw / TEMPLATE.blockCount;
     for (let i = 0; i < TEMPLATE.blockCount; i++) {
       cardLab.push(sampleAvgLab(cv, warped,
         { x: cx + i * blockW + blockW * 0.15, y: cy + ch * 0.15, w: blockW * 0.7, h: ch * 0.7 }, width, height));
     }
-    const tubeLab = sampleAvgLab(cv, warped, TEMPLATE.tubeSlot, width, height);
+    // 样品区：同样用矩阵反推真实包围盒（红框内离心管位置/旋转）
+    let tubeSlotUsed = TEMPLATE.tubeSlot;
+    let tubeGridLoc = null;
+    try {
+      tubeGridLoc = locateByGrid(cv, warped, width, height, TEMPLATE.tubeSlot, TEMPLATE.tubeGrid, 4);
+    } catch (e) { console.warn('locateByGrid(tube) failed', e); }
+    if (tubeGridLoc && tubeGridLoc.w > 0.03 && tubeGridLoc.h > 0.03) {
+      tubeSlotUsed = tubeGridLoc;
+    } else {
+      tubeGridLoc = null;
+    }
+    const tubeLab = sampleAvgLab(cv, warped, tubeSlotUsed, width, height);
 
     // 5) 比色：样品到 7 色块最近 ΔE2000
     const dists = cardLab.map((lab, i) => ({
@@ -379,10 +511,18 @@ export async function recognize(img, options = {}) {
     // 必须在使用 warped 之前调用，避免在 warped.delete() 之后误用已释放的 Mat。
     let tightCardNorm = null;
     try {
-      tightCardNorm = findTightColorCard(cv, warped, TEMPLATE.cardSlot, width, height);
+      tightCardNorm = findTightColorCard(cv, warped, cardSlotUsed, width, height);
     } catch (e) { console.warn('findTightColorCard failed', e); }
 
     warped.delete();
+
+    // 若矩阵定位可用，则用其真实包围盒覆盖 tightCardRect 显示（比色仍用 7 等分）
+    if (cardGridLoc) {
+      tightCardNorm = {
+        x: cardGridLoc.x, y: cardGridLoc.y,
+        w: cardGridLoc.w, h: cardGridLoc.h,
+      };
+    }
 
     return {
       ok: true,
@@ -392,6 +532,8 @@ export async function recognize(img, options = {}) {
       confidence: Number(confidence.toFixed(2)),
       sampleLab: tubeLab,
       blocks: cardLab.map((lab, i) => ({ concentration: concentrations[i], lab })),
+      cardGrid: cardGridLoc ? { visible: cardGridLoc.visibleCount, total: cardGridLoc.totalCount } : null,
+      tubeGrid: tubeGridLoc ? { visible: tubeGridLoc.visibleCount, total: tubeGridLoc.totalCount } : null,
       tightCardRect: tightCardNorm
         ? { x: tightCardNorm.x, y: tightCardNorm.y, w: tightCardNorm.w, h: tightCardNorm.h,
             xPx: Math.round(tightCardNorm.x * width), yPx: Math.round(tightCardNorm.y * height),
@@ -468,10 +610,20 @@ export async function locateRegions(img, options = {}) {
     if (markers.length >= 4) {
       const roles = assignMarkerRoles(markers);
       if (roles) {
-        const cardRectPx = px(TEMPLATE.cardSlot, width, height);
+        // 尝试用方形定位标识矩阵反推真实区域
+        let cardSlot = TEMPLATE.cardSlot, tubeSlot = TEMPLATE.tubeSlot;
+        try {
+          const cg = locateByGrid(cv, mat, width, height, TEMPLATE.cardSlot, TEMPLATE.cardGrid, 4);
+          if (cg && cg.w > 0.05 && cg.h > 0.02) cardSlot = cg;
+          const tg = locateByGrid(cv, mat, width, height, TEMPLATE.tubeSlot, TEMPLATE.tubeGrid, 4);
+          if (tg && tg.w > 0.03 && tg.h > 0.03) tubeSlot = tg;
+        } catch (e) { console.warn('locateRegions grid failed', e); }
+
+        const cardRectPx = px(cardSlot, width, height);
+        const tubeRectPx = px(tubeSlot, width, height);
         let tightCardPx = null;
         try {
-          const tightNorm = findTightColorCard(cv, mat, TEMPLATE.cardSlot, width, height);
+          const tightNorm = findTightColorCard(cv, mat, cardSlot, width, height);
           tightCardPx = { x: Math.round(tightNorm.x * width), y: Math.round(tightNorm.y * height),
             w: Math.round(tightNorm.w * width), h: Math.round(tightNorm.h * height) };
         } catch (e) { console.warn('locateRegions tightCard failed', e); }
@@ -479,8 +631,8 @@ export async function locateRegions(img, options = {}) {
           ok: true, canvasSize: { width, height },
           cardRect: cardRectPx,
           tightCardRect: tightCardPx,
-          tube: px(TEMPLATE.tubeSlot, width, height),
-          blocks: inferBlocks(regionsPx(TEMPLATE.cardSlot, width, height), concentrations.length, false),
+          tube: tubeRectPx,
+          blocks: inferBlocks(regionsPx(cardSlot, width, height), concentrations.length, false),
         };
       }
     }

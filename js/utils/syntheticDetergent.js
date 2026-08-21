@@ -53,6 +53,25 @@ export function generateSyntheticDetergentCanvas(size = 1000) {
   ctx.fillStyle = `rgb(${tr},${tg},${tb})`;
   ctx.fillRect(tubePx.x + tubePx.w * 0.25, tubePx.y + tubePx.h * 0.2, tubePx.w * 0.5, tubePx.h * 0.6);
 
+  // 方形定位标识矩阵：铺在比色卡区与样品区（模拟实体卡打印，用于遮挡推断验证）
+  const drawGrid = (slot, grid) => {
+    const ins = grid.inset;
+    const x0 = (slot.x + slot.w * ins) * size, x1 = (slot.x + slot.w * (1 - ins)) * size;
+    const y0 = (slot.y + slot.h * ins) * size, y1 = (slot.y + slot.h * (1 - ins)) * size;
+    const gcell = Math.min((x1 - x0) / (grid.cols - 1), (y1 - y0) / (grid.rows - 1));
+    const gs = Math.max(10, Math.round(gcell * 0.6));
+    const gpad = Math.round((gcell - gs) / 2);
+    for (let r = 0; r < grid.rows; r++) {
+      for (let c = 0; c < grid.cols; c++) {
+        const gx = x0 + (grid.cols === 1 ? (x1 - x0) / 2 : (x1 - x0) * (c / (grid.cols - 1)));
+        const gy = y0 + (grid.rows === 1 ? (y1 - y0) / 2 : (y1 - y0) * (r / (grid.rows - 1)));
+        drawArucoSafe(gx, gy, grid.baseId + r * grid.cols + c, gs + gpad * 2);
+      }
+    }
+  };
+  drawGrid(TEMPLATE.cardSlot, TEMPLATE.cardGrid);
+  drawGrid(TEMPLATE.tubeSlot, TEMPLATE.tubeGrid);
+
   // 四角 ArUco 定位标（需安静区白边）
   const cell = size * 0.13;        // 标中心到角的距离
   const mkSize = Math.round(size * 0.045);
@@ -81,26 +100,28 @@ export function generateSyntheticDetergentCanvas(size = 1000) {
   };
 
   // 注意：cv.imshow 会覆盖整个 canvas，因此改为先把 marker 画到临时 canvas 再 drawImage
-  const drawArucoSafe = (cx, cy, id) => {
+  const drawArucoSafe = (cx, cy, id, gsize, gpad) => {
     const x = cx, y = cy;
+    const mk = (gsize != null) ? gsize : mkSize;
+    const gp = (gpad != null) ? gpad : pad;
     if (cv && cv.Mat && cv.generateImageMarker) {
       const dict = cv.getPredefinedDictionary(cv[MARKER_DICT]);
       const m = new cv.Mat();
-      cv.generateImageMarker(dict, id, mkSize, m, 1);
+      cv.generateImageMarker(dict, id, mk, m, 1);
       const tmp = document.createElement('canvas');
       tmp.width = m.cols; tmp.height = m.rows;
       cv.imshow(tmp, m);
       m.delete();
-      const dx = Math.round(x - m.cols / 2 - pad);
-      const dy = Math.round(y - m.rows / 2 - pad);
+      const dx = Math.round(x - m.cols / 2 - gp);
+      const dy = Math.round(y - m.rows / 2 - gp);
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(dx, dy, m.cols + pad * 2, m.rows + pad * 2);
-      ctx.drawImage(tmp, dx + pad, dy + pad);
+      ctx.fillRect(dx, dy, m.cols + gp * 2, m.rows + gp * 2);
+      ctx.drawImage(tmp, dx + gp, dy + gp);
     } else {
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(x - mkSize / 2 - pad, y - mkSize / 2 - pad, mkSize + pad * 2, mkSize + pad * 2);
+      ctx.fillRect(x - mk / 2 - gp, y - mk / 2 - gp, mk + gp * 2, mk + gp * 2);
       ctx.fillStyle = '#000000';
-      ctx.fillRect(x - mkSize / 2, y - mkSize / 2, mkSize, mkSize);
+      ctx.fillRect(x - mk / 2, y - mk / 2, mk, mk);
     }
   };
 
