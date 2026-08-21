@@ -354,7 +354,7 @@ export class UserManager {
             if (await this.isAccountLocked(user.id)) {
                 // 拉平时序：锁定分支也执行一次假比较
                 await bcryptjs.compare(password, FAKE_BCRYPT_HASH)
-                const err = new Error('登录失败次数过多，该账号已被临时锁定，请稍后再试')
+                const err = new Error('连续多次输入错误密码会触发临时锁定（约 15 分钟自动解锁）。请稍后再试，或联系管理员确认账号状态。')
                 err.code = 'ACCOUNT_LOCKED'
                 err.status = 423
                 throw err

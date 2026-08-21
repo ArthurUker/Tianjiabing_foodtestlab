@@ -57,7 +57,7 @@ export function createUserRoutes(userManager) {
         }
         // 临时锁定（窗口内失败次数过多，但未达自动停用阈值）
         if (error.code === 'ACCOUNT_LOCKED') {
-            return res.status(423).json({ error: '❌ 登录失败次数过多，该账号已被临时锁定，请稍后再试', code: 'ACCOUNT_LOCKED' })
+            return res.status(423).json({ error: '❌ 连续多次输入错误密码会触发临时锁定（约 15 分钟自动解锁）。请稍后再试，或联系管理员确认账号状态。', code: 'ACCOUNT_LOCKED' })
         }
         // 密码错误（已明确区分，不泄露用户名是否存在）
         if (error.code === 'PASSWORD_WRONG') {
