@@ -462,46 +462,76 @@
           border-color: #3b82f6;
           background: rgba(59,130,246,0.08);
       }
-      /* 响应式：移动端折叠侧边栏 */
+      /* 响应式：移动端侧栏改为左侧抽屉 */
+      .admin-sidebar-backdrop { display: none; }
       @media (max-width: 1023px) {
-          .admin-layout { flex-direction: column; padding: 12px; }
+          .admin-layout { display: block; padding: 12px; }
+          .admin-main { width: 100%; }
+
+          /* 侧栏抽屉：默认藏到屏幕左侧外 */
           .admin-sidebar {
-              position: relative;
+              position: fixed;
               top: 0;
-              width: 100% !important;
+              left: 0;
+              width: 260px !important;
+              height: 100vh;
               max-height: none;
-              margin-bottom: 12px;
+              margin-bottom: 0;
+              border-radius: 0 18px 18px 0;
+              z-index: 70;
+              transform: translateX(-100%);
+              transition: transform .25s ease;
+              box-shadow: 6px 0 24px rgba(30, 44, 80, .18);
           }
-          .admin-sidebar.collapsed { width: 100% !important; padding: 8px 12px; }
+          .admin-sidebar.admin-sidebar--open { transform: translateX(0); }
+          .admin-sidebar.collapsed { width: 260px !important; padding: 16px; }
           .admin-sidebar.collapsed .admin-sidebar__brand-text,
           .admin-sidebar.collapsed .admin-sidebar__item-label,
           .admin-sidebar.collapsed .admin-sidebar__badge,
           .admin-sidebar.collapsed .admin-sidebar__footer { display: initial; }
           .admin-sidebar.collapsed .admin-sidebar__item { justify-content: flex-start; gap: 12px; padding: 10px 12px; }
           .admin-sidebar.collapsed .admin-sidebar__brand { justify-content: flex-start; }
-          /* 移动端把 5 个项目改为横向滚动条 */
           .admin-sidebar__nav {
-              flex-direction: row;
-              overflow-x: auto;
-              gap: 8px;
-              padding-bottom: 4px;
+              flex-direction: column;
+              overflow-y: auto;
+              overflow-x: hidden;
+              gap: 4px;
+              max-height: calc(100vh - 160px);
+              padding-bottom: 0;
           }
           .admin-sidebar__nav .admin-sidebar__item {
               flex-shrink: 0;
-              padding: 8px 14px;
+              padding: 10px 12px;
           }
-          /* 移动端二级菜单改为顶部水平滑动子菜单 */
           .admin-sidebar__subnav {
-              flex-direction: row;
-              padding: 4px 0;
-              border-left: none;
-              border-top: 1px dashed rgba(30, 44, 80, 0.12);
-              margin: 4px 0 0 0;
-              overflow-x: auto;
+              flex-direction: column;
+              padding: 4px 0 4px 8px;
+              border-left: 2px dashed rgba(30, 44, 80, 0.12);
+              border-top: none;
+              margin: 2px 0 4px 0;
+              overflow-x: hidden;
           }
           .admin-sidebar__subitem { flex-shrink: 0; width: auto; }
           .admin-sidebar__group-title { padding: 8px 0 2px 0; }
           .admin-sidebar__brand .admin-sidebar__collapse-btn { display: none; }
+
+          /* 抽屉蒙版 */
+          .admin-sidebar-backdrop {
+              display: block;
+              position: fixed;
+              inset: 0;
+              background: rgba(0, 0, 0, .35);
+              backdrop-filter: blur(2px);
+              z-index: 60;
+              opacity: 0;
+              transition: opacity .2s ease;
+              pointer-events: none;
+          }
+          .admin-sidebar-backdrop:not(.hidden) {
+              opacity: 1;
+              pointer-events: auto;
+          }
+          body.admin-sidebar-open { overflow: hidden; }
       }
       /* ====== 平台超管顶部：当前用户 + token 倒计时徽章（P-IdleCountdown） ======
          玻璃深色导航上：默认用半透明白底（与「平台超管」徽章视觉一致），
@@ -736,4 +766,45 @@
     .reports-container { padding: 0 12px 12px; }
     .reports-bar { padding: 8px 12px; }
     .reports-frame-wrap { height: calc(100vh - 180px); min-height: 480px; }
+}
+
+/* ====== 响应式表格：防止窄屏下列被压扁、文字竖排 ====== */
+.admin-card .glass-table,
+.overflow-x-auto .glass-table {
+    min-width: max-content;
+}
+.admin-card .glass-table th,
+.admin-card .glass-table td,
+.overflow-x-auto .glass-table th,
+.overflow-x-auto .glass-table td {
+    white-space: nowrap;
+    vertical-align: middle;
+}
+.admin-card .overflow-x-auto,
+.overflow-x-auto {
+    -webkit-overflow-scrolling: touch;
+}
+@media (max-width: 1023px) {
+    .admin-card .glass-table th,
+    .admin-card .glass-table td,
+    .overflow-x-auto .glass-table th,
+    .overflow-x-auto .glass-table td { padding: 10px 12px; }
+}
+@media (max-width: 639px) {
+    .admin-card .glass-table th,
+    .admin-card .glass-table td,
+    .overflow-x-auto .glass-table th,
+    .overflow-x-auto .glass-table td { padding: 8px 10px; font-size: 13px; }
+}
+
+/* 顶部移动端菜单按钮：默认显示，桌面端隐藏 */
+.admin-mobile-menu-btn { display: inline-flex; }
+@media (min-width: 1024px) {
+    .admin-mobile-menu-btn { display: none; }
+}
+
+/* 学校列表搜索框：窄屏占满，宽屏固定宽度 */
+.admin-search-input { width: 100%; }
+@media (min-width: 640px) {
+    .admin-search-input { width: 16rem; }
 }

@@ -30,6 +30,9 @@
         <div class="container mx-auto px-4 py-3 flex justify-between items-center gap-4">
             <!-- 平台超管顶部 logo：固定显示平台统一图标（盾牌），不显示任何学校校徽，避免超管产生"我在某校页面"的视觉混淆 -->
             <div class="flex items-center space-x-3 flex-1 min-w-0">
+                <button id="adminMobileMenuBtn" type="button" class="admin-mobile-menu-btn -ml-1 p-2 rounded-lg hover:bg-white/10 transition" aria-label="打开菜单">
+                    <i class="fas fa-bars"></i>
+                </button>
                 <span id="adminNavLogo" class="shrink-0 w-9 h-9 rounded-lg bg-white/20 flex items-center justify-center" title="平台超管">
                     <i class="fas fa-shield-alt text-yellow-300 text-lg"></i>
                 </span>
@@ -221,7 +224,7 @@
                 </button>
             </div>
             <div class="flex items-center gap-2">
-                <input id="searchInput" type="text" placeholder="搜索学校代码或名称..." class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-64">
+                <input id="searchInput" type="text" placeholder="搜索学校代码或名称..." class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 admin-search-input">
             </div>
         </div>
 
@@ -1892,6 +1895,9 @@
             </div>
         </div>
     </div>
+
+    <!-- 移动端侧栏抽屉蒙版 -->
+    <div id="adminSidebarBackdrop" class="admin-sidebar-backdrop hidden"></div>
 
     <!-- P-Refactor: 侧边栏/账号权限/备份运维已并入 js/modules/adminSchools/（ESM），由上方 module script 统一装配 -->
 </body>

@@ -365,6 +365,44 @@ export function initAdminSidebar({
         } catch (e) { /* 读取失败按未折叠处理 */ }
     }
 
+    // 移动端侧栏抽屉开关
+    const mobileMenuBtn = document.getElementById('adminMobileMenuBtn');
+    const sidebarBackdrop = document.getElementById('adminSidebarBackdrop');
+    function openMobileSidebar() {
+        if (!sidebar) return;
+        sidebar.classList.add('admin-sidebar--open');
+        if (sidebarBackdrop) sidebarBackdrop.classList.remove('hidden');
+        document.body.classList.add('admin-sidebar-open');
+    }
+    function closeMobileSidebar() {
+        if (!sidebar) return;
+        sidebar.classList.remove('admin-sidebar--open');
+        if (sidebarBackdrop) sidebarBackdrop.classList.add('hidden');
+        document.body.classList.remove('admin-sidebar-open');
+    }
+    if (mobileMenuBtn && sidebar) {
+        mobileMenuBtn.addEventListener('click', () => {
+            if (sidebar.classList.contains('admin-sidebar--open')) closeMobileSidebar();
+            else openMobileSidebar();
+        });
+    }
+    if (sidebarBackdrop) {
+        sidebarBackdrop.addEventListener('click', closeMobileSidebar);
+    }
+    // 点击菜单项后自动关闭抽屉（移动端）
+    function closeDrawerIfMobile() {
+        if (window.innerWidth < 1024) closeMobileSidebar();
+    }
+    items.forEach((it) => it.addEventListener('click', closeDrawerIfMobile));
+    sidebar?.querySelectorAll('.admin-sidebar__subitem').forEach((sub) => sub.addEventListener('click', closeDrawerIfMobile));
+    // ESC / 切到桌面尺寸时自动关闭
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closeMobileSidebar();
+    });
+    window.addEventListener('resize', () => {
+        if (window.innerWidth >= 1024) closeMobileSidebar();
+    });
+
     // 快捷按钮：跳转学校管理（保留 backup 入口兼容老 DOM）
     // 注：btnGoSchoolsToBackup DOM 已不存在（adminViewBackup 重构为内嵌），此处?.绑定安全 noop。
     const goSchools = (subview) => {
