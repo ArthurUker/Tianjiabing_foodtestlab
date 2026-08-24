@@ -370,15 +370,22 @@
                 newIssueRecords = (j2.data || []).filter((it) => !CLOSED_CASE_IDS.has(it.case_id))
             } catch { /* 拉取失败时忽略 */ }
 
-            // 缓存主表单区域的 new_问题 ID，供 loadMyIssues 过滤使用
-            mainFormNewIssueIds = new Set(newIssueRecords.map((r) => r.case_id))
+            // TD-NewIssueFilter: 区分"已走完整反馈流程"与"仅轻量提交"
+            // 完整反馈 = 有实际表现 / 分步截图 / 非 pending 结果
+            const fullFeedbackRecords = newIssueRecords.filter((r) =>
+                (r.detail && r.detail.trim()) ||
+                (r.evidence && r.evidence.trim()) ||
+                (r.result && r.result !== 'pending')
+            )
+            // 缓存已在主表单区域渲染的 new_问题 ID，供 loadMyIssues 过滤使用
+            mainFormNewIssueIds = new Set(fullFeedbackRecords.map((r) => r.case_id))
 
-            renderGroups(map, allMap, newIssueRecords)
+            renderGroups(map, allMap, fullFeedbackRecords)
             // renderGroups 内 select 已根据 recordsMap 预填 selected & result-* 类；
             // 此处再回填 detail textarea / evidence 分步 / 已保存时间，确保首次渲染即为最终态。
             restoreFromRecords(map)
             // 回填 new_问题 组的记录
-            restoreNewIssueRecords(newIssueRecords, map)
+            restoreNewIssueRecords(fullFeedbackRecords, map)
             loadSummary()
             loadMyIssues()
         }
@@ -1134,11 +1141,24 @@
                 // 业务口径（已确认）：全校共享，不做 submitted_by 过滤
                 const r = await fetch(`/api/test-results?case_group=${encodeURIComponent(NEW_ISSUE_GROUP)}&pageSize=500`, { headers: apiHeaders() })
                 const j = await r.json()
-                // TD-NewIssueInMainForm: 过滤掉已在主表单区域渲染的 new_问题
-                // 主表单区域已有完整反馈流程（分步截图/保存），"我已反馈的问题"列表只显示
-                // 尚未进入主表单区域的"纯新问题"（提醒用户去填写新反馈）
-                const items = (j.data || [])
-                    .filter((it) => !mainFormNewIssueIds.has(it.case_id))
+                // TD-NewIssueDedup: 同一 case_id 可能被多人多次提交，数据库有多行。
+                // 必须与 loadAll 保持一致：按 case_id 取 updated_at 最新的一条再判定，
+                // 否则某条空记录会把同一问题"拉回"列表，导致已反馈的仍显示。
+                const latestByCase = new Map()
+                for (const it of (j.data || [])) {
+                    const prev = latestByCase.get(it.case_id)
+                    if (!prev || Date.parse(it.updated_at) > Date.parse(prev.updated_at)) {
+                        latestByCase.set(it.case_id, it)
+                    }
+                }
+                // TD-NewIssueFilter: "我已反馈的问题"只显示尚未走完整反馈流程的轻量记录。
+                // 完整反馈 = 有实际表现 / 分步截图 / 非 pending 结果。
+                const items = Array.from(latestByCase.values())
+                    .filter((it) =>
+                        !(it.detail && it.detail.trim()) &&
+                        !(it.evidence && it.evidence.trim()) &&
+                        !(it.result && it.result !== 'pending')
+                    )
                     .slice()
                     .sort((a, b) => {
                         const ta = a.updated_at ? Date.parse(a.updated_at) : 0
@@ -1382,7 +1402,8 @@
                 issueRenderSteps([])
                 lastIssueSubmit = { caseId, title, time: new Date().toLocaleString('zh-CN'), steps: stepsArr.length, imgs: imgCount }
                 updateIssuePreview()
-                loadMyIssues()
+                // 保存后重新加载整体状态，让完整反馈的问题进入主表单区域
+                loadAll()
             } catch (e) {
                 alert('保存失败：' + e.message)
             } finally { btn.disabled = false }

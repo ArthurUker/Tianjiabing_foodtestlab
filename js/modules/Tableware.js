@@ -467,11 +467,12 @@ function determineResult(rluValue) {
 }
 
 // 模块级判定文本（供点位闭包与图检回填共用）
+// 洗涤剂残留人工判读：比色卡单位 mg/L，合格限值 0.05 mg/L
 function getResultText(type, val) {
     if (type === 'detergent') {
         const v = parseFloat(val);
         if (isNaN(v) || val === '') return '';
-        return v <= 0.005 ? '合格 (≤0.005)' : '不合格 (>0.005)';
+        return v <= 0.05 ? '合格 (≤0.05 mg/L)' : '不合格 (>0.05 mg/L)';
     }
     if (type === 'detergentImage') {
         const v = parseFloat(val);
@@ -1282,15 +1283,39 @@ function bindPointEvents(pointDiv) {
         }
 
         if (type === 'detergent') {
-            if (valueLabel) valueLabel.innerHTML = '洗涤剂浓度值 <span class="text-red-500">*</span>';
-            if (rluInput) {
-                rluInput.placeholder = '手动输入或点击下方按钮拍照识别';
-                rluInput.step = '0.001';
-                rluInput.min = '0';
+            if (valueLabel) valueLabel.innerHTML = '人工判读结果 <span class="text-red-500">*</span>';
+            // 洗涤剂残留：浓度值改为下拉选择（与比色卡保持一致：0, 0.01, 0.05, 0.1, 0.5, 1.0, 2.0 mg/L）
+            if (rluInput && rluInput.tagName === 'INPUT') {
+                const currentVal = rluInput.value;
+                rluInput.outerHTML = `
+                    <select name="rluValue" class="w-full border border-gray-300 p-2 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500" required>
+                        <option value="">请选择浓度值（对照比色卡）</option>
+                        <option value="0">0 mg/L（未检出）</option>
+                        <option value="0.01">0.01 mg/L</option>
+                        <option value="0.05">0.05 mg/L（合格限值）</option>
+                        <option value="0.1">0.1 mg/L</option>
+                        <option value="0.5">0.5 mg/L</option>
+                        <option value="1">1.0 mg/L</option>
+                        <option value="2">2.0 mg/L</option>
+                    </select>`;
+                // 恢复之前选中的值
+                const newRluInput = pointDiv.querySelector('[name="rluValue"]');
+                if (currentVal && newRluInput) newRluInput.value = currentVal;
             }
             if (unitLabel) {
-                unitLabel.textContent = 'mg/100cm²';
-                unitLabel.classList.remove('hidden');
+                unitLabel.textContent = '';
+                unitLabel.classList.add('hidden');
+            }
+            // 判定结果改为自动显示（根据选择的浓度值自动计算）
+            if (resultField) {
+                const resultLabel = pointDiv.querySelector('.result-label');
+                const currentResVal = resultField.value;
+                if (resultField.tagName === 'SELECT' || resultField.tagName === 'INPUT') {
+                    resultField.outerHTML = `<input type="text" name="result" readonly class="w-full border border-gray-300 p-2 rounded-md shadow-sm bg-gray-50 cursor-not-allowed" value="">`;
+                }
+                if (resultLabel) resultLabel.innerHTML = '判定结果 <span class="text-blue-500">(自动)</span>';
+                const newResultField = pointDiv.querySelector('[name="result"]');
+                if (currentResVal && newResultField) newResultField.value = currentResVal;
             }
         } else if (type === 'detergentImage') {
             if (valueLabel) valueLabel.innerHTML = '识别浓度值 (mg/L) <span class="text-red-500">*</span>';
@@ -1305,6 +1330,14 @@ function bindPointEvents(pointDiv) {
             }
         } else {
             if (valueLabel) valueLabel.innerHTML = 'RLU读数 <span class="text-red-500">*</span>';
+            // ATP / 其他类型：恢复为数字输入框
+            const rluSelect = pointDiv.querySelector('[name="rluValue"]');
+            if (rluSelect && rluSelect.tagName === 'SELECT') {
+                const currentVal = rluSelect.value;
+                rluSelect.outerHTML = `<input type="number" name="rluValue" class="w-full border border-gray-300 p-2 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500" required placeholder="输入RLU读数">`;
+                const newRluInput = pointDiv.querySelector('[name="rluValue"]');
+                if (currentVal && newRluInput) newRluInput.value = currentVal;
+            }
             if (rluInput) {
                 rluInput.placeholder = '输入RLU读数';
                 rluInput.step = '1';
@@ -1314,12 +1347,23 @@ function bindPointEvents(pointDiv) {
                 unitLabel.textContent = '';
                 unitLabel.classList.add('hidden');
             }
+            // 恢复 result 为自动计算模式
+            if (resultField && (resultField.tagName === 'SELECT' || !resultField.hasAttribute('readonly'))) {
+                const resultLabel = pointDiv.querySelector('.result-label');
+                const currentResVal = resultField.value;
+                resultField.outerHTML = `<input type="text" name="result" readonly class="w-full border border-gray-300 p-2 rounded-md shadow-sm bg-gray-50 cursor-not-allowed" value="">`;
+                if (resultLabel) resultLabel.innerHTML = '判定结果 <span class="text-blue-500">(自动)</span>';
+                const newResultField = pointDiv.querySelector('[name="result"]');
+                if (currentResVal && newResultField) newResultField.value = currentResVal;
+            }
         }
+        // 重新获取 resultField（因为 updateForType 可能已替换了 DOM）
+        const currentResultField = pointDiv.querySelector('[name="result"]');
         if (rluInput && rluInput.value) {
-            recalcResult(type, rluInput.value, resultField);
-        } else if (resultField) {
-            resultField.value = '';
-            updateResultFieldStyle(resultField);
+            recalcResult(type, rluInput.value, currentResultField);
+        } else if (currentResultField) {
+            currentResultField.value = '';
+            updateResultFieldStyle(currentResultField);
         }
     }
 
@@ -1343,9 +1387,16 @@ function bindPointEvents(pointDiv) {
     }
 
     if (rluInput) {
+        // 同时监听 input（数字输入）和 change（下拉选择）事件
         rluInput.addEventListener('input', () => {
             const type = typeSelect ? typeSelect.value : 'atp';
-            recalcResult(type, rluInput.value, resultField);
+            const currentResultField = pointDiv.querySelector('[name="result"]');
+            recalcResult(type, rluInput.value, currentResultField);
+        });
+        rluInput.addEventListener('change', () => {
+            const type = typeSelect ? typeSelect.value : 'atp';
+            const currentResultField = pointDiv.querySelector('[name="result"]');
+            recalcResult(type, rluInput.value, currentResultField);
         });
     }
 
@@ -1518,7 +1569,7 @@ function getPointTemplate(removable = false) {
                 <div class="mt-2 ai-slot"></div>
             </div>
             <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">判定结果 <span class="text-blue-500">(自动)</span></label>
+                <label class="block text-sm font-medium text-gray-700 mb-1 result-label">判定结果 <span class="text-blue-500">(自动)</span></label>
                 <input type="text" name="result" readonly class="w-full border border-gray-300 p-2 rounded-md shadow-sm bg-gray-50 cursor-not-allowed" value="">
             </div>
         </div>
