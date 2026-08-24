@@ -15,7 +15,7 @@ import UserManager from './modules/UserManager.js'
 import { createUserRoutes } from './routes/userRoutes.js'
 import { createAuditRoutes } from './routes/auditRoutes.js'
 import { createSessionRoutes } from './routes/sessionRoutes.js'
-import { createGuestRoutes, createGuestExportRequestRoutes } from './routes/guestRoutes.js'
+import { createGuestRoutes } from './routes/guestRoutes.js'
 import { rateLimit } from './middleware/validationMiddleware.js'
 import idempotencyMiddleware from './middleware/idempotencyMiddleware.js'
 import { createAuthMiddleware } from './middleware/authMiddleware.js'
@@ -285,8 +285,6 @@ app.use('/api/session', sessionRoutes)
 // ====== Guest Routes（TD-Guest 收口）======
 const guestRoutes = createGuestRoutes(userManager, prisma, JWT_SECRET)
 app.use('/api/guest', guestRoutes)
-const guestExportRequestRoutes = createGuestExportRequestRoutes(userManager, prisma, JWT_SECRET)
-app.use('/api/guest-export-request', guestExportRequestRoutes)
 
 // ====== Sync Routes ======
 const syncRoutes = createSyncRoutes(userManager, prisma)

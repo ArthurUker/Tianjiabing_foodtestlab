@@ -493,7 +493,7 @@ export class StorageService {
             localStorage.setItem(this.pendingRequestsKey, JSON.stringify([]));
         }
         this._loadPersistedFingerprintIndex();
-        this._migrateCache(); // 净化已存在于 localStorage 的历史脏数据（如田家炳中学）
+        this._migrateCache(); // 净化已存在于 localStorage 的历史脏数据
     }
 
     // 历史脏数据净化：部分旧记录 canteen(食堂) 为空，而 location 被误填成
@@ -514,8 +514,8 @@ export class StorageService {
         return rec;
     }
 
-    // 一次性迁移：把当前 localStorage 缓存里历史脏数据写回，确保已存在的田家炳中学
-    // 等数据在下次渲染前被净化。
+    // 一次性迁移：把当前 localStorage 缓存里历史脏数据写回，确保已存在的
+    // 旧校名等数据在下次渲染前被净化。
     _migrateCache() {
         try {
             const raw = localStorage.getItem(this.localCacheKey);

@@ -1,10 +1,9 @@
 /**
  * 访客界面模块
- * 为访客提供只读的数据查看和导出申请功能
+ * 访客为只读角色：仅可查看数据看板与检测数据，不开放任何注册、权限申请或审批操作。
  */
 
 import guestAuthService from '../services/GuestAuthService.js';
-import { UINotification } from '../utils/UINotification.js';
 import { extractSchoolCode } from '../utils/schoolCode.js';
 import { escapeHtml } from '../utils/schoolCustomization/shared.js';
 import {
@@ -18,7 +17,6 @@ export class GuestDashboard {
     constructor() {
         this.moduleName = '访客中心';
         this.currentGuest = null;
-        this.exportRequests = [];
         this._abortCtrl = null;   // TD-EventLeak-Phase2
         // RK31: 快速导航 data-nav-target → visible_types 模块 code 映射（dashboard 恒显示）
         this._navToModule = {
@@ -97,7 +95,6 @@ export class GuestDashboard {
         this.renderUI();
         this.applyVisibleTypes(customization);
         this.bindEvents();
-        this.loadExportRequests();
         this.loadStats(); // BS-09: 异步加载汇总统计，不阻塞初始化
 
         console.log('✅ ' + this.moduleName + ' 初始化完成');
@@ -118,19 +115,12 @@ export class GuestDashboard {
         const guest = this.currentGuest;
         const isQuickAccess = guestAuthService.isQuickAccessMode();
         const guestTypeLabel = '只读访客';
-        // 权限状态：病原体查看权限 + 导出权限 两个维度（二者独立）
-        const pathogenStatus = guest.can_view_pathogen
-            ? '<span class="px-2 py-1 bg-purple-100 text-purple-800 text-xs rounded">✓ 已获病原体查看权限（只读）</span>'
-            : '<span class="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded">⏳ 病原体待审批</span>';
-        const permissionStatus = guest.has_export_permission 
-            ? '<span class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded">✓ 已获得导出权限</span>'
-            : '<span class="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded">⏳ 导出待审批</span>';
 
         // 快速访问模式显示标签
         const quickAccessBadge = isQuickAccess ? `
             <div class="mb-4 p-3 bg-blue-100 border border-blue-300 rounded-lg text-blue-800 text-sm flex items-center">
                 <i class="fas fa-info-circle mr-2"></i>
-                您正在使用<strong>快速查看模式</strong>，仅可查看数据，无法进行任何操作
+                您正在使用<strong>快速查看模式</strong>，仅可查看数据，无法进行任何注册或申请操作
             </div>
         ` : '';
 
@@ -145,12 +135,11 @@ export class GuestDashboard {
                             <h2 class="text-2xl font-bold mb-2">
                                 <i class="fas fa-user-circle mr-2"></i>欢迎${isQuickAccess ? ' (快速查看)' : ''}，${escapeHtml(guest.full_name || guest.username)}
                             </h2>
-                            <p class="text-blue-100">访客类型: ${guestTypeLabel}</p>
+                            <p class="text-blue-100">访客类型: ${guestTypeLabel}（仅只读）</p>
                             ${!isQuickAccess ? `<p class="text-blue-100 text-sm">访问有效期: 至 ${new Date(guest.valid_until).toLocaleDateString()}</p>` : ''}
                         </div>
                         <div class="text-right space-y-1">
-                            ${!isQuickAccess ? permissionStatus : '<span class="px-2 py-1 bg-gray-200 text-gray-800 text-xs rounded">临时访问</span>'}
-                            ${!isQuickAccess ? pathogenStatus : ''}
+                            <span class="px-2 py-1 bg-gray-200 text-gray-800 text-xs rounded">${isQuickAccess ? '临时访问' : '长期访客'}</span>
                         </div>
                     </div>
                 </div>
@@ -172,14 +161,6 @@ export class GuestDashboard {
                             <li class="flex items-center">
                                 <i class="fas fa-eye text-blue-500 mr-2"></i>查看测试结果
                             </li>
-                            ${!isQuickAccess ? `
-                            <li class="flex items-center ${guest.can_view_pathogen ? 'text-purple-600' : 'text-yellow-600'}">
-                                <i class="fas fa-virus mr-2"></i>查看病原体数据${guest.can_view_pathogen ? '（已授权·只读）' : '（待申请审批）'}
-                            </li>
-                            <li class="flex items-center ${guest.has_export_permission ? 'text-green-600' : 'text-yellow-600'}">
-                                <i class="fas fa-file-export mr-2"></i>申请/导出报告
-                            </li>
-                            ` : ''}
                         </ul>
                     </div>
 
@@ -199,6 +180,12 @@ export class GuestDashboard {
                                 <i class="fas fa-trash text-gray-400 mr-2"></i>删除数据
                             </li>
                             <li class="flex items-center">
+                                <i class="fas fa-file-export text-gray-400 mr-2"></i>提交数据导出申请
+                            </li>
+                            <li class="flex items-center">
+                                <i class="fas fa-user-plus text-gray-400 mr-2"></i>自助注册账号
+                            </li>
+                            <li class="flex items-center">
                                 <i class="fas fa-cog text-gray-400 mr-2"></i>系统设置
                             </li>
                         </ul>
@@ -216,8 +203,6 @@ export class GuestDashboard {
                         </div>
                     </div>
                 </div>
-
-                ${!isQuickAccess ? this.renderPermissionSection() : ''}
 
                 <!-- 快速链接 -->
                 <div class="bg-white rounded-lg shadow p-6">
@@ -308,193 +293,12 @@ export class GuestDashboard {
     }
 
     /**
-     * 渲染权限申请部分（病原体查看申请 + 导出申请，二者相互独立）
-     */
-    renderPermissionSection() {
-        const guest = this.currentGuest;
-        return `
-            <div class="bg-white rounded-lg shadow p-6 space-y-6">
-                <h3 class="text-lg font-semibold text-gray-800 mb-2">
-                    <i class="fas fa-shield-alt text-blue-600 mr-2"></i>权限申请
-                </h3>
-
-                <!-- 病原体查看申请（只读，不授导出） -->
-                <div class="border border-purple-100 rounded-lg p-4">
-                    <h4 class="font-semibold text-gray-800 mb-2 flex items-center">
-                        <i class="fas fa-virus text-purple-600 mr-2"></i>病原体数据查看权限
-                    </h4>
-                    ${!guest.can_view_pathogen ? `
-                    <div class="bg-purple-50 border border-purple-200 rounded p-3 mb-3">
-                        <p class="text-purple-800 text-sm">
-                            <i class="fas fa-info-circle mr-2"></i>
-                            默认访客不可见病原体检测数据。提交申请并由学校管理员审批通过后，可<strong>只读</strong>查看病原体数据（仍不含导出权限）。
-                        </p>
-                    </div>
-                    <div class="space-y-3">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">申请原因</label>
-                            <textarea id="pathogenReason" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500" 
-                                rows="3" placeholder="请说明您需要查看病原体检测数据的原因..."></textarea>
-                        </div>
-                        <button id="btnSubmitPathogenRequest" class="w-full bg-purple-600 text-white py-2 rounded-lg hover:bg-purple-700 transition font-medium">
-                            <i class="fas fa-paper-plane mr-2"></i>提交病原体查看申请
-                        </button>
-                    </div>
-                    ` : `
-                    <div class="bg-green-50 border border-green-200 rounded p-3">
-                        <p class="text-green-800 text-sm">
-                            <i class="fas fa-check-circle mr-2"></i>
-                            您已获得病原体数据查看权限（只读）。可在左侧导航进入病原体检测模块。
-                        </p>
-                    </div>
-                    `}
-                </div>
-
-                <!-- 导出申请 -->
-                <div class="border border-blue-100 rounded-lg p-4">
-                    <h4 class="font-semibold text-gray-800 mb-2 flex items-center">
-                        <i class="fas fa-file-export text-blue-600 mr-2"></i>数据导出权限
-                    </h4>
-                    ${!guest.has_export_permission ? `
-                    <div class="bg-yellow-50 border border-yellow-200 rounded p-3 mb-3">
-                        <p class="text-yellow-800 text-sm">
-                            <i class="fas fa-info-circle mr-2"></i>
-                            您还未获得导出权限。请提交申请，管理员审批后即可获得导出功能。
-                        </p>
-                    </div>
-                    <div class="space-y-3">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">申请原因</label>
-                            <textarea id="exportReason" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" 
-                                rows="3" placeholder="请说明您需要导出报告的原因..."></textarea>
-                        </div>
-                        <button id="btnSubmitExportRequest" class="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition font-medium">
-                            <i class="fas fa-paper-plane mr-2"></i>提交导出申请
-                        </button>
-                    </div>
-                    ` : `
-                    <div class="bg-green-50 border border-green-200 rounded p-3">
-                        <p class="text-green-800 text-sm">
-                            <i class="fas fa-check-circle mr-2"></i>
-                            您已获得导出权限！可在各个检测模块中导出报告。
-                        </p>
-                    </div>
-                    `}
-                </div>
-
-                <!-- 申请历史 -->
-                <div class="pt-4 border-t">
-                    <h4 class="font-semibold text-gray-800 mb-3">申请历史</h4>
-                    <div id="exportRequestsList" class="space-y-2">
-                        <div class="text-center py-4 text-gray-500">
-                            <i class="fas fa-spinner fa-spin mr-2"></i>加载中...
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-    }
-
-    /**
-     * 加载申请记录（所有非快速访问访客都可查看自己的申请历史）
-     */
-    async loadExportRequests() {
-        if (guestAuthService.isQuickAccessMode()) {
-            const container = document.getElementById('exportRequestsList');
-            if (container) container.innerHTML = '<div class="text-center py-4 text-gray-500">快速访问模式不支持申请</div>';
-            return;
-        }
-
-        const container = document.getElementById('exportRequestsList');
-        try {
-            const result = await guestAuthService.getMyRequests();
-        
-            if (result.success) {
-                this.exportRequests = result.requests || [];
-                this.renderExportRequests();
-            } else if (container) {
-                container.innerHTML = '<div class="text-center py-4 text-gray-500">暂无申请记录</div>';
-            }
-        } catch (err) {
-            console.error('加载导出申请失败:', err);
-            if (container) {
-                container.innerHTML = '<div class="text-center py-4 text-gray-500">暂无申请记录</div>';
-            }
-            UINotification.error('加载导出申请失败，请稍后重试');
-        }
-    }
-
-    /**
-     * 渲染导出申请列表
-     */
-    renderExportRequests() {
-        const container = document.getElementById('exportRequestsList');
-        
-        if (!container) return;
-
-        if (this.exportRequests.length === 0) {
-            container.innerHTML = '<div class="text-center py-4 text-gray-500">暂无申请记录</div>';
-            return;
-        }
-
-        container.innerHTML = this.exportRequests.map(req => {
-            const statusMap = {
-                'pending': { label: '待审批', color: 'yellow' },
-                'approved': { label: '已批准', color: 'green' },
-                'rejected': { label: '已拒绝', color: 'red' },
-                'expired': { label: '已过期', color: 'gray' }
-            };
-
-            const status = statusMap[req.status] || { label: req.status, color: 'gray' };
-            const colorClasses = {
-                'yellow': 'bg-yellow-100 text-yellow-800',
-                'green': 'bg-green-100 text-green-800',
-                'red': 'bg-red-100 text-red-800',
-                'gray': 'bg-gray-100 text-gray-800'
-            };
-
-            return `
-                <div class="border rounded p-3">
-                    <div class="flex justify-between items-start mb-2">
-                        <div>
-                            <span class="font-medium">${escapeHtml(req.request_type)}</span>
-                            <p class="text-sm text-gray-600">${escapeHtml(req.request_reason)}</p>
-                        </div>
-                        <span class="px-2 py-1 text-xs rounded ${colorClasses[status.color]}">
-                            ${status.label}
-                        </span>
-                    </div>
-                    <p class="text-xs text-gray-500">
-                        申请时间: ${new Date(req.requested_at).toLocaleString()}
-                    </p>
-                    ${req.approval_comment ? `
-                    <p class="text-xs text-gray-600 mt-1">
-                        <i class="fas fa-comment mr-1"></i>审批意见: ${escapeHtml(req.approval_comment)}
-                    </p>
-                    ` : ''}
-                    ${req.permission_valid_until ? `
-                    <p class="text-xs text-green-600 mt-1">
-                        <i class="fas fa-calendar mr-1"></i>权限有效期: ${new Date(req.permission_valid_until).toLocaleDateString()}
-                    </p>
-                    ` : ''}
-                </div>
-            `;
-        }).join('');
-    }
-
-    /**
      * 绑定事件
      */
     bindEvents() {
         // TD-EventLeak-Phase2: 重新绑定前先取消上一次监听，避免累加
         this._abortCtrl?.abort();
         this._abortCtrl = new AbortController();
-
-        // 提交导出申请
-        const btnSubmit = document.getElementById('btnSubmitExportRequest');
-        if (btnSubmit) {
-            btnSubmit.addEventListener('click', () => this.submitExportRequest(), { signal: this._abortCtrl.signal });
-        }
 
         // P2-10 阶段B：快速导航按钮改事件委托，派发 app:navigate 事件（不再依赖 window.handleNavigation）
         const quickNav = document.getElementById('guestQuickNav');
@@ -506,45 +310,6 @@ export class GuestDashboard {
                     detail: { target: btn.dataset.navTarget }
                 }));
             }, { signal: this._abortCtrl.signal });
-        }
-    }
-
-    /**
-     * 提交导出申请
-     */
-    async submitExportRequest() {
-        const reasonEl = document.getElementById('exportReason');
-        const reason = reasonEl ? reasonEl.value.trim() : '';
-
-        if (!reason) {
-            UINotification.error('请输入申请原因');
-            return;
-        }
-
-        const btnSubmit = document.getElementById('btnSubmitExportRequest');
-        if (btnSubmit) btnSubmit.disabled = true;
-
-        UINotification.loading('正在提交申请...');
-
-        try {
-            const result = await guestAuthService.submitExportRequest(
-                'report_export',
-                reason,
-                { request_date: new Date().toISOString() }
-            );
-
-            if (result.success) {
-                UINotification.success('申请已提交，请等待管理员审批');
-                if (reasonEl) reasonEl.value = '';
-                await this.loadExportRequests();
-            } else {
-                UINotification.error('提交失败: ' + result.error);
-            }
-        } catch (err) {
-            console.error('提交导出申请失败:', err);
-            UINotification.error('提交导出申请失败，请稍后重试');
-        } finally {
-            if (btnSubmit) btnSubmit.disabled = false;
         }
     }
 }

@@ -1,6 +1,7 @@
 /**
  * 访客认证服务
- * 处理访客登录、注册、权限检查等
+ * 仅处理访客快速访问、令牌校验与只读权限查询；
+ * 不开放访客自助注册、数据导出申请、病原体查看申请及审批相关操作。
  */
 
 import { extractSchoolCode } from '../utils/schoolCode.js'
@@ -42,87 +43,6 @@ export class GuestAuthService {
         try { sessionStorage.setItem(nsGuest, token); } catch (e) { /* 存储不可用时忽略 */ }
         localStorage.setItem(nsGuest, token);
         localStorage.setItem(nsCurrent, JSON.stringify(guest));
-    }
-
-    /**
-     * 访客自助注册（仅 readonly；可登记「希望查看病原体」意向，需经审批才生效）
-     * @param {string} username - 访客用户名
-     * @param {string} email - 访客邮箱
-     * @param {string} password - 访客密码
-     * @param {string} full_name - 访客真实姓名
-     * @param {boolean} request_pathogen_view - 是否申请查看病原体数据（默认 false；仅登记意向，审批后才生效）
-     * @returns {Promise<{success: boolean, token?: string, guest?: object, error?: string}>}
-     */
-    async register(username, email, password, full_name, request_pathogen_view = false, schoolCode = null) {
-        try {
-            const resolvedSchool = schoolCode || extractSchoolCode()
-            const response = await fetch(`${this.apiBaseUrl}/api/guest/register`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    username,
-                    email,
-                    password,
-                    full_name,
-                    // 自注册强制 readonly：即便传入也忽略（后端同样强制降级）
-                    guest_type: 'readonly',
-                    request_pathogen_view: !!request_pathogen_view,
-                    valid_days: 30,
-                    schoolCode: resolvedSchool
-                })
-            });
-
-            const data = await response.json();
-
-            if (!response.ok) {
-                return { success: false, error: data.error };
-            }
-
-            // 保存 token 和访客信息（DS-17：内存+sessionStorage 优先）
-            if (data.token) {
-                this._storeGuestSession(data.token, data.guest);
-            }
-
-            return { success: true, token: data.token, guest: data.guest, requestPathogenView: data.requestPathogenView };
-        } catch (error) {
-            // L4: 仅打错误摘要，不输出可能含 PII 的完整 error 对象
-            console.error('访客注册错误:', error.message);
-            return { success: false, error: error.message };
-        }
-    }
-
-    /**
-     * 访客登录
-     * @param {string} username - 访客用户名
-     * @param {string} password - 访客密码
-     * @returns {Promise<{success: boolean, token?: string, guest?: object, error?: string}>}
-     */
-    async login(username, password, schoolCode = null) {
-        try {
-            const resolvedSchool = schoolCode || extractSchoolCode()
-            const response = await fetch(`${this.apiBaseUrl}/api/guest/login`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password, schoolCode: resolvedSchool })
-            });
-
-            const data = await response.json();
-
-            if (!response.ok) {
-                return { success: false, error: data.error };
-            }
-
-            // 保存 token 和访客信息（DS-17：内存+sessionStorage 优先）
-            if (data.token) {
-                this._storeGuestSession(data.token, data.guest);
-            }
-
-            return { success: true, token: data.token, guest: data.guest };
-        } catch (error) {
-            // L4: 仅打错误摘要
-            console.error('访客登录错误:', error.message);
-            return { success: false, error: error.message };
-        }
     }
 
     /**
@@ -193,7 +113,7 @@ export class GuestAuthService {
         }
 
         if (isPlausibleJwt(fromLocal)) {
-            // 兼容路径：login.html 注册/登录后跳转 → 回填内存/sessionStorage
+            // 兼容路径：login.html 快速访问后跳转 → 回填内存/sessionStorage
             this._memToken = fromLocal;
             try { sessionStorage.setItem(nsGuest, fromLocal); } catch (e) { /* 存储不可用时忽略 */ }
             return fromLocal;
@@ -236,7 +156,7 @@ export class GuestAuthService {
     }
 
     /**
-     * 是否有导出权限
+     * 是否有导出权限（访客写死无导出权限）
      * @returns {boolean}
      */
     hasExportPermission() {
@@ -245,7 +165,7 @@ export class GuestAuthService {
     }
 
     /**
-     * 是否可查看病原体数据（经 pathogen_access 申请审批后为真；仍只读、不授导出）
+     * 是否可查看病原体数据（访客写死不可查看）
      * @returns {boolean}
      */
     hasPathogenPermission() {
@@ -254,7 +174,7 @@ export class GuestAuthService {
     }
 
     /**
-     * 快速访问模式 - 调用后端接口获取真实 JWT（P0-07 修复）
+     * 快速访问模式 - 调用后端接口获取真实 JWT
      * @returns {Promise<boolean>}
      */
     async quickAccessAsViewer(schoolCode = null) {
@@ -291,119 +211,6 @@ export class GuestAuthService {
     isQuickAccessMode() {
         const guest = this.getCurrentGuest();
         return guest ? guest.is_quick_access === true : false;
-    }
-
-    /**
-     * 提交导出申请
-     * @param {string} request_type - 申请类型
-     * @param {string} request_reason - 申请原因
-     * @param {object} request_data - 申请数据
-     * @returns {Promise<{success: boolean, request?: object, error?: string}>}
-     */
-    async submitExportRequest(request_type, request_reason, request_data = {}) {
-        try {
-            const token = this.getToken();
-            if (!token) {
-                return { success: false, error: '未登录' };
-            }
-
-            const response = await fetch(`${this.apiBaseUrl}/api/guest-export-request/submit`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({
-                    request_type,
-                    request_reason,
-                    request_data
-                })
-            });
-
-            const data = await response.json();
-
-            if (!response.ok) {
-                return { success: false, error: data.error };
-            }
-
-            return { success: true, request: data.request };
-        } catch (error) {
-            console.error('提交导出申请错误:', error);
-            return { success: false, error: error.message };
-        }
-    }
-
-    /**
-     * 提交「查看病原体数据」申请（pathogen_access）。
-     * 注意：仅申请只读的病原体查看权限，审批通过绝不开放导出。
-     * @param {string} request_reason - 申请原因
-     * @returns {Promise<{success: boolean, request?: object, error?: string}>}
-     */
-    async submitPathogenRequest(request_reason) {
-        return this.submitExportRequest('pathogen_access', request_reason, {});
-    }
-
-    /**
-     * 获取访客的申请记录
-     * @returns {Promise<{success: boolean, requests?: array, error?: string}>}
-     */
-    async getMyRequests() {
-        try {
-            const token = this.getToken();
-            if (!token) {
-                return { success: false, error: '未登录' };
-            }
-
-            const response = await fetch(`${this.apiBaseUrl}/api/guest-export-request/my-requests`, {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
-
-            const data = await response.json();
-
-            if (!response.ok) {
-                return { success: false, error: data.error };
-            }
-
-            return { success: true, requests: data.requests };
-        } catch (error) {
-            console.error('获取申请记录错误:', error);
-            return { success: false, error: error.message };
-        }
-    }
-
-    /**
-     * 检查权限状态（返回导出权限与病原体查看权限，二者独立）
-     * @returns {Promise<{has_export_permission: boolean, can_view_pathogen: boolean, valid_until?: string}>}
-     */
-    async checkExportPermission() {
-        try {
-            const token = this.getToken();
-            if (!token) {
-                return { has_export_permission: false, can_view_pathogen: false };
-            }
-
-            const response = await fetch(`${this.apiBaseUrl}/api/guest-export-request/check-permission`, {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
-
-            const data = await response.json();
-            // 将最新权限同步回会话，便于 hasPathogenPermission() 等同步方法即时生效
-            const guest = this.getCurrentGuest();
-            if (guest && data) {
-                guest.has_export_permission = !!data.has_export_permission;
-                guest.can_view_pathogen = !!data.can_view_pathogen;
-                guest.request_pathogen_view = !!data.request_pathogen_view;
-                try { localStorage.setItem(this._nsKey('current_guest'), JSON.stringify(guest)); } catch (e) { /* 忽略 */ }
-            }
-            return data;
-        } catch (error) {
-            console.error('检查权限错误:', error);
-            return { has_export_permission: false, can_view_pathogen: false };
-        }
     }
 }
 

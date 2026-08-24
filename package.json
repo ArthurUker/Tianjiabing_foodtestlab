@@ -36,7 +36,7 @@
     "management",
     "system"
   ],
-  "author": "Tianjiabing Team",
+  "author": "foodtestlab",
   "license": "MIT",
   "dependencies": {
     "bcryptjs": "^2.4.3",
