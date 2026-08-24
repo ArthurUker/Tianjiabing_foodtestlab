@@ -12,6 +12,7 @@
 1. [系统概述](#1-系统概述)
 2. [技术栈总览](#2-技术栈总览)
 3. [系统架构图](#3-系统架构图)
+   - [3.4 代码目录结构](#34-代码目录结构)
 4. [数据库设计](#4-数据库设计)
 5. [API 接口文档](#5-api-接口文档)
    - [5.11 洗涤剂比色识别](#511-洗涤剂比色识别api-recognize挂载于-serverjs-appuseapi-recognitionroutes)
@@ -149,6 +150,72 @@ flowchart TB
 > 服务启动时由 `selfHealTenantSchemas()` 在后台把全部**启用中（`status='active'`）**的租户 schema 与当前 `schema.prisma` 对齐（内部调 `syncAllTenantSchemas`，单校失败不阻断其余）并回填历史 NULL（可经 `AUTO_SYNC_TENANTS=false` 关闭，改由 `npm run db:sync` 手动执行）。停用学校不纳入批量同步（逻辑删除）。
 >
 > **多租户访问识别（路径前缀路由，方案 A）**：学校代码即部署基路径首段，学校应用按 `/<code>/` 子路径部署（`/<code>/login.html`、`/<code>/index.html`）。前端 `js/utils/schoolCode.js` 的 `extractSchoolCode()` 是访问层**唯一**依赖「路径/域名」的代码位置：优先从路径首段 `/<code>/...` 提取，兜底 `?school=<code>` 查询参数（无标识时回落 dev/test 共享 schema；路径优先于查询，防用户篡改租户）。「`/<code>/<resource>` → `/<resource>`」的重写**生产环境由 Caddy 层完成**（`@schoolLogin`/`@schoolHelp` rewrite + `handle` 互斥，见 §8.4），后端 `server.js` 的同名中间件仅在 `SERVE_STATIC=true`（本地开发）时生效；`RESERVED_STATIC_DIRS` 白名单排除 `css/js/api/health` 等保留名，故 schoolCode 不得为 `api`、`health` 或任何静态目录名。
+
+### 3.4 代码目录结构
+
+> 本节基于仓库实际目录（`list_dir`，已折叠生成式目录 `node_modules/`、`dist/`、`.git/`、产物 `coverage/`、`vendor/` 等非源码树）。前端 `js/` 内部的组件级划分另见 §6.2。
+
+```text
+foodtestlab/
+├── index.html / login.html           # 前端入口（原生 ES Module，浏览器直载）
+├── admin-schools.html                # 平台超管：学校全生命周期管理控制台
+├── super-admin-login.html            # 平台超管登录页
+├── help.html / test-report.html / detergent-image-demo.html  # 帮助/测试报告/洗涤剂演示页
+├── package.json                      # 根依赖与脚本（name=foodtestlab, version=3.1.0, type=module）
+├── jest.config.cjs / cypress.config.cjs / tailwind.config.cjs / .babelrc  # 测试与构建配置
+├── backend/                          # ★ Node/Express 后端（ESM）
+│   ├── server.js                     # 入口：CORS/JWT 启动守卫、路由挂载（含 recognitionRoutes @311）
+│   ├── package.json                  # 后端专用依赖（Prisma/Express 等）
+│   ├── lib/                          # 核心库（20 个）：tenantClient（多租户）、backupService/backupKms/
+│   │                                 #   restoreService（备份恢复）、auditLog、securityGuards/securityAlerts、
+│   │                                 #   tenantProvisioner/tenantSync（租户置备）、customizationValidate 等
+│   ├── routes/                       # HTTP 路由层（12 个）：school/user/audit/session/guest/frequency/
+│   │                                 #   recognition/record/sync/admin/backups/test-results
+│   ├── middleware/                   # 中间件：auth（JWT）、tenant（租户路由）、readOnly（viewer 只读）、
+│   │                                 #   idempotency（幂等）、validation
+│   ├── modules/                      # 业务模块：recognitionQueue（洗涤剂识别排队）、UserManager
+│   ├── prisma/                       # Prisma schema.prisma + migrations/ + 种子/置备脚本（*.sql/*.js）
+│   ├── scripts/                      # 后端运维脚本（16 个 *.mjs）：迁移、角色迁移、备份导入等
+│   ├── uploads/                      # 运行时上传目录（107 PNG，属产物，建议 gitignore）[需人工确认是否入库]
+│   └── backups/                      # 运行时备份落盘目录（属产物，建议 gitignore）[需人工确认是否入库]
+├── js/                               # ★ 前端（原生 ES Module，无打包器）
+│   ├── main.js                       # 应用引导入口
+│   ├── core/                         # 核心：Router（路由/权限守卫）、Storage（离线优先数据层）、
+│   │                                 #   Auth、AdaptiveUploadQueue（自适应上传队列）
+│   ├── services/                     # 服务层：AuthService、AuditService、PermissionService（RBAC 矩阵）、
+│   │                                 #   ExportService、GuestAuthService、SessionManager
+│   ├── modules/                      # 业务/页面模块：Dashboard/Tableware/Pathogen/GenericTest/FrequencyModule/
+│   │                                 #   AuditLog/UserManagement/BackupRestore/adminSchools/SuperAdminAccount/
+│   │                                 #   GuestDashboard/detergentDemo 等 + registry.js（模块注册中心）
+│   ├── opencv/                       # 洗涤剂识别前端核心 recognizer.js（与后端共用算法）
+│   ├── config/                       # 前端配置
+│   └── utils/                        # 工具函数（schoolCode/schoolCustomization 等）
+├── css/                              # 样式与字体（Tailwind 编译产物 + ttf/woff2）
+├── tests/                            # ★ Jest 单元测试/集成测试（31 个 *.test.js + integration/ + setup-env.js）
+├── cypress/                          # ★ Cypress E2E（e2e/ + support/）
+├── scripts/                          # 根级运维脚本：build-static.js（构建 dist/）、provision-school.sh、
+│                                   #   backup-alert.sh、*.mjs 迁移与文档同步
+├── deploy/                           # 部署配置：deploy.sh + Caddy 片段 *.conf + README/就绪报告
+├── docs/                             # 文档：DEVELOPMENT_GUIDE / PROJECT_CONVENTIONS / CHANGELOG 等（19 md + 图）
+└── vendor/                           # 第三方静态库（生成式/外部依赖，建议 gitignore）[需人工确认]
+```
+
+**结构合理性评估（基于现有代码）**
+
+| 维度 | 评价 | 说明 |
+|------|------|------|
+| 前后端分层 | ✅ 合理 | `backend/`（服务端 ESM）与 `js/`（浏览器 ESM）物理隔离，职责清晰，无交叉打包。 |
+| 后端内部划分 | ✅ 合理 | `lib / routes / middleware / modules / prisma / scripts` 按"基础设施 / 接口 / 横切 / 业务 / 数据 / 运维"职责分离，符合 Express 惯例。 |
+| 前端内部划分 | ✅ 合理 | `core（内核）/ services（服务）/ modules（页面业务）/ utils（工具）/ opencv（算法）` 分层清晰；`registry.js` 作为模块单一事实来源，新增检测类型零改码。 |
+| 测试隔离 | ✅ 合理 | `tests/`（Jest 单元/集成）+ `cypress/`（E2E）分目录，配置独立（`.cjs`），互不干扰。 |
+| 配置集中 | ✅ 合理 | 构建/测试/部署配置均落在根目录与 `deploy/`、`scripts/`，入口明确。 |
+
+**可优化项（非阻塞，供后续重构参考）**
+
+1. **运行时产物混入源码树**：`backend/uploads/`（107 PNG）、`backend/backups/`、`coverage/`、`dist/`、`vendor/` 属运行/构建产物，应与源码分离并确认已被 `.gitignore` 排除（当前 `uploads/`、`backups/` 是否在忽略列表**需人工确认**）。
+2. **脚本职责边界重叠**：根 `scripts/`（如 `*.mjs` 迁移）与 `backend/scripts/`（16 个 `*.mjs`）均含迁移/置备类脚本，二者命名空间未严格区分，长期可合并为统一 `scripts/`（含 `backend` 子命令）以减少歧义。
+3. **根目录文档治理**：根目录并存 `README.md` / `README_DIFF.md` / `README.new.md` / `README_REVIEW.md` / `TASKS.md` 多个过程性文档，建议仅保留 `README.md` 为正式文档，其余过程稿移入 `docs/` 或归档，避免读者混淆"哪个是源文档"。
+4. **多 package.json**：根与 `backend/` 各有一份 `package.json`，依赖与脚本存在一定重复（如 Prisma），需确保版本对齐（以根 `package.json#version=3.1.0` 为权威版本源）。
 
 ---
 
