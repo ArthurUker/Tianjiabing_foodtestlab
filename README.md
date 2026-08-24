@@ -3,7 +3,7 @@
 > 本 README 基于**当前仓库实际代码**编写，是项目的系统级总览文档。
 > 深入的开发细节见 [`docs/DEVELOPMENT_GUIDE.md`](./docs/DEVELOPMENT_GUIDE.md)；长期操作规范见 [`docs/PROJECT_CONVENTIONS.md`](./docs/PROJECT_CONVENTIONS.md)（优先级最高）；近期变更见 [`docs/CHANGELOG.md`](./docs/CHANGELOG.md)。
 >
-> **文档同步状态**：`package.json` 当前版本 **`3.1.0`**；本文档已于 **2026-08-24** 据全量代码复核同步修订（新增后端洗涤剂识别排队服务、审计日志筛选增强等，并标注尚未启用的能力）。
+> **文档同步状态**：`package.json` 当前版本 **`3.1.0`**；本文档已于 **2026-08-24** 据全量代码复核同步修订（后端洗涤剂识别排队服务已挂载启用、审计日志筛选增强等）。
 
 ---
 
@@ -14,6 +14,7 @@
 3. [系统架构图](#3-系统架构图)
 4. [数据库设计](#4-数据库设计)
 5. [API 接口文档](#5-api-接口文档)
+   - [5.11 洗涤剂比色识别](#511-洗涤剂比色识别api-recognize挂载于-serverjs-appuseapi-recognitionroutes)
 6. [前端模块设计](#6-前端模块设计)
 7. [认证与权限设计](#7-认证与权限设计)
 8. [部署架构](#8-部署架构)
@@ -45,7 +46,7 @@
 - **学校回收站**：彻底删除学校先软删除、再进回收站（保留 90 天可恢复），杜绝误删。
 - **字段选项级联**：动态表单字段（如「检测项目 → 检测点位」）的级联选项配置。
 - **浏览器测试报告**：测试人员在线填报、汇总、收口归档的辅助工具（`test-report.html`）。
-- **洗涤剂残留自动识别**：基于 OpenCV.js（WASM）的 ArUco 定位 + 单应校正 + ΔE2000 比色，前后端共用核心 `js/opencv/recognizer.js`（A4 拍摄卡四角定位标）。前端 `detergent-image-demo.html`（`js/modules/detergentDemo.js`）为「先定位区域 → 用户确认 → 再比色」的两步式演示/采集界面；后端 `backend/modules/recognitionQueue.js` + `backend/routes/recognitionRoutes.js` 提供单 Worker 排队式识别服务（`POST /api/recognize` 提交 + `GET /api/recognize/status/:jobId` 轮询，图片 ≤8MB、排队超 5 分钟报错）。⚠️ 截至 `3.1.0`，后端 `/api/recognize` 路由**已实现但暂未在 `server.js` 挂载启用**（前端演示走纯客户端 OpenCV 识别），属已知待启用项（见 §10）。
+- **洗涤剂残留自动识别**：基于 OpenCV.js（WASM）的 ArUco 定位 + 单应校正 + ΔE2000 比色，前后端共用核心 `js/opencv/recognizer.js`（A4 拍摄卡四角定位标）。前端 `detergent-image-demo.html`（`js/modules/detergentDemo.js`）为「先定位区域 → 用户确认 → 再比色」的两步式演示/采集界面；后端 `backend/modules/recognitionQueue.js` + `backend/routes/recognitionRoutes.js` 提供单 Worker 排队式识别服务，已挂载于 `server.js:311` `app.use('/api', recognitionRoutes)`，对外暴露 `POST /api/recognize`（提交，图片 ≤8MB）与 `GET /api/recognize/status/:jobId`（轮询，排队超 5 分钟报错），进程启动时 `recognitionQueue` 自动 pump（见 §5.11）。
 
 ### 目标用户
 
@@ -601,6 +602,15 @@ erDiagram
 
 > 保存成功后自动把结果同步到 `docs/test-results/latest/`（MD/HTML/JSON + 证据图片）并重建 `dist`，可用 `TEST_REPORT_DOCS_SYNC=false` 关闭。
 
+### 5.11 洗涤剂比色识别（`/api/recognize`，挂载于 `server.js` `app.use('/api', recognitionRoutes)`）
+
+| 方法 | 路径 | 权限 | 说明 |
+|------|------|------|------|
+| POST | `/api/recognize` | 登录 | 提交待识别图片（multipart，`image` 字段，≤8MB），返回 `{ jobId }`；后端 `recognitionQueue` 单 Worker 排队（图片过大/类型不符/排队超 5 分钟→报错） |
+| GET | `/api/recognize/status/:jobId` | 登录 | 轮询任务状态（`pending`/`processing`/`done`/`error`），`done` 返回比色结果与区域坐标 |
+
+> 后端识别与前端 `detergent-image-demo.html` 纯客户端 OpenCV 识别并存；后端路径受 `recognitionRoutes` 内置 multer 大小限制与 `BODY_LIMIT_UPLOAD` 影响。
+
 ---
 
 ## 6. 前端模块设计
@@ -938,7 +948,6 @@ sudo bash deploy/deploy.sh deploy/deploy.foodtestlab.conf
 
 ### 10.2 当前待办
 
-- **TD-Recognition-Mount（洗涤剂后端识别待启用）**：`backend/routes/recognitionRoutes.js` + `backend/modules/recognitionQueue.js` 已实现单 Worker 排队式识别服务（`POST /api/recognize`、`GET /api/recognize/status/:jobId`），但截至 `3.1.0` **尚未在 `server.js` 中 `app.use` 挂载**，前端 `detergent-image-demo.html` 仅走纯客户端 OpenCV 识别。需挂载 `app.use('/api/recognize', recognitionRoutes)` 并补路由级限流后方可对前端开放后端识别。
 - **未修复的测试反馈问题（17 项 failed-open）**：见 [`docs/fix/复核报告-20260814.md`](./docs/fix/复核报告-20260814.md) 与 [`docs/fix/待修复问题深度分析-20260814.md`](./docs/fix/待修复问题深度分析-20260814.md)（含 P0/P1 优先级与逐条根因定位）。
 - **容量规划与架构优化收尾**：见 [`docs/deployment/capacity-planning-and-p3-closeout.md`](./docs/deployment/capacity-planning-and-p3-closeout.md) 与 [`docs/optimization/ARCH_OPTIMIZATION_PLAN.md`](./docs/optimization/ARCH_OPTIMIZATION_PLAN.md)。
 - **运维待办（低优先）**：systemd 日志 `append:` 未配置 logrotate（会无限增长）；Caddy `reverse_proxy` 未显式设超时（沿用默认值）；根 `devDependencies` 有 jest 链高危漏洞（不影响运行时）。详见 [`deploy/DEPLOY_READINESS_REPORT.md`](./deploy/DEPLOY_READINESS_REPORT.md)。
