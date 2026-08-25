@@ -34,9 +34,14 @@
             var _token = localStorage.getItem(_nsKey('auth_token')) || sessionStorage.getItem(_nsKey('auth_token'));
             var _guest = localStorage.getItem(_nsKey('guest_token')) || sessionStorage.getItem(_nsKey('guest_token'));
 
-            // 清除本地认证残留：当前命名空间 key + 裸 key（旧版本无命名空间残留），
+            // 清除本地认证残留：仅清理「当前命名空间」key，
             // 避免「令牌属其他学校」场景下 login.html 用同一残留 token 判定已登录又跳回，
             // 形成 /index.html → /login.html → /index.html 无限循环（闪退 + 乱跳网址）。
+            // FIX(超管闪退)：不再清理裸 key——裸 key 是平台超管（schoolCode=null）的合法
+            // 命名空间。旧逻辑连带删除裸 key 时，会把其他标签页中超管刚写入的登录态
+            // （storage 跨标签页共享）一并清掉，导致超管登录后进入 admin-schools.html
+            // 时 getToken()=null 被守卫踢回登录页（表现：登录后闪退）。
+            // 防死循环只需清当前命名空间 key；超管态由 /admin-schools.html 守卫自行管理。
             function _clearLocalAuth() {
                 try {
                     var keys = ['auth_token', 'current_user', 'token_expiry', 'guest_token', 'current_guest', 'is_quick_access'];
@@ -44,15 +49,9 @@
                         var nsKey = _code ? (k + '__' + _code) : k;
                         try { localStorage.removeItem(nsKey); } catch (e) {}
                         try { sessionStorage.removeItem(nsKey); } catch (e) {}
-                        // 裸 key 残留（旧版本无命名空间写入的），一并清除，防死循环
-                        if (_code) {
-                            try { localStorage.removeItem(k); } catch (e) {}
-                            try { sessionStorage.removeItem(k); } catch (e) {}
-                        }
                     });
-                    // 跨标签协调键也清理，避免残留信标干扰
+                    // 跨标签协调键同样仅清理本命名空间版本，避免误删超管的裸 key 协调信标
                     ['auth_token_updated_at', 'auth_refresh_rotated_at', 'auth_refresh_lock'].forEach(function (k) {
-                        try { localStorage.removeItem(k); } catch (e) {}
                         try { localStorage.removeItem(_code ? (k + '__' + _code) : k); } catch (e) {}
                     });
                 } catch (e) { /* 存储不可用忽略 */ }
