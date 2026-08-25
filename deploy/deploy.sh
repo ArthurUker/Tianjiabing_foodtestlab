@@ -819,7 +819,7 @@ $CADDY_ADDR {
     # 点登录地址会落到 index.html（主应用）而非登录页。现改为通用匹配任意 /<code>/login，
     # 并排除 /api/* 避免误伤接口。登录页自身仍用 extractSchoolCode 的 ?school= 兜底，双保险。
     # NB-2026-07-30: 同时匹配 /<code>/login.html，与 js/utils/schoolCode.js 的 buildSchoolLoginUrl
-    #   生成约定（/<code>/login.html?school=<code>）保持一致。否则 try_files {path} /index.html
+    #   生成约定（/<code>/login.html，纯路径方案，不拼 ?school=）保持一致。否则 try_files {path} /index.html
     #   会因 dist/<code>/login.html 不存在而 fallback 到 /index.html，又回到主应用入口 bug。
     @schoolLogin {
         path_regexp ^/[^/]+/login(\.html)?/?$

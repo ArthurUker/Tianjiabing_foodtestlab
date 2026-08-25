@@ -217,10 +217,10 @@ function validateSchoolCode(raw) {
 function goToSchoolLogin(code) {
     const { valid, code: c } = validateSchoolCode(code);
     if (!valid) return;
-    // 生产 Caddy 会将 /<code>/login.html rewrite 回根 /login.html(丢 schoolCode 路径前缀),
-    // 因此改用 ?school=<code> 查询参数(login.html 的 extractSchoolCode 通过查询参数兜底识别学校),
-    // 避免触发"未识别到有效学校入口"红字。
-    window.location.replace('./login.html?school=' + encodeURIComponent(c));
+    // 纯路径方案：跳转到 /<code>/login.html（当前页在根目录，必须用绝对路径带学校前缀；
+    // Caddy @schoolLogin rewrite 回根 /login.html，URL 不变，extractSchoolCode 从路径识别学校）。
+    // 若将来部署拓扑暴露问题，可改回 './login.html?school=' + encodeURIComponent(c) 查询兜底。
+    window.location.replace('/' + encodeURIComponent(c) + '/login.html');
 }
 
 if (btnGoSchoolLogin) {

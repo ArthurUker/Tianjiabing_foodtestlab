@@ -63,12 +63,11 @@
                 // 跳转目标始终落在 /<code>/ 命名空间下（与 extractSchoolCode 约定一致），
                 // 确保登录页与控制台处于同一租户子路径，避免令牌命名空间错位导致"令牌属其他学校"。
                 // 页面本身已在 /<code>/index.html 时直接用 ./login.html（解析为 /<code>/login.html）；
-                // 根部署/无 code 时回退 /login.html。
-                var q = _code ? ('?school=' + encodeURIComponent(_code)) : '';
+                // 根部署/无 code 时回退 /login.html。纯路径方案，不拼 ?school=（Caddy rewrite 回根后地址栏不变，路径可识别）。
                 if (_code) {
-                    location.replace('/' + encodeURIComponent(_code) + '/login.html' + q);
+                    location.replace('/' + encodeURIComponent(_code) + '/login.html');
                 } else {
-                    location.replace('/login.html' + q);
+                    location.replace('/login.html');
                 }
             }
 

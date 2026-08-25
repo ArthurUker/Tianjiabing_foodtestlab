@@ -23,7 +23,8 @@ export function initSchoolsListView({ openDetail, switchSchoolsSubview: sw }) {
 
 export function schoolLoginUrl(code) {
     const c = String(code || '').replace(/^school_/, '').replace(/_/g, '-');
-    return `${location.origin}/${encodeURIComponent(c)}/login.html?school=${encodeURIComponent(c)}`;
+    // 纯路径方案：/<code>/login.html（Caddy @schoolLogin rewrite 回根 /login.html，URL 不变）
+    return `${location.origin}/${encodeURIComponent(c)}/login.html`;
 }
 
 // RBAC 收敛：学校租户预览窗口（超管以 iframe 预览该校登录页/网页，不进入该校业务数据）

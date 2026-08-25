@@ -38,21 +38,21 @@ describe('extractSchoolCode — 解析优先级与边界', () => {
 });
 
 describe('buildSchoolLoginUrl — 生成与解析一致', () => {
-  // 学校代码即部署基路径首段：始终生成 /<code>/login.html?school=<code>
+  // 学校代码即部署基路径首段：始终生成 /<code>/login.html（纯路径方案，不拼 ?school=）
   // 不依赖调用方所在目录（控制台在根 /admin-schools.html 时也应产出 /<code>/...）
-  test('根部署控制台也应生成 /<code>/login.html?school=<code>', () => {
+  test('根部署控制台也应生成 /<code>/login.html', () => {
     expect(buildSchoolLoginUrl('demo', { origin: 'http://h' }))
-      .toBe('http://h/demo/login.html?school=demo');
+      .toBe('http://h/demo/login.html');
   });
 
-  test('子路径控制台同样生成 /<code>/login.html?school=<code>（与所在目录无关）', () => {
+  test('子路径控制台同样生成 /<code>/login.html（与所在目录无关）', () => {
     expect(buildSchoolLoginUrl('demo', { origin: 'http://h:3002' }))
-      .toBe('http://h:3002/demo/login.html?school=demo');
+      .toBe('http://h:3002/demo/login.html');
   });
 
   test('school_ 前缀与下划线归一为连字符', () => {
     expect(buildSchoolLoginUrl('school_demo_x', { origin: 'http://h' }))
-      .toBe('http://h/demo-x/login.html?school=demo-x');
+      .toBe('http://h/demo-x/login.html');
   });
 
   test('生成的链接可被 extractSchoolCode 还原为同一 code', () => {
@@ -64,6 +64,6 @@ describe('buildSchoolLoginUrl — 生成与解析一致', () => {
 
   test('生成的链接真实可打开该校仪表盘：从 /<code>/login.html 相对重定向到 /<code>/index.html', () => {
     const url = buildSchoolLoginUrl('demo', { origin: 'http://localhost:3002' });
-    expect(url).toBe('http://localhost:3002/demo/login.html?school=demo');
+    expect(url).toBe('http://localhost:3002/demo/login.html');
   });
 });

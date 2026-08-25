@@ -45,7 +45,9 @@ export function extractSchoolCode(pathname = window.location.pathname, search = 
  *   则进错学校（这正是此前点击后进了根 index.html 的原因）。
  *
  * - extractSchoolCode 由路径前缀识别租户：/<code>/login.html -> code，与登录页实际位置一致。
- * - ?school=<code> 兜底：无 rewrite 的静态服务器 / 根部署场景也能识别租户。
+ * - 生成端只走「路径方案」：不再拼接 ?school= 查询参数（URL 更短）。
+ *   解析端 extractSchoolCode 仍保留 ?school= 兜底：若将来部署拓扑暴露问题，
+ *   可在此处或解析端恢复查询方案，无需改业务调用方。
  *
  * 该约定要求学校应用按 /<code>/ 子路径部署（与 tenantProvisioner、server.js rewrite 一致）；
  * 多层挂载（/apps/<code>/）不在支持范围。
@@ -58,7 +60,7 @@ export function buildSchoolLoginUrl(code, opts = {}) {
     const origin = opts.origin ?? (typeof window !== 'undefined' ? window.location.origin : '')
     const c = String(code || '').replace(/^school_/, '').replace(/_/g, '-')
     // 学校代码即部署基路径首段：/<code>/login.html
-    return `${origin}/${encodeURIComponent(c)}/login.html?school=${encodeURIComponent(c)}`
+    return `${origin}/${encodeURIComponent(c)}/login.html`
 }
 
 // 未来切换域名后的实现（仅替换本函数，业务无需改动）：

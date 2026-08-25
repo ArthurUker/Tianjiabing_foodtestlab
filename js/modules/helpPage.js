@@ -1,9 +1,12 @@
         (function () {
-            // ===== FIX-03: 「返回登录」按校构建回链（保留原修复） =====
-            var school = new URLSearchParams(window.location.search).get('school');
+            // ===== FIX-03: 「返回登录」按校构建回链（纯路径方案） =====
+            // 路径优先：/<code>/help.html -> code（登录页 helpLink 现生成该形式，Caddy @schoolHelp rewrite 回根 /help.html）；
+            // 查询兜底：兼容旧书签 /help.html?school=<code>。
+            var _pathMatch = window.location.pathname.match(/^\/([a-z0-9-]+)\//);
+            var school = _pathMatch ? _pathMatch[1] : new URLSearchParams(window.location.search).get('school');
             var link = document.getElementById('backToLoginLink');
             if (link && school) {
-                link.href = '/' + encodeURIComponent(school) + '/login.html?school=' + encodeURIComponent(school);
+                link.href = '/' + encodeURIComponent(school) + '/login.html';
             }
 
             // ===== P-RedesignHelp: 章节点击平滑滚动 + 滚动同步激活 =====

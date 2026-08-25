@@ -48,13 +48,14 @@ const currentSchoolCode = extractSchoolCode();
 if (currentSchoolCode) {
     applySchoolTheme(currentSchoolCode);
 } else {
-    showSchoolError('未识别到有效的学校登录入口，请使用学校提供的专属登录链接（例如 /demo/login.html?school=xxx）。');
+    showSchoolError('未识别到有效的学校登录入口，请使用学校提供的专属登录链接（例如 /demo/login.html）。');
 }
 
-// FIX-03: 帮助中心链接按校动态构建，携带 ?school= 以便帮助页正确"返回登录"
+// FIX-03: 帮助中心链接按校动态构建：/<code>/help.html（Caddy @schoolHelp rewrite 回根 /help.html，
+// 帮助页从路径提取学校以正确"返回登录"；根部署无学校时保持 /help.html）
 const helpLink = document.getElementById('helpCenterLink');
 if (helpLink) {
-    helpLink.href = '/help.html' + (currentSchoolCode ? '?school=' + encodeURIComponent(currentSchoolCode) : '');
+    helpLink.href = '/' + (currentSchoolCode ? encodeURIComponent(currentSchoolCode) + '/' : '') + 'help.html';
 }
 
 // ===== P11：后端 401 统一登出后会跳转 ?banned=1 =====

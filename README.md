@@ -149,7 +149,7 @@ flowchart TB
 >
 > 服务启动时由 `selfHealTenantSchemas()` 在后台把全部**启用中（`status='active'`）**的租户 schema 与当前 `schema.prisma` 对齐（内部调 `syncAllTenantSchemas`，单校失败不阻断其余）并回填历史 NULL（可经 `AUTO_SYNC_TENANTS=false` 关闭，改由 `npm run db:sync` 手动执行）。停用学校不纳入批量同步（逻辑删除）。
 >
-> **多租户访问识别（路径前缀路由，方案 A）**：学校代码即部署基路径首段，学校应用按 `/<code>/` 子路径部署（`/<code>/login.html`、`/<code>/index.html`）。前端 `js/utils/schoolCode.js` 的 `extractSchoolCode()` 是访问层**唯一**依赖「路径/域名」的代码位置：优先从路径首段 `/<code>/...` 提取，兜底 `?school=<code>` 查询参数（无标识时回落 dev/test 共享 schema；路径优先于查询，防用户篡改租户）。「`/<code>/<resource>` → `/<resource>`」的重写**生产环境由 Caddy 层完成**（`@schoolLogin`/`@schoolHelp` rewrite + `handle` 互斥，见 §8.4），后端 `server.js` 的同名中间件仅在 `SERVE_STATIC=true`（本地开发）时生效；`RESERVED_STATIC_DIRS` 白名单排除 `css/js/api/health` 等保留名，故 schoolCode 不得为 `api`、`health` 或任何静态目录名。
+> **多租户访问识别（路径前缀路由，方案 A）**：学校代码即部署基路径首段，学校应用按 `/<code>/` 子路径部署（`/<code>/login.html`、`/<code>/index.html`）。前端 `js/utils/schoolCode.js` 的 `extractSchoolCode()` 是访问层**唯一**依赖「路径/域名」的代码位置：优先从路径首段 `/<code>/...` 提取，兜底 `?school=<code>` 查询参数（无标识时回落 dev/test 共享 schema；路径优先于查询，防用户篡改租户）。**生成端（`buildSchoolLoginUrl`）只产出纯路径形式 `/<code>/login.html`，不拼接 `?school=`**；解析端保留查询兜底仅作兼容/排查入口。「`/<code>/<resource>` → `/<resource>`」的重写**生产环境由 Caddy 层完成**（`@schoolLogin`/`@schoolHelp` rewrite + `handle` 互斥，见 §8.4），后端 `server.js` 的同名中间件仅在 `SERVE_STATIC=true`（本地开发）时生效；`RESERVED_STATIC_DIRS` 白名单排除 `css/js/api/health` 等保留名，故 schoolCode 不得为 `api`、`health` 或任何静态目录名。
 
 ### 3.4 代码目录结构
 
@@ -874,7 +874,7 @@ StandardError=append:/mnt/datadisk0/foodtestlab/logs/app.err.log
     header @apiPath { X-Frame-Options "SAMEORIGIN" }
 
     # 路径前缀多租户识别：/<code>/login(.html)? → /login.html（URL 不变）
-    # 与 js/utils/schoolCode.js 的 buildSchoolLoginUrl（/<code>/login.html?school=<code>）一致
+    # 与 js/utils/schoolCode.js 的 buildSchoolLoginUrl（/<code>/login.html）一致
     @schoolLogin {
         path_regexp ^/[^/]+/login(\.html)?/?$
         not path /api/*
