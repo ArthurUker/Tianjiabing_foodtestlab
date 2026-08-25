@@ -68,15 +68,22 @@ export function ensureRevocationInfra(prisma) {
 /**
  * 校验令牌是否已被吊销：
  *   1) jti 精确命中吊销表（单令牌吊销 / refresh 轮转标记）；
- *   2) user_all 全量吊销：该用户存在吊销时间 >= 令牌签发时间(iat) 的 user_all 记录
+ *   2) user_all 全量吊销：该用户存在吊销时间 >= 令牌签发时间(iat)+1s 的 user_all 记录
  *      （用于 refresh 重放触发的全会话吊销、以及窗口 2 的禁用/删除/改角色场景）。
+ *
+ * 精度边界（B-JWT-IAT）：JWT iat 为秒级（Math.floor），而 revoked_at 为 TIMESTAMPTZ
+ * （微秒级）。若直接比较 revoked_at >= to_timestamp(iat)，则「吊销后同一秒内重新签发」
+ * 的新 token（如改密后立即自动重登）会因 revoked_at(09:35:12.070) >= iat(09:35:12)
+ * 被误判为已吊销 → 前端表现为「改密成功后闪退回登录页」。故比较基准取 iat + 1：
+ * 吊销记录必须晚于签发时间的下一个整秒才命中，同一秒内新签发的 token 不受影响；
+ * 而对改密前签发的旧 token（iat 至少早 1 秒）仍正确吊销，安全语义不变。
  * @returns {Promise<boolean>} true = 已吊销
  */
 export async function isTokenRevoked(prisma, { jti, userId, iat }) {
   const query = () => prisma.$queryRawUnsafe(
     `SELECT 1 AS hit FROM public.revoked_tokens
       WHERE jti = $1
-         OR (token_type = 'user_all' AND user_id = $2 AND revoked_at >= to_timestamp($3))
+         OR (token_type = 'user_all' AND user_id = $2 AND revoked_at >= to_timestamp($3 + 1))
       LIMIT 1`,
     jti || '', userId || '', Math.floor(Number(iat) || 0)
   )
@@ -105,7 +112,7 @@ export async function getTokenRevocationReason(prisma, { jti, userId, iat }) {
   const query = () => prisma.$queryRawUnsafe(
     `SELECT reason FROM public.revoked_tokens
       WHERE jti = $1
-         OR (token_type = 'user_all' AND user_id = $2 AND revoked_at >= to_timestamp($3))
+         OR (token_type = 'user_all' AND user_id = $2 AND revoked_at >= to_timestamp($3 + 1))
       ORDER BY revoked_at DESC
       LIMIT 1`,
     jti || '', userId || '', Math.floor(Number(iat) || 0)

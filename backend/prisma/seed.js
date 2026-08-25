@@ -35,13 +35,18 @@ async function main() {
     }
 
     const passwordHash = await bcryptjs.hash(plainPassword, 10)
+    // M2: 初始密码属于"临时密码"，一律置 must_change_password=true，首登强制改密。
+    // 与建校 manager（tenantProvisioner）/ 管理员重置密码（resetPassword）的口径保持一致；
+    // 登录侧拦截由前端登录页（mustChangePassword）与后端 authenticateUser
+    // （非改密白名单接口 403，code: MUST_CHANGE_PASSWORD）双重实现。
     await prisma.user.create({
       data: {
         ...user,
-        password_hash: passwordHash
+        password_hash: passwordHash,
+        must_change_password: true
       }
     })
-    console.log(`✅ 已创建初始账户: ${user.username}`)
+    console.log(`✅ 已创建初始账户: ${user.username}（must_change_password=true，首登需改密）`)
   }
 
   try {
