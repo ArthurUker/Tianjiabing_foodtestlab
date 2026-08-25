@@ -322,8 +322,8 @@ async function executeBackup({ prisma, scope, schoolCode, createdBy = 'system', 
   if (scope === 'single' && !schoolCode) throw new Error(`${TAG} 单校备份必须提供 schoolCode`)
   if (!kmsMode()) throw new Error(`${TAG} 未配置加密主密钥（TENCENT_* 或 BACKUP_MASTER_KEY），fail-closed 拒绝执行`)
 
-  // 磁盘空间预检（防定时任务写满系统盘）
-  await ensureDiskSpace()
+  // 磁盘空间预检（数据盘 90% 水位告警 + 防写满 fail-closed）
+  await ensureDiskSpace(prisma)
 
   const dir = path.join(backupRootDir(), backupDateDir())
   await fsp.mkdir(dir, { recursive: true, mode: 0o700 })
@@ -454,18 +454,32 @@ async function executeBackup({ prisma, scope, schoolCode, createdBy = 'system', 
 }
 
 /**
- * 磁盘空间预检：备份根目录所在文件系统剩余空间低于阈值（默认 1024MB，BACKUP_MIN_FREE_MB 可调）
- * 则拒绝备份（fail-closed），避免定时任务把系统盘写满影响主服务。
+ * 磁盘空间预检：备份根目录所在文件系统空间管理（数据盘 90% 水位告警）。
+ *   - 剩余空间低于 10%（数据盘占用 ≥90%）：打印告警并写系统日志，提示清理或导出备份
+ *     （不阻断备份——数据盘与系统盘分离，备份失败反而影响数据安全；阈值 BACKUP_WARN_PCT，默认 90）。
+ *   - 剩余空间低于硬阈值（默认 1024MB，BACKUP_MIN_FREE_MB 可调）：拒绝备份（fail-closed），
+ *     避免磁盘写满导致 PG 无法写入。
  * 平台不支持 statfs（Node < 19.6）或目录不可达时跳过预检（不阻断备份）。
  */
-async function ensureDiskSpace() {
+async function ensureDiskSpace(prisma) {
   await fsp.mkdir(backupRootDir(), { recursive: true, mode: 0o700 })
   let s
   try {
     s = await fsp.statfs(backupRootDir())
   } catch { return } // ENOSYS / 平台不支持 → 跳过
-  const minBytes = Number(process.env.BACKUP_MIN_FREE_MB || 1024) * 1024 * 1024
+  const totalBytes = Number(s.blocks) * Number(s.bsize)
   const freeBytes = Number(s.bavail) * Number(s.bsize)
+  const usedPct = totalBytes > 0 ? ((totalBytes - freeBytes) / totalBytes) * 100 : 0
+  // 数据盘占用 ≥90% 时告警提醒清理或导出（不阻断备份）
+  const warnPct = Number(process.env.BACKUP_WARN_PCT || 90)
+  if (usedPct >= warnPct) {
+    const warn = `${TAG} ⚠️ 数据盘空间占用已达 ${usedPct.toFixed(1)}%（阈值 ${warnPct}%），请清理过期备份或导出归档`
+    console.log(warn)
+    try {
+      await writeSystemLog(prisma, { level: 'warn', message: `BACKUP_DISK_WARN used_pct=${usedPct.toFixed(1)} total=${(totalBytes / 1024 / 1024 / 1024).toFixed(1)}GB free=${(freeBytes / 1024 / 1024 / 1024).toFixed(1)}GB` })
+    } catch (e) { /* 告警日志失败不影响备份 */ }
+  }
+  const minBytes = Number(process.env.BACKUP_MIN_FREE_MB || 1024) * 1024 * 1024
   if (freeBytes < minBytes) {
     throw new Error(
       `${TAG} 磁盘剩余空间不足（${(freeBytes / 1024 / 1024).toFixed(0)}MB < 阈值 ${Math.round(minBytes / 1024 / 1024)}MB），拒绝备份`
