@@ -4,6 +4,28 @@ import { Router } from 'express'
 
 const router = Router()
 
+// 平台超管（schoolCode 为空 → req.db 落 public schema）没有学校上下文：
+//   - 读端点直接返回空数据，避免对 public 执行 ensureSeed / 查表（public 无学校语义，
+//     且若 N1/N2 建表迁移未应用会触发 Prisma P2021 → 500）；
+//   - 写端点直接 403（阈值/日历属于学校配置，超管应进入对应学校后台操作）。
+router.use((req, res, next) => {
+    const schoolCode = req.user?.schoolCode || ''
+    if (!schoolCode) {
+        const now = new Date()
+        if (req.method === 'GET') {
+            if (req.path === '/today') {
+                return res.json({ success: true, data: { date: now.toISOString(), day_of_week: now.getDay() === 0 ? 7 : now.getDay(), items: [] } })
+            }
+            if (req.path === '/overview') {
+                return res.json({ success: true, data: { items: [], trend: [] } })
+            }
+            return res.json({ success: true, data: [] })
+        }
+        return res.status(403).json({ success: false, error: '平台超管无学校上下文，无法操作学校检测频率配置' })
+    }
+    next()
+})
+
 // 检测项目 code -> 名称映射(与前端模块 test_type 对应)
 // ⚠️ 命名约定：test_type 必须与 TestRecord.test_type 存储值完全一致
 // （RECORD_ROUTE_TYPES / server.js TEST_TYPE_LABELS 统一用驼峰 leanMeat）。
