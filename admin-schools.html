@@ -1833,17 +1833,9 @@
         </div>
     </section>
 
-    <!-- 测试报告视图（P-ReportsLayout v2）：
-         与「学校管理/账号与权限/备份运维」一致，主区根据左侧二级菜单 subview 切换两个 iframe：
-           1. submit  → 内嵌 /test-report.html（用例填报，自动复用登录 token；顶部自带的 glass-dark nav 沿用）
-           2. summary → 内嵌 /docs/test-results/latest/index.html（脚本生成的汇总报告，检测到被 iframe
-                       内嵌时会自动隐藏自身的 topnav，避免与 admin-schools 顶部 nav 重复）
-         布局要点（响应用户的"右侧大空白 + 顶部状态栏重复"反馈）：
-           - 父容器去掉 max-w-7xl，改用 admin-main 的全部宽度（admin-layout 在 reports 视图激活时
-             取消 max-width 限制，见 css/admin-schools.css）
-           - 顶部"内容卡片"精简为一行横向紧凑条（图标 + 标题 + 重新载入 + 新窗口打开），
-             不再使用 glass 大块卡片，让出高度给 iframe
-           - iframe 高度按 calc(100vh - 顶 nav - 容器 padding - 内容条) 自适应 -->
+    <!-- 测试报告视图（TR-Rewrite）：
+         原生三视图（测试任务 / 问题反馈 / 问题总览），由 views/testReports/ 模块
+         动态渲染到 #adminViewReportsContent，废弃 iframe + test-report.html + docs 产物。 -->
     <section id="adminViewReports" class="admin-view hidden" data-view="reports">
         <!-- TR-Rewrite: 测试报告模块原生重构（废弃 iframe + test-report.html + docs 产物）
              三个 subview 由 views/testReports/ 下的视图模块动态渲染到统一容器 -->

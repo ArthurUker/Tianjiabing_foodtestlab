@@ -37,7 +37,6 @@ const filesToCopy = [
   'admin-schools.html',
   'super-admin-login.html',
   'help.html',
-  'test-report.html',
   'detergent-image-demo.html'
 ];
 
