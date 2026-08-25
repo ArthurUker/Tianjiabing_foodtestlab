@@ -1,13 +1,14 @@
 import { PrismaClient } from '@prisma/client'
 import bcryptjs from 'bcryptjs'
 
-// 需在 .env 中配置 SEED_ADMIN_PASSWORD / SEED_OPERATOR_PASSWORD / SEED_VIEWER_PASSWORD
+// 需在 .env 中配置 SEED_ADMIN_PASSWORD
+// 初始账号设计（TS-InitAccount）：首次初始化只创建平台超管 admin（public schema, schoolCode=null）。
+// 预设学校的 manager 账号由 provisionSchool（建校/租户初始化）创建；若无预设学校，则只有 admin。
+// operator/viewer 等角色账号不在此创建——由超管在控制台按需为学校添加（角色归属学校）。
 const adminPassword = process.env.SEED_ADMIN_PASSWORD
-const operatorPassword = process.env.SEED_OPERATOR_PASSWORD
-const viewerPassword = process.env.SEED_VIEWER_PASSWORD
 
-if (!adminPassword || !operatorPassword || !viewerPassword) {
-  console.error('[FATAL] 缺少必要的环境变量：SEED_ADMIN_PASSWORD、SEED_OPERATOR_PASSWORD、SEED_VIEWER_PASSWORD 必须全部在 .env 中配置。')
+if (!adminPassword) {
+  console.error('[FATAL] 缺少必要的环境变量：SEED_ADMIN_PASSWORD 必须在 .env 中配置。')
   console.error('[FATAL] 请参考 .env.example 完成配置后再执行 seed。')
   process.exit(1)
 }
@@ -50,6 +51,7 @@ async function main() {
   }
 
   try {
+    // TS-InitAccount：仅创建平台超管 admin。预设学校 manager 由 provisionSchool 创建。
     await ensureUser(
       {
         username: 'admin',
@@ -61,38 +63,16 @@ async function main() {
       },
       adminPassword
     )
-
-    await ensureUser(
-      {
-        username: 'operator',
-        email: 'operator@foodlab.local',
-        full_name: 'Test Operator',
-        phone: null,
-        role: 'operator',
-        status: 'active'
-      },
-      operatorPassword
-    )
-
-    await ensureUser(
-      {
-        username: 'viewer',
-        email: 'viewer@foodlab.local',
-        full_name: 'Report Viewer',
-        phone: null,
-        role: 'viewer',
-        status: 'active'
-      },
-      viewerPassword
-    )
   } catch (err) {
     console.error(`❌ 初始化默认账户失败: ${err.message}`)
   }
 
   // [W6-SEED-School] 系统表 School / SchoolCustomization 种子
   // 登录页主题/Logo 个性化依赖此数据；缺失时优雅降级（不影响功能）。
-  // 学校代码取 SCHOOL_CODES（与 provision-tenants 一致），缺省用 "demo"。
-  const schoolCodes = (process.env.SCHOOL_CODES || 'demo')
+  // TS-InitAccount：学校代码取 SCHOOL_CODES（与 provision-tenants 一致）。
+  // 未配置 SCHOOL_CODES 时不建任何学校（系统只有平台超管 admin，学校由超管在
+  // 控制台建校时 provisionSchool 初始化），避免 seed 创建虚假的 "demo" 学校。
+  const schoolCodes = (process.env.SCHOOL_CODES || '')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean)
@@ -135,9 +115,8 @@ async function main() {
 
   console.log('✨ 数据库初始化完成！')
   console.log('\n📝 初始账户（仅首次创建）:')
-  console.log('  - admin (管理员)')
-  console.log('  - operator (测试员)')
-  console.log('  - viewer (查看员)\n')
+  console.log('  - admin (平台超管)')
+  console.log('  - 各预设学校 manager（由建校初始化 provisionSchool 创建）\n')
 }
 
 main()
