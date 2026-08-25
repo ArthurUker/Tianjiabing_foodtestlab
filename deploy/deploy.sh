@@ -667,6 +667,82 @@ systemctl enable "${APP_NAME}-backup.timer"
 systemctl start "${APP_NAME}-backup.timer" || true
 ok "备份定时任务已启用: ${APP_NAME}-backup.timer（每日 02:00，目录 $BACKUP_DIR，失败告警 ${APP_NAME}-backup-alert.service）"
 
+# ------------------------- 8.6 日志轮转（logrotate）-------------------------
+# 后端/备份 4 个 append 日志长期运行会无限增长（部署就绪度报告 🟡6）。
+# 写入 /etc/logrotate.d/<APP_NAME>，由系统 logrotate.timer 每日触发。
+# 设计要点：
+#   - size 100M + 保留 7 份 + 压缩，控制磁盘占用
+#   - copytruncate：不重命名原文件、不发送信号，对 systemd append: 完全无感，避免丢日志/卡死
+#   - 轮转后权限归系统用户，确保服务仍可读写
+#   - 不依赖 logrotate postrotate 发信号（systemd 用 append: 写入，无需 HUP）
+log "写入 logrotate 规则: /etc/logrotate.d/${APP_NAME}"
+cat > "/etc/logrotate.d/${APP_NAME}" <<EOF
+# Managed by deploy.sh — ${SYSTEM_NAME} 应用与备份日志轮转
+${LOG_DIR}/app.out.log
+${LOG_DIR}/app.err.log
+${LOG_DIR}/backup.out.log
+${LOG_DIR}/backup.err.log
+${LOG_DIR}/log-alert.out.log
+{
+    size 100M
+    rotate 7
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+    create 0644 ${SYSTEM_NAME} ${SYSTEM_NAME}
+    sharedscripts
+}
+EOF
+# 立即做一次 dry-run 校验语法（失败仅 warn，不阻断部署）
+if command -v logrotate >/dev/null 2>&1; then
+  logrotate -d "/etc/logrotate.d/${APP_NAME}" >/dev/null 2>&1 \
+    && ok "logrotate 规则语法校验通过" \
+    || warn "logrotate 规则 dry-run 异常，请检查 /etc/logrotate.d/${APP_NAME}"
+fi
+
+# ------------------------- 8.7 应用日志异常告警（log-alert）-------------------------
+# 周期扫描 app.err.log 中的 ERROR/崩溃/OOM 等关键字并告警（增量游标，避免重复刷屏）。
+# 告警脚本：scripts/log-alert.sh；由 systemd timer 每 15 分钟触发。
+# 可选：在 backend/.env 配置 LOG_ALERT_WEBHOOK（企业微信/钉钉机器人）开启推送。
+ALERT_SCRIPT="$REPO_ROOT/scripts/log-alert.sh"
+if [ -f "$ALERT_SCRIPT" ]; then
+  chmod +x "$ALERT_SCRIPT"
+  cat > "/etc/systemd/system/${APP_NAME}-log-alert.service" <<EOF
+[Unit]
+Description=$SYSTEM_NAME application log anomaly alert scan
+
+[Service]
+Type=oneshot
+User=$SYSTEM_NAME
+Group=$SYSTEM_NAME
+EnvironmentFile=$BACKEND_ENV
+Environment=TZ=Asia/Shanghai
+Environment=LOG_ALERT_DIR=$LOG_DIR
+Environment=LOG_ALERT_TARGETS=$LOG_DIR/app.err.log
+ExecStart=/bin/bash $ALERT_SCRIPT
+EOF
+  cat > "/etc/systemd/system/${APP_NAME}-log-alert.timer" <<EOF
+[Unit]
+Description=$SYSTEM_NAME log alert scan timer (every 15 min)
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target
+EOF
+  systemctl daemon-reload
+  systemctl enable "${APP_NAME}-log-alert.timer"
+  systemctl start "${APP_NAME}-log-alert.timer" || true
+  ok "日志告警已启用: ${APP_NAME}-log-alert.timer（每 15 分钟扫描 $LOG_DIR/app.err.log）"
+else
+  warn "未找到 $ALERT_SCRIPT，跳过日志告警部署（脚本需随仓库一同克隆）"
+fi
+
 # ------------------------- 9. Caddy 多用户站点（import 模式，互不覆盖）-------------------------
 log "写入 Caddy 站点（多用户隔离）"
 CADDY_SITES_DIR="/etc/caddy/sites"
