@@ -5,7 +5,7 @@
 // 提交：POST /api/test-results/executions（追加式）
 // 复测轨迹：行内展开时 GET /api/test-results/cases/:id/history
 import { apiGet, apiPost, statusBadge, renderEvidence, timeAgo } from './shared.js';
-import { escapeHtml, showNotice } from '../ui.js';
+import { escapeHtml, showNotice } from '../../ui.js';
 
 let _defsCache = null;      // 用例清单缓存（避免频繁拉取）
 let _casesCache = new Map(); // case_key → 当前状态

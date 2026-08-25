@@ -6,7 +6,7 @@
 // 复测：同一卡片内提交新 execution（带 case_key=ISS-xxx）
 // 标记修复：POST /api/test-results/cases/mark-fixed
 import { apiGet, apiPost, statusBadge, sourceBadge, renderEvidence, timeAgo } from './shared.js';
-import { escapeHtml, showNotice } from '../ui.js';
+import { escapeHtml, showNotice } from '../../ui.js';
 
 let _testerName = '';
 let _scope = 'mine'; // mine | all

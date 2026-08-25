@@ -1,6 +1,6 @@
 // 测试报告模块共享工具（API 封装 + 状态徽章/颜色映射 + 证据渲染）
-import { adminFetch } from '../context.js';
-import { escapeHtml } from '../ui.js';
+import { adminFetch } from '../../context.js';
+import { escapeHtml } from '../../ui.js';
 
 // ── 状态映射（对齐检测记录列表的视觉语义）──
 export const STATUS_META = {

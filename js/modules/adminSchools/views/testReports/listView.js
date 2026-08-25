@@ -4,7 +4,7 @@
 // 数据源：GET /api/test-results/cases（task+issue 统一）+ GET /api/test-results/summary
 // 收口：POST /api/test-results/cases/close
 import { apiGet, apiPost, statusBadge, sourceBadge, renderEvidence, timeAgo } from './shared.js';
-import { escapeHtml, showNotice } from '../ui.js';
+import { escapeHtml, showNotice } from '../../ui.js';
 
 export function initListView() {
     return (subName) => render();
