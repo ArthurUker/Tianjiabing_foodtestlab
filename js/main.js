@@ -319,10 +319,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
 
             // N1/N2/N3: 检测频率卡片(月报) + 每日提示 + 配置页初始化
-            // 仅学校租户上下文生效：平台超管（schoolCode 为空 → public schema）无学校语义，
+            // 仅学校租户成员生效（判断依据 = 当前登录用户的 schoolCode，而非 URL 推导）：
+            // 平台超管（user.schoolCode 为空 → public schema）或预览 iframe（超管身份加载
+            // ./index.html?preview=true，会读到同源 localStorage 的超管裸 token）均无学校语义，
             // 调用 /api/frequency/* 会落到 public（无 N1/N2 表或无学校数据）→ 500，故跳过。
-            const _freqSchoolCode = extractSchoolCode() || (authService.getUser() || {}).schoolCode || '';
-            if (!quickAccessMode && _freqSchoolCode) {
+            const _freqUser = authService.getUser() || {};
+            if (!quickAccessMode && (_freqUser.schoolCode || '')) {
                 try {
                     // N1+N3: 月报卡片渲染到独立区块 #frequency-report(侧栏菜单切换可见)
                     const reportEl = document.getElementById('frequency-report');
@@ -361,14 +363,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
 
             // 5b. ✨ 初始化数据备份与恢复模块
-            // 仅学校 admin/manager 生效：平台超管（schoolCode 为空）调用 /api/school/backups
-            // 会被后端 requireSchoolAdminOrManager 拒绝（403，设计如此），故直接跳过，
-            // 避免超管进入学校端页面时产生无意义的 403 请求。
+            // 仅学校 admin/manager 生效（判断依据 = 当前登录用户的 schoolCode，而非 URL 推导）：
+            // 平台超管（user.schoolCode 为空）调用 /api/school/backups 会被后端
+            // requireSchoolAdminOrManager 拒绝（403，设计如此）；预览 iframe（超管身份加载
+            // ./index.html?preview=true）同样如此。故直接跳过，避免无意义的 403 请求。
             if (!quickAccessMode) {
                 try {
-                    const _curUser = authService.getUser() || {};
-                    const _isSchoolAdminOrManager = (extractSchoolCode() || _curUser.schoolCode || '')
-                        && ['admin', 'manager'].includes(_curUser.role);
+                    const _backupUser = authService.getUser() || {};
+                    const _isSchoolAdminOrManager = !!(_backupUser.schoolCode || '')
+                        && ['admin', 'manager'].includes(_backupUser.role);
                     if (_isSchoolAdminOrManager) {
                         const backupRestore = new BackupRestoreService();
                         backupRestore.init();
