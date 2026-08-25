@@ -15,52 +15,11 @@
  * @param {Function} [views.switchAccountsSubview] 账号与权限（views/accountsView.js 提供）
  * @param {Function} [views.switchAuditSubview]    审计日志（views/auditView.js 提供）
  * @param {Function} [views.switchBackupSubview]   备份运维（views/backupView.js 提供）
- * @param {Function} [views.switchReportsSubview]  测试报告（由本模块内置处理，见 switchTo 中的 reports 分支）
+ * @param {Function} [views.switchReportsSubview]  测试报告（TR-Rewrite：三视图 tasks/issues/list，由 admin-schools.html module script 注入）
  * @returns {{ switchTo: (viewName: string, opts?: { subview?: string }) => void }}
  */
 import { getAuthService, adminFetch } from './context.js';
 import { showNotice } from './ui.js';
-
-/**
- * 「测试报告」视图的默认 subview 切换器。
- * 在主区两个 iframe（submit / summary）之间切换，并同步顶栏图标/标题/描述
- * 与「新窗口打开」链接指向。无依赖注入，按惯例 mount 于 adminViewReports。
- *
- * P-ReportsSync: submit subview 时显示「同步」按钮（汇总报告由 /api/test-results/sync 生成），
- * summary subview 时隐藏（汇总报告本身已是最新的生成产物，无需再触发生成）。
- */
-function switchDefaultReports(subName) {
-    const target = subName === 'summary' ? 'summary' : 'submit';
-    const ICONS = {
-        submit: { icon: 'fa-clipboard-check', color: 'bg-emerald-500/10 text-emerald-600', title: '数据上报', desc: '填写并提交测试用例结果（token 自动复用登录态）', openHref: '/test-report.html' },
-        summary: { icon: 'fa-chart-bar',         color: 'bg-indigo-500/10 text-indigo-600',     title: '汇总报告', desc: 'docs/test-results/latest/（由生成脚本自动产出）',         openHref: '/docs/test-results/latest/index.html' }
-    };
-    // 切换两个 subview 显隐
-    document.querySelectorAll('[data-reports-subview]').forEach((el) => {
-        el.classList.toggle('hidden', el.getAttribute('data-reports-subview') !== target);
-    });
-    // 同步顶栏图标 / 标题 / 描述 / 「新窗口打开」链接
-    const meta = ICONS[target];
-    const iconEl = document.getElementById('adminReportsIcon');
-    const titleEl = document.getElementById('adminReportsTitle');
-    const descEl = document.getElementById('adminReportsDesc');
-    const openEl = document.getElementById('adminReportsOpenNew');
-    if (iconEl) {
-        iconEl.className = 'shrink-0 w-10 h-10 rounded-lg ' + meta.color + ' flex items-center justify-center text-lg';
-        iconEl.innerHTML = '<i class="fas ' + meta.icon + '"></i>';
-    }
-    if (titleEl) titleEl.textContent = meta.title;
-    if (descEl) descEl.textContent = meta.desc;
-    if (openEl) openEl.setAttribute('href', meta.openHref);
-    // P-ReportsSync: submit subview 显示「同步」按钮，summary 隐藏。
-    // 同步按钮的 click handler 由 initAdminSidebar 装配时一次性注册，无需在此重复绑定。
-    const syncBtn = document.getElementById('adminReportsSync');
-    if (syncBtn) syncBtn.hidden = (target !== 'submit');
-    // 更新左侧二级菜单 active 态（保持 hash 切换、键盘可达也一致生效）
-    document.querySelectorAll('[data-subnav="reports"] .admin-sidebar__subitem').forEach((sub) => {
-        sub.classList.toggle('active', sub.getAttribute('data-subview') === target);
-    });
-}
 
 export function initAdminSidebar({
     switchSchoolsSubview,
@@ -157,15 +116,13 @@ export function initAdminSidebar({
             }
         }
 
-        // reports 视图：按指定 subview 切换主区内的两个 iframe（默认 submit = 数据上报）。
-        // 默认实现已覆盖典型需求（切换 submit/summary、刷新 iframe、更新「重新载入/新窗口打开」指向）；
-        // 调用方也可通过 switchReportsSubview 注入自定义行为（覆盖默认）。未注入时使用内置 switchDefaultReports。
+        // reports 视图：TR-Rewrite 后三视图（tasks/issues/list），由 admin-schools.html 注入 switchReportsSubview。
+        // 默认 tasks（测试任务）；二级菜单 active 态由各视图自行管理或由 sidebar 通用逻辑同步。
         if (viewName === 'reports') {
-            const subName = opts.subview || 'submit';
-            const handler = typeof switchReportsSubview === 'function'
-                ? switchReportsSubview
-                : (sn) => switchDefaultReports(sn);
-            handler(subName);
+            const subName = opts.subview || 'tasks';
+            if (typeof switchReportsSubview === 'function') {
+                switchReportsSubview(subName);
+            }
         }
 
         // 滚动到顶部
@@ -269,54 +226,14 @@ export function initAdminSidebar({
         });
     });
 
-    // 「重新载入」按钮：刷新当前激活的 iframe
-    const btnReportsReload = document.getElementById('adminReportsReload');
-    if (btnReportsReload) {
-        btnReportsReload.addEventListener('click', () => {
-            const active = document.querySelector('.reports-subview:not(.hidden) iframe');
-            if (active) {
-                // 给 URL 追加时间戳后再去掉，避免缓存；iframe.contentWindow.location.reload() 会重新加载
-                try { active.contentWindow.location.reload(); } catch (e) { active.src = active.src; }
-            }
+    // TR-Rewrite: 测试报告视图改为原生模块（废弃 iframe），reload/sync 按钮已移除。
+    // 二级菜单 active 态同步（三视图共享）
+    document.querySelectorAll('[data-subnav="reports"] .admin-sidebar__subitem[data-subview]').forEach((sub) => {
+        sub.addEventListener('click', () => {
+            document.querySelectorAll('[data-subnav="reports"] .admin-sidebar__subitem').forEach((s) => s.classList.remove('active'));
+            sub.classList.add('active');
         });
-    }
-
-    // P-ReportsSync: 「同步」按钮 → 调用后端 /api/test-results/sync 重新生成汇总报告 + 重建 dist。
-    // 独立于 test-report.html 内的 syncNow：因 iframe 内嵌模式下 test-report.html 的顶部 nav 被隐藏，
-    // 同步入口迁到 admin-schools 控制台顶部条上。两端共享同一后端接口，结果一致；
-    // admin-schools 端自管 loading/成功/失败反馈（避免跨 iframe 状态同步的脆弱性）。
-    const btnReportsSync = document.getElementById('adminReportsSync');
-    if (btnReportsSync) {
-        const syncIcon = btnReportsSync.querySelector('i');
-        const syncText = document.getElementById('adminReportsSyncText');
-        btnReportsSync.addEventListener('click', async () => {
-            if (btnReportsSync.disabled) return;
-            btnReportsSync.disabled = true;
-            const origIconClass = syncIcon ? syncIcon.className : '';
-            const origText = syncText ? syncText.textContent : '';
-            if (syncIcon) syncIcon.className = 'fas fa-spinner fa-spin mr-1';
-            if (syncText) syncText.textContent = '同步中...';
-            try {
-                const r = await adminFetch('/api/test-results/sync', { method: 'POST' });
-                const j = await r.json().catch(() => ({}));
-                if (!r.ok || !j.success) {
-                    throw new Error(j.error || `HTTP ${r.status}`);
-                }
-                showNotice(j.message || '同步完成，汇总报告已更新', 'success');
-                // 同步完成后自动刷新 submit iframe，让测试人员看到自己刚保存的最新结果
-                try {
-                    const iframe = document.getElementById('reportsIframeSubmit');
-                    if (iframe) iframe.contentWindow.location.reload();
-                } catch (_) { /* 跨域或被卸载时静默 */ }
-            } catch (e) {
-                showNotice('同步失败：' + (e.message || e), 'error');
-            } finally {
-                btnReportsSync.disabled = false;
-                if (syncIcon) syncIcon.className = origIconClass;
-                if (syncText) syncText.textContent = origText;
-            }
-        });
-    }
+    });
 
     // 「当前学校」分组关闭按钮：等价于关闭详情、返回列表
     document.getElementById('sidebarCloseSchool')?.addEventListener('click', () => {

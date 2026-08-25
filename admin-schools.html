@@ -172,19 +172,22 @@
                         <i class="fas fa-undo"></i><span class="admin-sidebar__subitem-label">恢复管理</span>
                     </button>
                 </div>
-                <!-- 测试报告：二级菜单（数据上报 / 汇总报告）。
-                     上报表单与汇总报告均内嵌在右侧主区（iframe），不再跳转新窗口，
-                     与「学校管理/账号与权限/备份运维」的二级菜单保持交互一致。 -->
-                <button class="admin-sidebar__item has-subnav" data-view="reports" data-desc="测试数据上报与汇总报告查看，无需离开控制台即可处理检测数据。" type="button">
+                <!-- 测试报告：二级菜单（测试任务 / 问题反馈 / 问题总览）。
+                     TR-Rewrite：原生视图模块，废弃 iframe + test-report.html + docs 产物。
+                     三视图对齐检测业务模型：任务=计划内执行、反馈=计划外上报、总览=记录列表。 -->
+                <button class="admin-sidebar__item has-subnav" data-view="reports" data-desc="测试任务执行、问题反馈上报、问题状态总览与收口。" type="button">
                     <i class="fas fa-file-alt"></i><span class="admin-sidebar__item-label">测试报告</span>
                     <i class="fas fa-chevron-right admin-sidebar__chevron"></i>
                 </button>
                 <div class="admin-sidebar__subnav" data-subnav="reports">
-                    <button class="admin-sidebar__subitem active" data-subview="submit" data-desc="进入测试用例填报页面，直接提交检测结果。" type="button">
-                        <i class="fas fa-clipboard-check"></i><span class="admin-sidebar__subitem-label">数据上报</span>
+                    <button class="admin-sidebar__subitem active" data-subview="tasks" data-desc="后台安排的用例清单，逐条执行/复测。" type="button">
+                        <i class="fas fa-clipboard-check"></i><span class="admin-sidebar__subitem-label">测试任务</span>
                     </button>
-                    <button class="admin-sidebar__subitem" data-subview="summary" data-desc="查看自动生成的汇总报告与统计结果。" type="button">
-                        <i class="fas fa-chart-bar"></i><span class="admin-sidebar__subitem-label">汇总报告</span>
+                    <button class="admin-sidebar__subitem" data-subview="issues" data-desc="测试过程中发现的新问题，上报与跟踪。" type="button">
+                        <i class="fas fa-bug"></i><span class="admin-sidebar__subitem-label">问题反馈</span>
+                    </button>
+                    <button class="admin-sidebar__subitem" data-subview="list" data-desc="所有问题实时状态总览，轨迹与收口。" type="button">
+                        <i class="fas fa-list-ul"></i><span class="admin-sidebar__subitem-label">问题总览</span>
                     </button>
                 </div>
             </nav>
@@ -984,6 +987,10 @@
         import { initAuditView } from '/js/modules/adminSchools/views/auditView.js';
         // 「备份运维」三子视图（全局备份 / 单点备份 / 恢复管理）
         import { initBackupView } from '/js/modules/adminSchools/views/backupView.js';
+        // 「测试报告」三视图（TR-Rewrite：测试任务 / 问题反馈 / 问题总览）
+        import { initTasksView } from '/js/modules/adminSchools/views/testReports/tasksView.js';
+        import { initIssuesView } from '/js/modules/adminSchools/views/testReports/issuesView.js';
+        import { initListView } from '/js/modules/adminSchools/views/testReports/listView.js';
         // ====== P-Refactor 第二阶段：功能域模块（原 ~3200 行内联 JS 全部抽离至此）======
         // 主题预设 / 实时预览 / 可视化编辑（visualEdit 顶层自动绑定开关、引导横幅、弹层表单）
         import '/js/modules/adminSchools/visualEdit.js';
@@ -1082,11 +1089,22 @@
             switchSchoolsSubview: detailView.switchSchoolsSubview,
         });
         const auditView = initAuditView();
+        // TR-Rewrite: 测试报告三视图（测试任务 / 问题反馈 / 问题总览）
+        const tasksView = initTasksView();
+        const issuesView = initIssuesView();
+        const listView = initListView();
+        const switchReportsSubview = (subName) => {
+            const handler = subName === 'issues' ? issuesView
+                : subName === 'list' ? listView
+                : tasksView; // 默认 tasks
+            handler(subName);
+        };
         initAdminSidebar({
             switchSchoolsSubview: detailView.switchSchoolsSubview,
             switchAccountsSubview: accountsView.switchAccountsSubview,
             switchAuditSubview: auditView.switchAuditSubview,
             switchBackupSubview: backupView.switchBackupSubview,
+            switchReportsSubview,
         });
     </script>
     <!-- 学校租户预览窗口（RBAC 收敛）：超管以 iframe 预览该校网页，不进入该校业务数据 -->
@@ -1827,57 +1845,10 @@
              不再使用 glass 大块卡片，让出高度给 iframe
            - iframe 高度按 calc(100vh - 顶 nav - 容器 padding - 内容条) 自适应 -->
     <section id="adminViewReports" class="admin-view hidden" data-view="reports">
+        <!-- TR-Rewrite: 测试报告模块原生重构（废弃 iframe + test-report.html + docs 产物）
+             三个 subview 由 views/testReports/ 下的视图模块动态渲染到统一容器 -->
         <div class="reports-container w-full">
-            <!-- 顶部紧凑内容条：当前 subview 标题 + 操作按钮（替代原来的大块玻璃卡片头） -->
-            <div class="reports-bar">
-                <div class="reports-bar__left">
-                    <span id="adminReportsIcon" class="reports-bar__icon bg-emerald-500/10 text-emerald-600">
-                        <i class="fas fa-clipboard-check"></i>
-                    </span>
-                    <h2 id="adminReportsTitle" class="reports-bar__title">数据上报</h2>
-                </div>
-                <div class="reports-bar__right">
-                    <!-- P-ReportsSync: 同步按钮，仅在 submit subview 显示。
-                         test-report.html 被 iframe 内嵌时自身顶部 nav 被隐藏（避免与 admin-schools 顶部 nav 重复），
-                         同步入口迁到此处。点击直接调用后端 /api/test-results/sync（与 test-report.html
-                         内部 syncNow 调用同一接口），UI 反馈（loading/成功/失败）由本按钮管理。 -->
-                    <button id="adminReportsSync" type="button"
-                            class="reports-bar__btn"
-                            title="重新生成汇总报告并重建部署目录"
-                            hidden>
-                        <i class="fas fa-cloud-upload-alt mr-1"></i>
-                        <span id="adminReportsSyncText">同步</span>
-                    </button>
-                    <button id="adminReportsReload" type="button"
-                            class="reports-bar__btn"
-                            title="重新载入当前页">
-                        <i class="fas fa-sync mr-1"></i>重新载入
-                    </button>
-                    <a id="adminReportsOpenNew" href="/test-report.html" target="_blank" rel="noopener"
-                       class="reports-bar__btn"
-                       title="在新窗口打开当前页">
-                        <i class="fas fa-external-link-alt mr-1"></i>新窗口打开
-                    </a>
-                </div>
-            </div>
-
-            <!-- iframe 容器：占满主区，高度自适应；圆角卡片样式，简洁边框 -->
-            <div class="reports-frame-wrap">
-                <!-- submit：内嵌 test-report.html（自身有顶部 nav 与登录态检测，token 自动复用） -->
-                <div class="reports-subview" data-reports-subview="submit">
-                    <iframe id="reportsIframeSubmit"
-                            src="/test-report.html"
-                            class="reports-iframe"
-                            title="测试报告上报页"></iframe>
-                </div>
-                <!-- summary：内嵌 docs/test-results/latest/index.html（脚本生成的汇总报告） -->
-                <div class="reports-subview hidden" data-reports-subview="summary">
-                    <iframe id="reportsIframeSummary"
-                            src="/docs/test-results/latest/index.html"
-                            class="reports-iframe"
-                            title="测试结果汇总报告"></iframe>
-                </div>
-            </div>
+            <div id="adminViewReportsContent"><!-- 子视图动态渲染 --></div>
         </div>
     </section>
 
