@@ -44,7 +44,13 @@ const GUEST_JWT_MAX_AGE = 2 * 60 * 60 * 1000 // 2h
 
 export function createGuestRoutes(userManager, prisma, jwtSecret) {
     const router = express.Router()
-    const { authenticateUser, requireGuest, requireGuestReadOnly } = createAuthMiddleware(userManager, prisma)
+    const { authenticateUser, requireGuestReadOnly } = createAuthMiddleware(userManager, prisma)
+
+    // 局部 requireGuest：仅允许 guest 角色访问（createAuthMiddleware 未导出该中间件）
+    const requireGuest = (req, res, next) => {
+        if (req.user && req.user.role === 'guest') return next()
+        return res.status(403).json({ error: '❌ 仅访客可访问该接口' })
+    }
 
     // 访客自助注册已关闭：本系统仅由管理端或快速访问创建访客会话，不开放任何注册申请。
     router.post('/register', (req, res) => {
