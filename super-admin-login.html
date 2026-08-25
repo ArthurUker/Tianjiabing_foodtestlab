@@ -7,6 +7,10 @@
     <link rel="stylesheet" href="/css/tailwind.css">
     <link rel="stylesheet" href="/css/vendor/fa/all.min.css" />
     <script src="/js/utils/themePresets.js"></script>
+    <!-- 构建时注入的版本号（来自 package.json，先于 appVersion.js 加载） -->
+    <script src="/version.js"></script>
+    <!-- 系统版本号统一展示（读取 window.APP_VERSION_BUILD，全站避免版本漂移） -->
+    <script src="/js/config/appVersion.js"></script>
     <style>
         body { background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%); }
         .login-card { animation: slideIn 0.5s ease-out; }
@@ -109,6 +113,7 @@
         </div>
 
         <p class="text-center text-white/60 text-xs mt-6">食品安全检验管理系统 · 平台超管专用通道</p>
+        <p class="text-center text-white/40 text-xs mt-2"><span data-app-version="系统版本 "></span></p>
     </div>
 
     <!-- P2a: 平台超管登录页逻辑抽离至 js/modules/superAdminLoginPage.js（原 165 行内联 module） -->

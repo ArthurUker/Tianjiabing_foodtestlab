@@ -21,10 +21,20 @@
 (function () {
   'use strict';
 
-  // ★ 系统版本号 —— 升级版本时同步修改 package.json 的 "version" 字段 ★
-  var APP_VERSION = '3.1.0';
+  // ★ 系统版本号 —— 唯一真实来源为 package.json 的 "version" 字段 ★
+  // 构建脚本 scripts/build-static.js 会生成 dist/version.js 并写入
+  // window.APP_VERSION_BUILD（如 "1.0.0"），优先使用以保证改版本只动 package.json 一处。
+  // 未构建（本地直开 html）时回退到下方常量兜底，避免空白。
+  var BUILD_VERSION = (typeof window.APP_VERSION_BUILD === 'string' && window.APP_VERSION_BUILD)
+    ? window.APP_VERSION_BUILD
+    : '1.0.0';
+  var APP_VERSION = BUILD_VERSION;
+
+  // 对外展示标签：Ver-X.Y.Z（语义化，对应代码修复/功能更新/架构变更）
+  var APP_VERSION_LABEL = 'Ver-' + APP_VERSION;
 
   window.APP_VERSION = APP_VERSION;
+  window.APP_VERSION_LABEL = APP_VERSION_LABEL;
 
   // ===== 版本说明内容（按系统当前设计简要说明）=====
   // 文案保持简洁，聚焦「系统是什么 + 核心能力 + 当前版本」，避免过长。
@@ -97,7 +107,7 @@
       +   'background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.18);border-radius:10px;padding:10px 12px;">'
       +   '<i class="fas fa-tag" style="color:#4f46e5;font-size:13px;"></i>'
       +   '<span style="font-size:13px;color:#4b5563;">' + esc(VERSION_NOTES.versionLabel) + '</span>'
-      +   '<span style="font-weight:700;color:#4f46e5;font-size:14px;">' + esc(APP_VERSION) + '</span>'
+      +   '<span style="font-weight:700;color:#4f46e5;font-size:14px;">' + esc(APP_VERSION_LABEL) + '</span>'
       + '</div>'
       // 简介
       + '<p style="margin:0 0 14px;font-size:13px;color:#4b5563;line-height:1.8;">' + esc(VERSION_NOTES.description[0]) + '</p>'
@@ -128,7 +138,7 @@
     var els = document.querySelectorAll('[data-app-version]');
     for (var i = 0; i < els.length; i++) {
       var el = els[i];
-      el.textContent = APP_VERSION;
+      el.textContent = APP_VERSION_LABEL;
       // 设为可点击，提示用户可查看版本说明。
       // 视觉暗示：加一条弱下划线（适配深/浅背景），hover 时加深，让用户感知可点击。
       el.style.cursor = 'pointer';

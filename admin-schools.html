@@ -8,7 +8,9 @@
     <link rel="stylesheet" href="/css/vendor/fa/all.min.css" />
     <link rel="stylesheet" href="/css/admin-schools.css">
     <script src="/js/utils/themePresets.js"></script>
-    <!-- 系统版本号唯一事实来源（全站统一展示，避免版本漂移） -->
+    <!-- 构建时注入的版本号（来自 package.json，先于 appVersion.js 加载） -->
+    <script src="/version.js"></script>
+    <!-- 系统版本号统一展示（读取 window.APP_VERSION_BUILD，全站避免版本漂移） -->
     <script src="/js/config/appVersion.js"></script>
     <!-- 玻璃折射滤镜 -->
     <svg width="0" height="0" style="position:absolute"><defs>
@@ -1898,6 +1900,11 @@
 
     <!-- 移动端侧栏抽屉蒙版 -->
     <div id="adminSidebarBackdrop" class="admin-sidebar-backdrop hidden"></div>
+
+    <!-- 系统版本（统一展示，点击查看版本说明） -->
+    <div class="text-center py-3 text-xs text-gray-400">
+        <span data-app-version="系统版本 "></span>
+    </div>
 
     <!-- P-Refactor: 侧边栏/账号权限/备份运维已并入 js/modules/adminSchools/（ESM），由上方 module script 统一装配 -->
 </body>
