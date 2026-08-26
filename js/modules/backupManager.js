@@ -175,23 +175,43 @@ export function initBackupManager({ API_BASE, authHeaders, notify }) {
     } catch (e) { notify(`验证失败：${e.message}`) }
   }
 
-  function doDownload(id, format) {
+  async function doDownload(id, format) {
     const url = `${API_BASE}/api/admin/backups/${id}/download?format=${format}`
-    // 需带 Authorization 的下载：fetch → blob（避免 <a download> 不带 token）
-    fetch(url, { headers: authHeaders() })
-      .then((r) => {
-        if (!r.ok) return r.json().then((j) => { throw new Error(j.error || `HTTP ${r.status}`) })
-        return r.blob()
-      })
-      .then((blob) => {
-        const disposition = ''
-        const a = document.createElement('a')
-        a.href = URL.createObjectURL(blob)
-        a.download = `backup-${id}.${format === 'encrypted' ? 'aes' : 'sql.gz'}`
-        a.click()
-        URL.revokeObjectURL(a.href)
-      })
-      .catch((e) => notify(`下载失败：${e.message}`))
+    try {
+      // 需带 Authorization 的下载：fetch → blob（避免 <a download> 不带 token）
+      const r = await fetch(url, { headers: authHeaders() })
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}))
+        throw new Error(j.error || `HTTP ${r.status}`)
+      }
+      const blob = await r.blob()
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = `backup-${id}.${format === 'encrypted' ? 'aes' : 'sql.gz'}`
+      a.click()
+      URL.revokeObjectURL(a.href)
+
+      // ★P-Recovery-Audit v1：加密下载时同步拉取配套 meta.json（指纹文件），
+      //   本地上传恢复要求 .aes 与 .meta.json 同时上传并做 sha256 完整性校验。
+      if (format === 'encrypted') {
+        try {
+          const metaUrl = `${API_BASE}/api/admin/backups/${id}/meta`
+          const mr = await fetch(metaUrl, { headers: authHeaders() })
+          if (!mr.ok) throw new Error(`HTTP ${mr.status}`)
+          const mBlob = await mr.blob()
+          const ma = document.createElement('a')
+          ma.href = URL.createObjectURL(mBlob)
+          ma.download = `backup-${id}.meta.json`
+          ma.click()
+          URL.revokeObjectURL(ma.href)
+          notify('已下载加密备份及配套 meta.json，恢复时请同时上传这两个文件')
+        } catch (e) {
+          notify(`meta.json 下载失败：${e.message}；本地上传恢复将缺少完整性校验文件`)
+        }
+      }
+    } catch (e) {
+      notify(`下载失败：${e.message}`)
+    }
   }
 
   // ── 影子恢复模态 ──
