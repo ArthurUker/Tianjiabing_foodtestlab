@@ -32,6 +32,10 @@ async function render() {
                 <div id="isFormBody" class="hidden px-4 pb-4 border-t border-gray-100">
                     <div class="mt-3 space-y-3">
                         <div>
+                            <label class="text-xs text-gray-500">反馈人 *</label>
+                            <input id="isReporter" type="text" maxlength="50" class="mt-1 w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:ring-2 focus:ring-fuchsia-500" placeholder="填写反馈人姓名" value="${escapeHtml(_testerName)}">
+                        </div>
+                        <div>
                             <label class="text-xs text-gray-500">问题标题 *</label>
                             <input id="isTitle" type="text" maxlength="200" class="mt-1 w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:ring-2 focus:ring-fuchsia-500" placeholder="简明描述问题">
                         </div>
@@ -235,8 +239,10 @@ function bindForm() {
     document.getElementById('isSubmit').addEventListener('click', async () => {
         const title = document.getElementById('isTitle').value.trim();
         const detail = document.getElementById('isDetail').value.trim();
+        const reporter = document.getElementById('isReporter').value.trim();
         if (!title) { showNotice('请填写问题标题', 'error'); return; }
-        if (!_testerName) { showNotice('请先在测试任务页填好测试人员姓名', 'error'); return; }
+        if (!reporter) { showNotice('请填写反馈人姓名', 'error'); return; }
+        if (!_testerName) { _testerName = reporter; localStorage.setItem('tr_tester_name', reporter); }
         const btn = document.getElementById('isSubmit');
         btn.disabled = true;
         btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>提交中…';
@@ -244,7 +250,7 @@ function bindForm() {
             await apiPost('/api/test-results/executions', {
                 title, result: 'failed', detail,
                 evidence: evidenceUrls.length ? JSON.stringify(evidenceUrls) : '',
-                tester_name: _testerName, group: 'new_问题反馈',
+                tester_name: reporter, group: 'new_问题反馈',
             });
             showNotice('✅ 问题已反馈', 'success');
             document.getElementById('isTitle').value = '';

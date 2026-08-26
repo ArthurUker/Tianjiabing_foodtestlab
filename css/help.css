@@ -185,6 +185,97 @@
         .help-cta .desc { font-size: 12px; color: #6b7280; margin-top: 2px; }
         .help-cta .arrow { color: #9ca3af; }
 
+        /* viewer 账号申请表单 */
+        .help-q.is-action { cursor: default; }
+        .help-q.is-action h4 { cursor: default; }
+        .help-btn-primary {
+            display: inline-flex; align-items: center; justify-content: center;
+            background: linear-gradient(135deg, #3b82f6, #6366f1);
+            color: #fff; font-weight: 600; font-size: 14px;
+            border: none; border-radius: 10px;
+            padding: 9px 18px;
+            cursor: pointer;
+            box-shadow: 0 4px 14px rgba(99, 102, 241, 0.25);
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+        .help-btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(99, 102, 241, 0.35); }
+        .help-btn-primary:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+        .help-btn-secondary {
+            display: inline-flex; align-items: center; justify-content: center;
+            background: rgba(255, 255, 255, 0.8);
+            color: #4b5563; font-weight: 600; font-size: 14px;
+            border: 1px solid rgba(156, 163, 175, 0.4); border-radius: 10px;
+            padding: 9px 18px;
+            cursor: pointer;
+            transition: background 0.15s ease;
+        }
+        .help-btn-secondary:hover { background: #fff; }
+        .help-form {
+            margin-top: 14px; padding-top: 16px;
+            border-top: 1px dashed rgba(156, 163, 175, 0.35);
+            animation: help-fade-in 0.25s ease;
+        }
+        @keyframes help-fade-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+        .help-form-tip { font-size: 12px; color: #6b7280; margin-bottom: 12px; }
+        .help-form-grid {
+            display: grid; gap: 12px;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        }
+        .help-form-grid label { display: flex; flex-direction: column; gap: 5px; font-size: 13px; color: #374151; font-weight: 500; }
+        .help-form-grid label.full { grid-column: 1 / -1; }
+        .help-form-grid input {
+            padding: 9px 12px; border-radius: 10px; border: 1px solid rgba(156, 163, 175, 0.4);
+            background: rgba(255, 255, 255, 0.85); font-size: 14px; color: #1f2937;
+            transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+        }
+        .help-form-grid input:focus { outline: none; border-color: rgba(99, 102, 241, 0.55); box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.10); background: #fff; }
+        .help-form-grid input[readonly] { background: rgba(243, 244, 246, 0.85); color: #6b7280; cursor: not-allowed; }
+        .help-form-actions { display: flex; gap: 10px; margin-top: 16px; }
+        .help-form-msg { margin-top: 12px; padding: 10px 14px; border-radius: 10px; font-size: 13px; }
+        .help-form-msg.success { background: rgba(16, 185, 129, 0.12); color: #065f46; border: 1px solid rgba(16, 185, 129, 0.25); }
+        .help-form-msg.error { background: rgba(239, 68, 68, 0.10); color: #991b1b; border: 1px solid rgba(239, 68, 68, 0.25); }
+
+        /* 联系方式弹窗 */
+        .help-modal {
+            position: fixed; inset: 0; z-index: 60;
+            display: flex; align-items: center; justify-content: center;
+            padding: 16px;
+            transition: opacity 0.2s ease, visibility 0.2s ease;
+        }
+        .help-modal.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+        .help-modal-overlay {
+            position: absolute; inset: 0;
+            background: rgba(15, 23, 42, 0.45);
+            backdrop-filter: blur(3px);
+        }
+        .help-modal-panel {
+            position: relative; width: 100%; max-width: 460px;
+            background: rgba(255, 255, 255, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.6);
+            border-radius: 18px;
+            box-shadow: 0 20px 60px rgba(15, 23, 42, 0.18);
+            overflow: hidden;
+            animation: help-scale-in 0.2s ease;
+        }
+        @keyframes help-scale-in { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+        .help-modal-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 16px 20px; border-bottom: 1px solid rgba(229, 231, 235, 0.8);
+        }
+        .help-modal-header h3 { font-size: 17px; font-weight: 700; color: #1f2937; }
+        .help-modal-close {
+            width: 32px; height: 32px; border-radius: 50%;
+            border: none; background: rgba(243, 244, 246, 0.8);
+            color: #6b7280; cursor: pointer; transition: background 0.15s, color 0.15s;
+        }
+        .help-modal-close:hover { background: #e5e7eb; color: #374151; }
+        .help-modal-body { padding: 18px 20px; font-size: 14px; color: #374151; line-height: 1.7; }
+        .help-modal-body p { margin-bottom: 10px; }
+        .help-modal-body p:last-child { margin-bottom: 0; }
+        .help-modal-body .contact-label { font-weight: 600; color: #4b5563; margin-bottom: 4px; }
+        .help-modal-body .contact-value { color: #1f2937; font-weight: 500; }
+        .help-modal-footer { padding: 12px 20px 16px; display: flex; justify-content: flex-end; }
+
         /* 响应式 */
         @media (max-width: 1023px) {
             .help-grid { grid-template-columns: 1fr !important; }
