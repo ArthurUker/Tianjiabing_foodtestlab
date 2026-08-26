@@ -417,6 +417,39 @@ for v in SEED_ADMIN_PASSWORD SEED_OPERATOR_PASSWORD SEED_VIEWER_PASSWORD; do
     fi
   fi
 done
+# 2026-08-26（补生产缺口）：备份加密主密钥（fail-closed 必需）。
+# kmsMode() 要求至少配置 TENCENT_*（KMS，生产推荐）或 BACKUP_MASTER_KEY（本地），
+# 否则备份引擎拒绝执行。此前 deploy.sh 仅做"复用旧 .env"，从未在【首次部署】时
+# 校验/兜底，导致 .env 写入空 BACKUP_MASTER_KEY=，kmsMode() 返回 null，
+# 每日备份任务静默失败（TD-School-Backup-Sync 复盘）。
+# 规则（密钥必须由运维/用户从密钥库提供，部署脚本【不】自动生成）：
+#   1) 适配文件 / 环境变量已显式提供 TENCENT_* 或 BACKUP_MASTER_KEY → 尊重用户选择，写入 .env。
+#   2) 两者皆空（首次部署且未提供）→ 直接 fail 中止部署，提示用户先提供密钥后再跑。
+#   3) 无论如何，把最终生效的备份密钥导出到离线保险文件（独立于 .env，防止重部署/误覆盖丢失）。
+if [ -z "$TENCENT_SECRET_ID$TENCENT_SECRET_KEY$TENCENT_KMS_KEY_ID" ] && [ -z "$BACKUP_MASTER_KEY" ]; then
+  err "缺少备份加密密钥：首次部署必须由你提供备份主密钥，部署脚本不会自动生成。"
+  echo "  二选一（在适配文件或环境变量中提供其一）："
+  echo "    A) 本地主密钥：BACKUP_MASTER_KEY=<你的 32 字节 base64 密钥，从密钥库取>"
+  echo "    B) 腾讯云 KMS：TENCENT_SECRET_ID / TENCENT_SECRET_KEY / TENCENT_KMS_KEY_ID / TENCENT_KMS_REGION"
+  echo "  提供后重新运行 deploy.sh。注意：BACKUP_MASTER_KEY 一旦用于加密 .aes 备份即不可更换，"
+  echo "  请确保该密钥已在你的密钥库/离线介质妥善保存（脚本也会把它导出到 $BACKUP_SECRETS_FILE 作为副本）。"
+  exit 1
+fi
+
+# 导出离线保险副本（独立于 backend/.env，chmod 600）。
+BACKUP_SECRETS_FILE="/root/.foodtestlab-backup-secrets.env"
+{
+  echo "# Auto-exported by deploy.sh — 备份加密密钥离线保险（与 backend/.env 解耦，防重部署/误覆盖丢失）"
+  echo "# 生成时间: $(date -u +%FT%TZ)"
+  [ -n "$BACKUP_MASTER_KEY" ]    && echo "BACKUP_MASTER_KEY=$BACKUP_MASTER_KEY"
+  [ -n "$TENCENT_SECRET_ID" ]    && echo "TENCENT_SECRET_ID=$TENCENT_SECRET_ID"
+  [ -n "$TENCENT_SECRET_KEY" ]   && echo "TENCENT_SECRET_KEY=$TENCENT_SECRET_KEY"
+  [ -n "$TENCENT_KMS_REGION" ]   && echo "TENCENT_KMS_REGION=${TENCENT_KMS_REGION:-ap-guangzhou}"
+  [ -n "$TENCENT_KMS_KEY_ID" ]   && echo "TENCENT_KMS_KEY_ID=$TENCENT_KMS_KEY_ID"
+} > "$BACKUP_SECRETS_FILE"
+chmod 600 "$BACKUP_SECRETS_FILE" 2>/dev/null || true
+ok "备份加密密钥已导出离线保险: $BACKUP_SECRETS_FILE（chmod 600，请另行异地保存）"
+
 if [ -z "$CORS_ORIGIN" ]; then
   if [ -n "$DOMAIN" ]; then
     CORS_ORIGIN="https://$DOMAIN"
@@ -910,4 +943,18 @@ echo -e "\033[36m后端初始账号密码（见 backend/.env 中对应 SEED_* �
 echo "  admin   / (见 backend/.env 中 SEED_ADMIN_PASSWORD)"
 echo "  operator/ (见 backend/.env 中 SEED_OPERATOR_PASSWORD)"
 echo "  viewer  / (见 backend/.env 中 SEED_VIEWER_PASSWORD)"
+echo ""
+echo -e "\033[36m备份加密密钥（P0 备份引擎，fail-closed 必需）：\033[0m"
+if [ -n "$TENCENT_SECRET_ID$TENCENT_SECRET_KEY$TENCENT_KMS_KEY_ID" ]; then
+  echo "  模式: 腾讯云 KMS（生产推荐）—— 已配置 TENCENT_*，密钥由云 KMS 托管"
+elif [ -n "$BACKUP_MASTER_KEY" ]; then
+  echo "  模式: 本地主密钥 BACKUP_MASTER_KEY（已在 .env 与离线保险 $BACKUP_SECRETS_FILE 各存一份）"
+  echo "  ⚠️ 本地密钥为过渡方案：生产环境建议切换腾讯云 KMS（适配文件填 TENCENT_* 后重跑），以满足密钥轮换与审计合规。"
+  echo "  ⚠️ 已加密的 .aes 备份只能由本密钥解密，密钥丢失=备份永久不可用。请务必将 $BACKUP_SECRETS_FILE 异地离线保存。"
+else
+  echo "  ❌ 未配置任何备份密钥（kmsMode 返回 null），每日备份任务将 fail-closed 拒绝执行！请配置 TENCENT_* 或 BACKUP_MASTER_KEY 后重跑。"
+fi
+echo -e "\033[36m运维关键文件（请异地备份，丢失将影响备份解密/服务恢复）：\033[0m"
+echo "  离线密钥保险: $BACKUP_SECRETS_FILE (chmod 600)"
+echo "  后端密钥      : $BACKEND_ENV (chmod 600)"
 echo ""
