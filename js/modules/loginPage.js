@@ -26,7 +26,6 @@ function applyGuestEntryVisibility(enabled) {
     if (!gTab || !gForm) return;
     if (enableGuestEntry) {
         gTab.classList.remove('hidden');
-        gForm.classList.remove('hidden');
         if (aTab) { aTab.classList.add('flex-1'); aTab.classList.remove('w-full'); }
         if (tabs) tabs.classList.add('border-b');
     } else {
@@ -135,7 +134,10 @@ async function applySchoolTheme(schoolCode) {
         if (cfg.logoUrl) {
             const iconWrap = document.querySelector('.logo-animation');
             if (iconWrap) {
-                iconWrap.innerHTML = `<img src="${cfg.logoUrl}" alt="logo" class="w-14 h-14 object-contain">`;
+                // [居中修复] replaced inline element <img> 在 block 容器内继承 text-align:center
+                // 在 chrome 等实际渲染中不居中（line box 行为差异），需显式 display:block + margin:0 auto。
+                // 标题 h1 是普通 block（文字居中有效），唯独 img 需此处理。
+                iconWrap.innerHTML = `<img src="${cfg.logoUrl}" alt="logo" class="w-14 h-14 object-contain block mx-auto">`;
             }
         }
         // ===== 登录页样式（背景 / 卡片 / 品牌）=====
@@ -224,7 +226,9 @@ function applyLoginStyle(login, cfg) {
                 } else {
                     const logo = (bd.logoUrl && bd.logoUrl.trim()) || cfg.logoUrl
                     if (logo) {
-                        iconWrap.innerHTML = `<img src="${logo}" alt="logo" class="w-14 h-14 object-contain" onerror="this.outerHTML='<i class=&quot;fas fa-shield-alt text-4xl text-blue-600&quot;></i>'">`
+                        // [居中修复] 配合 .logo-animation 容器及 applySchoolTheme 同款修复：
+                        // replaced inline <img> 继承 text-center 不居中，需 display:block + margin:0 auto。
+                        iconWrap.innerHTML = `<img src="${logo}" alt="logo" class="w-14 h-14 object-contain block mx-auto" onerror="this.outerHTML='<i class=&quot;fas fa-shield-alt text-4xl text-blue-600&quot;></i>'">`
                     } else {
                         iconWrap.innerHTML = '<i class="fas fa-shield-alt text-4xl text-blue-600"></i>'
                     }

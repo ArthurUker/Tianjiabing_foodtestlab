@@ -89,6 +89,13 @@
         
         .logo-animation {
             animation: pulse 2s infinite;
+            /* [居中修复] 默认盾牌图标 <i> 与经 JS 替换的 <img> 都需居中。
+               <img> 为 replaced inline element，仅 text-align:center 在 chrome 实际渲染中不居中，
+               故同时用 flex 容器兜底（JS 替换的 img 已加 block mx-auto，此处双重保险）。 */
+            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         
         @keyframes pulse {
@@ -254,36 +261,26 @@
                 </button>
             </form>
 
-            <!-- 访客区：仅只读快速浏览；另有「申请 viewer 账号」独立入口 -->
-            <div id="guestForm" class="form-tab hidden" data-tab="guest">
-                <div class="text-center py-2">
-                    <div class="bg-green-50 border border-green-100 rounded-lg p-5 mb-5">
-                        <i class="fas fa-user-check text-3xl text-green-500 mb-3 block"></i>
-                        <p class="text-gray-700 font-medium mb-1">访客模式</p>
-                        <p class="text-gray-500 text-sm">仅可查看学校已开放的数据，无法新增、修改或导出</p>
-                    </div>
+            <!-- 访客区：仅只读快速浏览，通过 Tab 切换进入，不再重复显示独立的访客模式卡片 -->
+            <div id="guestForm" class="form-tab hidden space-y-5" data-tab="guest">
+                <p class="text-center text-sm text-gray-500">以访客身份进入后仅可查看学校已开放数据，无法新增、修改或导出。</p>
 
-                    <!-- 错误提示 -->
-                    <div id="guestErrorMessage" class="hidden">
-                        <div class="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg text-sm flex items-center">
-                            <i class="fas fa-exclamation-circle mr-2"></i>
-                            <span id="guestErrorText"></span>
-                        </div>
-                    </div>
-
-                    <!-- 访客仅可快速进入只读浏览，无任何申请/审批操作 -->
-                    <div id="guestQuickPane">
-                        <button 
-                            type="button" 
-                            id="guestEnterBtn"
-                            class="w-full bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white font-semibold py-3 rounded-lg transition duration-300 shadow-lg hover:shadow-xl flex items-center justify-center"
-                        >
-                            <i class="fas fa-sign-in-alt mr-2"></i>
-                            以访客身份进入
-                        </button>
-                        <p class="text-xs text-gray-400 mt-3">无需申请即可只读浏览已开放数据，但无法查看病原体、提交申请或导出。</p>
+                <!-- 错误提示 -->
+                <div id="guestErrorMessage" class="hidden">
+                    <div class="p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg text-sm flex items-center">
+                        <i class="fas fa-exclamation-circle mr-2"></i>
+                        <span id="guestErrorText"></span>
                     </div>
                 </div>
+
+                <button
+                    type="button"
+                    id="guestEnterBtn"
+                    class="w-full bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white font-semibold py-3 rounded-lg transition duration-300 shadow-lg hover:shadow-xl flex items-center justify-center"
+                >
+                    <i class="fas fa-sign-in-alt mr-2"></i>
+                    以访客身份进入
+                </button>
             </div>
 
             <!-- 其他登录选项 (P8: 跳转帮助中心)
