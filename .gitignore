@@ -34,6 +34,12 @@ temp/
 # Local handoff / context notes (not for repo)
 docs/HANDOFF.md
 
+# 生产环境规则文档（含生产架构细节，不入库）
+PRODUCTION-ENV-RULES.md
+
+# 部署适配文件（含明文备份主密钥等敏感配置，不入库）
+deploy/deploy.foodtestlab.conf
+
 # Cypress debug artifacts
 cypress/_dashstate.txt
 cypress/_errcap_out.txt
