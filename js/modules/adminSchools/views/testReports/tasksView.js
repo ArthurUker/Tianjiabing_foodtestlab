@@ -106,20 +106,20 @@ function renderGroups() {
         const stats = countGroup(g);
         const allClosed = g.cases.every(c => _casesCache.get(c.id)?.closed);
         html += `
-            <div class="glass-card overflow-hidden">
-                <button class="tr-group-header w-full px-4 py-3 flex items-center gap-3 hover:bg-gray-50 text-left" data-group="${escapeHtml(g.group)}">
-                    <i class="fas fa-chevron-right tr-chevron text-gray-400 transition-transform"></i>
+            <div class="glass rounded-2xl border border-white/50 shadow-lg overflow-hidden mb-4">
+                <button class="tr-group-header w-full px-5 py-3.5 flex items-center gap-3 hover:bg-white/40 text-left bg-white/30 backdrop-blur-sm" data-group="${escapeHtml(g.group)}">
+                    <i class="fas fa-chevron-right tr-chevron text-gray-500 transition-transform"></i>
                     <span class="font-semibold text-gray-800">${escapeHtml(g.groupName || g.group)}</span>
-                    <span class="text-xs text-gray-500">${g.cases.length} 用例</span>
+                    <span class="text-xs text-gray-600">${g.cases.length} 用例</span>
                     <span class="ml-auto flex gap-2 text-xs">
                         ${stats.passed ? `<span class="text-emerald-600">✅${stats.passed}</span>` : ''}
                         ${stats.failed ? `<span class="text-rose-600">❌${stats.failed}</span>` : ''}
                         ${stats.fixed ? `<span class="text-orange-600">🔔${stats.fixed}</span>` : ''}
-                        ${stats.pending ? `<span class="text-gray-400">⏳${stats.pending}</span>` : ''}
+                        ${stats.pending ? `<span class="text-gray-500">⏳${stats.pending}</span>` : ''}
                         ${stats.closed ? `<span class="text-blue-600">🔒${stats.closed}</span>` : ''}
                     </span>
                 </button>
-                <div class="tr-group-body hidden border-t border-gray-100">
+                <div class="tr-group-body hidden border-t border-white/40 bg-white/20 backdrop-blur-sm p-3">
                     ${renderCaseRows(g)}
                 </div>
             </div>
@@ -163,7 +163,7 @@ function countGroup(g) {
 }
 
 function renderCaseRows(g) {
-    let html = '<div class="divide-y divide-gray-100">';
+    let html = '<div class="space-y-2">';
     // 待复测置顶 → 失败次之 → 未测 → 已通过 → 已收口
     const ordered = [...g.cases].sort((a, b) => {
         const sa = _casesCache.get(a.id) || {};
@@ -176,9 +176,12 @@ function renderCaseRows(g) {
         const closed = st.closed;
         const result = st.current_result || 'pending';
         const fixed = st.fixed_pending_retest && !closed;
+        const rowBg = fixed
+            ? 'bg-orange-50/90 border-orange-200'
+            : 'bg-white/85 hover:bg-white border-gray-200';
         html += `
-            <div class="tr-row px-4 py-3 ${fixed ? 'bg-orange-50/50' : ''}" data-case-key="${escapeHtml(c.id)}">
-                <div class="flex items-start gap-3">
+            <div class="tr-row rounded-xl border ${rowBg} shadow-sm backdrop-blur-sm transition-colors" data-case-key="${escapeHtml(c.id)}">
+                <div class="px-4 py-3 flex items-start gap-3">
                     <div class="flex-1 min-w-0">
                         <div class="flex items-center gap-2 flex-wrap">
                             <span class="text-xs text-gray-500 font-mono">${escapeHtml(c.id)}</span>
@@ -192,7 +195,7 @@ function renderCaseRows(g) {
                         ${!closed ? `<button class="tr-btn-exec px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-xs"><i class="fas fa-play mr-1"></i>${fixed ? '复测' : '执行'}</button>` : '<span class="text-xs text-gray-400 px-2 py-1">已收口</span>'}
                     </div>
                 </div>
-                <div class="tr-panel hidden mt-3 pt-3 border-t border-gray-100"></div>
+                <div class="tr-panel hidden mt-3 pt-3 px-4 pb-3 border-t border-gray-200"></div>
             </div>
         `;
     }
