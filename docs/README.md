@@ -56,7 +56,7 @@
 | 改审计日志写入 | CONVENTIONS 规则五 | `server.js`（`writeRecordAuditLog`）、`routes/auditRoutes.js`、`js/services/AuditLogService.js` | 规则一（不得物理删除）、规则五（对号入座，勿新增第四套） |
 | 改部署 / 环境变量 | deploy/README | `deploy/deploy.sh`、`deploy/deploy.foodtestlab.conf` | 规则十（脚本与适配分离、单应用）、规则六.6（禁改回 sqlite） |
 | 加单元测试 | DEV_GUIDE §10 | `tests/*.test.js`、`jest.config.cjs` | 规则十二（纯函数应补单测、lint 零 error） |
-| 查看/归档浏览器测试反馈 | [`test-results/`](./test-results/README.md) | `backend/lib/testCaseDefs.js`（用例清单唯一权威）、`backend/lib/testReportSync.js`（报告同步引擎）、`backend/routes/testResultRoutes.js`（上报/上传/读取端点）、`scripts/sync-test-results-docs.mjs`（手动同步） | 数据权威在库；`docs/test-results/latest/` 为覆盖式快照，归档需手动 git 提交 |
+| 查看/归档浏览器测试反馈 | [`test-results/`](./test-results/README.md) | `backend/lib/testCaseDefs.js`（用例清单唯一权威）、`backend/routes/testResultRoutes.js`（上报/上传/读取端点）、`admin-schools.html` 测试报告模块（原生三视图） | 数据权威在库 `public.TestCase`/`TestExecution`；旧 testReportSync 静态快照已废弃 |
 
 ---
 

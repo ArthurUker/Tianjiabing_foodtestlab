@@ -1,11 +1,11 @@
 /**
  * testCaseDefs.js — 浏览器测试用例定义（唯一权威副本）
  *
- * 该清单是「浏览器验证操作流程」各用例的单一数据源，供两处共用：
- *   1. 后端：testResultRoutes.js（GET /api/test-results/defs）与 testReportSync.js（生成 docs 报告）
- *   2. 前端：test-report.html（从 /api/test-results/defs 动态拉取，渲染填报表单）
- *
- * 不要再在 test-report.html 里维护第二份硬编码清单。
+ * 该清单是「浏览器验证操作流程」各用例的单一数据源：
+ *   后端：testResultRoutes.js（GET /api/test-results/defs 供前端渲染任务列表）
+ *   前端：经 admin-schools.html 左侧菜单「测试报告」原生三视图
+ *         （js/modules/adminSchools/views/testReports/）动态拉取渲染，
+ *         不再使用已废弃的 test-report.html 独立页面。
  * case_group: wcn_业务 = 吴翠楠；zsp_备份 = 曾水平；retest_复测 = 历史问题复测（2026-08-13 5份反馈汇总）
  */
 
@@ -252,7 +252,7 @@ export function indexCaseDefs(defs = CASE_DEFS) {
 // ═══════════════════════════════════════════════════════════════════
 // 本轮修复标记（2026-08-14）：case_id → 修复说明
 //
-// 用于在「测试报告上报页（test-report.html）」与「汇总报告（docs/test-results/latest/index.html）」
+// 用于在「测试报告模块（admin-schools.html 左侧菜单「测试报告」）」
 // 上渲染醒目的「🔧 已修复 · 请重复测试」徽章，提醒测试人员对已修复的问题复测。
 //
 // 数据源：docs/fix/待修复问题深度分析-20260814.md 中 13 个独立待修复项（FIX-03~FIX-17）。
@@ -311,7 +311,7 @@ for (const g of CASE_DEFS) {
 // ═══════════════════════════════════════════════════════════════════
 // NEW_FIXED_NOTES：清单外「新问题反馈（new_问题 组，NEW-*）」的复测提醒。
 //
-// new_问题 组由 testReportSync.js 从数据库动态抽取，不在 CASE_DEFS 中，
+// new_问题 组由后端从数据库动态抽取（source='issue'），不在 CASE_DEFS 中，
 // 其 fix_note 原本硬编码为空（行 206），故无法显示「已修复·请重复测试」徽章。
 // 此处按 NEW-* case_id 登记复测提醒文案，使汇总报告对具体问题也显示提醒。
 // ═══════════════════════════════════════════════════════════════════

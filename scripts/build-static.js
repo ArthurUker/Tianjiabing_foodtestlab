@@ -46,8 +46,8 @@ const dirsToCopy = [
   'vendor',
 ];
 
-// TR-Rewrite: 测试报告改为 admin-schools 原生视图（废弃 docs/test-results/latest 产物），
-// 不再把该目录作为可选拷贝源。test-report.html 也已并入控制台，无需 dist 镜像。
+// TR-Rewrite: 测试报告改为 admin-schools 原生视图（废弃 test-report.html 独立页与 docs/test-results/latest 产物），
+// 不再把该目录作为可选拷贝源。
 
 function ensureCleanDist() {
   fs.rmSync(dist, { recursive: true, force: true });

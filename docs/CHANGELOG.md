@@ -6,11 +6,15 @@
 
 ---
 
-## 1. 浏览器测试报告系统（test-report）— 8 月主线工作
+## 1. 浏览器测试报告系统（测试报告模块）— 8 月主线工作
 
 围绕测试人员反馈闭环，从零搭建了一套「上报 → 汇总 → 归档」的完整链路。
 
-### 上报侧（`test-report.html`）
+> 注：本功能最初以独立页 `test-report.html` + 静态同步引擎 `testReportSync.js` 实现，
+> 后在 TR-Rewrite 重构中并入平台超管控制台原生三视图（`admin-schools.html` 左侧「测试报告」），
+> 旧独立页与同步引擎已废弃并清理。以下为当时落地能力的叙述。
+
+### 上报侧（现：admin-schools.html 测试报告模块）
 - 新增浏览器测试结果**在线填报工具**，测试人员无需接触代码即可反馈问题。
 - 支持**测试人员姓名**填写（同账号多人区分提交），姓名必填。
 - 证据支持按 bug 出现顺序**分步上传**（含"添加一步"空状态引导）。
@@ -18,16 +22,16 @@
 - 汇总页与上报页增加统一顶部状态栏、登录引导 / 退出功能。
 - 修复：token 过期不再闪退回超管界面，登录页支持 `redirect` 回跳。
 
-### 汇总侧（`docs/test-results/latest/`）
+### 汇总侧（现：测试报告「问题总览」视图）
 - 汇总报告整体重做为**玻璃态设计语言**，对齐系统视觉；卡片网格随窗口宽度自适应列数。
 - `summary` 接口按 `case_id` 去重，避免汇总数 > 用例总数。
 - 修复：提交人合并互相可见、收口口径与 `updated_at` 修正；汇总卡简称取「· 之后」部分，消除同名卡歧义。
 - 手机端触控适配；证据图片目录统一中文 `case_id` 命名，修复图片碎裂。
 
-### 同步机制（`backend/lib/testReportSync.js`）
-- 新增测试结果 **docs 静态报告同步**（MD / HTML / JSON + 证据图片上传），提交后自动同步并重建 `dist`。
+### 同步机制（已废弃：testReportSync.js）
+- 原测试结果 **docs 静态报告同步**（MD / HTML / JSON + 证据图片上传）能力，现由控制台原生视图 + 数据库权威存储取代。
 - `defs` 接口加 `no-store` 缓存头 + Caddy HTML no-cache，确保测试人员看到最新用例清单。
-- `docs/test-results/latest/` 加入 `.gitignore`（覆盖式快照，不入库），`build-static` 增加缺失容错。
+- `docs/test-results/latest/` 为旧产物目录，已不再由系统生成，可安全删除。
 
 ---
 
@@ -75,7 +79,7 @@
 ## 7. 部署与构建
 
 - Caddyfile 模板 `X-Frame-Options` 多余引号修复。
-- 构建脚本拷贝列表补充 `test-report.html` 与 `detergent-image-demo.html`。
+- 构建脚本拷贝列表补充 `detergent-image-demo.html`（测试报告模块已并入 admin-schools.html，独立页 test-report.html 已废弃）。
 - 忽略根目录 `backups/` 下的表级 `.sql` 备份文件。
 
 ---

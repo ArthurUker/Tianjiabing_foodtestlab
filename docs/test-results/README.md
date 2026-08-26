@@ -1,43 +1,25 @@
 # 测试结果报告（docs/test-results/）
 
-浏览器测试反馈数据的**整理后呈现目录**。权威数据始终在数据库 `public."TestResult"`，
-本目录是同步引擎（`backend/lib/testReportSync.js`）自动生成的静态快照，便于直接查看。
+浏览器测试反馈数据的**权威数据始终在数据库** `public."TestCase"` / `public."TestExecution"`，
+由平台超管通过 `admin-schools.html` 左侧菜单「测试报告」原生三视图（测试任务 / 问题反馈 / 问题总览）查看与填报。
 
-## 目录结构
+## 数据来源
 
-```
-docs/test-results/
-├── README.md            ← 本说明
-└── latest/              ← 最新同步快照（每次有新提交即覆盖刷新）
-    ├── index.html       ← 交互式报告：汇总卡 + 按 分组/结果/提交人 筛选 + 图片点击放大（浏览器打开）
-    ├── REPORT.md        ← Markdown 报告：GitHub / IDE 直接渲染，图片用相对路径内嵌
-    ├── snapshot.json    ← 结构化数据快照（程序可读，含每组每用例全部字段）
-    └── evidence/        ← 证据图片副本（由 backend/uploads/test-evidence/ 复制而来，按用例分目录）
-```
+- 用例清单（任务定义）唯一权威源：`backend/lib/testCaseDefs.js` 的 `CASE_DEFS`。
+- 执行记录：`public.TestCase`（用例/问题状态载体）+ `public.TestExecution`（追加式执行轨迹）。
+- 实时接口：`GET /api/test-results/defs`（任务清单）、`/api/test-results/cases`（状态列表）、
+  `/api/test-results/cases/:id/history`（复测轨迹）、`/api/test-results/summary`（实时汇总）。
 
 ## 如何查看
 
 | 场景 | 方式 |
 |---|---|
-| 看交互报告（推荐） | 浏览器打开 `docs/test-results/latest/index.html` |
-| GitHub / IDE 里看 | 直接打开 `docs/test-results/latest/REPORT.md` |
-| 程序读取 | 解析 `docs/test-results/latest/snapshot.json` |
-| 实时在线看 | `http://111.231.166.161:8080/test-report.html`（登录后顶部汇总卡 + 用例回填） |
-
-## 何时更新
-
-- **自动**：测试人员每次在 `test-report.html` 点「保存」后，后端异步重新生成本目录（可
-  用环境变量 `TEST_REPORT_DOCS_SYNC=false` 关闭）。
-- **手动**：`node scripts/sync-test-results-docs.mjs`（需可连数据库）。
+| 在线填报 / 汇总 / 收口 | 平台超管登录 `admin-schools.html` → 左侧「测试报告」 |
+| 实时状态接口 | 上述 `/api/test-results/*` 端点（任意已登录账号可访问，测试场景） |
 
 ## 注意事项
 
-- `latest/` 是**覆盖式**快照，不保留历史，且**不入库**（已在 `.gitignore` 中忽略，
-  磁盘上仅作为 `build-static.js` 复制到 `dist/` 的中间源保留）。
-- 需要归档某一轮结果时，把整个 `docs/test-results/latest/` 复制为带日期的目录
-  （如 `docs/test-results/2026-08-11/`），再单独 `git add` 提交该日期目录即可。
-- 权威数据始终在数据库 `public."TestResult"`；`deploy.sh` 全新部署（git reset）后
-  `latest/` 目录不存在，`build-static.js` 会自动跳过，待有测试数据提交后由
-  `testReportSync` 重新生成。
-- 图片运行时存储于 `backend/uploads/test-evidence/`（已加入 `.gitignore`，不入库）；
-  `docs/test-results/latest/evidence/` 里的副本在下次同步时按数据库引用重建。
+- `latest/` 目录为旧「testReportSync 静态快照」产物，对应模块（test-report.html / testReportSync.js）
+  已在 TR-Rewrite 重构中废弃并清理，本目录不再由系统自动生成，可安全删除。
+- 证据图片运行时存储于 `backend/uploads/test-evidence/`（已加入 `.gitignore`，不入库）。
+- 需要归档某一轮测试结果时，按日期另存 `TestCase`/`TestExecution` 数据快照即可（数据权威在库，无需文件归档）。

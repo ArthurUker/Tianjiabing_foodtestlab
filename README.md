@@ -46,7 +46,7 @@
 - **数据备份引擎**（P0/P1）：`pg_dump` 逻辑备份 + AES 信封加密 + 完整性校验 + 影子恢复（双 rename 原子切换，零窗口）。
 - **学校回收站**：彻底删除学校先软删除、再进回收站（保留 90 天可恢复），杜绝误删。
 - **字段选项级联**：动态表单字段（如「检测项目 → 检测点位」）的级联选项配置。
-- **浏览器测试报告**：测试人员在线填报、汇总、收口归档的辅助工具（`test-report.html`）。
+- **浏览器测试报告**：测试人员在线填报、汇总、收口归档的辅助工具（入口：平台超管 `admin-schools.html` 左侧菜单「测试报告」原生三视图，数据来自 `backend/lib/testCaseDefs.js` 权威清单 + `public.TestCase`/`TestExecution` 执行记录）。
 - **洗涤剂残留自动识别**：基于 OpenCV.js（WASM）的 ArUco 定位 + 单应校正 + ΔE2000 比色，前后端共用核心 `js/opencv/recognizer.js`（A4 拍摄卡四角定位标）。前端 `detergent-image-demo.html`（`js/modules/detergentDemo.js`）为「先定位区域 → 用户确认 → 再比色」的两步式演示/采集界面；后端 `backend/modules/recognitionQueue.js` + `backend/routes/recognitionRoutes.js` 提供单 Worker 排队式识别服务，已挂载于 `server.js:311` `app.use('/api', recognitionRoutes)`，对外暴露 `POST /api/recognize`（提交，图片 ≤8MB）与 `GET /api/recognize/status/:jobId`（轮询，排队超 5 分钟报错），进程启动时 `recognitionQueue` 自动 pump（见 §5.11）。
 
 ### 目标用户
@@ -95,7 +95,7 @@
 ```mermaid
 flowchart TB
     subgraph Client[浏览器]
-        UI[静态前端 ES Module<br/>index.html / js/** / test-report.html]
+        UI[静态前端 ES Module<br/>index.html / js/** / admin-schools.html]
     end
 
     subgraph CVM[腾讯云 CVM · Ubuntu]
@@ -160,7 +160,7 @@ foodtestlab/
 ├── index.html / login.html           # 前端入口（原生 ES Module，浏览器直载）
 ├── admin-schools.html                # 平台超管：学校全生命周期管理控制台
 ├── super-admin-login.html            # 平台超管登录页
-├── help.html / test-report.html / detergent-image-demo.html  # 帮助/测试报告/洗涤剂演示页
+├── help.html / detergent-image-demo.html  # 帮助/洗涤剂演示页（测试报告已并入 admin-schools.html 控制台）
 ├── package.json                      # 根依赖与脚本（name=foodtestlab, version=3.1.0, type=module）
 ├── jest.config.cjs / cypress.config.cjs / tailwind.config.cjs / .babelrc  # 测试与构建配置
 ├── backend/                          # ★ Node/Express 后端（ESM）
@@ -684,7 +684,7 @@ erDiagram
 
 ### 6.1 路由结构（无框架路由，SPA 分区显隐）
 
-- 入口页：`login.html`（登录，含访客快速访问 Tab）、`super-admin-login.html`（平台超管登录）、`index.html`（主应用）、`admin-schools.html`（学校管理控制台，平台超管）、`test-report.html`（浏览器测试上报）、`detergent-image-demo.html`（洗涤剂识别演示）、`help.html`（帮助）。
+- 入口页：`login.html`（登录，含访客快速访问 Tab）、`super-admin-login.html`（平台超管登录）、`index.html`（主应用）、`admin-schools.html`（学校管理控制台 + 测试报告模块，平台超管）、`detergent-image-demo.html`（洗涤剂识别演示）、`help.html`（帮助）。
 - 侧边栏导航按钮用 `data-target` 标识目标区块（`dashboard`、`tableware-test`、`pesticide-test`、`oil-test`、`lean-meat-test`、`pathogen-test`、`export-data`、`backup-restore`、`user-management`、`audit-log`、`frequency-report`、`frequency-settings`），`data-admin-only` 仅管理员可见，`data-super-admin-only` 仅平台超管可见（如"学校管理"入口），`data-required-role` 按具体角色显隐导航项。
 - `js/core/Router.js`：权限守卫（按角色显隐 admin/guest 菜单、平台超管独有菜单）、Token 每 60s 定时校验 + 临期 5 分钟主动续期、30 分钟空闲登出（`visibilitychange` 时暂停/恢复定时器，TD-NoBeforeUnload）；FIX-15 无 `records:create` 权限（viewer）时从入口隐藏所有检测录入表单；角色中文标签映射（admin=管理员 / manager=主管 / operator=操作人员 / viewer=查看者 / guest=访客）。
 - `js/services/PermissionService.js`：RBAC 权限矩阵，`schools:manage` 权限仅当 `user.role==='admin' && !user.schoolCode` 时动态注入；`isPlatformSuperAdmin()` 方法供前端判断。
