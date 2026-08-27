@@ -7,7 +7,7 @@
 //   ④ 流式 AES-256-GCM 信封加密 → .aes（密钥源见 backupKms.js，fail-closed）
 //   ⑤ L1 校验：gzip 完整性 + CREATE TABLE 数量对比
 //   ⑥ 写 public."BackupRun" 记录（status=ok / verify 结果）
-//   ⑦ 按 BACKUP_KEEP_DAYS 清理过期备份
+//   ⑦ 按 BACKUP_KEEP_DAYS 清理过期备份（0/负数 = 禁用自动清理，依赖磁盘水位告警）
 //
 // 被复用：
 //   - scripts/003_backup-now.mjs —— CLI（手动/定时触发）
@@ -506,6 +506,10 @@ async function reportBackupFailure(prisma, scope, error) {
  * 保留策略将完全失效（P0 审查修复）。
  */
 export async function cleanupOldBackups(root) {
+  // BACKUP_KEEP_DAYS<=0 = 禁用自动清理（2026-08-27 策略变更：备份数据不自动删除，
+  // 改由磁盘水位告警（/usr/local/sbin/disk-usage-alert.sh，≥90% 触发）通知人工决策清理。
+  // ⚠️ 必须先守卫再算 cutoff：keepDays=0 时 cutoff=now 会把全部备份删光。
+  if (!(keepDays() > 0)) return 0
   const cutoff = Date.now() - keepDays() * 24 * 60 * 60 * 1000
   let removed = 0
   const walk = async (dir) => {
