@@ -14,7 +14,7 @@
 //
 // 默认 dry-run（只扫描+打印，不写入）。加 --fix 才真正 UPDATE。
 // 用法：
-//   node scripts/fix-canteen-from-location.mjs [--school tianjiabing] [--fix]
+//   node scripts/fix-canteen-from-location.mjs --school <schoolCode> [--fix]
 // -----------------------------------------------------------------------------
 
 import 'dotenv/config'
@@ -24,7 +24,11 @@ import { PrismaClient } from '@prisma/client'
 const VALID_CANTEENS = new Set(['一食堂', '二食堂', '三食堂', '四食堂', '五食堂', '六食堂'])
 
 const args = process.argv.slice(2)
-const schoolArg = (args.find((a) => a.startsWith('--school=')) || '--school=tianjiabing').split('=')[1]
+const schoolArg = (args.find((a) => a.startsWith('--school=')) || '').split('=')[1]
+if (!schoolArg) {
+  console.error('Usage: node scripts/fix-canteen-from-location.mjs --school <schoolCode> [--fix]')
+  process.exit(1)
+}
 const dryRun = !args.includes('--fix')
 
 const prisma = new PrismaClient()
