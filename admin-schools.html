@@ -172,6 +172,11 @@
                         <i class="fas fa-undo"></i><span class="admin-sidebar__subitem-label">恢复管理</span>
                     </button>
                 </div>
+                <!-- 磁盘管理（2026-08-27 容量策略）：水位查看 + journal/日志/按天备份人工清理。
+                     所有数据不再被上限机制自动删除，≥90% 由 cron 告警（SECURITY:DISK_USAGE），清理在此人工触发+审计。 -->
+                <button class="admin-sidebar__item" data-view="disk" data-desc="查看数据盘/系统盘水位，人工清理 journal、日志与按天备份（清理动作全部写审计）。" type="button">
+                    <i class="fas fa-hdd"></i><span class="admin-sidebar__item-label">磁盘管理</span>
+                </button>
                 <!-- 测试报告：二级菜单（测试任务 / 问题反馈 / 问题总览）。
                      TR-Rewrite：原生视图模块，废弃 iframe + test-report.html + docs 产物。
                      三视图对齐检测业务模型：任务=计划内执行、反馈=计划外上报、总览=记录列表。 -->
@@ -987,6 +992,8 @@
         import { initAuditView } from '/js/modules/adminSchools/views/auditView.js';
         // 「备份运维」三子视图（全局备份 / 单点备份 / 恢复管理）
         import { initBackupView } from '/js/modules/adminSchools/views/backupView.js';
+        // 「磁盘管理」视图（2026-08-27 容量策略：90% 水位告警 + 人工清理）
+        import { initDiskView } from '/js/modules/adminSchools/views/diskView.js';
         // 「测试报告」三视图（TR-Rewrite：测试任务 / 问题反馈 / 问题总览）
         import { initTasksView } from '/js/modules/adminSchools/views/testReports/tasksView.js';
         import { initIssuesView } from '/js/modules/adminSchools/views/testReports/issuesView.js';
@@ -1075,6 +1082,8 @@
         // ====== P-Refactor 第二阶段装配（原 918-4117 内联 JS 已全部抽离至 adminSchools/ 模块）======
         const accountsView = initAccountsView();
         const backupView = initBackupView({ API_BASE, authHeaders, notify: showNotice });
+        // 磁盘管理视图（水位/清理，super_admin 专属）
+        initDiskView({ API_BASE, authHeaders, notify: showNotice });
         initKpiPoller();
         // 学校管理：详情视图先建（导出 openDetail / switchSchoolsSubview / renderCanteenInputs / updateBadgeStyleHint），
         // 再注入定制加载的详情回调与弹层的列表刷新回调，最后装配列表视图（openDetail / switchSchoolsSubview 注入）。
@@ -1832,6 +1841,9 @@
             <div id="bkBatchRestoreModal" class="hidden"></div>
         </div>
     </section>
+
+    <!-- 磁盘管理视图（2026-08-27 容量策略）：骨架由 views/diskView.js 动态渲染 -->
+    <section id="adminViewDisk" class="admin-view hidden" data-view="disk"></section>
 
     <!-- 测试报告视图（TR-Rewrite）：
          原生三视图（测试任务 / 问题反馈 / 问题总览），由 views/testReports/ 模块

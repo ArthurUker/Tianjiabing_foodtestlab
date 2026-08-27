@@ -22,6 +22,7 @@ import { createAuthMiddleware } from './middleware/authMiddleware.js'
 import { createTenantMiddleware } from './middleware/tenantMiddleware.js'
 import { createSyncRoutes } from './routes/syncRoutes.js'
 import { createAdminBackupRoutes } from './routes/adminBackupRoutes.js'
+import { createAdminDiskRoutes } from './routes/adminDiskRoutes.js'
 import { createSchoolBackupRoutes } from './routes/schoolBackupRoutes.js'
 import { createTestResultRoutes } from './routes/testResultRoutes.js'
 import { createRecognitionRoutes } from './routes/recognitionRoutes.js'
@@ -293,6 +294,10 @@ app.use('/api/sync', syncRoutes)
 // ====== Backup Management Routes（P1：运维备份控制台，仅平台超管）======
 const adminBackupRoutes = createAdminBackupRoutes({ prisma, authenticateUser, requirePlatformSuperAdmin })
 app.use('/api/admin/backups', adminBackupRoutes)
+
+// ====== Disk Management Routes（2026-08-27 容量策略：90% 水位告警 + 超管人工清理，仅平台超管）======
+const adminDiskRoutes = createAdminDiskRoutes({ prisma, authenticateUser, requirePlatformSuperAdmin })
+app.use('/api/admin/disk', adminDiskRoutes)
 
 // ====== School Backup Routes（TD-School-Backup-Sync：学校侧备份运维，强制本校隔离）======
 // 入口 /api/school/backups；与超管能力一致（list/run/download/verify/restore），
