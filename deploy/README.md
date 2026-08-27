@@ -46,21 +46,21 @@
    ```bash
    scp deploy/deploy.sh deploy/deploy.adapter.example.conf root@<公网IP>:/opt/deploy/
    ```
-3. 复制并填写适配文件：
+3. 复制并填写适配文件（`<系统>` 为你的系统标识，如按 `SYSTEM_NAME` 命名）：
    ```bash
    cd /opt/deploy
-   cp deploy.adapter.example.conf deploy.foodtestlab.conf
-   vim deploy.foodtestlab.conf   # 至少确认 SYSTEM_NAME / REPO_URL / DEPLOY_BRANCH / API_PORT
+   cp deploy.adapter.example.conf deploy.<系统>.conf
+   vim deploy.<系统>.conf   # 至少确认 SYSTEM_NAME / REPO_URL / DEPLOY_BRANCH / API_PORT
    ```
 4. 一键部署：
    ```bash
-   sudo bash deploy.sh /opt/deploy/deploy.foodtestlab.conf
+   sudo bash deploy.sh /opt/deploy/deploy.<系统>.conf
    ```
 
 ## 适配文件关键字段
 | 字段 | 含义 |
 |------|------|
-| `SYSTEM_NAME` | 系统标识，驱动目录/服务名/用户名（如 `foodtestlab` → `/opt/foodtestlab`、`foodtestlab-api.service`、用户 `foodtestlab`） |
+| `SYSTEM_NAME` | 系统标识，驱动目录/服务名/用户名（生产为 `foodsentinel` → `/opt/foodsentinel`、`foodsentinel-api.service`、用户 `foodsentinel`；本生产的该文件位于服务器 `/opt/deploy/deploy.foodsentinel.conf`，含密钥不入仓库） |
 | `REPO_URL` / `DEPLOY_BRANCH` | 代码来源与分支 |
 | `API_PORT` | 后端内部端口（127.0.0.1），Caddy 反代到此 |
 | `FRONTEND_PORT` | 用户公网访问端口（Caddy 对外监听），全服务器必须唯一 |
@@ -72,8 +72,8 @@
 | `REQUIRED_MOUNT` | 数据盘挂载点；非空时未挂载则中止，防止数据静默写回系统盘 |
 | `ACCEPT_DATA_LOSS` | `prisma db push` 是否接受数据丢失（`false` 为观察模式） |
 | `PROVISION_TENANTS` | `true` 时首部署初始化多租户：为每个学校建 `school_<code>` schema、推业务表、写 `public` 系统记录、建租户 admin |
-| `SCHOOL_CODES` | 逗号分隔的学校代码（如 `tianjiabing`）；留空 = 仅用 `public` 共享 schema（dev/test 最简模式） |
-| `SCHOOL_NAME_<code>` | 可选，学校显示名；如 `SCHOOL_NAME_tianjiabing="田家炳食品检验实验室"` |
+| `SCHOOL_CODES` | 逗号分隔的学校代码；留空 = 仅用 `public` 共享 schema（最简模式，开发/测试或单校试用） |
+| `SCHOOL_NAME_<code>` | 可选，学校显示名 |
 
 ## 按服务器性能自适应（无需手动调参）
 脚本启动即探测内存/CPU，自动决定资源规划（适配文件可覆盖）：
@@ -91,7 +91,7 @@
 ## 后续加域名（切 HTTPS）
 在适配文件填 `DOMAIN=你的域名`、`TLS_EMAIL=你的邮箱`，重跑：
 ```bash
-sudo bash deploy.sh /opt/deploy/deploy.foodtestlab.conf
+sudo bash deploy.sh /opt/deploy/deploy.<系统>.conf
 ```
 脚本会生成带 `email` 全局块的 Caddyfile 并自动签发证书（需域名 A 记录指向公网 IP、安全组放行 443）。
 

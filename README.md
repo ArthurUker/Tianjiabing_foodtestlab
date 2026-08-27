@@ -67,7 +67,7 @@
 - 前端为**原生 ES Module 静态资源**（无打包器），由 Caddy 直接托管 `dist/`。
 - **多学校架构（方案② Schema-per-tenant）**：50+ 学校共用同一套应用与同一份数据模型，每校数据存放在 PostgreSQL 的**独立 schema**（表结构一致）；应用层按当前登录学校经 `?schema=` 连接串路由（`backend/lib/tenantClient.js` 的 `createTenantClient` 为每校缓存独立 PrismaClient）。开发/测试环境使用单一共享 schema，不做隔离。
 
-> 命名已品牌中立化：根 `package.json` 的 `name` 为 `foodtestlab`，部署统一使用 `SYSTEM_NAME=foodtestlab`；具体学校名均为 `School` 表中的数据，由登录时按 `schoolCode` 动态读取，业务运行逻辑不依赖任何学校专有命名（历史残留如 `package.json` 的 `author: "Tianjiabing Team"` 与 `Storage.js` 内「田家炳中学」脏数据迁移注释，属已知待清理项，不影响运行）。每校的界面 / 显示内容 / 字段要求的差异，统一由 `public` 系统表中的 `SchoolCustomization` 承载（外观 `theme_color`/`logo_url`/`theme_config`、可见检测类型 `visible_types`、可见菜单项 `visible_menu_items`、食堂信息 `canteens`、字段标签 `field_labels`、隐藏字段 `hidden_fields`、字段必填/校验规则 `field_rules`、下拉选项 `field_options`、字段类型 `field_types`、字段顺序 `field_order`、自定义字段 `custom_fields`、自定义检测类型 `test_types`、访客开关 `guest_enabled`），新增学校零改码。学校管理控制台（`admin-schools.html`，平台超管独有）提供 GUI 完成学校全生命周期管理：新增学校（自动建 schema + 推表 + 首个 manager 账号）、编辑学校信息与外观、配置字段定制、管理学校用户（查看/重置密码/启停用）、回收站管理。
+> 命名已品牌中立化：根 `package.json` 的 `name` 为 `foodtestlab`，部署统一使用 `SYSTEM_NAME=foodtestlab`；具体学校名均为 `School` 表中的数据，由登录时按 `schoolCode` 动态读取，业务运行逻辑不依赖任何学校专有命名。每校的界面 / 显示内容 / 字段要求的差异，统一由 `public` 系统表中的 `SchoolCustomization` 承载（外观 `theme_color`/`logo_url`/`theme_config`、可见检测类型 `visible_types`、可见菜单项 `visible_menu_items`、食堂信息 `canteens`、字段标签 `field_labels`、隐藏字段 `hidden_fields`、字段必填/校验规则 `field_rules`、下拉选项 `field_options`、字段类型 `field_types`、字段顺序 `field_order`、自定义字段 `custom_fields`、自定义检测类型 `test_types`、访客开关 `guest_enabled`），新增学校零改码。学校管理控制台（`admin-schools.html`，平台超管独有）提供 GUI 完成学校全生命周期管理：新增学校（自动建 schema + 推表 + 首个 manager 账号）、编辑学校信息与外观、配置字段定制、管理学校用户（查看/重置密码/启停用）、回收站管理。
 
 ---
 
@@ -103,10 +103,10 @@ flowchart TB
             Static[静态托管 dist/]
             Proxy[reverse_proxy /api/* + /health]
         end
-        subgraph Node[systemd: foodtestlab-api]
+        subgraph Node[systemd: foodsentinel-api]
             API[Express :3000<br/>仅 127.0.0.1]
         end
-        DB[(PostgreSQL 单实例<br/>/mnt/datadisk0/.../foodtestlab)]
+        DB[(PostgreSQL 单实例<br/>/mnt/datadisk0/foodsentinel)]
     end
 
     UI -->|HTTP/HTTPS| Caddy
@@ -131,7 +131,7 @@ flowchart LR
 ```mermaid
 flowchart TB
     Caddy[Caddy 反代 :FRONTEND_PORT]
-    API[systemd: foodtestlab-api<br/>单应用 + 每校缓存独立 PrismaClient]
+    API[systemd: foodsentinel-api<br/>单应用 + 每校缓存独立 PrismaClient]
     PG[(PostgreSQL 单实例)]
     subgraph Schemas[schema-per-tenant]
         S1[schema: school_a]
@@ -143,7 +143,7 @@ flowchart TB
     API -.按 schoolCode 经 ?schema= 连接串路由.-> Schemas
 ```
 
-> 「多学校」= **单套应用 + 单 PostgreSQL 实例 + 每校独立 schema**（非物理分部署，也非单表 `school_id` 混放）。表结构全校一致；`backend/lib/tenantClient.js` 的 `createTenantClient(prisma, schoolCode)` 为**每个 schema 缓存一个独立 `new PrismaClient`**（连接串带 `?schema=<schema>`，LRU 缓存上限 `MAX_TENANT_CLIENTS=25`、每客户端连接上限 `TENANT_CONNECTION_LIMIT=3`），把 Prisma 的 model 查询硬绑定到对应 schema——这是 Prisma 官方推荐的 schema 隔离方式（schema 名编译进 SQL，非运行时 search_path）。学校代码（schoolCode）为**短代码**（如 `tianjiabing` / `gtest`，`isValidSchoolCode` 仅允许 `[a-z0-9-]{1,40}`，不含下划线）；schema 名 = `schemaNameOf(schoolCode)` 归一为 `school_<code>`（`-` 替换为 `_`，如 `gtest` → `school_gtest`；兼容 `school-xxx` / `school_xxx` 历史写法，幂等）。拼进连接串前 `assertSafeSchemaName` 强制 `/^school_[a-z0-9_]+$/` 且 ≤63 字符白名单。开发/测试环境用单一共享 schema（`DEFAULT_SCHEMA=public`）。
+> 「多学校」= **单套应用 + 单 PostgreSQL 实例 + 每校独立 schema**（非物理分部署，也非单表 `school_id` 混放）。表结构全校一致；`backend/lib/tenantClient.js` 的 `createTenantClient(prisma, schoolCode)` 为**每个 schema 缓存一个独立 `new PrismaClient`**（连接串带 `?schema=<schema>`，LRU 缓存上限 `MAX_TENANT_CLIENTS=25`、每客户端连接上限 `TENANT_CONNECTION_LIMIT=3`），把 Prisma 的 model 查询硬绑定到对应 schema——这是 Prisma 官方推荐的 schema 隔离方式（schema 名编译进 SQL，非运行时 search_path）。学校代码（schoolCode）为**短代码**（`isValidSchoolCode` 仅允许 `[a-z0-9-]{1,40}`，不含下划线）；schema 名 = `schemaNameOf(schoolCode)` 归一为 `school_<code>`（`-` 替换为 `_`，如 `gtest` → `school_gtest`；兼容 `school-xxx` / `school_xxx` 历史写法，幂等）。拼进连接串前 `assertSafeSchemaName` 强制 `/^school_[a-z0-9_]+$/` 且 ≤63 字符白名单。开发/测试环境用单一共享 schema（`DEFAULT_SCHEMA=public`）。
 >
 > ⚠️ **历史文档曾描述「请求级 `SET search_path` 路由 + Proxy」方案，已证伪并废弃**：Prisma 把 schema 名硬编码进生成的 SQL，`SET LOCAL search_path` 对 model 查询无效（仅裸 `$queryRaw` 生效，如 `provisionSchool` 建初始 admin 时）。**切勿重新引入 search_path / Proxy 方案。**
 >
@@ -156,7 +156,7 @@ flowchart TB
 > 本节基于仓库实际目录（`list_dir`，已折叠生成式目录 `node_modules/`、`dist/`、`.git/`、产物 `coverage/`、`vendor/` 等非源码树）。前端 `js/` 内部的组件级划分另见 §6.2。
 
 ```text
-foodtestlab/
+foodsentinel/                          # 生产部署根目录（/opt/foodsentinel；仓库标识 name=foodtestlab）
 ├── index.html / login.html           # 前端入口（原生 ES Module，浏览器直载）
 ├── admin-schools.html                # 平台超管：学校全生命周期管理控制台
 ├── super-admin-login.html            # 平台超管登录页
@@ -788,7 +788,7 @@ flowchart LR
 
 ## 8. 部署架构
 
-当前生效方案：`deploy/deploy.sh`（通用流程）+ `deploy/deploy.foodtestlab.conf`（环境适配）。`deploy/nginx`、`deploy/pm2`、`deploy.ps1` 等历史适配器（Nginx/PM2/Windows 栈）已下线并移出仓库。
+本生产部署以通用脚本 `deploy/deploy.sh` 为准（运行时不绑定任何学校名/端口/路径，工厂/服务名由 `SYSTEM_NAME` 决定）。适配文件遵循「脚本与适配分离」：仓库仅提供模板 `deploy/deploy.adapter.example.conf`；本生产的真实配置为服务器端 `/opt/deploy/deploy.foodsentinel.conf`（`SYSTEM_NAME=foodsentinel` → 目录 `/opt/foodsentinel`、服务 `foodsentinel-api`；含密钥，不入仓库，随首次上线部署完毕，日常迭代无需重跑部署）。`deploy/nginx`、`deploy/pm2`、`deploy.ps1` 等历史适配器（Nginx/PM2/Windows 栈）已下线并移出仓库。
 
 ### 8.1 部署形态（单应用 + 每校 schema）
 
@@ -825,7 +825,7 @@ flowchart LR
 | `TENANT_CONNECTION_LIMIT` / `MAX_TENANT_CLIENTS` | 3 / 25 | 每租户客户端连接数 / LRU 客户端上限 |
 | `LOGIN_RATE_LIMIT_MAX` / `LOGIN_RATE_LIMIT_WINDOW_MS` | 10 / 900000 | 登录限流（生产） |
 | `LOGIN_FAIL_LOCK_THRESHOLD` / `LOGIN_FAIL_LOCK_WINDOW_MS` | 5 / 900000 | 账号锁定（生产；开发放宽到 1000） |
-| `BACKUP_DIR` | `/var/backups/foodtestlab` | 备份根目录（系统盘，与数据盘物理分离） |
+| `BACKUP_DIR` | `/mnt/datadisk0/foodsentinel/backups` | 备份根目录（独立数据盘，与系统盘/PG 物理分离）。值由 `SYSTEM_NAME` 决定，dev/test 示例 conf 为 `/var/backups/foodtestlab` |
 | `BACKUP_KEEP_DAYS` / `BACKUP_MIN_FREE_MB` | 7 / 1024 | 备份保留天数 / 磁盘预检阈值 |
 | `RESTORE_DROP_OLD` | （未设=保留） | 影子恢复后是否立即 DROP 旧 schema（`drop`） |
 | `SECURITY_ALERT_WEBHOOK_URL` | （可选） | 安全事件告警 webhook（企业微信/钉钉同构） |
@@ -834,23 +834,23 @@ flowchart LR
 | `BACKUP_MASTER_KEY` | （仅开发） | 备份本地主密钥（32 字节 base64，模式 B） |
 
 > 首次部署（`SEED_ON_FIRST_DEPLOY=true` 且数据库不存在）会自动执行 seed，创建 `admin` / `operator` / `viewer` 三个账号；生产环境非首次不再 seed。
-> 部署脚本另注册 **`foodtestlab-backup.timer`**（每日 02:00 触发 `003_backup-now.mjs --all` 自动全量备份）；备份文件落 `BACKUP_DIR`（默认 `/var/backups/foodtestlab`，系统盘，与数据盘物理分离），保留 7 天。
+> 部署脚本另注册 **`${SYSTEM_NAME}-backup.timer`**（生产为 **`foodsentinel-backup.timer`**，每日 02:00 触发 `003_backup-now.mjs --all` 自动全量备份）；备份文件落 `BACKUP_DIR`（生产为 `/mnt/datadisk0/foodsentinel/backups`，独立数据盘，与系统盘/PG 物理分离），保留 7 天。
 
 ### 8.3 systemd 单元（脚本生成）
 
 ```ini
 [Service]
 Type=simple
-User=foodtestlab
-WorkingDirectory=/opt/foodtestlab/backend
-EnvironmentFile=/opt/foodtestlab/backend/.env
+User=foodsentinel
+WorkingDirectory=/opt/foodsentinel/backend
+EnvironmentFile=/opt/foodsentinel/backend/.env
 ExecStart=/usr/local/bin/node server.js
 MemoryMax=<按物理内存自适应>M          # ≤1G→384 / ≤2G→768 / ≤4G→1024 / else 1536
 Environment=NODE_OPTIONS=--max-old-space-size=<MemoryMax*3/4>M
 Restart=on-failure
 RestartSec=5
-StandardOutput=append:/mnt/datadisk0/foodtestlab/logs/app.out.log
-StandardError=append:/mnt/datadisk0/foodtestlab/logs/app.err.log
+StandardOutput=append:/mnt/datadisk0/foodsentinel/logs/app.out.log
+StandardError=append:/mnt/datadisk0/foodsentinel/logs/app.err.log
 ```
 
 - 内存上限按 `free -m` 物理内存分级，可用适配文件 `SERVICE_MEMORY_MAX` 覆盖。
@@ -859,7 +859,7 @@ StandardError=append:/mnt/datadisk0/foodtestlab/logs/app.err.log
 ### 8.4 Caddy 站点片段（脚本生成，`$SNIPPET`）
 
 ```caddy
-:8080 {                                         # 有域名时改为 <域名> 并追加 `tls <TLS_EMAIL>`
+<域名> {                                         # 本生产为 foodsentinel.digifluidic.com（Caddy 自动 HTTPS 监听 443）
     encode gzip
 
     # 全局安全响应头（应用层 server.js 亦有兜底）
@@ -897,19 +897,23 @@ StandardError=append:/mnt/datadisk0/foodtestlab/logs/app.err.log
         reverse_proxy 127.0.0.1:3000
     }
     handle {
-        root * /opt/foodtestlab/dist
+        root * /opt/foodsentinel/dist
         try_files {path} /index.html
         file_server
     }
 }
 ```
 
-### 8.5 一键部署
+### 8.5 首次部署（已完成，无需重复执行）
+
+本生产环境的首次安装已经通过服务器端 `/opt/deploy/deploy.foodsentinel.conf`（含密钥，不入仓库）完成；此后日常迭代均为「提交代码 → 拉取 → 重建 `dist/` → 重启服务」，不需要也不应重跑完整部署：
 
 ```bash
-# 前置（手动）：腾讯云安全组放行 TCP 22 与 FRONTEND_PORT（HTTPS 阶段再放 443）
-sudo bash deploy/deploy.sh deploy/deploy.foodtestlab.conf
+git pull && npm run build && sudo systemctl restart foodsentinel-api   # 后端/前端更新的常规流程
+caddy reload --config /etc/caddy/Caddyfile                             # 仅 Caddy 片段变更时
 ```
+
+> 如确需在新机器从零搭建独立环境：复制仓库模板 `deploy/deploy.adapter.example.conf` 填写参数后执行 `sudo bash deploy/deploy.sh <适配文件>`（详见 `deploy/README`）。
 
 流程：校验 → 装运行时（git/Caddy/Node via NVM）→ 建系统用户与目录 → 迁移 PG 数据目录到数据盘 → 拉代码 → 生成 `.env` → 后端依赖 / `prisma generate` / `db push` / `SchoolCustomization` 增量列迁移 / seed → 多租户初始化（`PROVISION_TENANTS`）→ 前端构建 → 写 systemd → 写 Caddy 片段（端口预检）→ 健康检查 → 输出初始账号密码。
 
@@ -1080,17 +1084,17 @@ npm run test:all              # Jest + Cypress 全套
 ### 12.1 服务管理
 
 ```bash
-systemctl status  foodtestlab-api     # 后端状态
-systemctl restart foodtestlab-api     # 重启后端
-journalctl -u foodtestlab-api -f      # 后端实时日志（systemd）
+systemctl status  foodsentinel-api     # 后端状态
+systemctl restart foodsentinel-api     # 重启后端
+journalctl -u foodsentinel-api -f      # 后端实时日志（systemd）
 systemctl status  caddy               # 反代状态
 caddy reload --config /etc/caddy/Caddyfile   # 重载 Caddy 配置
 ```
 
 ### 12.2 日志查看
 
-- 后端应用日志：`/mnt/datadisk0/foodtestlab/logs/app.out.log`、`app.err.log`。
-- systemd 汇总：`journalctl -u foodtestlab-api`。
+- 后端应用日志：`/mnt/datadisk0/foodsentinel/logs/app.out.log`、`app.err.log`。
+- systemd 汇总：`journalctl -u foodsentinel-api`。
 - Caddy 访问 / 错误：`journalctl -u caddy`。
 - 前端离线操作日志：浏览器 `localStorage` 的 `audit_YYYY-MM-DD`（保留 30 天）。
 - 安全事件告警：`SystemLog` 中的 `SECURITY:*` 记录（每 5 分钟扫描告警，可配企业微信 webhook）。
@@ -1111,23 +1115,23 @@ caddy reload --config /etc/caddy/Caddyfile   # 重载 Caddy 配置
 
 ```bash
 # 整库备份
-pg_dump foodtestlab > /mnt/datadisk0/foodtestlab/backup/foodtestlab_$(date +%F).sql
+pg_dump foodsentinel > /mnt/datadisk0/foodsentinel/backup/foodsentinel_$(date +%F).sql
 
 # 按校（schema）单独备份 / 恢复 —— 多学校隔离的核心能力
-pg_dump -n school-a foodtestlab > /mnt/datadisk0/foodtestlab/backup/school-a_$(date +%F).sql
-psql -d foodtestlab -f /mnt/datadisk0/foodtestlab/backup/school-a_$(date +%F).sql
+pg_dump -n school-a foodsentinel > /mnt/datadisk0/foodsentinel/backup/school-a_$(date +%F).sql
+psql -d foodsentinel -f /mnt/datadisk0/foodsentinel/backup/school-a_$(date +%F).sql
 
 # 恢复整库（先停后端，再导入）
-systemctl stop foodtestlab-api
-psql -d foodtestlab < /mnt/datadisk0/foodtestlab/backup/foodtestlab_YYYY-MM-DD.sql
-systemctl start foodtestlab-api
+systemctl stop foodsentinel-api
+psql -d foodsentinel < /mnt/datadisk0/foodsentinel/backup/foodsentinel_YYYY-MM-DD.sql
+systemctl start foodsentinel-api
 ```
 
 ### 12.4 健康检查
 
 ```bash
-curl http://127.0.0.1:3000/api/health       # 本机（应返回 {status:'ok'}）
-curl http://<公网IP>:8080/health            # 经 Caddy（验证反代与安全组）
+curl http://127.0.0.1:3002/api/health            # 直连后端（应返回 {"status":"ok"}；PORT=3002，非 3000）
+curl https://foodsentinel.digifluidic.com/api/health   # 生产正式入口（域名 HTTPS，经 Caddy 反代 443→3002）
 ```
 
 ### 12.5 故障排查速查
@@ -1135,7 +1139,7 @@ curl http://<公网IP>:8080/health            # 经 Caddy（验证反代与安�
 | 现象 | 排查方向 |
 |------|----------|
 | 本机健康检查通过但外网访问超时 | 腾讯云**安全组**未放行 `FRONTEND_PORT`（脚本不配置安全组） |
-| 后端起不来 / 反复重启 | `journalctl -u foodtestlab-api -n 50`；常见：`JWT_SECRET` 缺失或弱密钥、`CORS_ORIGIN` 含通配符、数据盘未挂载 |
+| 后端起不来 / 反复重启 | `journalctl -u foodsentinel-api -n 50`；常见：`JWT_SECRET` 缺失或弱密钥、`CORS_ORIGIN` 含通配符、数据盘未挂载 |
 | 重启后服务失败 | 数据盘 `/mnt/datadisk0` 未写入 `/etc/fstab`，重启未自动挂载 |
 | 登录 401 / CORS 报错 | `.env` 的 `CORS_ORIGIN` 与实际访问来源不一致 |
 | 登录 423 | 账号因登录失败次数过多被临时锁定 |

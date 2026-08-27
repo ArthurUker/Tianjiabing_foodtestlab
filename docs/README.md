@@ -1,6 +1,6 @@
 # 文档中心（docs/README.md）
 
-田家炳食品检验系统（部署代号 `foodtestlab`）的**文档导航中枢与代码地图**。
+食品检验系统（代码仓库/系统标识 `foodtestlab`）的**文档导航中枢与代码地图**。
 
 > 本文与根 [`README.md`](../README.md) 分工不同：
 > - **根 `README.md`** 是**系统级技术总览**（架构图 / API / 认证 / 部署 / 安全 / 运维 的内容本体），回答"系统是怎么设计和运行的"。
@@ -54,7 +54,7 @@
 | 改前端导航 / 新增页面 | DEV_GUIDE §6.1~6.3 | `index.html`（`data-target`）、`js/main.js`、`js/core/Router.js` | 规则十一（事件委托 + CustomEvent，禁 `window.*` 全局） |
 | 改前端离线 / 数据同步 | DEV_GUIDE §6.6/§6.7 | `js/core/Storage.js`、`js/core/AdaptiveUploadQueue.js` | 规则十一（走 StorageService，勿裸 fetch） |
 | 改审计日志写入 | CONVENTIONS 规则五 | `server.js`（`writeRecordAuditLog`）、`routes/auditRoutes.js`、`js/services/AuditLogService.js` | 规则一（不得物理删除）、规则五（对号入座，勿新增第四套） |
-| 改部署 / 环境变量 | deploy/README | `deploy/deploy.sh`、`deploy/deploy.foodtestlab.conf` | 规则十（脚本与适配分离、单应用）、规则六.6（禁改回 sqlite） |
+| 改部署 / 环境变量 | deploy/README | `deploy/deploy.sh`（通用部署脚本）、`deploy/deploy.adapter.example.conf`（模板；生产真实配置为服务器 `/opt/deploy/deploy.foodsentinel.conf`，含密钥不入库） | 规则十（脚本与适配分离、单应用）、规则六.6（禁改回 sqlite） |
 | 加单元测试 | DEV_GUIDE §10 | `tests/*.test.js`、`jest.config.cjs` | 规则十二（纯函数应补单测、lint 零 error） |
 | 查看/归档浏览器测试反馈 | [`test-results/`](./test-results/README.md) | `backend/lib/testCaseDefs.js`（用例清单唯一权威）、`backend/routes/testResultRoutes.js`（上报/上传/读取端点）、`admin-schools.html` 测试报告模块（原生三视图） | 数据权威在库 `public.TestCase`/`TestExecution`；旧 testReportSync 静态快照已废弃 |
 
@@ -100,8 +100,7 @@
 | 文件 | 职责 | 详见 |
 |------|------|------|
 | `deploy/deploy.sh` | 通用部署脚本（无学校名/端口硬编码） | deploy/README |
-| `deploy/deploy.foodtestlab.conf` | 田家炳/腾讯云适配文件（当前生效） | deploy/README |
-| `deploy/deploy.adapter.example.conf` | 适配文件模板（多用户复制此文件） | deploy/README |
+| `deploy/deploy.adapter.example.conf` | 适配文件模板（新环境复制填写后使用）。本生产的真实配置在服务器 `/opt/deploy/deploy.foodsentinel.conf`，含密钥、不入仓库；首装已完成，日常迭代无需重跑部署 | deploy/README |
 | `scripts/provision-school.sh` | 从 `school_template` 克隆新校 schema | CONVENTIONS 规则三.8 |
 | `scripts/build-static.js` | 前端静态构建（复制到 `dist/`，含 `login.html`） | CONVENTIONS 规则十.5 |
 

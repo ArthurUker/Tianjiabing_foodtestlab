@@ -1,4 +1,4 @@
-# 部署就绪度报告 — foodtestlab 开发/测试环境
+# 部署就绪度报告 — 食品检验系统（代码仓库标识 `foodtestlab`）
 
 基线：`main` 分支（本地工作区含未提交修改） · 自查日期 2026-07-30
 目标：聚焦"能否顺利跑起来"——配置完整性、依赖可用性、初始化链路正确性、部署脚本可执行性。
@@ -67,7 +67,7 @@
 **前置安装说明**：`deploy/README.md` 有"⚠️ 部署前置"章节（安全组、数据盘 fstab、外网出站）；软件本身由脚本自装，无需手动预装清单之外的东西。
 
 **硬编码盘点**（换服务器时的雷点）：
-- `deploy.foodtestlab.conf`：`REQUIRED_MOUNT="/mnt/datadisk0"` —— **新服务器若无此挂载点，部署直接中止**（刻意的防呆，但换机必改）；`DATA_DIR/LOG_DIR` 同样指向数据盘。
+- `deploy.foodsentinel.conf`（位于服务器 `/opt/deploy/`，含密钥不入仓库）：`REQUIRED_MOUNT="/mnt/datadisk0"` —— **新服务器若无此挂载点，部署直接中止**（刻意的防呆，但换机必改）；`DATA_DIR/LOG_DIR` 同样指向数据盘。
 - systemd 单元 `ExecStart=/usr/local/bin/node`：依赖脚本自建的软链；若 `INSTALL_RUNTIME=false` 且 node 装在别处（如 nvm 路径）会启动失败。
 - 脚本本身无用户名/绝对路径硬编码（均由 conf 派生），仅支持 **apt 系发行版**。
 
@@ -75,7 +75,9 @@
 
 ## 四、进程管理与反向代理 —— ✅ 就绪（注意：是 systemd + Caddy，不是 PM2 + Nginx）
 
-- **进程管理**：原生 systemd（`foodtestlab-api.service`）。已配置：`Restart=on-failure` + `RestartSec=5`、`MemoryMax` 按机器内存自适应（3.5G 机 → 768M~1024M，heap 为其 3/4）、`EnvironmentFile=backend/.env`、日志 `append:` 到 `/mnt/datadisk0/foodtestlab/logs/app.{out,err}.log`、非 root 用户运行、`After=postgresql.service`。⚠️ **未配置 logrotate**，日志会无限增长。
+> 📌 **现网对照**：以下 78~80 行是装机前的预检记录。现网实际形态此后有演进——启用域名 HTTPS（入口 `https://foodsentinel.digifluidic.com`，监听 443），后端实际 `API_PORT=3002`（见服务器 `/opt/deploy/deploy.foodsentinel.conf`）。排查线上问题时以 Caddy 当前配置 `/etc/caddy/sites/foodsentinel-api.caddy` 为准。
+
+- **进程管理**：原生 systemd（`foodsentinel-api.service`，运行用户 `foodsentinel`）。已配置：`Restart=on-failure` + `RestartSec=5`、`MemoryMax` 按机器内存自适应（3.5G 机 → 768M~1024M，heap 为其 3/4）、`EnvironmentFile=backend/.env`、日志 `append:` 到 `/mnt/datadisk0/foodsentinel/logs/app.{out,err}.log`、非 root 用户运行、`After=postgresql.service`。⚠️ **未配置 logrotate**，日志会无限增长。
 - **反向代理**：Caddy（非 Nginx）。片段核查：`handle /api/*` 优先反代 `127.0.0.1:3000`（与后端 `/api` 路由前缀一致，含 8MB 请求体上限，与后端 `BODY_LIMIT=8mb` 对齐）；`/health` 反代；其余 SPA 回退 `dist/index.html`；`/<code>/login` 重写到登录页；安全响应头齐全。部署后有 `/api/health` 反代自检防"SPA 吞 API"。**未显式设置 reverse_proxy 超时**（使用 Caddy 默认值，dev/test 可接受）。
 - **端口规划**：后端 3000（仅 127.0.0.1）· Caddy 8080（公网，安全组需放行）· PG 5432（本机）。脚本内置双重端口冲突预检（扫描已有 `.caddy` 片段 + `ss -ltn`）。
 
@@ -108,21 +110,21 @@
 
 ---
 
-## 首次部署操作步骤（区别于日常更新）
+## 首次部署操作步骤（历史存档：本生产已按此完成首装，仅作追溯）
 
 ```bash
-# 1.（人工）完成上方安全组/数据盘/出站三项
-# 2. 上传适配文件并按需修改（重点：SCHOOL_CODES 填学校代码，逗号分隔）
-mkdir -p /opt/deploy && vim /opt/deploy/deploy.foodtestlab.conf
+# 1.（人工）完成上方安全组/数据盘/出站三项                              【已完成】
+# 2. 上传适配文件并按需修改（重点：SCHOOL_CODES 填学校代码，逗号分隔）    【已完成】
+mkdir -p /opt/deploy && vim /opt/deploy/deploy.foodsentinel.conf
 # 3.（推荐）机密经真实环境变量传入，不写入 conf：
-sudo -E PG_PASSWORD='***' JWT_SECRET='***' bash deploy.sh /opt/deploy/deploy.foodtestlab.conf
+sudo -E PG_PASSWORD='***' JWT_SECRET='***' bash deploy.sh /opt/deploy/deploy.foodsentinel.conf
 #    或全部留空由脚本生成强随机值
 # 4. 部署完成后立即记录 backend/.env 中的 SEED_*_PASSWORD（chmod 600，仅 root/服务用户可读）
-# 5. 验证：systemctl status foodtestlab-api && curl http://127.0.0.1:3000/api/health
+# 5. 验证：systemctl status foodsentinel-api && curl http://127.0.0.1:3000/api/health
 #         浏览器访问 http://<公网IP>:8080 并登录
 # 6. 首次登录后修改 admin/operator/viewer 密码
 ```
-日常更新只需重跑同一条命令（幂等：保留 `.env`、跳过 seed、租户增量同步）。
+**日常迭代无需重跑完整部署**：更新代码 → `npm run build`（重建 `dist/`）→ `sudo systemctl restart foodsentinel-api` 即可；完整部署命令仅在搭建全新独立环境时使用。
 
 ---
 
@@ -135,8 +137,7 @@ sudo -E PG_PASSWORD='***' JWT_SECRET='***' bash deploy.sh /opt/deploy/deploy.foo
 
 **🟡 黄（能部署成功但需处理）**
 1. **`SCHOOL_CODES=""`（当前 conf 现状）**：多租户初始化被跳过，仅 public 共享 schema——dev/test 若要验证多租户能力，部署前必须填上（需要人工决策）。
-2. **分隔符文档矛盾**：`deploy.sh` 注释示例为空格分隔 `"tianjiabing zhuhaiyizhong"`，但 `provision-tenants.js`/`seed.js`/`syncBootstrapPasswords.js` 均按**逗号**切分——照注释填空格会整串被当成一个非法代码导致 §6.5 中止。请以逗号为准，并修正该注释。
-3. `CORS_ORIGIN` 缺失时静默回退 localhost 白名单（不崩溃，表现为前端跨域失败）；deploy.sh 靠 `curl ifconfig.me` 自动生成，若该请求失败会落到 `"*"` → 反而触发后端启动拒绝。建议 conf 里显式填 `http://111.231.166.161:8080`。
+2. `CORS_ORIGIN` 缺失时静默回退 localhost 白名单（不崩溃，表现为前端跨域失败）；deploy.sh 靠 `curl ifconfig.me` 自动生成，若该请求失败会落到 `"*"` → 反而触发后端启动拒绝。建议 conf 里显式填 `http://111.231.166.161:8080`。
 4. `JWT_REFRESH_SECRET` 默认由 `JWT_SECRET` 派生，建议生产显式配置独立值。
 5. seed 失败仅 `warn` 不中止 → 可能出现"服务健康但无法登录"，部署后务必做一次真实登录验证。
 6. systemd 日志 append 无 logrotate → 长期运行盘满风险，建议加 logrotate 规则。

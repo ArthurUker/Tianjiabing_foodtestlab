@@ -1,15 +1,16 @@
-# 田家炳食品检验系统 · 开发/测试环境部署指南
+# 食品检验系统 · 开发/测试环境部署指南
 
-> 适用环境：**开发 / 测试（dev/test）**
+> ⚠️ **本文为历史归档**：本篇是当年「开发/测试环境一次性首装」的操作记录，该首装早已完成使命；如今开发方式是直接在生产代码库上修 bug / 增功能，不存在也不会再重复这套 dev/test 部署。配套的适配文件 `deploy.foodtestlab.conf` 已从仓库删除，服务器侧的 foodtestlab 实体（服务 `foodtestlab-api`、数据库、目录）也已全部停用并清除——当前服务器上唯一有效环境为生产 `/opt/foodsentinel`。正文内容仅作流程追溯，**不要照文执行**。
+>
+> 适用环境：**开发 / 测试（dev/test，已下线弃用）**
 > 部署模式：**最简模式**（仅 `public` 共享 schema，不初始化多租户）
-> 配套文件：`deploy/deploy.sh`（通用脚本） + `deploy/deploy.foodtestlab.conf`（本环境适配）
 > 文档版本对应：PostgreSQL + Schema-per-tenant 方案②，dev/test 简化形态
 
 ---
 
 ## 0. 本文档范围与约定
 
-- **什么时候看本文**：需要在腾讯云 CVM 上拉起一套用于开发联调、功能测试的 dev/test 实例。
+- **什么时候看本文**：仅在需要回顾当年 dev/test 环境如何首装时作为史料查阅；恢复同类环境需自行重建实体并另建适配文件。
 - **与生产的区别**（见第 11 节）：生产会初始化学校租户（`SCHOOL_CODES` 非空）、绑定域名走 HTTPS（配 `DOMAIN`+`TLS_EMAIL`）、可能使用独立数据库实例。
 - **术语**
   - *通用脚本* = `deploy/deploy.sh`：只负责部署流程，不含任何学校名 / 端口 / 路径硬编码。
@@ -227,7 +228,7 @@ sudo bash /opt/deploy/deploy.sh /opt/deploy/deploy.foodtestlab.conf
 
 - **登录无需选择学校**：`SCHOOL_CODES` 为空，所有请求走 `public` schema。
 - **测试数据清理**：所有数据都在 `public`，可直接清表重来或重新部署。
-- **测试多租户**：把 `SCHOOL_CODES` 填上学校代码（如 `tianjiabing`）并补 `SCHOOL_NAME_<code>`，重跑部署 → 脚本会创建 `school_<code>` schema、推送业务表、写 `public` 系统记录、建租户 admin。
+- **测试多租户**：把 `SCHOOL_CODES` 填上学校代码并补 `SCHOOL_NAME_<code>`，重跑部署 → 脚本会创建 `school_<code>` schema、推送业务表、写 `public` 系统记录、建租户 admin。
 
 ---
 

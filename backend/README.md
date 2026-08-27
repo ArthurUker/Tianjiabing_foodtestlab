@@ -180,18 +180,18 @@ curl -s "http://127.0.0.1:3000/api/records/tableware?limit=10" \
 
 ## 生产运行与部署
 
-生产环境**不使用 PM2 / Windows**。由 `deploy/deploy.sh` 生成 systemd 单元并写入 Caddy 站点片段：
+生产环境**不使用 PM2 / Windows**。systemd 单元与 Caddy 站点片段由 `deploy/deploy.sh` 在首次安装时生成完毕（首装配置为服务器端 `/opt/deploy/deploy.foodsentinel.conf`，含密钥，不入仓库）；后续日常迭代只需更新代码并重启：
 
 ```bash
-sudo bash deploy/deploy.sh deploy/deploy.foodtestlab.conf
+git pull && npm run build && sudo systemctl restart foodsentinel-api
+curl http://127.0.0.1:3000/api/health
 ```
 
-运维：
+运维诊断：
 
 ```bash
-systemctl status foodtestlab-api
-journalctl -u foodtestlab-api -f
-curl http://127.0.0.1:3000/api/health
+systemctl status foodsentinel-api
+journalctl -u foodsentinel-api -f
 ```
 
 详见 [`../deploy/README.md`](../deploy/README.md) 与 [`../docs/DEVELOPMENT_GUIDE.md`](../docs/DEVELOPMENT_GUIDE.md)。

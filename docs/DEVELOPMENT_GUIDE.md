@@ -7,9 +7,9 @@
 
 ## 1. 项目概览
 
-田家炳食品检验系统（部署代号 `foodtestlab`）是一套面向学校 / 食安检测场景的**食品安全检测管理 Web 应用**：录入餐具洁净度、果蔬农残、食用油、肉蛋农残、病原体等检测记录，提供看板统计、导出、备份恢复、用户与权限管理、审计日志。
+食品检验系统（代码仓库/系统标识 `foodtestlab`）是一套面向学校 / 食安检测场景的**食品安全检测管理 Web 应用**：录入餐具洁净度、果蔬农残、食用油、肉蛋农残、病原体等检测记录，提供看板统计、导出、备份恢复、用户与权限管理、审计日志。
 
-- 当前实际部署形态：**腾讯云 CVM（Ubuntu）+ Caddy 反向代理 + systemd 托管后端**，前端为静态 ES Module 资源。
+- 部署形态（开发/测试环境常见）：**腾讯云 CVM（Ubuntu）+ Caddy 反向代理 + systemd 托管后端**，前端为静态 ES Module 资源。本生产以通用 `deploy/deploy.sh` 为准，适配文件仅作示例参考。
 - 数据库：**Prisma + PostgreSQL**（开发/测试/生产统一），落在独立数据盘 `/mnt/datadisk0`。
 - **多学校架构（目标）**：单应用 + 单 PostgreSQL 实例 + **Schema-per-tenant（方案②）**——50+ 学校共用同一份数据模型，每校数据在独立 schema（`school_<code>`）；应用层经 `backend/lib/tenantClient.js` 的 `createTenantClient` 为每校缓存独立 `PrismaClient`（连接串带 `?schema=<schema>`）路由，而非 `SET search_path`（该方案已证伪废弃，见 §8）。开发/测试用共享 schema。
 - 认证：**JWT（Bearer）**，后端统一签发与校验；JWT 中携带学校标识（`schoolCode`）用于租户路由。
@@ -28,7 +28,7 @@
 | 前端 | 原生 ES Module（浏览器直载，无打包器构建步骤） | `index.html` + `js/**/*.js` + `css/` + Tailwind（CDN class） |
 | 前端数据层 | `StorageService` + `AdaptiveUploadQueue` | 离线优先（本地缓存+待办队列+多层去重+429/409 处理），见 §6.6/6.7 |
 | 前端构建 | `scripts/build-static.js` | 仅复制 `index.html`/`login.html`/`css`/`js` 到 `dist/`（无转译/打包），由 Caddy 托管 |
-| 部署 | Caddy（自动 HTTPS）+ systemd | `deploy/deploy.sh` + `deploy/deploy.foodtestlab.conf` |
+| 部署 | Caddy（自动 HTTPS）+ systemd | `deploy/deploy.sh`（通用脚本）+ 模板 `deploy/deploy.adapter.example.conf`；本生产真实配置为服务器 `/opt/deploy/deploy.foodsentinel.conf`（含密钥不入库），首装已完成 |
 | 测试 | Jest 29（babel-jest + jsdom）、Cypress 12 | 见 §10 |
 
 ---
@@ -79,7 +79,7 @@ Tianjiabing_foodtestlab/
 ├── css/  index.html  login.html  # 前端入口页面
 ├── deploy/                       # 部署
 │   ├── deploy.sh                 # 通用部署脚本（与具体系统解耦）
-│   ├── deploy.foodtestlab.conf   # 田家炳 / 腾讯云适配文件（当前生效）
+│   ├── deploy.adapter.example.conf   # 适配文件模板（新环境复制填写使用；生产真实配置在服务器 /opt/deploy/，不入库）
 │   ├── deploy.adapter.example.conf  # 适配文件模板（多用户复制此文件）
 │   ├── nginx/  pm2/              # 历史适配器（已弃用，保留参考）
 │   └── README.md
@@ -342,7 +342,7 @@ node prisma/seed.js         # 初始化账号（需 SEED_*_PASSWORD）
 
 ## 8. 部署（腾讯云 CVM + Caddy + systemd）
 
-> 当前生效方案：`deploy/deploy.sh` + `deploy/deploy.foodtestlab.conf`（Caddy 自动 HTTPS + systemd）。`deploy/nginx`、`deploy/pm2` 为历史适配器，已弃用。
+> 本生产部署以通用脚本 `deploy/deploy.sh` 为准（运行时不绑定任何学校名，靠适配文件注入环境差异）。仓库仅提供模板 `deploy/deploy.adapter.example.conf`；本生产真实配置为服务器端 `/opt/deploy/deploy.foodsentinel.conf`（`SYSTEM_NAME=foodsentinel` → 服务 `foodsentinel-api`、用户 `foodsentinel`、路径 `/opt/foodsentinel`；含密钥不入库，首装已完成，日常迭代无需重跑部署）。`deploy/nginx`、`deploy/pm2` 为历史适配器，已弃用。
 
 ### 8.1 原理
 
@@ -351,17 +351,17 @@ node prisma/seed.js         # 初始化账号（需 SEED_*_PASSWORD）
 - 开发/测试环境使用单一共享 schema（无隔离）；生产启用 schema-per-tenant。三者均运行在 PostgreSQL 上，保证环境一致、可统一部署。
 - 原"每校一套适配文件 + 独立端口/服务"的物理隔离方案已弃用：在 2vCPU/3.5GiB 上，方案③（每校独立 database）会因连接数随学校线性增长（每条 PG 连接常驻 5–10MB 进程开销）在 20–30 校时撞资源墙；方案②共享连接池（10–20 条）规避此问题。
 
-### 8.2 适配文件关键项（`deploy.foodtestlab.conf`）
+### 8.2 适配文件关键项（生产值以服务器 `/opt/deploy/deploy.foodsentinel.conf` 为准）
 
-| 项 | 当前值 | 说明 |
+| 项 | 示例值 | 说明 |
 |----|--------|------|
-| `SYSTEM_NAME` | `foodtestlab` | 系统标识，决定目录 / 服务名 |
+| `SYSTEM_NAME` | `foodsentinel` | 系统标识，决定目录 / 服务名 |
 | `REPO_URL` / `DEPLOY_BRANCH` | GitHub 仓库 / `main` | 代码来源 |
-| `REPO_ROOT` | `/opt/foodtestlab` | 代码（系统盘） |
-| `DATA_DIR` | `/mnt/datadisk0/foodtestlab/data` | 数据库（数据盘，与系统盘解耦） |
-| `API_PORT` / `FRONTEND_PORT` | 3000 / 8080 | 后端端口 / 公网前端端口（须全服务器唯一） |
-| `DOMAIN` / `TLS_EMAIL` | 空 | 暂按端口区分；补域名后自动切 HTTPS |
-| `CORS_ORIGIN` | 空 | 脚本自动取公网 IP 生成 `http://<IP>:<FRONTEND_PORT>` |
+| `REPO_ROOT` | `/opt/foodsentinel` | 代码（系统盘），由 `SYSTEM_NAME` 决定 |
+| `DATA_DIR` | `/mnt/datadisk0/foodsentinel/data` | 数据库（数据盘，与系统盘解耦），由 `SYSTEM_NAME` 决定 |
+| `API_PORT` / `FRONTEND_PORT` | 3002 / 9443 | 后端端口 / 无域名时的公网前端端口（须全服务器唯一）；本生产配了 DOMAIN，对外走 443 |
+| `DOMAIN` / `TLS_EMAIL` | `foodsentinel.digifluidic.com` / 已配置 | 配置域名后 Caddy 自动 HTTPS 并监听 443（9443 不再使用） |
+| `CORS_ORIGIN` | `https://foodsentinel.digifluidic.com` | 与访问来源一致；留空则脚本自动取公网 IP 生成 |
 | `JWT_SECRET` / `SEED_*_PASSWORD` | 空 | 脚本自动生成强随机值 |
 | `REQUIRED_MOUNT` | `/mnt/datadisk0` | 数据盘未挂载则中止，防静默写回系统盘 |
 | `NODE_VERSION` / `ENABLE_SWAP` | 20 / true（2G swap） | 低内存机防 OOM |
@@ -369,8 +369,11 @@ node prisma/seed.js         # 初始化账号（需 SEED_*_PASSWORD）
 ### 8.3 执行
 
 ```bash
-# 前置：腾讯云安全组放行 TCP 22 与本次 FRONTEND_PORT（脚本不配置安全组）
-sudo bash deploy.sh deploy.foodtestlab.conf
+# 本生产首装已经完成（配置见服务器 /opt/deploy/deploy.foodsentinel.conf）
+# 之后的日常迭代 = 更新代码 + 重启服务，无需重跑完整部署：
+git pull && npm run build && sudo systemctl restart foodsentinel-api
+# 新环境从零搭建：cp deploy/deploy.adapter.example.conf 并填参后
+sudo bash deploy/deploy.sh <适配文件>
 ```
 
 脚本流程：校验 → 装运行时（git/Caddy/Node via NVM）→ 建系统用户与目录 → 克隆代码 → 生成 `.env` → 后端依赖 / `prisma generate` / `db push` / seed → 前端构建（`scripts/build-static.js` → `dist/`）→ 写 systemd 单元 → 写 Caddy 站点片段（端口冲突预检）→ 健康检查 → 报告初始账号密码。
@@ -378,8 +381,8 @@ sudo bash deploy.sh deploy.foodtestlab.conf
 ### 8.4 运行与运维
 
 ```bash
-systemctl status foodtestlab-api     # 后端状态
-journalctl -u foodtestlab-api -f     # 后端日志
+systemctl status foodsentinel-api     # 后端状态
+journalctl -u foodsentinel-api -f     # 后端日志
 systemctl status caddy               # 反代状态
 curl http://127.0.0.1:3000/api/health  # 健康检查
 ```
@@ -412,7 +415,7 @@ Caddy 主配置 `/etc/caddy/Caddyfile` 通过 `import /etc/caddy/sites/*.caddy` 
 
    **现方案 = per-schema 专属 `PrismaClient`**，抽象集中在 `backend/lib/tenantClient.js`：
    - `createTenantClient(prisma, schoolCode)` 为每个 `school_<code>` 缓存一个**带 `?schema=school_<code>` 连接串**的 `PrismaClient`（LRU 上限 `MAX_TENANT_CLIENTS=25`、每客户端 `TENANT_CONNECTION_LIMIT=3`，进程退出经 `disconnectAllTenantClients()` 优雅关闭）。`schoolCode` 为空 / 落到 `public` 时返回基础单例。
-   - 真实 schema 名 = `school_<code>`（非 `schoolCode` 本身）：`schemaNameOf(code)` 归一（strip 前导 `school-`/`school_` 再补 `school_` 前缀，幂等；`tianjiabing`→`school_tianjiabing`、`school-a`→`school_a`）；`resolveSchemaName(code)` 是推导入口，为空回落 `public`。
+   - 真实 schema 名 = `school_<code>`（非 `schoolCode` 本身）：`schemaNameOf(code)` 归一（strip 前导 `school-`/`school_` 再补 `school_` 前缀，幂等；`school-a`→`school_a`）；`resolveSchemaName(code)` 是推导入口，为空回落 `public`。
    - 系统表 `School`/`SchoolCustomization` 恒在 `public`，由基础 prisma 单例显式 `public.` 前缀访问（如 `prisma.school.findUnique` 即落在 `public`）。
    - 业务 handler **统一通过 `req.db.<model>.<method>()` 访问**（`req.db` 即 `createTenantClient` 返回的租户客户端）；严禁手写 `SET search_path` 或直接用基础 `prisma.<model>` 做租户查询。
 
