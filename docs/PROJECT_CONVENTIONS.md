@@ -29,7 +29,7 @@
 ### 0.4 关键术语
 | 术语 | 含义 |
 |------|------|
-| `schoolCode` | 学校代码（URL/登录请求携带，如 `tianjiabing`、`school-a`、`sysdynit`）。**不是**直接用作 schema 名——须经 `schemaNameOf(code)` 归一为 `school_<code>`（如 `tianjiabing`→`school_tianjiabing`、`school-a`→`school_a`；已含 `school_` 前缀则原样返回，幂等）。含连字符代码会归一为下划线形式。 |
+| `schoolCode` | 学校代码（URL/登录请求携带）。**不是**直接用作 schema 名——须经 `schemaNameOf(code)` 归一为 `school_<code>`（如 `school-a`→`school_a`；已含 `school_` 前缀则原样返回，幂等）。含连字符代码会归一为下划线形式。 |
 | 业务 schema | 每校独立的 schema，存放 `User`/`TestRecord`/`AuditLog` 等租户表（不含系统表）。 |
 | 系统表（public） | `School` / `SchoolCustomization` 始终位于 `public` schema，由**基础 Prisma 单例**（连 `public`）直接访问，不经由 `req.db`（租户客户端会路由到 `school_<code>`）。 |
 | 模板 schema | `school_template`：预先用 `prisma db push` 建好的标准租户表集合，`provision-school.sh` 据此克隆新校。 |
@@ -66,7 +66,7 @@
 
 1. **唯一切换点 = `createTenantClient(prisma, schoolCode)`**：它按 `schemaNameOf(schoolCode)` 归一出 `school_<code>`，返回绑定该 schema 的专属 `PrismaClient`（命中缓存则复用）。`schoolCode` 为空或落到 `public`（dev/test 共享库）时返回基础 `prisma` 单例。**禁止**在业务代码里手写 `SET search_path` 或用 `$executeRawUnsafe` / `$queryRawUnsafe` 拼接 schema 名绕过此切换点。
 2. **允许且必须经由 `createTenantClient` 为每校创建专属 `PrismaClient`**（受控缓存，非连接膨胀的方案③）：客户端由该模块统一 `new`、按 schema 缓存、`MAX_TENANT_CLIENTS`（默认 25，LRU）淘汰最久未用并 `$disconnect()`、进程退出经 `disconnectAllTenantClients()` 优雅关闭；每客户端连接上限 `TENANT_CONNECTION_LIMIT`（默认 3）。**禁止**在业务代码里绕过 `createTenantClient` 自行 `new PrismaClient`（会导致 schema 路由失控 / 连接泄漏）。全应用仍只有一个**基础 `PrismaClient` 单例**（连 `public`，在 `server.js` 创建），所有租户客户端均派生自它。
-3. **`schoolCode` 不是 schema 名，须经 `schemaNameOf` 归一**：真实 schema 名 = `school_<code>`（如 `tianjiabing`→`school_tianjiabing`、`school-a`→`school_a`；已含 `school_` 前缀则原样返回，幂等）。`resolveSchemaName(schoolCode)` 是推导入口，为空回落 `public`。**必须**加 `school_` 前缀，不要去掉它。
+3. **`schoolCode` 不是 schema 名，须经 `schemaNameOf` 归一**：真实 schema 名 = `school_<code>`（如 `school-a`→`school_a`；已含 `school_` 前缀则原样返回，幂等）。`resolveSchemaName(schoolCode)` 是推导入口，为空回落 `public`。**必须**加 `school_` 前缀，不要去掉它。
 4. **系统表恒在 `public`**：`School` / `SchoolCustomization` 只存在于 `public`，访问时一律走**基础 `prisma` 单例**（如 `prisma.$queryRawUnsafe('SELECT ... FROM public."School" ...')`），**不能**经由 `req.db`（租户客户端会路由到 `school_<code>`）。
 5. **业务 handler 一律经 `req.db`**：租户相关读写（如 `req.db.testRecord.findMany`、`req.db.auditLog.create`）必须走由中间件注入的请求级客户端，`禁止`在 handler 内直接使用基础全局 `prisma.<model>`（否则落到 `public`，造成跨校串数据）。`UserManager` 内部通过 `createTenantClient(prisma, schoolCode)` 拿到绑定租户客户端的副本后再操作。
 6. **防伪登录（租户归属校验）**：`UserManager.loginUser` 携带非空 `schoolCode` 时，命中的 `User.school_code` **必须**等于请求的 `schoolCode`，否则拒绝登录。这是防御"目标租户 schema 不存在时查询静默回落 `public`、误命中 public 超管"的关键兜底，不得移除。
@@ -153,7 +153,7 @@
    rewrite @schoolLogin /login.html
    ```
    该规则使 `/school-a/login` 返回登录页而**浏览器 URL 不变**（前端仍可读 schoolCode）。**新增第 N 所学校时本配置文件必须零改动**；不得为某所学校写死专属 location。
-3. **脚本与适配分离**：`deploy/deploy.sh` 是通用流程（不含任何学校名/端口/路径硬编码）；`deploy/deploy.<系统>.conf` 仅描述"这套环境长什么样"（如 `deploy.foodtestlab.conf`）。换用户 / 换服务器只改适配文件。
+3. **脚本与适配分离**：`deploy/deploy.sh` 是通用流程（不含任何学校名/端口/路径硬编码）；`deploy/deploy.<系统>.conf` 仅描述"这套环境长什么样"（如 `deploy.foodsentinel.conf`，由 `SYSTEM_NAME=foodsentinel` 驱动）。换用户 / 换服务器只改适配文件。
 4. **部署前置（脚本无法代劳，必须人工确认）**：
    - 腾讯云**安全组**放行 TCP 22 / 80（上域名后加 443）；漏配会"本机健康检查通过但外网超时"。
    - **数据盘持久化挂载**（如 `/mnt/datadisk0` 写入 `/etc/fstab`）；`REQUIRED_MOUNT` 未挂载脚本直接中止，防数据静默写回系统盘。

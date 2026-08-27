@@ -1,6 +1,6 @@
 // Prisma Schema for Food Safety Testing Lab
 // Database: PostgreSQL（开发 / 测试 / 生产统一，Schema-per-tenant 方案②）
-// 每校业务数据落在独立 schema（school_<code>，如 school_tianjiabing）。
+// 每校业务数据落在独立 schema（school_<code>）。
 // ⚠️ Prisma 会把表名硬编码为 datasource schema，SET search_path 对 model 查询无效，
 //    故由 lib/tenantClient.js 为每个 schema 缓存一个带 ?schema= 连接串的 PrismaClient 实现路由。
 // 系统表（School / SchoolCustomization）始终位于 public schema，由基础 prisma 单例直接访问。

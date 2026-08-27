@@ -56,7 +56,7 @@ export function assertSafeSchemaName(name) {
 //   - 空/非法 → null（由 resolveSchemaName 回落到默认 schema）
 //   - 已带 "school_" 前缀 → 去前缀后按 code 白名单（-→_ 还原）校验再归一
 //   - 历史/URL 写法 "school-xxx" → 归一为 "school_xxx"
-//   - 普通代码 "tianjiabing" → "school_tianjiabing"，code 中 "-" 替换为 "_"
+//   - 普通代码 code 中 "-" 替换为 "_"
 export function schemaNameOf(schoolCode) {
   if (typeof schoolCode !== 'string' || schoolCode.length === 0) return null
   let code = schoolCode.toLowerCase()

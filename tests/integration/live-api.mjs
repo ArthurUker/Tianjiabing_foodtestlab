@@ -6,7 +6,7 @@
 // 多租户隔离。运行结束后清理本脚本产生的测试数据。
 //
 // 用法： node tests/integration/live-api.mjs  [BASE_URL]
-// 前置：后端已在运行（默认 http://127.0.0.1:3002），且已初始化 tianjiabing 学校。
+// 前置：后端已在运行（默认 http://127.0.0.1:3002），且已初始化 tjb 学校。
 
 const BASE = process.argv[2] || process.env.BASE_URL || 'http://127.0.0.1:3002'
 

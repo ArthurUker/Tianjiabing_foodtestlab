@@ -5,7 +5,7 @@
 //
 // 环境变量：
 //   DATABASE_URL        必填（来自 .env，不含 ?schema=）
-//   SCHOOL_CODES        逗号分隔的学校代码，如 "tianjiabing"。为空则跳过（仅用 public 共享 schema）
+//   SCHOOL_CODES        逗号分隔的学校代码。为空则跳过（仅用 public 共享 schema）
 //   SCHOOL_NAME_<code>  可选，学校显示名；缺省用 "学校(<code>)"
 //   SEED_ADMIN_PASSWORD 租户 manager 初始密码（取自 .env，与 public 种子 admin 一致）
 

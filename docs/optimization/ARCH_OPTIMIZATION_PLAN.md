@@ -102,7 +102,7 @@
 
 ### 关闭项：Redis（P1-3）
 
-**决策**：**不引入**。当前单实例部署（`deploy.foodtestlab.conf:22-25`），内存 Map 方案够用。改为在 `.env`/部署文档显式声明「单实例假设」。
+**决策**：**不引入**。单实例部署形态（以 `deploy.foodtestlab.conf` 为示例适配文件，行 22-25），内存 Map 方案够用。改为在 `.env`/部署文档显式声明「单实例假设」。
 
 ---
 
@@ -133,7 +133,7 @@
 | P2-6 | 删除 Backup 弃用模型（migration `20260814000000_remove_backup_model`） | ✅ 完成 |
 | R2-07 | 补幂等并发 + 越权回归测试（新增 2 个测试文件，10 用例） | ✅ 完成 |
 | P2-8 | xss/sql 规则抽单一事实源（补齐前端 SQL 规则 + 双向锚点） | ✅ 完成 |
-| P1-3 | 文档化单实例假设（deploy.foodtestlab.conf 顶部架构约束注释） | ✅ 完成 |
+| P1-3 | 文档化单实例假设（在 `deploy.foodtestlab.conf` 示例适配文件顶部加架构约束注释） | ✅ 完成 |
 | P1-1 | server.js 拆路由（2535→398 行，抽 3 lib + 2 routes） | ✅ 完成 |
 | P1-2 | 全部 JSON 字段统一 jsonb（SchoolCustomization 12 列 + 6 字段） | ✅ 完成 |
 
@@ -145,7 +145,7 @@
   - P2-8：发现并修复前后端 SQL 注入规则漂移（前端 5 pattern → 补齐后端权威 8 pattern），XSS 规则本就一致；前后端加双向注释锚点。
   - 重要发现：`migrate diff` 显示数据库与 schema.prisma 存在既有漂移（jsonb vs String、孤儿表 `revoked_tokens`/`recycle_bin` 等）。
 - 2026-08-14（续）：完成 P1-3（文档化单实例假设）、P1-1（拆路由）。
-  - P1-3：在 `deploy.foodtestlab.conf` 顶部加架构约束注释，声明限流/幂等/安全游标三处内存存储依赖单实例，多实例前须先迁 Redis。
+  - P1-3：在 `deploy.foodtestlab.conf` 示例适配文件顶部加架构约束注释，声明限流/幂等/安全游标三处内存存储依赖单实例，多实例前须先迁 Redis。
   - P1-1 拆路由（分 3 步，每步验证）：
     1. **Step1 抽取工具函数**：`lib/sanitize.js`（48 行）、`lib/customizationValidate.js`（238 行）、`lib/recordNormalize.js`（212 行），server.js 2535→2087 行；修复抽取遗漏的 `HEX_COLOR_RE` import。
     2. **Step2 抽取 schoolRoutes**：`routes/schoolRoutes.js`（1003 行，25 端点 + /api/school/config），`requirePlatformSuperAdmin` 提升为共享守卫（server.js 定义、schoolRoutes/adminBackupRoutes 共用）；更新 `window2AdminAudit`/`auditUnificationRegression` 两个硬编码 `server.js` 路径的静态回归测试指向新文件。

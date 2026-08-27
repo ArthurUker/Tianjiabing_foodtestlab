@@ -530,7 +530,7 @@ ok "数据库 schema 同步完成"
 # 透传学校代码给 seed（与 provision-tenants 一致），确保种子学校与租户 schema 对齐
 for v in "${!SCHOOL_NAME_@}"; do export "$v"; done
 # RK41: 若 SCHOOL_CODES 为空，多租户初始化将被跳过。生产部署前请在适配文件中
-# 将 SCHOOL_CODES 设为学校代码列表（空格分隔），如：SCHOOL_CODES="tianjiabing zhuhaiyizhong"
+# 将 SCHOOL_CODES 设为学校代码列表（逗号分隔）
 export SCHOOL_CODES
 
 if [ -f prisma/seed.js ] && { [ "$FIRST_DEPLOY" = "true" ] && [ "$SEED_ON_FIRST_DEPLOY" = "true" ]; }; then
@@ -848,7 +848,7 @@ $CADDY_ADDR {
     }
 
     # 方案A：路径前缀多租户识别（/<code>/login → 登录页，URL 不变）
-    # 早期仅匹配 /school-*/login，导致不带 school- 前缀的学校代码（如 tianjiabing、sysdynit）
+    # 早期仅匹配 /school-*/login，导致不带 school- 前缀的学校代码
     # 点登录地址会落到 index.html（主应用）而非登录页。现改为通用匹配任意 /<code>/login，
     # 并排除 /api/* 避免误伤接口。登录页自身仍用 extractSchoolCode 的 ?school= 兜底，双保险。
     # NB-2026-07-30: 同时匹配 /<code>/login.html，与 js/utils/schoolCode.js 的 buildSchoolLoginUrl

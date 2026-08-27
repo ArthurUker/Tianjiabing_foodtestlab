@@ -1,6 +1,6 @@
 # 数据备份与恢复模块 · 部署与运维手册（P0）
 
-> 适用：田家炳食品检验系统（腾讯云 CVM，Ubuntu 22.04，PostgreSQL 14，Schema-per-tenant）。
+> 适用：食品检验系统（腾讯云 CVM，Ubuntu 22.04，PostgreSQL 14，Schema-per-tenant）。
 > 本文档对应 P0 备份引擎（`backend/lib/backupService.js` + `backend/scripts/003_backup-now.mjs`）。
 > 完整设计见方案文档（RPO/RTO、逻辑备份选型、影子恢复等，P1+ 阶段实施）。
 

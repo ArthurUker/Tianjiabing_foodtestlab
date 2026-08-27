@@ -1,9 +1,9 @@
 -- constraints.sql — 数据库级 CHECK 约束（D-01 / D-03 补充，Prisma 不支持原生 CHECK）
 --
--- 用法（对每个租户 schema 各执行一次；:schema 需替换为实际 schema 名，如 school_tianjiabing）：
---   psql "$DATABASE_URL" -v schema=school_tianjiabing -f backend/prisma/constraints.sql
+-- 用法（对每个租户 schema 各执行一次；:schema 需替换为实际 schema 名）：
+--   psql "$DATABASE_URL" -v schema=<school_schema> -f backend/prisma/constraints.sql
 -- 或手动：
---   psql "$DATABASE_URL" -c 'SET search_path TO school_tianjiabing' -f ...（psql -f 会重置 search_path，
+--   psql "$DATABASE_URL" -c 'SET search_path TO <school_schema>' -f ...（psql -f 会重置 search_path，
 --   推荐用上面的 -v 变量方式）
 --
 -- ⚠️ 设计决策（D-01）：TestRecord.test_type 【不加】DB 级 CHECK 约束。

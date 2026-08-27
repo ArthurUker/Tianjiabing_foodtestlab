@@ -2,8 +2,8 @@
 # provision-school.sh — 为单所学校创建独立 schema（方案② Schema-per-tenant）
 #
 # 用法：
-#   SCHOOL_CODE=tianjiabing \
-#   DATABASE_URL=postgresql://user:pass@127.0.0.1:5432/foodtestlab \
+#   SCHOOL_CODE=<school-code> \
+#   DATABASE_URL=postgresql://user:pass@127.0.0.1:5432/<db> \
 #   bash scripts/provision-school.sh
 #
 # 原理：
@@ -19,7 +19,7 @@
 
 set -euo pipefail
 
-SCHOOL_CODE="${SCHOOL_CODE:?请设置 SCHOOL_CODE（学校代码，如 tianjiabing，仅小写字母/数字/连字符）}"
+SCHOOL_CODE="${SCHOOL_CODE:?请设置 SCHOOL_CODE（学校代码，仅小写字母/数字/连字符）}"
 DATABASE_URL="${DATABASE_URL:?请设置 DATABASE_URL（postgresql://...）}"
 TEMPLATE_SCHEMA="${TEMPLATE_SCHEMA:-school_template}"
 SCHOOL_NAME="${SCHOOL_NAME:-学校(${SCHOOL_CODE})}"
