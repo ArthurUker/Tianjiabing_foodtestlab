@@ -22,6 +22,7 @@ import { verifyBackupFile } from '../lib/backupVerify.js'
 import { runRestore } from '../lib/restoreService.js'
 import { writeTenantAuditLog } from '../lib/auditLog.js'
 import { compareSchemaSnapshot } from '../lib/schemaCompatibility.js'
+import { schemaNameOf } from '../lib/tenantClient.js'
 
 const TAG = '[schoolBackupRoutes]'
 
@@ -57,11 +58,14 @@ export function createSchoolBackupRoutes({ prisma, authenticateUser }) {
   }
 
   // 为学校侧构建 schema 兼容报告：仅暴露本校 schema + public，避免泄露其他租户结构。
+  // 注意：BackupRun.schema_snapshot 的键是【schema 名】（school_<code>，schemaNameOf 归一），
+  // 不是裸学校代码；校验/查询也必须用同名键，否则单校备份会永远匹配不到（显示"无结构快照"）。
   function buildSchoolSchemaCompat(run, schoolCode, currentSchemaMap) {
     const snap = run.schema_snapshot || {}
+    const tenantSchema = schemaNameOf(schoolCode)
     const relevantSchemas = run.scope === 'all'
-      ? Object.keys(snap).filter((s) => s === schoolCode || s === 'public')
-      : Object.keys(snap).filter((s) => s === schoolCode)
+      ? Object.keys(snap).filter((s) => s === tenantSchema || s === 'public')
+      : Object.keys(snap).filter((s) => s === tenantSchema)
     if (relevantSchemas.length === 0) {
       return { schemaCompatible: null, schemaCompatSummary: '无结构快照', schemaCompatReports: {} }
     }
@@ -147,8 +151,9 @@ export function createSchoolBackupRoutes({ prisma, authenticateUser }) {
       ])
 
       // 学校侧只关心本校 schema + 全库备份中的 public 系统表，避免暴露其他租户结构信息。
+      // schema_snapshot 键为 schema 名（school_<code>），information_schema 查询须用同名。
       const currentSchemaMap = {}
-      const schemasToCheck = [schoolCode, 'public']
+      const schemasToCheck = [schemaNameOf(schoolCode), 'public'].filter(Boolean)
       const colRows = await prisma.$queryRawUnsafe(
         `SELECT table_schema, table_name, column_name, data_type
          FROM information_schema.columns
@@ -300,7 +305,7 @@ export function createSchoolBackupRoutes({ prisma, authenticateUser }) {
         try {
           const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'))
           const currentSchemaMap = {}
-          const schemasToCheck = [schoolCode, 'public']
+          const schemasToCheck = [schemaNameOf(schoolCode), 'public'].filter(Boolean)
           const colRows = await prisma.$queryRawUnsafe(
             `SELECT table_schema, table_name, column_name, data_type
              FROM information_schema.columns
