@@ -118,7 +118,9 @@ export function createUserRoutes(userManager) {
 
             // P0-1C: 读取设备指纹，写入 refresh token 实现同设备绑定
             const deviceId = (req.headers['x-device-id'] || '').trim().slice(0, 128) || null
-            const result = await userManager.forTenant(schoolCode).loginUser(username, password, deviceId)
+            // 审计:登录(成功/失败)记录来源 IP(经反代需 trust proxy,取 x-forwarded-for 首个)
+            const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || null
+            const result = await userManager.forTenant(schoolCode).loginUser(username, password, deviceId, ip)
             res.json(result)
         } catch (error) {
             respondLoginError(res, error)
@@ -140,7 +142,8 @@ export function createUserRoutes(userManager) {
             // forTenant(null) 返回使用全局 prisma（public schema）的实例，直接查询平台超管账号
             // P0-1C: 超管登录同样绑定设备指纹
             const deviceId = (req.headers['x-device-id'] || '').trim().slice(0, 128) || null
-            const result = await userManager.forTenant(null).loginUser(username, password, deviceId)
+            const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || null
+            const result = await userManager.forTenant(null).loginUser(username, password, deviceId, ip)
 
             // 二次校验：必须是平台超管（role=admin 且无 schoolCode）；
             // 普通租户用户/operator/viewer 即使密码正确也一律拒绝，强制走普通登录入口

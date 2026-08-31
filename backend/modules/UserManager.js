@@ -309,7 +309,7 @@ export class UserManager {
 
     // ====== User Login ======
 
-    async loginUser(username, password, deviceId = null) {
+    async loginUser(username, password, deviceId = null, ip = null) {
         try {
             // 1. 查找用户
             const user = await this.prisma.user.findUnique({
@@ -366,7 +366,7 @@ export class UserManager {
 
             if (!passwordMatch) {
                 // 记录失败登录（同时作为 DS3-M2 账号锁定的计数依据 + 自动停用计数）
-                await this.logFailedLogin(user.id, username)
+                await this.logFailedLogin(user.id, username, ip)
                 const err = new Error('密码错误')
                 err.code = 'PASSWORD_WRONG'
                 err.status = 401
@@ -375,7 +375,7 @@ export class UserManager {
 
             // 3.5 检查用户状态（此时已完成真实 bcrypt.compare，无时序差异；统一记入 logFailedLogin）
             if (user.status !== 'active') {
-                await this.logFailedLogin(user.id, username)
+                await this.logFailedLogin(user.id, username, ip)
                 // 区分自动停用（由尝试次数过多触发）与手动停用
                 const autoDisabled = await this.isAutoDisabled(user.id)
                 const err = new Error(autoDisabled ? '尝试次数过多，账号已被自动停用' : '该用户已被禁用')
@@ -391,8 +391,8 @@ export class UserManager {
             // 5. 更新最后登录时间
             await this.updateLastLogin(user.id)
 
-            // 6. 记录登录日志
-            await this.logLogin(user.id, username)
+            // 6. 记录登录日志（IP 由路由层透传，登录是最需要 IP 的安全审计）
+            await this.logLogin(user.id, username, ip)
 
             console.log(`✅ 用户登录成功: ${username}`)
 
@@ -1223,19 +1223,20 @@ export class UserManager {
         }
     }
 
-    async logLogin(userId, username) {
+    async logLogin(userId, username, ip = null) {
         try {
             await writeTenantAuditLog(this.prisma, {
                 actorId: userId,
                 action: 'login',
                 details: { username, timestamp: new Date().toISOString() },
+                ip,
             })
         } catch (error) {
             console.error(`❌ 记录登录日志失败: ${error.message}`)
         }
     }
 
-    async logFailedLogin(userId, username) {
+    async logFailedLogin(userId, username, ip = null) {
         try {
             // P2-03: userId 为 null 时（用户不存在），AuditLog 需有效 user_id 外键无法写入，改记 SystemLog
             if (!userId) {
@@ -1252,6 +1253,7 @@ export class UserManager {
                 actorId: userId,
                 action: 'login_failed',
                 details: { username, timestamp: new Date().toISOString() },
+                ip,
             })
 
             // 安全策略：短时间内连续密码错误超过 5 次 → 自动停用该账户
