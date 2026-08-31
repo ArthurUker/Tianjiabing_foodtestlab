@@ -1,5 +1,11 @@
 # 部署就绪度报告 — 食品检验系统（代码仓库标识 `foodtestlab`）
 
+> 🗄️ **历史阶段文档（2026-07-30 自查，勿照做）**：本报告的结论针对"开发/测试环境首装"。
+> 该 dev/test 环境（服务 `foodtestlab-api`、目录 `/opt/foodtestlab`、库 `foodtestlab`）已于 **2026-08-27 全部停用并清除**，
+> 生产首装亦早已完成。**当前唯一有效环境为生产 `/opt/foodsentinel`**（服务 `foodsentinel-api`、库 `foodsentinel`、后端端口 **3002**、对外 `https://foodsentinel.digifluidic.com`）。
+> 文中出现的 `SCHOOL_CODES=""`、后端端口 `3000`、`/var/backups/foodtestlab`、dev/test 等均为**过时口径**。
+> **权威文档 = 根目录 `README.md`（尤其 §0 环境唯一性声明与 §8 部署架构）。**
+
 基线：`main` 分支（本地工作区含未提交修改） · 自查日期 2026-07-30
 目标：聚焦"能否顺利跑起来"——配置完整性、依赖可用性、初始化链路正确性、部署脚本可执行性。
 （非重新安全审查；此前已完成七轮独立安全审查。）

@@ -348,7 +348,7 @@ node prisma/seed.js         # 初始化账号（需 SEED_*_PASSWORD）
 
 - 脚本只负责"流程"，所有环境差异在**适配文件（`.conf`）**里。
 - **多学校（目标架构 = 方案② Schema-per-tenant）**：单套应用 + 单 PostgreSQL 实例，每校一个独立 schema（表结构一致）。新增学校 = 建 schema + 跑迁移，不新增服务/端口/物理隔离部署。
-- 开发/测试环境使用单一共享 schema（无隔离）；生产启用 schema-per-tenant。三者均运行在 PostgreSQL 上，保证环境一致、可统一部署。
+- ⚠️ **本系统只有生产一套环境**：历史上曾并存一套 dev/test（foodtestlab）实体，已于 **2026-08-27 全部停用并清除**；开发/测试环境不存在"单一共享 schema"这一形态，本系统当前只有 schema-per-tenant。详见根目录 `README.md` §0 环境唯一性声明。
 - 原"每校一套适配文件 + 独立端口/服务"的物理隔离方案已弃用：在 2vCPU/3.5GiB 上，方案③（每校独立 database）会因连接数随学校线性增长（每条 PG 连接常驻 5–10MB 进程开销）在 20–30 校时撞资源墙；方案②共享连接池（10–20 条）规避此问题。
 
 ### 8.2 适配文件关键项（生产值以服务器 `/opt/deploy/deploy.foodsentinel.conf` 为准）
