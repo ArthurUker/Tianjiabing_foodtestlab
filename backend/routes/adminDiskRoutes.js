@@ -292,8 +292,27 @@ export function createAdminDiskRoutes({ prisma, authenticateUser, requirePlatfor
   //   然后才能删除（守卫：删除截止日期 ≤ 该校最近一次导出截止日期，未留档不可删）。
   // ════════════════════════════════════════════════════════════════
 
-  const AUDIT_SCHOOLS = ['tjb', 'zhyz', 'zhsy']   // 启用中的租户；新增学校后在此登记
+  const AUDIT_SCHOOLS_FALLBACK = ['tjb', 'zhyz', 'zhsy']   // School 表不可用时的兜底清单
   const schemaOf = (code) => `school_${code}`
+
+  /** 动态获取启用中的租户学校（public.School.active；失败回退兜底清单）。新增学校无需改代码。 */
+  async function listAuditSchools() {
+    try {
+      const rows = await prisma.$queryRawUnsafe(`SELECT code FROM public."School" WHERE status = 'active' ORDER BY code`)
+      const codes = rows.map((r) => String(r.code)).filter(Boolean)
+      return codes.length ? codes : AUDIT_SCHOOLS_FALLBACK
+    } catch {
+      return AUDIT_SCHOOLS_FALLBACK
+    }
+  }
+
+  /** 解析操作范围：'all'（默认）= 全部启用学校；否则须在动态列表内。 */
+  async function resolveAuditScope(schoolCode) {
+    const schools = await listAuditSchools()
+    if (schoolCode === 'all') return { ok: true, all: true, schools }
+    if (schools.includes(schoolCode)) return { ok: true, all: false, schools: [schoolCode] }
+    return { ok: false, schools }
+  }
 
   /** 导出目录：放数据盘，与备份同级独立子目录（audit-exports/），人工管理不自动清理。 */
   function auditExportDir() {
@@ -302,66 +321,136 @@ export function createAdminDiskRoutes({ prisma, authenticateUser, requirePlatfor
     return d
   }
 
-  // ── GET /audit-logs/stats — 各校 AuditLog 统计（行数/最旧/最新/截止前数量）──
+  /** 某校已有的留档截止日期（单校文件 auditlog_{school}_before_* 或全量文件 auditlog_all_before_*，升序）。 */
+  function exportedCutoffs(dir, school) {
+    const reSchool = new RegExp(`^auditlog_${school}_before_(\\d{4}-\\d{2}-\\d{2})_\\d+\\.jsonl$`)
+    const reAll = /^auditlog_all_before_(\d{4}-\d{2}-\d{2})_\d+\.jsonl$/
+    const out = []
+    for (const f of fs.readdirSync(dir)) {
+      const m = reSchool.exec(f) || reAll.exec(f)
+      if (m) out.push(m[1])
+    }
+    return out.sort()
+  }
+
+  // ── GET /audit-logs/usage — 按时间粒度（day/week/month）× 学校分组统计：条数 + 估算占用空间 ──
+  // 说明：AuditLog 行本身无"字节"属性，占用为估算值 = 表总字节(pg_total_relation_size 含索引) / 总行数 × 期间行数。
+  router.get('/audit-logs/usage', async (req, res) => {
+    try {
+      const g = String(req.query.granularity || 'day')
+      const trunc = { day: 'day', week: 'week', month: 'month' }[g]
+      if (!trunc) return res.status(400).json({ success: false, error: 'granularity 须为 day/week/month' })
+      const scope = await resolveAuditScope(String(req.query.schoolCode || 'all'))
+      if (!scope.ok) return res.status(400).json({ success: false, error: 'schoolCode 非法' })
+
+      const schools = []
+      const rows = []   // 长表：{period, schoolCode, count, estBytes}
+      for (const code of scope.schools) {
+        const s = schemaOf(code)
+        try {
+          const sizeR = await prisma.$queryRawUnsafe(
+            `SELECT pg_total_relation_size('"${s}"."AuditLog"')::bigint AS sz`)
+          const tableBytes = Number(sizeR[0]?.sz) || 0
+          const buckets = await prisma.$queryRawUnsafe(
+            `SELECT date_trunc('${trunc}', "created_at") AS bucket, count(*)::int AS n
+             FROM "${s}"."AuditLog" GROUP BY 1 ORDER BY 1 ASC`)
+          const total = buckets.reduce((x, b) => x + Number(b.n), 0)
+          const avg = total > 0 ? tableBytes / total : 0
+          const schoolBuckets = buckets.map((b) => {
+            const n = Number(b.n)
+            const est = Math.round(avg * n)
+            rows.push({ period: b.bucket, schoolCode: code, count: n, estBytes: est })
+            return { bucket: b.bucket, count: n, estBytes: est }
+          })
+          schools.push({ schoolCode: code, schema: s, tableBytes, avgRowBytes: Math.round(avg), total, buckets: schoolBuckets })
+        } catch (e) {
+          schools.push({ schoolCode: code, schema: s, error: e.message.slice(0, 120) })
+        }
+      }
+      rows.sort((a, b) => (a.period < b.period ? 1 : a.period > b.period ? -1 : a.schoolCode < b.schoolCode ? -1 : 1))
+      res.json({ success: true, data: { granularity: g, scope: scope.all ? 'all' : 'single', schools, rows } })
+    } catch (e) {
+      console.error(`${TAG} usage 统计失败:`, e)
+      res.status(500).json({ success: false, error: e.message || '统计失败' })
+    }
+  })
+
+  // ── GET /audit-logs/stats — AuditLog 统计（默认全部学校；schoolCode 可选单校；before=截止日期）──
   router.get('/audit-logs/stats', async (req, res) => {
     try {
       const before = typeof req.query.before === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.query.before) ? req.query.before : null
+      const scope = await resolveAuditScope(String(req.query.schoolCode || 'all'))
+      if (!scope.ok) return res.status(400).json({ success: false, error: 'schoolCode 非法' })
       const stats = []
-      for (const code of AUDIT_SCHOOLS) {
+      for (const code of scope.schools) {
         const s = schemaOf(code)
         try {
-          const rows = before
-            ? await prisma.$queryRawUnsafe(
-                `SELECT count(*)::int AS n, min("created_at") AS oldest, max("created_at") AS newest
-                 FROM "${s}"."AuditLog" WHERE "created_at" < ($1::date + interval '1 day')`, before)
-            : await prisma.$queryRawUnsafe(
-                `SELECT count(*)::int AS n, min("created_at") AS oldest, max("created_at") AS newest FROM "${s}"."AuditLog"`)
+          const base = await prisma.$queryRawUnsafe(
+            `SELECT count(*)::int AS n, min("created_at") AS oldest, max("created_at") AS newest FROM "${s}"."AuditLog"`)
+          let beforeCount = null
+          if (before) {
+            const r = await prisma.$queryRawUnsafe(
+              `SELECT count(*)::int AS n FROM "${s}"."AuditLog" WHERE "created_at" < ($1::date + interval '1 day')`, before)
+            beforeCount = r[0]?.n || 0
+          }
           stats.push({
             schoolCode: code, schema: s,
-            total: rows[0]?.n || 0,
-            oldest: rows[0]?.oldest || null,
-            newest: rows[0]?.newest || null,
-            beforeCount: before ? (rows[0]?.n || 0) : null,
+            total: base[0]?.n || 0,
+            oldest: base[0]?.oldest || null,
+            newest: base[0]?.newest || null,
+            beforeCount,
           })
         } catch (e) {
           stats.push({ schoolCode: code, schema: s, error: e.message.slice(0, 120) })
         }
       }
-      res.json({ success: true, data: { schools: stats, before } })
+      res.json({ success: true, data: { scope: scope.all ? 'all' : 'single', schools: stats, before } })
     } catch (e) {
       res.status(500).json({ success: false, error: e.message || '统计失败' })
     }
   })
 
-  // ── POST /audit-logs/export — 导出留档（按校 + 截止日期；服务端写文件，返回下载路径）──
+  // ── POST /audit-logs/export — 导出留档（默认全部学校；单文件合并，行内带 _school/_schema 标记）──
   router.post('/audit-logs/export', async (req, res) => {
     try {
-      const schoolCode = String(req.body?.schoolCode || '')
+      const schoolCode = String(req.body?.schoolCode || 'all')
       const before = String(req.body?.before || '')
-      if (!AUDIT_SCHOOLS.includes(schoolCode)) return res.status(400).json({ success: false, error: 'schoolCode 非法' })
+      const scope = await resolveAuditScope(schoolCode)
+      if (!scope.ok) return res.status(400).json({ success: false, error: 'schoolCode 非法' })
       if (!/^\d{4}-\d{2}-\d{2}$/.test(before)) return res.status(400).json({ success: false, error: 'before 格式须为 YYYY-MM-DD' })
 
-      const s = schemaOf(schoolCode)
-      const rows = await prisma.$queryRawUnsafe(
-        `SELECT "id","user_id","action","resource_type","resource_id","details","ip_address","created_at"
-         FROM "${s}"."AuditLog" WHERE "created_at" < ($1::date + interval '1 day')
-         ORDER BY "created_at" ASC`, before)
-      if (!rows.length) return res.status(404).json({ success: false, error: '该截止日期前无日志可导出' })
+      // 逐校取数（行打 _school/_schema 标记），合并为一个 JSON Lines 文件
+      const lines = []
+      const perSchool = []
+      for (const code of scope.schools) {
+        const s = schemaOf(code)
+        try {
+          const rows = await prisma.$queryRawUnsafe(
+            `SELECT "id","user_id","action","resource_type","resource_id","details","ip_address","created_at"
+             FROM "${s}"."AuditLog" WHERE "created_at" < ($1::date + interval '1 day')
+             ORDER BY "created_at" ASC`, before)
+          for (const r of rows) lines.push(JSON.stringify({ ...r, _school: code, _schema: s }))
+          perSchool.push({ schoolCode: code, count: rows.length })
+        } catch (e) {
+          perSchool.push({ schoolCode: code, error: e.message.slice(0, 120) })
+        }
+      }
+      const count = lines.length
+      if (!count) return res.status(404).json({ success: false, error: '该截止日期前无日志可导出' })
 
-      // JSON Lines：一行一条，自包含、可流式追加、机器可解析（留档首选格式）
+      // JSON Lines：一行一条，自包含、机器可解析（留档首选格式）；600 权限
       const dir = auditExportDir()
       const fname = `auditlog_${schoolCode}_before_${before}_${Date.now()}.jsonl`
       const fpath = path.join(dir, fname)
-      const lines = rows.map((r) => JSON.stringify({ ...r, _school: schoolCode, _schema: s }))
       await fsp.writeFile(fpath, lines.join('\n') + '\n', { mode: 0o600 })
 
       await writeAdminOpsLog(prisma, {
         action: 'disk_auditlog_export',
         actor: { userId: req.user?.userId, username: req.user?.username, role: req.user?.role, schoolCode: null, ip: req.ip },
-        targetId: '', targetSchoolCode: schoolCode,
-        details: { before, count: rows.length, file: fname }, level: 'info',
+        targetId: '', targetSchoolCode: scope.all ? null : schoolCode,
+        details: { scope: scope.all ? 'all' : 'single', before, count, perSchool, file: fname }, level: 'info',
       })
-      res.json({ success: true, data: { schoolCode, before, count: rows.length, file: fname, path: fpath, bytes: (await fsp.stat(fpath)).size } })
+      res.json({ success: true, data: { schoolCode, before, count, perSchool, file: fname, path: fpath, bytes: (await fsp.stat(fpath)).size } })
     } catch (e) {
       console.error(`${TAG} 审计日志导出失败:`, e)
       res.status(500).json({ success: false, error: e.message || '导出失败' })
@@ -385,46 +474,60 @@ export function createAdminDiskRoutes({ prisma, authenticateUser, requirePlatfor
     }
   })
 
-  // ── POST /audit-logs/delete — 删除截止日期前的审计日志（守卫：必须已导出到该截止日）──
+  // ── POST /audit-logs/delete — 删除截止日期前的审计日志（默认全部学校）──
+  // 守卫：范围内每所有待删数据的学校，其留档（单校文件或 all 文件）截止必须 ≥ before。
   router.post('/audit-logs/delete', async (req, res) => {
     try {
-      const schoolCode = String(req.body?.schoolCode || '')
+      const schoolCode = String(req.body?.schoolCode || 'all')
       const before = String(req.body?.before || '')
-      if (!AUDIT_SCHOOLS.includes(schoolCode)) return res.status(400).json({ success: false, error: 'schoolCode 非法' })
+      const scope = await resolveAuditScope(schoolCode)
+      if (!scope.ok) return res.status(400).json({ success: false, error: 'schoolCode 非法' })
       if (!/^\d{4}-\d{2}-\d{2}$/.test(before)) return res.status(400).json({ success: false, error: 'before 格式须为 YYYY-MM-DD' })
 
-      // 守卫 ①：该校必须存在"截止日期 ≥ before"的导出文件（未留档不可删）
+      // 守卫 ① + 计数：逐校校验留档覆盖并统计待删数
       const dir = auditExportDir()
-      const re = new RegExp(`^auditlog_${schoolCode}_before_(\\d{4}-\\d{2}-\\d{2})_\\d+\\.jsonl$`)
-      const exportedBefore = fs.readdirSync(dir)
-        .map((f) => { const m = re.exec(f); return m ? m[1] : null })
-        .filter(Boolean)
-        .sort()
-      if (!exportedBefore.length || exportedBefore[exportedBefore.length - 1] < before) {
+      const per = []
+      for (const code of scope.schools) {
+        const cutoffs = exportedCutoffs(dir, code)
+        const covered = cutoffs.length > 0 && cutoffs[cutoffs.length - 1] >= before
+        let willDelete = 0
+        try {
+          const c = await prisma.$queryRawUnsafe(
+            `SELECT count(*)::int AS n FROM "${schemaOf(code)}"."AuditLog" WHERE "created_at" < ($1::date + interval '1 day')`, before)
+          willDelete = c[0]?.n || 0
+        } catch { /* schema 缺失按 0 */ }
+        per.push({ schoolCode: code, covered, exportVerified: covered ? cutoffs[cutoffs.length - 1] : null, willDelete })
+      }
+      const notCovered = per.filter((p) => !p.covered && p.willDelete > 0)
+      if (notCovered.length) {
         return res.status(400).json({
           success: false,
-          error: `删除被拒绝：${schoolCode} 尚无截止日期 ≥ ${before} 的导出留档。请先导出，再删除（数据不落盘不删）。`,
+          error: `删除被拒绝：${notCovered.map((p) => p.schoolCode).join('、')} 尚无截止日期 ≥ ${before} 的导出留档。请先导出，再删除（数据不落盘不删）。`,
+          data: { per },
         })
       }
 
-      const s = schemaOf(schoolCode)
-      const cnt = await prisma.$queryRawUnsafe(
-        `SELECT count(*)::int AS n FROM "${s}"."AuditLog" WHERE "created_at" < ($1::date + interval '1 day')`, before)
-      const willDelete = cnt[0]?.n || 0
-      if (!willDelete) return res.status(404).json({ success: false, error: '该截止日期前无日志' })
-      if (Number(req.body?.confirmCount) !== willDelete) {
-        return res.status(400).json({ success: false, error: `confirmCount 不匹配：将删除 ${willDelete} 条，请在请求体带 confirmCount=${willDelete}` })
+      const willTotal = per.reduce((s, p) => s + p.willDelete, 0)
+      if (!willTotal) return res.status(404).json({ success: false, error: '该截止日期前无日志可删' })
+      if (Number(req.body?.confirmCount) !== willTotal) {
+        return res.status(400).json({ success: false, error: `confirmCount 不匹配：将删除 ${willTotal} 条，请在请求体带 confirmCount=${willTotal}` })
       }
 
-      await prisma.$executeRawUnsafe(
-        `DELETE FROM "${s}"."AuditLog" WHERE "created_at" < ($1::date + interval '1 day')`, before)
+      // 逐校删除（仅有数据量的学校）
+      const results = []
+      for (const p of per) {
+        if (!p.willDelete) continue
+        await prisma.$executeRawUnsafe(
+          `DELETE FROM "${schemaOf(p.schoolCode)}"."AuditLog" WHERE "created_at" < ($1::date + interval '1 day')`, before)
+        results.push({ schoolCode: p.schoolCode, deleted: p.willDelete, exportVerified: p.exportVerified })
+      }
       await writeAdminOpsLog(prisma, {
         action: 'disk_auditlog_delete',
         actor: { userId: req.user?.userId, username: req.user?.username, role: req.user?.role, schoolCode: null, ip: req.ip },
-        targetId: '', targetSchoolCode: schoolCode,
-        details: { before, deleted: willDelete, exportVerified: exportedBefore[exportedBefore.length - 1] }, level: 'warn',
+        targetId: '', targetSchoolCode: scope.all ? null : schoolCode,
+        details: { scope: scope.all ? 'all' : 'single', before, deleted: willTotal, results }, level: 'warn',
       })
-      res.json({ success: true, data: { schoolCode, before, deleted: willDelete, exportVerified: exportedBefore[exportedBefore.length - 1] } })
+      res.json({ success: true, data: { schoolCode, before, deleted: willTotal, results } })
     } catch (e) {
       console.error(`${TAG} 审计日志删除失败:`, e)
       res.status(500).json({ success: false, error: e.message || '删除失败' })

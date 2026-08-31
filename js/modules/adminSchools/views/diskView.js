@@ -171,13 +171,18 @@ export function initDiskView({ API_BASE, authHeaders, notify }) {
                         <p class="text-xs text-gray-500">流程：<b>① 选校+截止日期 → 导出留档</b>（JSON Lines 落数据盘 audit-exports/，可下载）→ <b>② 删除</b>（系统校验"已留档到该日期"才允许删；未导出直接拒绝）。适用于磁盘 ≥90% 需释放空间时按校归档清理</p>
                     </div>
                     <div class="flex items-center gap-2 text-sm">
-                        <select id="diskAuditSchool" class="px-2 py-1.5 border border-gray-300 rounded-lg"><option value="tjb">tjb（田家炳）</option><option value="zhyz">zhyz（一中）</option><option value="zhsy">zhsy（实验）</option></select>
-                        <input id="diskAuditBefore" type="date" class="px-2 py-1.5 border border-gray-300 rounded-lg" title="截止日期（导/删 之前的日志）" />
-                        <button id="diskAuditStats" type="button" class="px-2 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg"><i class="fas fa-calculator mr-1"></i>统计</button>
+                        <select id="diskAuditSchool" class="px-2 py-1.5 border border-gray-300 rounded-lg"><option value="all" selected>全部学校</option><option value="tjb">tjb（田家炳）</option><option value="zhyz">zhyz（一中）</option><option value="zhsy">zhsy（实验）</option></select>
+                        <span id="diskAuditGran" class="inline-flex rounded-lg overflow-hidden border border-gray-300">
+                            <button type="button" data-g="day" class="px-3 py-1.5 text-sm bg-blue-600 text-white">按日</button>
+                            <button type="button" data-g="week" class="px-3 py-1.5 text-sm bg-white text-gray-700 hover:bg-gray-100">按周</button>
+                            <button type="button" data-g="month" class="px-3 py-1.5 text-sm bg-white text-gray-700 hover:bg-gray-100">按月</button>
+                        </span>
+                        <input id="diskAuditBefore" type="date" class="px-2 py-1.5 border border-gray-300 rounded-lg" title="截止日期（导/删 之前的日志；不影响本统计表）" />
+                        <button id="diskAuditStats" type="button" class="px-2 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg"><i class="fas fa-sync-alt mr-1"></i>刷新统计</button>
                     </div>
                 </div>
-                <div id="diskAuditSummary" class="text-xs text-gray-500 mb-2">选择学校与截止日期后点「统计」；导出与删除都按此截止日期执行</div>
-                <div id="diskAuditTable" class="text-sm text-gray-600">尚未统计</div>
+                <div id="diskAuditSummary" class="text-xs text-gray-500 mb-2">默认<b>全部学校、按日</b>展示「期间 × 学校 → 条数 + 估算占用」（占用 = 表平均行宽×行数，含索引，供清理决策参考）；<b>截止日期</b>仅作用于导出/删除</div>
+                <div id="diskAuditTable" class="text-sm text-gray-600">加载中…</div>
                 <div class="flex items-center gap-2 mt-3">
                     <button id="diskAuditExport" type="button" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"><i class="fas fa-file-export mr-1"></i>导出留档</button>
                     <button id="diskAuditDelete" type="button" class="px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 transition"><i class="fas fa-trash mr-1"></i>删除已留档部分</button>
@@ -237,7 +242,16 @@ export function initDiskView({ API_BASE, authHeaders, notify }) {
         $('diskAuditStats')?.addEventListener('click', () => loadAuditStats());
         $('diskAuditExport')?.addEventListener('click', () => exportAuditLogs());
         $('diskAuditDelete')?.addEventListener('click', () => deleteAuditLogs());
-    }
+        // 粒度切换（按日/按周/按月）
+        $('diskAuditGran')?.querySelectorAll('button[data-g]').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                auditState.gran = btn.dataset.g;
+                $('diskAuditGran').querySelectorAll('button[data-g]').forEach((b) => {
+                    b.className = 'px-3 py-1.5 text-sm ' + (b === btn ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100');
+                });
+                loadAuditStats();
+            });
+        });    }
 
     function setLogPreset(days) {
         const to = new Date();
@@ -501,7 +515,7 @@ export function initDiskView({ API_BASE, authHeaders, notify }) {
     }
 
     /* ─────────── 学校租户业务日志（AuditLog）统计/导出/删除 ─────────── */
-    let auditState = { before: null, stats: [] };
+    let auditState = { before: null, stats: [], gran: 'day' };
 
     function auditParams() {
         const schoolCode = document.getElementById('diskAuditSchool')?.value;
@@ -509,30 +523,69 @@ export function initDiskView({ API_BASE, authHeaders, notify }) {
         return { schoolCode, before };
     }
 
+    function schoolLabel(c) { return c === 'all' ? '全部学校' : c; }
+
+    /** 期间标签：日=YYYY-MM-DD；周=周一日期~周日；月=YYYY-MM */
+    function periodLabel(bucket, gran) {
+        const d = new Date(bucket);
+        if (isNaN(d.getTime())) return String(bucket);
+        const pad = (x) => String(x).padStart(2, '0');
+        if (gran === 'month') return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+        const base = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+        if (gran === 'day') return base;
+        const end = new Date(d.getTime() + 6 * 86400000);
+        return `${base} ~ ${end.getFullYear()}-${pad(end.getMonth() + 1)}-${pad(end.getDate())}`;
+    }
+
+    /** 按粒度 × 学校统计条数与估算占用（长表：期间×学校） */
     async function loadAuditStats() {
-        const { before } = auditParams();
-        if (!before) { notify('请先选择截止日期', 'error'); return; }
+        const { schoolCode, before } = auditParams();
+        const scopeCode = schoolCode || 'all';
+        const gran = auditState.gran || 'day';
         const msg = document.getElementById('diskAuditMsg');
         if (msg) msg.textContent = '统计中…';
         try {
-            const d = await api(`/audit-logs/stats?before=${before}`);
-            auditState.before = before;
-            auditState.stats = d.schools;
+            const q = new URLSearchParams({ schoolCode: scopeCode, granularity: gran });
+            const d = await api(`/audit-logs/usage?${q}`);
+            auditState.usage = d;
             const el = document.getElementById('diskAuditTable');
+            const okSchools = d.schools.filter((s) => !s.error);
             if (el) {
-                el.innerHTML = `<table class="w-full text-sm">
-                    <thead><tr class="text-left text-gray-500 border-b">
-                        <th class="py-2">学校</th><th>总行数</th><th>${before} 之前</th><th>最早</th><th>最新</th></tr></thead>
-                    <tbody>${d.schools.map((s) => `
-                        <tr class="border-b last:border-0">
-                            <td class="py-1.5 font-mono">${escapeHtml(s.schoolCode)}</td>
-                            <td>${s.error ? '<span class="text-red-600 text-xs">读取失败</span>' : s.total}</td>
-                            <td>${s.error ? '-' : `<b>${s.beforeCount ?? '-'}</b>`}</td>
-                            <td class="text-xs text-gray-500">${s.oldest ? s.oldest.slice(0, 10) : '-'}</td>
-                            <td class="text-xs text-gray-500">${s.newest ? s.newest.slice(0, 10) : '-'}</td>
-                        </tr>`).join('')}</tbody></table>`;
+                if (!d.rows.length) {
+                    el.innerHTML = '<p class="text-xs text-gray-400 py-2">（范围内无审计日志）</p>';
+                } else {
+                    // 长表：按期间倒序、同期间内按学校；附期间小计
+                    let html = `<table class="w-full text-sm">
+                        <thead><tr class="text-left text-gray-500 border-b">
+                            <th class="py-2">期间（${gran === 'day' ? '按日' : gran === 'week' ? '按周' : '按月'}）</th>
+                            <th>学校</th><th>条数</th><th>估算占用</th></tr></thead>
+                        <tbody>`;
+                    let curPeriod = null, pCount = 0, pBytes = 0;
+                    const flush = () => {
+                        if (curPeriod !== null && d.scope === 'all') {
+                            html += `<tr class="bg-gray-50 text-xs text-gray-500"><td colspan="2" class="py-1 px-2">${escapeHtml(curPeriod)} 小计</td><td>${pCount}</td><td>${fmtBytes(pBytes)}</td></tr>`;
+                        }
+                    };
+                    for (const r of d.rows) {
+                        const p = periodLabel(r.period, gran);
+                        if (p !== curPeriod) { flush(); curPeriod = p; pCount = 0; pBytes = 0; }
+                        pCount += r.count; pBytes += r.estBytes;
+                        html += `<tr class="border-b last:border-0">
+                            <td class="py-1.5 font-mono">${escapeHtml(p)}</td>
+                            <td class="font-mono">${escapeHtml(r.schoolCode)}</td>
+                            <td>${r.count}</td>
+                            <td>${fmtBytes(r.estBytes)}</td>
+                        </tr>`;
+                    }
+                    flush();
+                    const totalN = d.rows.reduce((s, r) => s + r.count, 0);
+                    const totalB = d.rows.reduce((s, r) => s + r.estBytes, 0);
+                    html += `<tr class="bg-blue-50 font-semibold"><td class="py-1.5" colspan="2">合计（${okSchools.length} 校 / ${d.rows.length} 行）</td><td>${totalN}</td><td>${fmtBytes(totalB)}</td></tr>`;
+                    html += '</tbody></table>';
+                    el.innerHTML = html;
+                }
             }
-            if (msg) msg.textContent = `统计完成（截止 ${before}）`;
+            if (msg) msg.textContent = `统计完成（范围：${schoolLabel(scopeCode)}，粒度：按${gran === 'day' ? '日' : gran === 'week' ? '周' : '月'}）`;
         } catch (e) {
             if (msg) msg.textContent = `统计失败：${e.message}`;
             notify(e.message || '统计失败', 'error');
@@ -541,14 +594,16 @@ export function initDiskView({ API_BASE, authHeaders, notify }) {
 
     async function exportAuditLogs() {
         const { schoolCode, before } = auditParams();
-        if (!schoolCode || !before) { notify('请先选择学校与截止日期', 'error'); return; }
-        if (!confirm(`确认导出 ${schoolCode} 在 ${before} 之前的全部审计日志为留档文件？`)) return;
+        const scopeCode = schoolCode || 'all';
+        if (!before) { notify('请先选择截止日期', 'error'); return; }
+        if (!confirm(`确认导出 ${schoolLabel(scopeCode)} 在 ${before} 之前的全部审计日志为留档文件？`)) return;
         const msg = document.getElementById('diskAuditMsg');
         if (msg) msg.textContent = '导出中…';
         try {
-            const d = await api('/audit-logs/export', { method: 'POST', body: { schoolCode, before } });
-            if (msg) msg.innerHTML = `已导出 <b>${d.count}</b> 条 → <code class="font-mono">${escapeHtml(d.file)}</code>（${fmtBytes(d.bytes)}，数据盘 audit-exports/）· <a class="text-blue-600 underline" href="${API_BASE}/api/admin/disk/audit-logs/download?file=${encodeURIComponent(d.file)}" download>下载</a>`;
-            notify(`${schoolCode} 审计日志已导出 ${d.count} 条`, 'success');
+            const d = await api('/audit-logs/export', { method: 'POST', body: { schoolCode: scopeCode, before } });
+            const per = (d.perSchool || []).map((p) => `${p.schoolCode}:${p.count}`).join('，');
+            if (msg) msg.innerHTML = `已导出 <b>${d.count}</b> 条（${escapeHtml(per)}）→ <code class="font-mono">${escapeHtml(d.file)}</code>（${fmtBytes(d.bytes)}）· <a class="text-blue-600 underline" href="${API_BASE}/api/admin/disk/audit-logs/download?file=${encodeURIComponent(d.file)}" download>下载</a>`;
+            notify(`${schoolLabel(scopeCode)} 审计日志已导出 ${d.count} 条`, 'success');
         } catch (e) {
             if (msg) msg.textContent = `导出失败：${e.message}`;
             notify(e.message || '导出失败', 'error');
@@ -557,22 +612,25 @@ export function initDiskView({ API_BASE, authHeaders, notify }) {
 
     async function deleteAuditLogs() {
         const { schoolCode, before } = auditParams();
-        if (!schoolCode || !before) { notify('请先选择学校与截止日期', 'error'); return; }
+        const scopeCode = schoolCode || 'all';
+        if (!before) { notify('请先选择截止日期', 'error'); return; }
         const msg = document.getElementById('diskAuditMsg');
-        // 第一步：查询将删除条数（服务端要求 confirmCount 精确匹配）
+        // 第一步：查范围内待删总数（服务端要求 confirmCount 精确匹配）
         try {
-            const d = await api(`/audit-logs/stats?before=${before}`);
-            const s = d.schools.find((x) => x.schoolCode === schoolCode);
-            if (!s || s.error) throw new Error('该校日志统计不可用');
-            if (!s.beforeCount) { notify(`${before} 之前无日志可删`, 'error'); return; }
-            if (!confirm(`确认删除 ${schoolCode} 在 ${before} 之前的审计日志？\n将删除 ${s.beforeCount} 条（前提：已导出留档到 ≥ ${before}）。`)) return;
+            const q = new URLSearchParams({ schoolCode: scopeCode, before });
+            const d = await api(`/audit-logs/stats?${q}`);
+            const ok = d.schools.filter((s) => !s.error);
+            const total = ok.reduce((s, x) => s + (x.beforeCount || 0), 0);
+            if (!total) { notify(`${before} 之前无日志可删`, 'error'); return; }
+            if (!confirm(`确认删除 ${schoolLabel(scopeCode)} 在 ${before} 之前的审计日志？\n将删除 ${total} 条（前提：范围内各校均已导出留档到 ≥ ${before}）。`)) return;
             if (msg) msg.textContent = '删除中…';
             const r = await api('/audit-logs/delete', {
                 method: 'POST',
-                body: { schoolCode, before, confirmCount: s.beforeCount },
+                body: { schoolCode: scopeCode, before, confirmCount: total },
             });
-            notify(`已删除 ${schoolCode} ${before} 之前的 ${r.deleted} 条审计日志（留档校验通过：${r.exportVerified}）`, 'success');
-            if (msg) msg.textContent = `删除完成：${r.deleted} 条（留档文件 ${r.exportVerified} 已核验）`;
+            const per = (r.results || []).map((x) => `${x.schoolCode}:${x.deleted}`).join('，');
+            notify(`已删除 ${schoolLabel(scopeCode)} ${before} 之前的 ${r.deleted} 条审计日志（留档校验通过）`, 'success');
+            if (msg) msg.textContent = `删除完成：${r.deleted} 条（${per}）`;
             await loadAuditStats();
         } catch (e) {
             if (msg) msg.textContent = `删除失败：${e.message}`;
@@ -583,6 +641,7 @@ export function initDiskView({ API_BASE, authHeaders, notify }) {
     // 宿主页渲染面板（section#adminViewDisk 静态骨架在 HTML 中，动态内容在此填充）后初始化
     renderSkeleton();
     load();
+    loadAuditStats();   // 默认：全部学校 + 按日（条数+估算占用）
 
     return { reload: load };
 }
