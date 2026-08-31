@@ -10,10 +10,18 @@ export function getCurrentUsers() {
     return currentUsers;
 }
 
+// 新增/编辑用户弹窗保存成功后的回调（用于账号与权限-学校用户内联列表的刷新）
+let onUserSavedCallback = null;
+
+export function setOnUserSaved(cb) {
+    onUserSavedCallback = cb;
+}
+
 export async function loadUsers(schoolCode) {
     if (schoolCode) state.currentSchoolCode = schoolCode;
     if (!state.currentSchoolCode) return;
     const tbody = document.getElementById('usersTbody');
+    if (!tbody) return;
     tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-gray-400">加载中...</td></tr>';
     try {
         const resp = await adminFetch(`/api/admin/schools/${state.currentSchoolCode}/users`);
@@ -191,9 +199,10 @@ document.getElementById('btnReprovision').addEventListener('click', async () => 
     }
 });
 
-export function openUserModal(user, schoolCode) {
+export function openUserModal(user, schoolCode, onSaved) {
     if (schoolCode) state.currentSchoolCode = schoolCode;
     if (schoolCode) state.currentSchoolCode = schoolCode;
+    if (typeof onSaved === 'function') onUserSavedCallback = onSaved;
     const isEdit = !!user;
     document.getElementById('userEditId').value = isEdit ? user.id : '';
     document.getElementById('userModalTitle').innerHTML = isEdit
@@ -275,6 +284,10 @@ document.getElementById('userForm').addEventListener('submit', async (e) => {
         closeUserModal();
         showNotice('✅ ' + (json.message || '已保存'), 'success');
         loadUsers();
+        if (typeof onUserSavedCallback === 'function') {
+            try { onUserSavedCallback(); } catch (_) { }
+            onUserSavedCallback = null;
+        }
     } catch (err) {
         // FIX-14: 区分 401（登录失效）/403（无权限）/其它，给出可操作提示
         if (err.status === 401) {

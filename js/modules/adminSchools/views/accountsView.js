@@ -20,7 +20,7 @@
  */
 import { adminFetch } from '../context.js';
 import { escapeHtml, showNotice } from '../ui.js';
-import { openResetPwd, openUserModal, deleteUser } from './schoolUsersView.js';
+import { openResetPwd, openUserModal, deleteUser, setOnUserSaved } from './schoolUsersView.js';
 
 export function initAccountsView() {
     // ============================================================
@@ -49,6 +49,7 @@ export function initAccountsView() {
             if (action === 'edit') {
                 // 编辑需要完整用户对象（full_name / phone / role / status）
                 const userObj = cached || { id: userId, username };
+                setOnUserSaved(() => loadSchoolUsersInline(schoolCode));
                 openUserModal(userObj, schoolCode);
                 return;
             }
@@ -338,7 +339,8 @@ export function initAccountsView() {
     document.getElementById('suAddBtn')?.addEventListener('click', () => {
         const code = document.getElementById('suSchoolSelect').value;
         if (!code) return;
-        window.alert(`请在「学校管理」→ 选中学校（${code}）→「用户管理」Tab 内新增用户。\n（内嵌新增表单将在下个迭代补全，避免与现有 detailPanel.users 双绑）`);
+        setOnUserSaved(() => loadSchoolUsersInline(code));
+        openUserModal(null, code);
     });
 
     // FIX 已落地：window.superAdminAction / window.schoolUserAction
