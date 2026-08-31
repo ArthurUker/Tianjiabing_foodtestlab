@@ -10,7 +10,8 @@
 //   - status        = completed（历史数据）
 //   - created_by    = 目标租户现有 manager（u_zhyz_manager）
 //   - record_code   = 沿用旧系统唯一 record_code（RC-*），幂等，重复导入自动跳过
-//   - created_at/completed_at = 由 testDate 推导（+08:00）
+//   - created_at/completed_at = 由 testDate 推导，按 **UTC 午夜** 存储（与 school_tjb 已导入的
+//     700 条历史记录同口径；库时区 Asia/Shanghai，故 to_char(created_at,'YYYY-MM-DD') 仍等于 testDate）
 //
 // 用法：
 //   node scripts/import-zhyz-backup.mjs <backup.json>            # 正式导入
@@ -47,9 +48,9 @@ const DROP_FIELDS = new Set([
 
 function parseDate(s) {
   if (!s) return null
-  // testDate 形如 2026-06-03（业务日期，按 +08:00 解释）
+  // testDate 形如 2026-06-03（业务日期）→ 存 UTC 午夜，与 school_tjb 历史导入口径一致
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s).trim())
-  if (m) return new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00+08:00`)
+  if (m) return new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00Z`)
   const d = new Date(s)
   return isNaN(d.getTime()) ? null : d
 }
@@ -158,10 +159,11 @@ async function main() {
         )
         if (exist.length) { skipped++; continue }
         await prisma.$executeRawUnsafe(
+          // sample_info / result_data 为 jsonb 列，参数需显式 ::jsonb 转换
           `INSERT INTO "${TARGET_SCHEMA}"."TestRecord"
              ("id","record_code","test_type","test_name","sample_info","result_data","status",
               "created_by","created_at","updated_at","version","data_version","completed_at")
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,now(),0,1,$10)`,
+           VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8,$9,now(),0,1,$10)`,
           crypto.randomUUID(), r.record_code, r.test_type, r.test_name,
           r.sample_info, r.result_data, r.status, r.created_by, r.created_at, r.completed_at
         )
