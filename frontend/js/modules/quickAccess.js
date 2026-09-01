@@ -29,7 +29,6 @@ export function injectQuickAccessStyle() {
         #btnExportDashboard,
         #btnAddAtpPoint,
         #btnImportPathogen,
-        #btnDownloadTemplate,
         #fileInput,
         #pathogenFileInput,
         .btn-delete,

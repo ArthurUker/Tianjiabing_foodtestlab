@@ -122,65 +122,10 @@ export function initPathogen() {
                 handleFileImport(fileInput.files[0]);
             });
         }
-
-        document.getElementById('btnDownloadTemplate')?.addEventListener('click', () => {
-            // P2-模板修复：旧实现指向 ./templates/pathogen_template.docx，但仓库从未存在 templates/
-            // 目录，导致下载 404 打不开。改为前端动态生成「导入格式说明」文档（必定可打开），
-            // 同时保留原 .docx 模板的下载逻辑：若后端已提供静态模板文件则仍可下载真实模板。
-            const fallbackTemplate = () => {
-                const content = [
-                    '病原体检测报告导入格式说明',
-                    '================================',
-                    '',
-                    '请提供符合以下字段的病原体检测报告（Word .docx）进行导入：',
-                    '',
-                    '1. 检测开始时间：YYYY-MM-DD 或 YYYY年M月D日',
-                    '2. 样本编号：字母/数字/连字符，如 SAMPLE-001',
-                    '3. 检测人员：姓名',
-                    '4. 样本信息：一行描述（食堂/批次等）',
-                    '5. 检测项目：项目名称',
-                    '6. 数据区以 [检测数据] 开头，每行一个荧光通道，格式：通道-Ct值-结果',
-                    '   示例：FAM-1 32.5 阴性',
-                    '7. 阳性/阴性结果将自动生成风险等级。',
-                    '',
-                    '说明：直接导入第三方检测报告（如实验室 PDF 导出为 Word）亦可，',
-                    '系统会自动识别字段；识别不全时可手动补全食堂/检测员等信息。'
-                ].join('\n');
-                const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-                const url = URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                link.href = url;
-                link.download = '病原体导入格式说明.txt';
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                URL.revokeObjectURL(url);
-            };
-
-            fetch('./templates/pathogen_template.docx', { method: 'HEAD' })
-                .then((res) => {
-                    // FIX-10/R06: 模板文件不存在时，Caddy 的 try_files 会把请求回退到 /index.html
-                    // （返回 200 + text/html），导致 res.ok 恒为 true，把 HTML 当 .docx 下载 → Word 报"文件损坏"。
-                    // 增加 Content-Type 校验：仅当响应确实是 docx（或二进制流）时才下载，否则回退到可打开的格式说明。
-                    const ct = (res.headers.get('Content-Type') || '').toLowerCase();
-                    const isDocx = res.ok && (
-                        ct.includes('openxmlformats') ||
-                        ct.includes('application/octet-stream') ||
-                        ct.includes('application/zip')
-                    );
-                    if (isDocx) {
-                        const link = document.createElement('a');
-                        link.href = './templates/pathogen_template.docx';
-                        link.download = 'pathogen_template.docx';
-                        document.body.appendChild(link);
-                        link.click();
-                        document.body.removeChild(link);
-                    } else {
-                        fallbackTemplate();
-                    }
-                })
-                .catch(() => fallbackTemplate());
-        });
+        // 2026-09-01: 已移除「下载模板」按钮及其处理逻辑。
+        // 原实现 fetch('./templates/pathogen_template.docx')，而 templates/ 在 git 全历史中
+        // 从未存在过，Caddy try_files 使其恒返回 200+text/html，用户实际下载到的是
+        // 「病原体导入格式说明.txt」而非 Word 模板（历史 bug R06）。经产品决策取消该功能。
     }
 
     // P1-2: 事件回调 async 化（operationGuard.verify 已改为异步 UINotification.confirm）

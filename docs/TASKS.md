@@ -16,14 +16,14 @@
 
 | 窗口 | 负责功能 | 独占文件（主） |
 |------|----------|----------------|
-| W1 | 认证 / 用户 | `backend/modules/UserManager.js`、`backend/routes/userRoutes.js`、`js/services/AuthService.js` |
-| W2 | 访客 | `backend/routes/guestRoutes.js`、`js/services/GuestAuthService.js` |
+| W1 | 认证 / 用户 | `backend/modules/UserManager.js`、`backend/routes/userRoutes.js`、`frontend/js/services/AuthService.js` |
+| W2 | 访客 | `backend/routes/guestRoutes.js`、`frontend/js/services/GuestAuthService.js` |
 | W3 | 审计 | `backend/routes/auditRoutes.js`、`backend/lib/auditLog.js` |
-| W4 | 会话 / 前端生命周期 | `backend/routes/sessionRoutes.js`、`js/services/SessionManager.js` |
+| W4 | 会话 / 前端生命周期 | `backend/routes/sessionRoutes.js`、`frontend/js/services/SessionManager.js` |
 | W5 | 租户隔离 | `backend/lib/tenantClient.js`、`backend/lib/tenantProvisioner.js`、`backend/middleware/` |
 | W6 | 部署 / 脚本 | `deploy/`、`scripts/` |
 | W7 | 文档 | `docs/`、`README.md` |
-| W8 | 备份 / 运维（cvm 备份体系） | `backend/routes/schoolBackupRoutes.js`、`backend/routes/adminBackupRoutes.js`、`backend/lib/backup*.js`、`backend/lib/restore*.js`、`js/modules/BackupRestore.js`、`js/modules/adminSchools/views/backupView.js` |
+| W8 | 备份 / 运维（cvm 备份体系） | `backend/routes/schoolBackupRoutes.js`、`backend/routes/adminBackupRoutes.js`、`backend/lib/backup*.js`、`backend/lib/restore*.js`、`frontend/js/modules/BackupRestore.js`、`frontend/js/modules/adminSchools/views/backupView.js` |
 
 > 跨窗口功能（如"前端调用某后端接口"）由调用方窗口负责对接，被调方窗口只保证接口契约稳定。
 
@@ -59,7 +59,7 @@
 
 | 编号 | 已完成内容 | 证据 |
 |------|-----------|------|
-| TD-School-Backup-Sync | 学校侧备份运维重写：新建 `backend/routes/schoolBackupRoutes.js`（`/api/school/backups`，list/run/download/verify/restore，按 `req.user.schoolCode` 强隔离，禁止跨校；平台超管 role=admin 且 schoolCode 空者拒绝）；server.js 挂载；重写 `js/modules/BackupRestore.js` 为 cvm 备份视图（复用超管 backupView 结构）。含自查修复：列表补 `createdBy` 字段、download 加 `format∈{plain,encrypted}` 白名单（超管版同款缺陷一并修复）、清理 `audit()` 死参数。运维支撑：KMS fail-closed 解锁（`setup-backup-kms.sh` 支持 `--key` 复用旧密钥 + 32 字节校验）、`restart-school-backup-api.sh` 一键重启、`deploy.sh` 密钥复用修复（防重部署覆盖） | lint 0 错误；jest 226/227；服务重启验证 401 非 404 |
+| TD-School-Backup-Sync | 学校侧备份运维重写：新建 `backend/routes/schoolBackupRoutes.js`（`/api/school/backups`，list/run/download/verify/restore，按 `req.user.schoolCode` 强隔离，禁止跨校；平台超管 role=admin 且 schoolCode 空者拒绝）；server.js 挂载；重写 `frontend/js/modules/BackupRestore.js` 为 cvm 备份视图（复用超管 backupView 结构）。含自查修复：列表补 `createdBy` 字段、download 加 `format∈{plain,encrypted}` 白名单（超管版同款缺陷一并修复）、清理 `audit()` 死参数。运维支撑：KMS fail-closed 解锁（`setup-backup-kms.sh` 支持 `--key` 复用旧密钥 + 32 字节校验）、`restart-school-backup-api.sh` 一键重启、`deploy.sh` 密钥复用修复（防重部署覆盖） | lint 0 错误；jest 226/227；服务重启验证 401 非 404 |
 | TD-Batch-Restore | 全库备份批量恢复（大事故应急）：后端 `POST /api/admin/backups/:id/restore-batch`（仅 scope=all；`{confirmText:'RESTORE_ALL', targetSchoolCodes:[...]}`；串行逐校 runRestore，每校独立原子事务；上限 200 校 + 非字符串过滤 + 审计逐校明细/耗时）。前端 backupView.js 全库行加「批量恢复」按钮 + 学校多选模态（全选/总数显示）+ 结果展示优化 | jsdom 完整链路验证；后端 5 非法请求 400 校验通过；lint 0 错误 |
 | TD-Backup-Dir-Migrate | 备份目录迁移数据盘：`/var/backups/foodtestlab`（系统盘 `/dev/vda2`，与 PG 同盘无容灾隔离）→ `/mnt/datadisk0/backups`（独立数据盘 `/dev/vdb`）。rsync 迁移 980K 完整、`.env` BACKUP_DIR 更新、重启后 backupRootDir() 确认指向数据盘、服务可写。原目录保留未删（双保险） | findmnt 确认挂载点 /dev/vdb；kmsMode()=local |
 | TD-Backup-Restore-Extract-Bug | 影子恢复 `invalid command \` 修复（截图 school_hqyz 恢复失败）：根因 `extractSchemaSegment` 括号配对对复杂 CHECK 约束（ARRAY 字符串内括号）/PL-pgSQL 函数体（dollar-quote）/表紧邻/PG17+ `\restrict` 头全部误判，孤立 `\.` 行残留。改用 pg_dump 标准段锚点（`-- Name:`/`-- Data for Name:`）按段整体取舍，丢弃 PG17+ psql meta-commands。新增 7 个测试（含 bug 复现） | `tests/extractSchemaSegment.test.js` 7/7 通过；真实备份 `20260818T105232` 端到端 psql -f 成功建 16 张表；服务已重启 |
@@ -173,8 +173,8 @@
 | TD-OptimisticLock-Atomic | 已完成 | PUT 乐观锁 `where:{id, version}` 原子条件更新，版本不符返回 409（代码内带 `// TD-OptimisticLock-Atomic` 注释） | `backend/routes/recordRoutes.js:441-453` |
 | TD-Fingerprint | 已完成 | 指纹计算统一到 `recordNormalize.js` 的 `buildDeterministicRecordCode`（前后端共用单一实现 + 固定 `volatileKeys` 列表），`recordRoutes.js`/`import-*.mjs` 均引用 | `backend/lib/recordNormalize.js:152-198`；`Storage.js:33` 另有本地 `VOLATILE_FIELDS` 副本（待统一，见下方"待办遗留"） |
 | TD-CORS-Hardcode | 已完成 | CORS 已改读环境变量 `CORS_ORIGIN` / `CORS_HOSTNAMES`，非硬编码本地地址 | `backend/server.js:48,95,108,117` |
-| TD-Audit-DateFilter | 已完成 | `getLogs()` 已传 `start_date`/`end_date` 到 URL；UI 日期筛选生效 | `js/services/AuditService.js:151-152`；`js/modules/AuditLog.js:299-304` |
-| TD-UserSearch | 已完成 | 用户列表已读搜索输入 + 角色过滤 | `js/modules/UserManagement.js:226-237` |
+| TD-Audit-DateFilter | 已完成 | `getLogs()` 已传 `start_date`/`end_date` 到 URL；UI 日期筛选生效 | `frontend/js/services/AuditService.js:151-152`；`frontend/js/modules/AuditLog.js:299-304` |
+| TD-UserSearch | 已完成 | 用户列表已读搜索输入 + 角色过滤 | `frontend/js/modules/UserManagement.js:226-237` |
 | TD-ValidDays-NoValidation | 部分完成 | `guestRoutes.js` 已加 `Math.min(Number(valid_days) || 30, 365)` 上限保护（防 999999 超大过期）；**未做**：`typeof === 'number'` 严格类型校验（"abc"→NaN 走 `||30` 兜底而非拒绝） | `backend/routes/guestRoutes.js:171-172` |
 
 > **遗留提示（非 §2 待办，但建议后续关注）**：
@@ -185,19 +185,19 @@
 
 ### 3.9 第二轮代码核查收口（2026-08-18 · 方案 A 深化）
 
-对 §2 剩余 22 条做第二轮深化核查（扩大探针、修正首轮路径/方法误判），再发现 **10 条实际已完成 / 已规避 / 前提不成立**，已从 §2 删除。本轮纠正了首轮 4 处偏差：① `pathogenRisk.js` 真实路径在 `js/utils/` 非 `services/`；② ConsoleLog 已有 `logSilencer.js` 全局降噪层接管；③ GuestQuickAccess 实际由后端 `guestRoutes.js` 设标识；④ Login-Placeholder 的 login.html 已有 placeholder。
+对 §2 剩余 22 条做第二轮深化核查（扩大探针、修正首轮路径/方法误判），再发现 **10 条实际已完成 / 已规避 / 前提不成立**，已从 §2 删除。本轮纠正了首轮 4 处偏差：① `pathogenRisk.js` 真实路径在 `frontend/js/utils/` 非 `services/`；② ConsoleLog 已有 `logSilencer.js` 全局降噪层接管；③ GuestQuickAccess 实际由后端 `guestRoutes.js` 设标识；④ Login-Placeholder 的 login.html 已有 placeholder。
 
 | 编号 | 状态 | 已完成内容 | 证据 |
 |------|------|-----------|------|
-| TD-ConsoleLog | 已完成 | 新增 `js/utils/logSilencer.js` 全局 console 拦截层：生产环境静默 log/info/debug，warn/error 按关键字过滤；本地/`?debug=true`/`localStorage` 可恢复。覆盖原 195+ 处直打 | `js/utils/logSilencer.js:5-49`（head 同步加载，早于 main.js） |
+| TD-ConsoleLog | 已完成 | 新增 `frontend/js/utils/logSilencer.js` 全局 console 拦截层：生产环境静默 log/info/debug，warn/error 按关键字过滤；本地/`?debug=true`/`localStorage` 可恢复。覆盖原 195+ 处直打 | `frontend/js/utils/logSilencer.js:5-49`（head 同步加载，早于 main.js） |
 | TD-MemMap | 部分完成 | `idempotencyMiddleware` 已加 `MAX_ENTRIES=10000` 上限 + TTL 清理 + 满则 429（NB-11）；**未确认**：`validationMiddleware.rateLimit` Map 是否同样上限 | `backend/middleware/idempotencyMiddleware.js:8,18-28,61-63` |
-| TD-PathogenRisk | 已完成 | `calculatePathogenRisk` 已回退 `ctRaw` 原值（`item?.ctRaw ?? item?.ct ?? '-'`），无效 ct 兜底 999，与展示一致 | `js/utils/pathogenRisk.js:13,17,29,33` |
+| TD-PathogenRisk | 已完成 | `calculatePathogenRisk` 已回退 `ctRaw` 原值（`item?.ctRaw ?? item?.ct ?? '-'`），无效 ct 兜底 999，与展示一致 | `frontend/js/utils/pathogenRisk.js:13,17,29,33` |
 | TD-GuestQuickAccess | 已完成 | 后端 quickAccess 登录时显式设 `is_quick_access: true`（前端读该字段控制显隐） | `backend/routes/guestRoutes.js:286,298` |
-| TD-FrontendParseInt-NaN | 部分完成 | 数据解析 `parseInt(val) \|\| 0` 兜底；分页 `currentPage = Math.max(1, Math.min(currentPage, totalPages))` 边界 clamp | `js/modules/Tableware.js:482,887-888` |
-| TD-WordImport | 不适用（功能未实现） | `js/` 下无 Word/`.docx` 导入实现（mammoth 等均未引入），任务前提不成立；如未来要做应作为新功能立项，不复用此 ID | `search_file *Word*` 返回 0；`grep "docx\|mammoth"` 无命中 |
+| TD-FrontendParseInt-NaN | 部分完成 | 数据解析 `parseInt(val) \|\| 0` 兜底；分页 `currentPage = Math.max(1, Math.min(currentPage, totalPages))` 边界 clamp | `frontend/js/modules/Tableware.js:482,887-888` |
+| TD-WordImport | 不适用（功能未实现） | `frontend/js/` 下无 Word/`.docx` 导入实现（mammoth 等均未引入），任务前提不成立；如未来要做应作为新功能立项，不复用此 ID | `search_file *Word*` 返回 0；`grep "docx\|mammoth"` 无命中 |
 | TD-EnvConfig-NaN | 部分完成 | 关键 env 读取已用 `Number(process.env.X \|\| 默认)` 兜底（RATE_LIMIT 等）；**未做**：每个读取点显式 `isNaN` 校验，但 `\|\| 默认` 已防 NaN 注入 | `backend/server.js:82-83` |
-| TD-Style-Important | 已完成 | 登录页改用语义化 class 切换（`classList.add/remove('hidden')`）与 `style.setProperty('--ls-overlay', ...)`，`index.html` 的 `!important` 均为 CSS 选择器（合法），不再出现 JS 内 `style.display='...!important'` 无效写法 | `js/modules/loginPage.js:28-36,272-287,315,420`；`index.html:126-128,151,198,211` |
-| TD-Dashboard-Override | 部分完成 | 模块显隐已结合配置 `visibleTypes.includes(code)` 而非纯硬编码；`forceDashboardInit` 覆写问题需结合 §2 残留 TD 进一步确认 | `js/modules/Dashboard.js:718`（及 630-644 classList 切换） |
+| TD-Style-Important | 已完成 | 登录页改用语义化 class 切换（`classList.add/remove('hidden')`）与 `style.setProperty('--ls-overlay', ...)`，`index.html` 的 `!important` 均为 CSS 选择器（合法），不再出现 JS 内 `style.display='...!important'` 无效写法 | `frontend/js/modules/loginPage.js:28-36,272-287,315,420`；`index.html:126-128,151,198,211` |
+| TD-Dashboard-Override | 部分完成 | 模块显隐已结合配置 `visibleTypes.includes(code)` 而非纯硬编码；`forceDashboardInit` 覆写问题需结合 §2 残留 TD 进一步确认 | `frontend/js/modules/Dashboard.js:718`（及 630-644 classList 切换） |
 | TD-Login-Placeholder | 已完成 | `login.html` 用户名/密码输入框已置 `placeholder="请输入用户名"/"请输入密码"` | `login.html:191,208` |
 
 > **§3.9 收口说明**：以上 10 条（4 条全称完成、5 条部分完成、1 条前提不成立）均为**代码已实现或功能未落地、仅文档未同步**的遗漏，现已归档。除非发现代码回归，否则不再在 §2 保留对应 ID。
@@ -209,8 +209,8 @@
 | 编号 | 状态 | 已完成内容 | 证据 |
 |------|------|-----------|------|
 | TD-Schema-Constraints | 部分完成 | `User.school_code` 已加 `@@index([school_code])`（schema.prisma:197）；**未做**：`Session.session_token` 仍 `String?` 无 `@@unique`（:240）、`GuestExportRequest.reviewed_by` 仍 `String?` 无外键（:162） | `backend/prisma/schema.prisma:197,240,162`；`git log -S "@@index([school_code])"` → `79a14a6` |
-| TD-DoubleSubmit | 部分完成 | 访客入口（`loginPage.js:503-509` disabled + 恢复）与 GuestDashboard（`GuestDashboard.js:525,546-547` disabled + finally）已防重；**未做**：`Tableware.js` 提交点仍无 disabled 保护（grep 0 命中） | `js/modules/loginPage.js:503-509`；`js/modules/GuestDashboard.js:525,546-547`；`git log -S "btnSubmit.disabled = true"` → `763698b` |
-| TD-Guest-ShowError | 已完成 | 访客登录按钮已接线：失败 `showError(...)` 反馈 + `disabled` 防重 + 默认 HTML 恢复；`guestErrorMessage`/`guestErrorText` 元素已在 HTML 预留 | `js/modules/loginPage.js:480-511`（含 `guestErrorText` 声明 :481、防重 :503-509） |
+| TD-DoubleSubmit | 部分完成 | 访客入口（`loginPage.js:503-509` disabled + 恢复）与 GuestDashboard（`GuestDashboard.js:525,546-547` disabled + finally）已防重；**未做**：`Tableware.js` 提交点仍无 disabled 保护（grep 0 命中） | `frontend/js/modules/loginPage.js:503-509`；`frontend/js/modules/GuestDashboard.js:525,546-547`；`git log -S "btnSubmit.disabled = true"` → `763698b` |
+| TD-Guest-ShowError | 已完成 | 访客登录按钮已接线：失败 `showError(...)` 反馈 + `disabled` 防重 + 默认 HTML 恢复；`guestErrorMessage`/`guestErrorText` 元素已在 HTML 预留 | `frontend/js/modules/loginPage.js:480-511`（含 `guestErrorText` 声明 :481、防重 :503-509） |
 
 > **§3.10 收口说明**：以上 3 条（1 条全称完成、2 条部分完成）均为**代码已实现、仅文档未同步**的遗漏，现已归档。除非发现代码回归，否则不再在 §2 保留对应 ID。
 
@@ -222,7 +222,7 @@
 |------|------|-----------|------|
 | TD-AcceptDataLoss | 已规避（设计性） | `tenantProvisioner.js:140-150` 已对 `--accept-data-loss` 做明确决策：增量推送新列/索引用 `--accept-data-loss`，**破坏性变更（改列类型/删列）强制走 prisma migration，不依赖本处 db push**，从设计上消除静默丢数风险 | `backend/lib/tenantProvisioner.js:140-150,150`；`git log -S "--accept-data-loss"` → `c0fbe24`,`22850ce` |
 | TD-Backup-Restore-PLPGSQL-Parser | 已完成（超出原排期） | `restoreSqlUtils.js` 已实现 PL/pgSQL dollar-quote / 字符串 / 注释感知的解析（`:44,55,132` 注释与逻辑），原 §2 标"后续优化（排期未定）"实际已落地，标准 pg_dump 端到端验证通过 | `backend/lib/restoreSqlUtils.js:44,55,132`；`git log -S "dollar-quote"` → `b1db4f8` |
-| TD-ResultMatch-Strict | 无实际缺陷（场景不适用） | `GenericTest.js:523` `isPassed = displayValue === '合格'` 中 `displayValue` 来自 `<option value="合格">` 的精确字符串，select 场景下 `===` 与 `includes('合格') && !includes('不合格')` 等价，无"填合格反馈不合格"风险 | `js/modules/GenericTest.js:422-423,523`；`git log -S "isPassed = displayValue"` → `776dac8` |
+| TD-ResultMatch-Strict | 无实际缺陷（场景不适用） | `GenericTest.js:523` `isPassed = displayValue === '合格'` 中 `displayValue` 来自 `<option value="合格">` 的精确字符串，select 场景下 `===` 与 `includes('合格') && !includes('不合格')` 等价，无"填合格反馈不合格"风险 | `frontend/js/modules/GenericTest.js:422-423,523`；`git log -S "isPassed = displayValue"` → `776dac8` |
 
 > **§3.11 收口说明**：以上 3 条（1 条设计性规避、1 条超出排期完成、1 条场景不适用无缺陷）均为**代码已实现 / 文档描述过时**的遗漏，现已归档。除非发现代码回归，否则不再在 §2 保留对应 ID。
 
