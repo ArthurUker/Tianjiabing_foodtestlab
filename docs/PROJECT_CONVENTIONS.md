@@ -96,7 +96,7 @@
 1. **记录类 CRUD / 批量导入**：经 `server.js` 的 `writeRecordAuditLog(db, userId, action, resourceType, resourceId, details, ip)` 写入**当前租户 schema 的 `auditLog`**（注意首参是 `req.db`，保证落在该校 schema）。已在 `test-records` / `records` 的增改删与批量导入中调用。
 2. **通用操作审计**：经 `POST /api/audit-logs`（前端 `AuditLogService` 调用），写入字段完整（含 `ip_address`）。**禁止**在 handler 内裸写 `req.db.auditLog.create` 绕过统一封装（会漏掉 IP、破坏口径）。
 3. **登录 / 失败登录**：经 `UserManager.logLogin` / `logFailedLogin`（登录成功写 `auditLog`；用户不存在时因外键约束改写 `systemLog`）。
-4. **前端离线日志**：`js/utils/AuditLogger.js` 写入 `localStorage` 的 `audit_YYYY-MM-DD`（保留 30 天），仅作离线兜底，不进库。
+4. **前端离线日志**：`frontend/js/utils/AuditLogger.js` 写入 `localStorage` 的 `audit_YYYY-MM-DD`（保留 30 天），仅作离线兜底，不进库。
 5. 统一审计接口设计（合并三套、统一字段）属待办，**在 TD-P2-13 完成前，维持上述分工，不得自行新增第四套审计写入路径**。
 
 ---
@@ -114,7 +114,7 @@
 
 ## 规则七：前端访问层与 schoolCode 提取唯一性
 
-1. **业务代码不依赖具体路由机制**：前端任何模块都**不得**直接解析 `window.location.pathname` / `hostname` 来判断学校；一律依赖 `js/utils/schoolCode.js` 的 `extractSchoolCode()` 返回值。当前从路径前缀 `/<code>/` 提取，回退到 `?school=` 查询参数。
+1. **业务代码不依赖具体路由机制**：前端任何模块都**不得**直接解析 `window.location.pathname` / `hostname` 来判断学校；一律依赖 `frontend/js/utils/schoolCode.js` 的 `extractSchoolCode()` 返回值。当前从路径前缀 `/<code>/` 提取，回退到 `?school=` 查询参数。
 2. **切换成本隔离**：未来从"路径前缀"切到"子域名"（`school-a.example.com`）时，**只允许替换 `schoolCode.js` 内部实现**，其余业务代码与标识来源无关，不得因此改动 handler / 服务 / 组件。
 3. **登录前个性化**：`login.html` 在页面加载时若有 `schoolCode`，调用 `/api/schools/:schoolCode/config` 应用 `name`/`themeColor`/`logoUrl`，失败不阻断登录流程（见 `login.html` 的 `applySchoolTheme`）。
 4. **登录携带 schoolCode**：`AuthService.login(username, password, schoolCode)` 必须把 `currentSchoolCode` 一并上报（写入请求体 `schoolCode`），供后端 `forTenant` 路由。
@@ -158,7 +158,10 @@
    - 腾讯云**安全组**放行 TCP 22 / 80（上域名后加 443）；漏配会"本机健康检查通过但外网超时"。
    - **数据盘持久化挂载**（如 `/mnt/datadisk0` 写入 `/etc/fstab`）；`REQUIRED_MOUNT` 未挂载脚本直接中止，防数据静默写回系统盘。
    - 外网出站可达 `github.com` 与 `registry.npmjs.org`（脚本预检）。
-5. **前端构建产物完整性**：`scripts/build-static.js` 仅复制静态资源到 `dist/`，**必须包含 `login.html` 与 `index.html`**（登录页个性化依赖 `dist/login.html`）。改构建脚本时不得遗漏 `login.html`。
+5. **前端构建产物完整性**：`scripts/build-static.js` 扫描 `frontend/pages`+`frontend/demos` 的 HTML
+   **扁平化**复制到 `dist/` 根，**产物必须包含 `login.html` 与 `index.html`**（登录页个性化与
+   Caddy rewrite 均依赖 `dist/login.html`）。
+   构建脚本对同名 HTML 会**直接报错**（防 dist 内静默覆盖），新增页面时若与既有页面重名需先改名。
 6. **禁止把 `DB_TYPE` 改回 sqlite**（见规则六第 6 条）；部署脚本 PostgreSQL 化是既定下一步，须与代码层 `provider=postgresql` 保持一致。
 7. **多用户同机**：每用户独立 `FRONTEND_PORT`/`API_PORT`/`SYSTEM_NAME`，Caddy 采用主配置 `import` 站点目录（`/etc/caddy/sites/*.caddy`），预检端口冲突；重跑某用户不冲掉其他用户站点。
 
@@ -180,19 +183,23 @@ server.js（入口/路由/中间件装配）
 - 可观测性产物（`telemetry.js`、`backend/sql/*.sql`）**已于迁移清理中移出仓库**（TD-Backend-Orphan 已解决）；新增可观测性须先 `npm install` 对应依赖并以 `--import` 方式接入，**不得**在已有 handler 里内联埋点。
 
 ### 11.2 前端（原生 ESM，无框架）
-- **入口**：`login.html`（登录）、`index.html`（主应用）、`js/main.js`（DOMContentLoaded 总初始化）。
+- **入口**：`login.html`（登录）、`index.html`（主应用）、`frontend/js/main.js`（DOMContentLoaded 总初始化）。
 - **通信方式**：导航与跨模块通信统一走**事件委托 + `CustomEvent`**（`app:navigate`、`dashboard:refresh`）。**禁止**挂 `window.xxx` 全局函数供模块互调（历史 `window.renderQuickAccessData` 等已移除，新代码不得复活）。
-- **权限守卫**：`js/core/Router.js` 负责按角色显隐 admin/guest 菜单、Token 定时校验、30 分钟空闲登出。菜单项用 `data-admin-only` 标记仅管理员可见。
+- **权限守卫**：`frontend/js/core/Router.js` 负责按角色显隐 admin/guest 菜单、Token 定时校验、30 分钟空闲登出。菜单项用 `data-admin-only` 标记仅管理员可见。
 - **状态存储约定**（无集中状态库）：`localStorage` 键包括 `auth_token`/`current_user`/`guest_token`（登录态）、`cache_<table>`（记录缓存）、`pending_<table>`（待同步队列）、`fingerprint_index_<table>`（去重索引）、`audit_YYYY-MM-DD`（离线日志，保留 30 天）。新增持久化键须带语义前缀，避免与现有键冲突。
-- **离线优先数据层**：`js/core/Storage.js`（`StorageService`）是核心——离线优先、乐观写入（`temp_` 临时 ID）、三层去重、429 全局退避、409 版本冲突恢复。新检测模块的数据读写应走该服务，而非裸 `fetch`。
-- **禁止新增孤儿模块**：`js/utils/` 中曾有 `CacheManager`/`ConfigManager`/`UserAuth`（ESM 但无人 import）、`IndexedDBManager`/`OfflineModeManager`/`PerformanceMonitor`（CommonJS 风格，无法被 ESM import）等遗留未启用产物，已于迁移清理中移出仓库（TD-Orphan 已解决）。新功能请在既有模块或新增被正确 import 的模块中实现，不要制造新的孤立文件。
+- **离线优先数据层**：`frontend/js/core/Storage.js`（`StorageService`）是核心——离线优先、乐观写入（`temp_` 临时 ID）、三层去重、429 全局退避、409 版本冲突恢复。新检测模块的数据读写应走该服务，而非裸 `fetch`。
+- **禁止新增孤儿模块**：`frontend/js/utils/` 中曾有 `CacheManager`/`ConfigManager`/`UserAuth`（ESM 但无人 import）、`IndexedDBManager`/`OfflineModeManager`/`PerformanceMonitor`（CommonJS 风格，无法被 ESM import）等遗留未启用产物，已于迁移清理中移出仓库（TD-Orphan 已解决）。新功能请在既有模块或新增被正确 import 的模块中实现，不要制造新的孤立文件。
 
 ---
 
 ## 规则十二：测试、构建与质量门禁
 
 1. **Lint 零错误**：提交前确保改动文件 `read_lints` 无 error（历史遗留 warning 不要求清零，但新增代码不得引入 error）。
-2. **构建**：`npm run build` → `scripts/build-static.js` 仅复制静态资源到 `dist/`（无转译 / 无打包）。改 `js/` 或 `login.html`/`index.html`/`css/` 后必须重新构建，`dist/` 不纳入版本控制的源码。
+2. **构建**：`npm run build` → `scripts/build-static.js` 复制静态资源到 `dist/`（无转译 / 无打包）。
+   改 `frontend/js/`、`frontend/css/` 或 `frontend/pages|demos/*.html` 后必须重新构建，
+   `dist/` 不纳入版本控制的源码。
+   （⚠ 本机 `build:css` 因 tailwindcss CLI 缺失会失败，仅改前端时请直接跑
+   `node scripts/build-static.js`，详见根 README 部署章节。）
 3. **测试骨架**：Jest 29（`jest.config.cjs` + babel-jest + jsdom）冒烟；Cypress 12（需先起静态服务器）。新增纯函数（如 `Validator`、`pathogenRisk`、`schoolCode` 解析）应补单测。
 4. **自测闭环**：后端改动后 `curl /api/health`；前端改动后确认 `dist/login.html` 可被 Caddy 重写规则命中（即 `/school-a/login` 能渲染登录页）。
 

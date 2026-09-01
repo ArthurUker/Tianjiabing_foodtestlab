@@ -94,8 +94,8 @@ logrotate 配置、适配文件 `/opt/deploy/deploy.foodtestlab.conf`。
 - **学校回收站**：彻底删除学校先软删除、再进回收站（保留 90 天可恢复），杜绝误删。
 - **字段选项级联**：动态表单字段（如「检测项目 → 检测点位」）的级联选项配置。
 - **浏览器测试报告**：测试人员在线填报、汇总、收口归档的辅助工具（入口：平台超管 `admin-schools.html` 左侧菜单「测试报告」原生三视图，数据来自 `backend/lib/testCaseDefs.js` 权威清单 + `public.TestCase`/`TestExecution` 执行记录）。
-- **洗涤剂残留自动识别**：基于 OpenCV.js（WASM）的 ArUco 定位 + 单应校正 + ΔE2000 比色，前后端共用核心 `js/opencv/recognizer.js`（A4 拍摄卡四角定位标）。前端 `detergent-image-demo.html`（`js/modules/detergentDemo.js`）为「先定位区域 → 用户确认 → 再比色」的两步式演示/采集界面；后端 `backend/modules/recognitionQueue.js` + `backend/routes/recognitionRoutes.js` 提供单 Worker 排队式识别服务，已挂载于 `server.js:314` `app.use('/api', recognitionRoutes)`，对外暴露 `POST /api/recognize`（提交，图片 ≤8MB）与 `GET /api/recognize/status/:jobId`（轮询，排队超 5 分钟报错），进程启动时 `recognitionQueue` 自动 pump（见 §5.11）。
-- **平台超管磁盘管理**：磁盘水位总览、systemd journal 清理、应用日志清理、按天备份删除、以及**租户审计日志的人工归档清理**（先导出留档 JSON Lines 落数据盘，校验「已留档」后才允许删除，未留档一律拒绝）。入口为平台超管控制台「磁盘管理」视图（`js/modules/adminSchools/views/diskView.js`）与后端 `backend/routes/adminDiskRoutes.js`（挂载于 `server.js:300` `app.use('/api/admin/disk', adminDiskRoutes)`，见 §5.12）。
+- **洗涤剂残留自动识别**：基于 OpenCV.js（WASM）的 ArUco 定位 + 单应校正 + ΔE2000 比色，前后端共用核心 `frontend/js/opencv/recognizer.js`（A4 拍摄卡四角定位标）。前端 `detergent-image-demo.html`（`frontend/js/modules/detergentDemo.js`）为「先定位区域 → 用户确认 → 再比色」的两步式演示/采集界面；后端 `backend/modules/recognitionQueue.js` + `backend/routes/recognitionRoutes.js` 提供单 Worker 排队式识别服务，已挂载于 `server.js:314` `app.use('/api', recognitionRoutes)`，对外暴露 `POST /api/recognize`（提交，图片 ≤8MB）与 `GET /api/recognize/status/:jobId`（轮询，排队超 5 分钟报错），进程启动时 `recognitionQueue` 自动 pump（见 §5.11）。
+- **平台超管磁盘管理**：磁盘水位总览、systemd journal 清理、应用日志清理、按天备份删除、以及**租户审计日志的人工归档清理**（先导出留档 JSON Lines 落数据盘，校验「已留档」后才允许删除，未留档一律拒绝）。入口为平台超管控制台「磁盘管理」视图（`frontend/js/modules/adminSchools/views/diskView.js`）与后端 `backend/routes/adminDiskRoutes.js`（挂载于 `server.js:300` `app.use('/api/admin/disk', adminDiskRoutes)`，见 §5.12）。
 
 ### 目标用户
 
@@ -127,7 +127,7 @@ logrotate 配置、适配文件 `/opt/deploy/deploy.foodtestlab.conf`。
 | 后端运行时 | Node.js 20（NVM）、Express 4 | ESM（`"type":"module"`），入口 `backend/server.js` |
 | ORM / 数据库 | Prisma 5 + **PostgreSQL** | `backend/prisma/schema.prisma`，`provider = postgresql`；生产库 **`foodsentinel`**（数据盘 `/mnt/datadisk0`） |
 | 认证 | jsonwebtoken 9 + bcryptjs 2 | 无状态 JWT（Bearer）+ refresh token 轮转，bcrypt 密码哈希 |
-| 前端 | 原生 ES Module + Tailwind(CDN) | `index.html`/`login.html` + `js/**/*.js`，浏览器直载 |
+| 前端 | 原生 ES Module + Tailwind(CDN) | `index.html`/`login.html` + `frontend/js/**/*.js`，浏览器直载 |
 | 前端数据层 | `StorageService` + `AdaptiveUploadQueue` | 离线优先：本地缓存 + 待办队列 + 多层去重 + 429/409 处理 |
 | 前端构建 | `scripts/build-static.js` + Tailwind CLI | 复制静态资源到 `dist/` 并编译 CSS（无转译/打包） |
 | 备份 | `pg_dump` + AES-256-GCM 信封加密 + KMS | `backend/lib/backupKms.js`/`backupService.js`/`backupVerify.js` |
@@ -144,7 +144,7 @@ logrotate 配置、适配文件 `/opt/deploy/deploy.foodtestlab.conf`。
 ```mermaid
 flowchart TB
     subgraph Client[浏览器]
-        UI[静态前端 ES Module<br/>index.html / js/** / admin-schools.html]
+        UI[静态前端 ES Module<br/>frontend/pages/*.html + frontend/js/**<br/>经 dist/ 由 Caddy 直供]
     end
 
     subgraph CVM[腾讯云 CVM · Ubuntu]
@@ -204,20 +204,40 @@ flowchart TB
 >
 > 服务启动时由 `selfHealTenantSchemas()` 在后台把全部**启用中（`status='active'`）**的租户 schema 与当前 `schema.prisma` 对齐（内部调 `syncAllTenantSchemas`，单校失败不阻断其余）并回填历史 NULL（可经 `AUTO_SYNC_TENANTS=false` 关闭，改由 `npm run db:sync` 手动执行）。停用学校不纳入批量同步（逻辑删除）。
 >
-> **多租户访问识别（路径前缀路由，方案 A）**：学校代码即部署基路径首段，学校应用按 `/<code>/` 子路径部署（`/<code>/login.html`、`/<code>/index.html`）。前端 `js/utils/schoolCode.js` 的 `extractSchoolCode()` 是访问层**唯一**依赖「路径/域名」的代码位置：优先从路径首段 `/<code>/...` 提取，兜底 `?school=<code>` 查询参数（无标识时回落 `DEFAULT_SCHEMA=public`，即平台超管所在的 `public`；路径优先于查询，防用户篡改租户）。**生成端（`buildSchoolLoginUrl`）只产出纯路径形式 `/<code>/login.html`，不拼接 `?school=`**；解析端保留查询兜底仅作兼容/排查入口。「`/<code>/<resource>` → `/<resource>`」的重写**生产环境由 Caddy 层完成**（`@schoolLogin`/`@schoolHelp` rewrite + `handle` 互斥，见 §8.4），后端 `server.js` 的同名中间件仅在 `SERVE_STATIC=true`（本地开发）时生效；`RESERVED_STATIC_DIRS` 白名单排除 `css/js/api/health` 等保留名，故 schoolCode 不得为 `api`、`health` 或任何静态目录名。
+> **多租户访问识别（路径前缀路由，方案 A）**：学校代码即部署基路径首段，学校应用按 `/<code>/` 子路径部署（`/<code>/login.html`、`/<code>/index.html`）。前端 `frontend/js/utils/schoolCode.js` 的 `extractSchoolCode()` 是访问层**唯一**依赖「路径/域名」的代码位置：优先从路径首段 `/<code>/...` 提取，兜底 `?school=<code>` 查询参数（无标识时回落 `DEFAULT_SCHEMA=public`，即平台超管所在的 `public`；路径优先于查询，防用户篡改租户）。**生成端（`buildSchoolLoginUrl`）只产出纯路径形式 `/<code>/login.html`，不拼接 `?school=`**；解析端保留查询兜底仅作兼容/排查入口。「`/<code>/<resource>` → `/<resource>`」的重写**生产环境由 Caddy 层完成**（`@schoolLogin`/`@schoolHelp` rewrite + `handle` 互斥，见 §8.4），后端 `server.js` 的同名中间件仅在 `SERVE_STATIC=true`（本地开发）时生效；`RESERVED_STATIC_DIRS` 白名单排除 `css/js/api/health` 等保留名，故 schoolCode 不得为 `api`、`health` 或任何静态目录名。
 
 ### 3.4 代码目录结构
 
-> 本节基于仓库实际目录（`list_dir`，已折叠生成式目录 `node_modules/`、`dist/`、`.git/`、产物 `coverage/`、`vendor/` 等非源码树）。前端 `js/` 内部的组件级划分另见 §6.2。
+> 本节基于仓库实际目录（`list_dir`，已折叠生成式目录 `node_modules/`、`dist/`、`.git/`、产物 `coverage/`、`vendor/` 等非源码树）。前端 `frontend/js/` 内部的组件级划分另见 §6.2。
 
 ```text
 foodsentinel/                          # 生产部署根目录（/opt/foodsentinel；仓库标识 name=foodtestlab）
-├── index.html / login.html           # 前端入口（原生 ES Module，浏览器直载）
-├── admin-schools.html                # 平台超管：学校全生命周期管理控制台
-├── super-admin-login.html            # 平台超管登录页
-├── help.html / detergent-image-demo.html  # 帮助/洗涤剂演示页（测试报告已并入 admin-schools.html 控制台）
+├── frontend/                         # ★ 前端源码（2026-09-01 由根目录迁入）
+│   ├── pages/                        # 正式页面入口（原生 ES Module，浏览器直载）
+│   │   ├── index.html                #   业务主界面
+│   │   ├── login.html                #   学校用户登录
+│   │   ├── super-admin-login.html    #   平台超管登录页
+│   │   ├── admin-schools.html        #   平台超管：学校全生命周期管理控制台
+│   │   └── help.html                 #   帮助中心（测试报告已并入 admin-schools.html 控制台）
+│   ├── demos/                        # 实验性 demo（未接入正式系统）
+│   │   └── detergent-image-demo.html #   阴离子洗涤剂残留 · 拍照识别算法验证
+│   ├── js/                           # 前端脚本（原生 ES Module，无打包器）
+│   │   ├── main.js                   #   应用引导入口
+│   │   ├── core/                     #   Router（路由/权限守卫）、Storage（离线优先数据层）、
+│   │   │                             #     Auth、AdaptiveUploadQueue（自适应上传队列）
+│   │   ├── services/                 #   AuthService、AuditService、PermissionService（RBAC）、
+│   │   │                             #     ExportService、GuestAuthService、SessionManager
+│   │   ├── modules/                  #   业务/页面模块：Dashboard/Tableware/Pathogen/GenericTest/
+│   │   │                             #     adminSchools/SuperAdminAccount/detergentDemo 等 + registry.js
+│   │   ├── opencv/                   #   洗涤剂识别核心 recognizer.js（与后端共用算法）
+│   │   ├── config/                   #   前端配置
+│   │   └── utils/                    #   工具函数（schoolCode/schoolCustomization 等）
+│   ├── css/                          # 样式与字体（Tailwind 编译产物 + ttf/woff2）
+│   ├── vendor/                       # 第三方静态库（opencv / chart / jspdf 等）
+│   └── ……                            # 注：构建时 pages|demos 下的 HTML 会**扁平化**到 dist/ 根目录，
+│                                     #     css/js/vendor 映射为 dist/{css,js,vendor}，
+│                                     #     ⇒ dist/ 内 URL 布局与迁入前完全一致，线上路径零变化
 ├── README.md                         # ★ 系统级总览（唯一权威文档；含 §0 环境唯一性声明）
-├── TASKS.md                          # 多窗口并行开发协调板（非系统文档）
 ├── PRODUCTION-ENV-RULES.md           # ★ 生产环境强制规则（.gitignore 排除，仅存服务器，GitHub 不可见）
 ├── package.json                      # 根依赖与脚本（name=foodtestlab, version=3.1.0, type=module）
 ├── jest.config.cjs / cypress.config.cjs / tailwind.config.cjs / .babelrc  # 测试与构建配置
@@ -236,34 +256,21 @@ foodsentinel/                          # 生产部署根目录（/opt/foodsentin
 │   ├── scripts/                      # 后端运维脚本（16 个 *.mjs）：迁移、角色迁移、备份导入等
 │   ├── uploads/                      # 运行时上传目录（107 PNG，属产物，建议 gitignore）[需人工确认是否入库]
 │   └── backups/                      # 运行时备份落盘目录（属产物，建议 gitignore）[需人工确认是否入库]
-├── js/                               # ★ 前端（原生 ES Module，无打包器）
-│   ├── main.js                       # 应用引导入口
-│   ├── core/                         # 核心：Router（路由/权限守卫）、Storage（离线优先数据层）、
-│   │                                 #   Auth、AdaptiveUploadQueue（自适应上传队列）
-│   ├── services/                     # 服务层：AuthService、AuditService、PermissionService（RBAC 矩阵）、
-│   │                                 #   ExportService、GuestAuthService、SessionManager
-│   ├── modules/                      # 业务/页面模块：Dashboard/Tableware/Pathogen/GenericTest/FrequencyModule/
-│   │                                 #   AuditLog/UserManagement/BackupRestore/adminSchools/SuperAdminAccount/
-│   │                                 #   GuestDashboard/detergentDemo 等 + registry.js（模块注册中心）
-│   ├── opencv/                       # 洗涤剂识别前端核心 recognizer.js（与后端共用算法）
-│   ├── config/                       # 前端配置
-│   └── utils/                        # 工具函数（schoolCode/schoolCustomization 等）
-├── css/                              # 样式与字体（Tailwind 编译产物 + ttf/woff2）
 ├── tests/                            # ★ Jest 单元测试/集成测试（31 个 *.test.js + integration/ + setup-env.js）
 ├── cypress/                          # ★ Cypress E2E（e2e/ + support/）
 ├── scripts/                          # 根级运维脚本：build-static.js（构建 dist/）、provision-school.sh、
 │                                   #   backup-alert.sh、*.mjs 迁移与文档同步
 ├── deploy/                           # 部署配置：deploy.sh + 模板 conf + README/就绪报告（首装已完成，日常不重跑）
 ├── docs/                             # 文档：DEVELOPMENT_GUIDE / PROJECT_CONVENTIONS / CHANGELOG 等
-│   └── archive/                      # 已归档过程稿（README.new / README_DIFF / README_REVIEW，含过时口径，勿照做）
-└── vendor/                           # 第三方静态库（生成式/外部依赖，建议 gitignore）[需人工确认]
+│   ├── archive/                      # 已归档过程稿（README.new / README_DIFF / README_REVIEW，含过时口径，勿照做）
+│   └── TASKS.md                      # 多窗口并行开发协调板（非系统文档，2026-09-01 由根目录迁入）
 ```
 
 **结构合理性评估（基于现有代码）**
 
 | 维度 | 评价 | 说明 |
 |------|------|------|
-| 前后端分层 | ✅ 合理 | `backend/`（服务端 ESM）与 `js/`（浏览器 ESM）物理隔离，职责清晰，无交叉打包。 |
+| 前后端分层 | ✅ 合理 | `backend/`（服务端 ESM）与 `frontend/js/`（浏览器 ESM）物理隔离，职责清晰，无交叉打包。 |
 | 后端内部划分 | ✅ 合理 | `lib / routes / middleware / modules / prisma / scripts` 按"基础设施 / 接口 / 横切 / 业务 / 数据 / 运维"职责分离，符合 Express 惯例。 |
 | 前端内部划分 | ✅ 合理 | `core（内核）/ services（服务）/ modules（页面业务）/ utils（工具）/ opencv（算法）` 分层清晰；`registry.js` 作为模块单一事实来源，新增检测类型零改码。 |
 | 测试隔离 | ✅ 合理 | `tests/`（Jest 单元/集成）+ `cypress/`（E2E）分目录，配置独立（`.cjs`），互不干扰。 |
@@ -275,7 +282,8 @@ foodsentinel/                          # 生产部署根目录（/opt/foodsentin
 2. **脚本职责边界重叠**：根 `scripts/`（如 `*.mjs` 迁移）与 `backend/scripts/`（16 个 `*.mjs`）均含迁移/置备类脚本，二者命名空间未严格区分，长期可合并为统一 `scripts/`（含 `backend` 子命令）以减少歧义。
 3. ✅ **根目录文档治理（2026-08-31 已完成）**：根目录原并存的 `README.new.md` / `README_DIFF.md` / `README_REVIEW.md`
    三份过程稿已移入 `docs/archive/` 并加归档声明（其内容含后端端口 `3000` 等过时口径，留在根目录易误导读者与 AI 助手）。
-   **根目录 `README.md` 是唯一权威系统文档**；`TASKS.md` 保留为多窗口并行开发协调板（非系统文档）。
+   **根目录 `README.md` 是唯一权威系统文档**；`TASKS.md` 于 2026-09-01 由根目录移入 `docs/TASKS.md`
+   （多窗口并行开发协调板，非系统文档），前端源码同日迁入 `frontend/`，详见 §3.4。
 4. **多 package.json**：根与 `backend/` 各有一份 `package.json`，依赖与脚本存在一定重复（如 Prisma），需确保版本对齐（以根 `package.json#version=3.1.0` 为权威版本源）。
 
 ---
@@ -743,7 +751,7 @@ erDiagram
 
 > 2026-08 新增，挂载于 `server.js:300` `app.use('/api/admin/disk', adminDiskRoutes)`；
 > 全部端点经 `authenticateUser` + `requirePlatformSuperAdmin` 保护，**仅平台超管可用**。
-> 前端入口：平台超管控制台「磁盘管理」视图（`js/modules/adminSchools/views/diskView.js`）。
+> 前端入口：平台超管控制台「磁盘管理」视图（`frontend/js/modules/adminSchools/views/diskView.js`）。
 > 所有写操作（journal 收缩 / 日志删除 / 备份删除 / 审计日志导出与删除）均写 `writeAdminOpsLog` 平台级审计。
 
 | 方法 | 路径 | 说明 |
@@ -777,15 +785,15 @@ erDiagram
 
 - 入口页：`login.html`（登录，含访客快速访问 Tab）、`super-admin-login.html`（平台超管登录）、`index.html`（主应用）、`admin-schools.html`（平台超管控制台：学校全生命周期管理 + 测试报告 + **磁盘管理**，见 §5.12）、`detergent-image-demo.html`（洗涤剂识别演示）、`help.html`（帮助）。
 - 侧边栏导航按钮用 `data-target` 标识目标区块（`dashboard`、`tableware-test`、`pesticide-test`、`oil-test`、`lean-meat-test`、`pathogen-test`、`export-data`、`backup-restore`、`user-management`、`audit-log`、`frequency-report`、`frequency-settings`），`data-admin-only` 仅管理员可见，`data-super-admin-only` 仅平台超管可见（如"学校管理"入口），`data-required-role` 按具体角色显隐导航项。
-- `js/core/Router.js`：权限守卫（按角色显隐 admin/guest 菜单、平台超管独有菜单）、Token 每 60s 定时校验 + 临期 5 分钟主动续期、30 分钟空闲登出（`visibilitychange` 时暂停/恢复定时器，TD-NoBeforeUnload）；FIX-15 无 `records:create` 权限（viewer）时从入口隐藏所有检测录入表单；角色中文标签映射（admin=管理员 / manager=主管 / operator=操作人员 / viewer=查看者 / guest=访客）。
-- `js/services/PermissionService.js`：RBAC 权限矩阵，`schools:manage` 权限仅当 `user.role==='admin' && !user.schoolCode` 时动态注入；`isPlatformSuperAdmin()` 方法供前端判断。
-- 模块注册中心 `js/modules/registry.js`：`MODULE_REGISTRY` / `MODULE_ORDER` / `MENU_ITEMS` 是检测模块与侧边栏菜单的**单一事实来源**，新增检测类型只需在此登记。
+- `frontend/js/core/Router.js`：权限守卫（按角色显隐 admin/guest 菜单、平台超管独有菜单）、Token 每 60s 定时校验 + 临期 5 分钟主动续期、30 分钟空闲登出（`visibilitychange` 时暂停/恢复定时器，TD-NoBeforeUnload）；FIX-15 无 `records:create` 权限（viewer）时从入口隐藏所有检测录入表单；角色中文标签映射（admin=管理员 / manager=主管 / operator=操作人员 / viewer=查看者 / guest=访客）。
+- `frontend/js/services/PermissionService.js`：RBAC 权限矩阵，`schools:manage` 权限仅当 `user.role==='admin' && !user.schoolCode` 时动态注入；`isPlatformSuperAdmin()` 方法供前端判断。
+- 模块注册中心 `frontend/js/modules/registry.js`：`MODULE_REGISTRY` / `MODULE_ORDER` / `MENU_ITEMS` 是检测模块与侧边栏菜单的**单一事实来源**，新增检测类型只需在此登记。
 - 导航通信统一走**事件委托 + `CustomEvent`**（已移除 `window.*` 全局耦合）：`app:navigate`、`dashboard:refresh`。
 
-### 6.2 组件划分（`js/`）
+### 6.2 组件划分（`frontend/js/`）
 
 ```
-js/
+frontend/js/
 ├── main.js                 # 初始化总入口（DOMContentLoaded）
 ├── core/
 │   ├── Router.js           # 路由 / 权限守卫 / 空闲登出
@@ -809,9 +817,9 @@ js/
 
 - **无集中式状态库**；状态分散在各模块与浏览器存储：
   - 认证态 key 采用**租户命名空间**（`auth_token__<schoolCode>` / `current_user__<schoolCode>` / `guest_token__<schoolCode>`，TD-TenantIsolation），并按 DS-17 三级读取：**内存 → sessionStorage → localStorage**（localStorage 仅「记住我」勾选时持久化，否则仅 sessionStorage，关浏览器即登出，P0-1；无 `schoolCode` 的请求——如平台超管走 `public`——退化为裸 key）；其余缓存 key 不带命名空间：`cache_<table>`（记录缓存）、`pending_<table>`（待同步队列）、`fingerprint_index_<table>`（去重索引）、`audit_YYYY-MM-DD`（前端离线日志）。
-  - `StorageService`（`js/core/Storage.js`）是核心数据层：**离线优先**（`getAll()` 先返回本地缓存再后台刷新）、乐观写入（`temp_` 临时 ID）、三层去重（本地/云端/队列）、`429` 全局退避、`409` 版本冲突恢复。
-  - `AuditService`（`js/services/AuditService.js`）是审计唯一入口：**双写后端（系统真相源）+ localStorage 镜像**（按天 `audit_YYYY-MM-DD`，保留 30 天）。
-  - 学校定制配置缓存：`js/utils/schoolCustomization.js` 按 `schoolCode` 缓存 `SchoolCustomization`，支持跨标签页 `storage` 事件与 `visibilitychange` 重校验同步。
+  - `StorageService`（`frontend/js/core/Storage.js`）是核心数据层：**离线优先**（`getAll()` 先返回本地缓存再后台刷新）、乐观写入（`temp_` 临时 ID）、三层去重（本地/云端/队列）、`429` 全局退避、`409` 版本冲突恢复。
+  - `AuditService`（`frontend/js/services/AuditService.js`）是审计唯一入口：**双写后端（系统真相源）+ localStorage 镜像**（按天 `audit_YYYY-MM-DD`，保留 30 天）。
+  - 学校定制配置缓存：`frontend/js/utils/schoolCustomization.js` 按 `schoolCode` 缓存 `SchoolCustomization`，支持跨标签页 `storage` 事件与 `visibilitychange` 重校验同步。
   - `AuthService` 安装**全局 401 刷新拦截器**（`installAuthRefreshFetchInterceptor`）：同源 `/api/*` 请求收到 401 时用 refresh token 静默换新并重放一次（每请求最多一次，认证类端点不拦截）。
 
 ---
@@ -968,7 +976,7 @@ StandardError=append:/mnt/datadisk0/foodsentinel/logs/app.err.log
     header @apiPath { X-Frame-Options "SAMEORIGIN" }
 
     # 路径前缀多租户识别：/<code>/login(.html)? → /login.html（URL 不变）
-    # 与 js/utils/schoolCode.js 的 buildSchoolLoginUrl（/<code>/login.html）一致
+    # 与 frontend/js/utils/schoolCode.js 的 buildSchoolLoginUrl（/<code>/login.html）一致
     @schoolLogin {
         path_regexp ^/[^/]+/login(\.html)?/?$
         not path /api/*
@@ -1071,7 +1079,7 @@ caddy validate --config /etc/caddy/Caddyfile && sudo systemctl reload caddy   # 
 
 ### 9.5 审计日志机制
 
-审计已统一为**单一入口 `js/services/AuditService.js`**：所有审计调用收敛到 `auditService.log`，**双写后端（系统真相源 `/api/audit-logs`）+ localStorage 镜像**（`AuditLogger`，按天 `audit_YYYY-MM-DD`，保留 30 天），字段口径对齐后端 `auditLog` 模型（`action` / `resource_type` / `resource_id` / `details` / `ip_address`）。调用方涵盖 `AuthService`(login/logout)、`UserManagement`、`Storage`(create/update/delete)、`Dashboard`/`Tableware`/`Pathogen`/`BackupRestore`/`AuditLog`。
+审计已统一为**单一入口 `frontend/js/services/AuditService.js`**：所有审计调用收敛到 `auditService.log`，**双写后端（系统真相源 `/api/audit-logs`）+ localStorage 镜像**（`AuditLogger`，按天 `audit_YYYY-MM-DD`，保留 30 天），字段口径对齐后端 `auditLog` 模型（`action` / `resource_type` / `resource_id` / `details` / `ip_address`）。调用方涵盖 `AuthService`(login/logout)、`UserManagement`、`Storage`(create/update/delete)、`Dashboard`/`Tableware`/`Pathogen`/`BackupRestore`/`AuditLog`。
 
 - **服务端强制审计**（H3 收敛）：关键安全事件（登录、角色变更、禁用/删除、密码重置、备份/恢复、学校增删）已改为服务端内部强制写入，不再信任客户端上报。落库统一经 `auditLog.js` 三入口：`writeTenantAuditLog`（租户级，落 `AuditLog`）、`writeSystemLog`（系统级离散事件，落 `SystemLog`，自动补齐「统一审计字段规范 v1」canonical 键：`actor_id/action_type/target_id/details_json/created_at`）、`writeAdminOpsLog`（平台级管理操作，内部委派 `writeSystemLog`，message 前缀 `[admin-audit]`）。`UserManager.logAdminAction` 内部按操作者是否有租户归属路由到租户审计或系统日志。
 - **客户端上报限制**：`POST /api/audit-logs` 仅允许预定义 action 白名单（create/update/delete/export/import/print/logout），guest/viewer 禁止，`details` 限长 2000 并打 `source:'client'` 标记。
@@ -1280,7 +1288,7 @@ curl https://foodsentinel.digifluidic.com/api/health   # 生产正式入口（�
 2. **`grep` 找不到路由 ≠ 路由不存在**：后端路由可能用变量拼接注册（如 `/api/records/:tableName`）、或挂在 `app.use` 前缀下、或分散在不同模块文件中。grep 为空时须确认搜索范围覆盖全部路由文件、并尝试按"参数化路由名"再搜。曾因 grep 遗漏误判"`/api/records/:type` 返回 404"（实际路由存在且正常）。
 3. **`$queryRawUnsafe` 返回 JSONB 列是字符串**：PostgreSQL 经 Prisma 原生 SQL 查询时，`jsonb`/`text` 列的 JSON 内容返回为字符串，需 `JSON.parse` 后再供前端消费；前端读取配置时同样要对外层与内层 JSON 字段分别 parse。
 4. **systemd 服务 `Restart=on-failure` 会自动拉起进程**：`kill` 手动启动的进程后，systemd 管理的服务会 5 秒内自动重启并重新占用端口。排查"双进程/端口占用"时先 `systemctl status <svc>` 确认是否由 systemd 管理；部署/重启统一用 `systemctl restart`，勿手动 `nohup`。
-5. **改前端代码后必须重建 `dist/`，否则线上看不到修复**：生产 Caddy 直接 `serve dist/`（见 `deploy.sh` §7 与 Caddy 站点片段 `root * $REPO_ROOT/dist`），**不读源码 `js/`、`admin-schools.html` 等**。前端是纯拷贝无打包（`scripts/build-static.js`），改源码后**只在本地/服务器工作区改而不跑 `node scripts/build-static.js`，线上永远走旧 `dist/`**，表现就是"改了但现象完全没变"。判断方法：对比 `dist/` 与源文件时间戳 / `grep` 关键词是否进入 `dist/`。**流程**：① 改源码 → ② `node scripts/build-static.js` 重建 → ③ 浏览器 `Ctrl+Shift+R` 硬刷（Caddy 已设 `no-cache`，但浏览器磁盘缓存仍可能命中）。注意 `dist/` 被 `.gitignore` 忽略、**不入库**，部署机从 GitHub 拉代码**不会**带入 `dist/`。
+5. **改前端代码后必须重建 `dist/`，否则线上看不到修复**：生产 Caddy 直接 `serve dist/`（见 `deploy.sh` §7 与 Caddy 站点片段 `root * $REPO_ROOT/dist`），**不读源码 `frontend/js/`、`admin-schools.html` 等**。前端是纯拷贝无打包（`scripts/build-static.js`），改源码后**只在本地/服务器工作区改而不跑 `node scripts/build-static.js`，线上永远走旧 `dist/`**，表现就是"改了但现象完全没变"。判断方法：对比 `dist/` 与源文件时间戳 / `grep` 关键词是否进入 `dist/`。**流程**：① 改源码 → ② `node scripts/build-static.js` 重建 → ③ 浏览器 `Ctrl+Shift+R` 硬刷（Caddy 已设 `no-cache`，但浏览器磁盘缓存仍可能命中）。注意 `dist/` 被 `.gitignore` 忽略、**不入库**，部署机从 GitHub 拉代码**不会**带入 `dist/`。
 6. **部署前未 `git commit`+`push`，部署脚本会用 GitHub 旧代码覆盖修复**：`deploy.sh` §4 执行 `git fetch origin <branch> && git reset --hard origin/<branch> && git clean -fd`，**任何只存在于本地工作区（未提交/未推送）的修复都会被覆盖丢失**。部署前必须先 `git add` + `git commit` + `git push`，确认 `git status --short` 干净（仅 `.env` 例外，`clean` 已加 `-e .env` 保留）。若工作区有改动未提交，脚本会先 `git stash push -u` 再 reset，**须手动 `git stash pop` 恢复**——很容易遗漏。曾多次因"改完没 commit 就部署"，导致修复被 GitHub 旧代码冲掉而失败。**上线 checklist**：源码改动全部 commit+push → 构建 `dist/`（或由部署流程重建）→ 部署 → 验证。
 7. **把 foodtestlab 的查询结果当成生产结论**：foodtestlab 是**已下线并删除**的历史开发/测试实体（服务 `foodtestlab-api`、目录 `/opt/foodtestlab`、库 `foodtestlab`、备份 `/var/backups/foodtestlab`）。2026-08-27 已全部清除。若某次查询结果里的路径/库名/服务名带 `foodtestlab`，**说明查错环境，立即作废该结论**，回到 `/opt/foodsentinel` + `foodsentinel` 库 + `foodsentinel-api` 服务重新核对（见 §0）。曾因此把 43 条无关备份记录误当成生产备份。
 8. **用 `ubuntu` 读不到 `backend/.env` ≠ 配置缺失**：`.env` 属主 `foodsentinel`、权限 `600`。读/改生产配置必须 `sudo -u foodsentinel ...`，用 `ubuntu` 执行会 Permission denied。不要因此误判"生产没有配置 BACKUP_MASTER_KEY"之类。

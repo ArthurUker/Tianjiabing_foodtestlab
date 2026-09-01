@@ -50,10 +50,10 @@
 | 新增一所学校 | CONVENTIONS 规则三.8 | `scripts/provision-school.sh`、`public."School"` 登记 | 规则三（唯一切换点）、规则十（部署零改动） |
 | 改多学校隔离（per-schema PrismaClient） | CONVENTIONS 规则三 | `backend/lib/tenantClient.js`、`backend/middleware/tenantMiddleware.js` | 规则三（唯一切换点 `createTenantClient`，禁手写 SET search_path / 禁每校 new Client） |
 | 改学校个性化（外观/字段） | CONVENTIONS 规则四.4 | `schema.prisma`（`School`/`SchoolCustomization`）、`server.js`（`/api/school/config`、`/api/schools/:code/config`） | 系统表恒在 `public`，带显式 `public.` 前缀 |
-| 改前端登录 / schoolCode 提取 | CONVENTIONS 规则七 | `login.html`、`js/services/AuthService.js`、`js/utils/schoolCode.js` | 规则七（schoolCode 提取唯一入口） |
-| 改前端导航 / 新增页面 | DEV_GUIDE §6.1~6.3 | `index.html`（`data-target`）、`js/main.js`、`js/core/Router.js` | 规则十一（事件委托 + CustomEvent，禁 `window.*` 全局） |
-| 改前端离线 / 数据同步 | DEV_GUIDE §6.6/§6.7 | `js/core/Storage.js`、`js/core/AdaptiveUploadQueue.js` | 规则十一（走 StorageService，勿裸 fetch） |
-| 改审计日志写入 | CONVENTIONS 规则五 | `server.js`（`writeRecordAuditLog`）、`routes/auditRoutes.js`、`js/services/AuditLogService.js` | 规则一（不得物理删除）、规则五（对号入座，勿新增第四套） |
+| 改前端登录 / schoolCode 提取 | CONVENTIONS 规则七 | `login.html`、`frontend/js/services/AuthService.js`、`frontend/js/utils/schoolCode.js` | 规则七（schoolCode 提取唯一入口） |
+| 改前端导航 / 新增页面 | DEV_GUIDE §6.1~6.3 | `index.html`（`data-target`）、`frontend/js/main.js`、`frontend/js/core/Router.js` | 规则十一（事件委托 + CustomEvent，禁 `window.*` 全局） |
+| 改前端离线 / 数据同步 | DEV_GUIDE §6.6/§6.7 | `frontend/js/core/Storage.js`、`frontend/js/core/AdaptiveUploadQueue.js` | 规则十一（走 StorageService，勿裸 fetch） |
+| 改审计日志写入 | CONVENTIONS 规则五 | `server.js`（`writeRecordAuditLog`）、`routes/auditRoutes.js`、`frontend/js/services/AuditLogService.js` | 规则一（不得物理删除）、规则五（对号入座，勿新增第四套） |
 | 改部署 / 环境变量 | deploy/README | `deploy/deploy.sh`（通用部署脚本）、`deploy/deploy.adapter.example.conf`（模板；生产真实配置为服务器 `/opt/deploy/deploy.foodsentinel.conf`，含密钥不入库） | 规则十（脚本与适配分离、单应用）、规则六.6（禁改回 sqlite） |
 | 加单元测试 | DEV_GUIDE §10 | `tests/*.test.js`、`jest.config.cjs` | 规则十二（纯函数应补单测、lint 零 error） |
 | 查看/归档浏览器测试反馈 | [`test-results/`](./test-results/README.md) | `backend/lib/testCaseDefs.js`（用例清单唯一权威）、`backend/routes/testResultRoutes.js`（上报/上传/读取端点）、`admin-schools.html` 测试报告模块（原生三视图） | 数据权威在库 `public.TestCase`/`TestExecution`；旧 testReportSync 静态快照已废弃 |
@@ -80,20 +80,23 @@
 | `routes/userRoutes.js`·`auditRoutes.js`·`syncRoutes.js` | `/api/user/*`·`/api/audit-logs/*`·`/api/sync/*` | DEV_GUIDE §5 |
 | `sql/*.js`·`config/telemetry.js` | ⚠️ 未启用产物（PostgreSQL/Supabase RLS 参考脚本 / 未装依赖的埋点） | DEV_GUIDE §9 |
 
-### 4.2 前端（`js/` + 入口页）
+### 4.2 前端（`frontend/` + 入口页）
+
+> 📁 页面源码在 `frontend/pages/`（demo 在 `frontend/demos/`），构建时**扁平化**到 `dist/` 根，
+> 故下表入口页名与**线上 URL 一致**（`/login.html` 等）；JS/CSS 源码在 `frontend/js`、`frontend/css`。
 
 | 文件 / 目录 | 职责 | 详见 |
 |-------------|------|------|
 | `login.html`·`index.html` | 登录页（含 schoolCode 个性化）/ 主应用（`data-target` 导航） | DEV_GUIDE §6.1 |
-| `js/main.js` | 前端初始化总入口（DOMContentLoaded） | DEV_GUIDE §6.2 |
-| `js/core/Router.js` | 路由 / 权限守卫 / Token 定时校验 / 空闲登出 | 根 README §6.1 |
-| `js/core/Storage.js` | ★ **StorageService 离线优先数据层**（缓存+队列+多层去重+429/409） | DEV_GUIDE §6.6 |
-| `js/core/AdaptiveUploadQueue.js` | ★ 渐进节流上传队列（幂等键 + 指纹去重 + 冲突恢复） | DEV_GUIDE §6.7 |
-| `js/services/AuthService.js` | 登录/登出/Token（`login.html` 与 Router 使用） | DEV_GUIDE §6.4 |
-| `js/services/GuestAuthService.js` | 访客快速访问（仅 `quick-access` 后端可用） | DEV_GUIDE §9.1 |
-| `js/utils/schoolCode.js` | ★ **schoolCode 提取唯一入口**（路径前缀 / `?school=`） | CONVENTIONS 规则七 |
-| `js/modules/*.js` | 9 个业务模块（Dashboard / Tableware / Pathogen / GenericTest / ...） | 根 README §6.2 |
-| `js/utils/`（部分） | ⚠️ 孤儿遗留：`ApiClient`/`UserAuth`/`CacheManager`/`ConfigManager`/`IndexedDBManager`/`OfflineModeManager`/`PerformanceMonitor` 未被引用 | DEV_GUIDE §9 |
+| `frontend/js/main.js` | 前端初始化总入口（DOMContentLoaded） | DEV_GUIDE §6.2 |
+| `frontend/js/core/Router.js` | 路由 / 权限守卫 / Token 定时校验 / 空闲登出 | 根 README §6.1 |
+| `frontend/js/core/Storage.js` | ★ **StorageService 离线优先数据层**（缓存+队列+多层去重+429/409） | DEV_GUIDE §6.6 |
+| `frontend/js/core/AdaptiveUploadQueue.js` | ★ 渐进节流上传队列（幂等键 + 指纹去重 + 冲突恢复） | DEV_GUIDE §6.7 |
+| `frontend/js/services/AuthService.js` | 登录/登出/Token（`login.html` 与 Router 使用） | DEV_GUIDE §6.4 |
+| `frontend/js/services/GuestAuthService.js` | 访客快速访问（仅 `quick-access` 后端可用） | DEV_GUIDE §9.1 |
+| `frontend/js/utils/schoolCode.js` | ★ **schoolCode 提取唯一入口**（路径前缀 / `?school=`） | CONVENTIONS 规则七 |
+| `frontend/js/modules/*.js` | 9 个业务模块（Dashboard / Tableware / Pathogen / GenericTest / ...） | 根 README §6.2 |
+| `frontend/js/utils/`（部分） | ⚠️ 孤儿遗留：`ApiClient`/`UserAuth`/`CacheManager`/`ConfigManager`/`IndexedDBManager`/`OfflineModeManager`/`PerformanceMonitor` 未被引用 | DEV_GUIDE §9 |
 
 ### 4.3 部署与脚本
 

@@ -25,9 +25,9 @@
 | 后端 | Node.js 20（NVM 安装）、Express 4 | ESM（`"type": "module"`），入口 `backend/server.js` |
 | ORM | Prisma 5 + **PostgreSQL** | `backend/prisma/schema.prisma`，`provider = postgresql`，`DATABASE_URL=postgresql://...` |
 | 认证 | jsonwebtoken + bcryptjs | JWT Bearer，密钥来自 `JWT_SECRET` |
-| 前端 | 原生 ES Module（浏览器直载，无打包器构建步骤） | `index.html` + `js/**/*.js` + `css/` + Tailwind（CDN class） |
+| 前端 | 原生 ES Module（浏览器直载，无打包器构建步骤） | `frontend/pages/*.html` + `frontend/js/**/*.js` + `frontend/css/` + Tailwind（编译产物，非 CDN） |
 | 前端数据层 | `StorageService` + `AdaptiveUploadQueue` | 离线优先（本地缓存+待办队列+多层去重+429/409 处理），见 §6.6/6.7 |
-| 前端构建 | `scripts/build-static.js` | 仅复制 `index.html`/`login.html`/`css`/`js` 到 `dist/`（无转译/打包），由 Caddy 托管 |
+| 前端构建 | `scripts/build-static.js` | 扫描 `frontend/pages`+`frontend/demos` 的 HTML **扁平化**到 `dist/` 根，并将 `frontend/{css,js,vendor}` 复制为 `dist/{css,js,vendor}`（无转译/打包），由 Caddy 托管。**dist 内 URL 布局长期保持不变**（Caddy rewrite 与页面相对路径均依赖它） |
 | 部署 | Caddy（自动 HTTPS）+ systemd | `deploy/deploy.sh`（通用脚本）+ 模板 `deploy/deploy.adapter.example.conf`；本生产真实配置为服务器 `/opt/deploy/deploy.foodsentinel.conf`（含密钥不入库），首装已完成 |
 | 测试 | Jest 29（babel-jest + jsdom）、Cypress 12 | 见 §10 |
 
@@ -55,28 +55,41 @@ Tianjiabing_foodtestlab/
 │   │   └── idempotencyMiddleware.js # 幂等（records API）
 │   ├── config/  sql/             # 配置与 SQL 脚本（备用）
 │   └── README.md
-├── js/                           # 前端源码（ES Module）
-│   ├── main.js                   # 入口：模块初始化、导航事件委托
-│   ├── core/
-│   │   ├── Router.js             # 路由 / 权限守卫（admin、guest 菜单）
-│   │   ├── Auth.js               # OperationGuard 敏感操作二次确认
-│   │   ├── Storage.js            # ★ StorageService：前端离线优先数据层（本地缓存+待办队列+去重，见 §6.6）
-│   │   └── AdaptiveUploadQueue.js  # ★ 渐进式节流上传队列（429/409 处理+指纹去重，见 §6.7）
-│   ├── modules/                  # 业务模块（9 个）
-│   │   ├── Dashboard.js  Tableware.js  Pathogen.js  GenericTest.js
-│   │   ├── UserManagement.js  AuditLog.js  BackupRestore.js
-│   │   ├── GuestDashboard.js  FormBuilder.js
-│   ├── services/                 # 前端服务层
-│   │   ├── AuthService.js        # 用户登录 / 登出 / Token（实际被 login.html 使用）
-│   │   ├── GuestAuthService.js   # 访客认证（快速访问 / 注册 / 导出申请）
-│   │   └── PermissionService.js  SessionManager.js  ExportService.js  AuditLogService.js
-│   └── utils/                    # 工具（活跃，详见 §9.8）
-│       ├── 活跃：AuditLogger.js  NetworkHelper.js  FormValidator.js
-│       │        Validator.js  pathogenRisk.js  UIHelper.js  UINotification.js  SampleDataGenerator.js
-│       └── 遗留（仅剩）：ApiClient.js（并行旧客户端，与后端 /api/user/* 路径不符，见 TD-ApiClient）
-│                （CacheManager/ConfigManager/UserAuth/IndexedDBManager/OfflineModeManager/PerformanceMonitor
-│                 等历史遗留模块已于迁移清理中移出仓库，见 §9.8）
-├── css/  index.html  login.html  # 前端入口页面
+├── frontend/                     # ★ 前端源码（2026-09-01 由根目录迁入）
+│   ├── pages/                    # 页面入口（原生 ES Module，浏览器直载）
+│   │   ├── index.html  login.html  #   主应用（data-target 导航）/ 登录页（schoolCode 个性化）
+│   │   ├── admin-schools.html    #   平台超管：学校全生命周期管理控制台
+│   │   ├── super-admin-login.html#   平台超管登录页
+│   │   └── help.html             #   帮助中心
+│   ├── demos/                    # 实验性 demo（未接入正式系统）
+│   │   └── detergent-image-demo.html
+│   ├── js/                       # 前端源码（ES Module）
+│   │   ├── main.js               # 入口：模块初始化、导航事件委托
+│   │   ├── core/
+│   │   │   ├── Router.js         # 路由 / 权限守卫（admin、guest 菜单）
+│   │   │   ├── Auth.js           # OperationGuard 敏感操作二次确认
+│   │   │   ├── Storage.js        # ★ StorageService：前端离线优先数据层（见 §6.6）
+│   │   │   └── AdaptiveUploadQueue.js  # ★ 渐进式节流上传队列（见 §6.7）
+│   │   ├── modules/              # 业务模块（9 个）
+│   │   │   ├── Dashboard.js  Tableware.js  Pathogen.js  GenericTest.js
+│   │   │   ├── UserManagement.js  AuditLog.js  BackupRestore.js
+│   │   │   ├── GuestDashboard.js  FormBuilder.js
+│   │   ├── services/             # 前端服务层
+│   │   │   ├── AuthService.js    # 用户登录 / 登出 / Token（实际被 login.html 使用）
+│   │   │   ├── GuestAuthService.js  # 访客认证（快速访问 / 注册 / 导出申请）
+│   │   │   └── PermissionService.js  SessionManager.js  ExportService.js  AuditLogService.js
+│   │   ├── opencv/               # 洗涤剂识别核心 recognizer.js（与后端共用算法）
+│   │   ├── config/
+│   │   └── utils/                # 工具（活跃，详见 §9.8）
+│   │       ├── 活跃：AuditLogger.js  NetworkHelper.js  FormValidator.js
+│   │       │        pathogenRisk.js  UIHelper.js  UINotification.js  SampleDataGenerator.js
+│   │       └── 遗留（仅剩）：ApiClient.js（并行旧客户端，与后端 /api/user/* 路径不符，见 TD-ApiClient）
+│   │                （CacheManager/ConfigManager/UserAuth/IndexedDBManager/OfflineModeManager/PerformanceMonitor
+│   │                 等历史遗留模块已于迁移清理中移出仓库，见 §9.8）
+│   ├── css/                      # 样式与字体（Tailwind 编译产物 + ttf/woff2）
+│   └── vendor/                   # 第三方静态库（opencv / chart / jspdf 等）
+│   # ⚠ 构建时 pages|demos 下 HTML **扁平化**到 dist/ 根，css/js/vendor 同名映射
+│   #   ⇒ dist/ 内 URL 布局与迁入前完全一致，线上路径（/login.html 等）零变化
 ├── deploy/                       # 部署
 │   ├── deploy.sh                 # 通用部署脚本（与具体系统解耦）
 │   ├── deploy.adapter.example.conf   # 适配文件模板（新环境复制填写使用；生产真实配置在服务器 /opt/deploy/，不入库）
@@ -101,7 +114,7 @@ Tianjiabing_foodtestlab/
 
 - 入口：`backend/server.js`（ESM）。
 - 端口：`PORT`（默认 `3000`；部署脚本用 `API_PORT=3000`）。
-- 静态托管开关：`SERVE_STATIC=true` 时后端用 `express.static` 托管仓库根目录；**生产部署由 Caddy 托管 `dist/`，后端保持 `SERVE_STATIC=false`（纯 API）**。
+- 静态托管开关：`SERVE_STATIC=true` 时后端用 `express.static` 托管 **`dist/`**（2026-09-01 前托管的是仓库根目录，会连带暴露 `backend/` 源码与 `.env`，已修正）；**生产部署由 Caddy 托管 `dist/`，后端保持 `SERVE_STATIC=false`（纯 API）**。
 - 启动即校验 `JWT_SECRET`：缺失或命中弱密钥黑名单（`your-super-secret-jwt-key-...`、`food-lab-secret-key` 等）直接退出，防止误用默认密钥签发 JWT。
 - CORS：由 `CORS_ORIGIN`（逗号分隔来源）与 `CORS_HOSTNAMES`（hostname[:port] 白名单）控制；`CORS_ORIGIN=*` 允许全部。未配置时回退到一组 localhost 来源。
 
@@ -235,11 +248,16 @@ Tianjiabing_foodtestlab/
 
 ### 6.1 页面与入口
 
+> 📁 **源码位置（2026-09-01 起）**：以下页面源码位于 `frontend/pages/`
+> （`detergent-image-demo.html` 在 `frontend/demos/`）。
+> 构建时它们会被**扁平化**到 `dist/` 根目录，因此**线上 URL 仍是 `/login.html`、`/index.html`**，
+> 本节省略目录前缀，与线上路径一致。
+
 - `login.html`：登录页，使用 `AuthService` 调用 `/api/user/login`。
 - `index.html`：主应用；侧边栏导航按钮用 `data-target` 标识目标区块（`dashboard`、`tableware-test`、`pesticide-test`、`oil-test`、`lean-meat-test`、`pathogen-test`、`export-data`、`backup-restore`、`user-management`、`audit-log`）；其中 `data-admin-only` 仅管理员可见。
-- `js/main.js`：作为 `<script type="module">` 加载，是前端初始化总入口。
+- `frontend/js/main.js`：作为 `<script type="module">` 加载，是前端初始化总入口。
 
-### 6.2 初始化流程（`js/main.js` → `DOMContentLoaded`）
+### 6.2 初始化流程（`frontend/js/main.js` → `DOMContentLoaded`）
 
 1. 读取快速访问模式（`?quickAccess=true` 或 localStorage）→ 必要时 `guestAuthService.quickAccessAsViewer()` 向后端取只读 JWT。
 2. `router.init()` + `router.setupAll()`：路由与权限守卫、登出按钮、用户信息、菜单按权限显隐、Token 定时校验、30 分钟空闲登出。
@@ -270,9 +288,9 @@ Tianjiabing_foodtestlab/
 - 前端无统一 base 常量注入；各 Service 默认 `apiBaseUrl=''`（同源）。
 - `AuthService.getApiBaseUrl()`：开发环境（`localhost`/`127.0.0.1`）返回 `http://localhost:3002`，生产返回 `''`（同源，由 Caddy 反代 `/api`）。
 - 可通过全局 `window.__API_BASE_URL` 覆盖（调试用）。
-- `js/utils/ApiClient.js` 另有通用客户端 `apiClient`（默认 `/api`），但其方法路径（`/auth/*`）与后端实际 `/api/user/*` 不一致，属遗留并行客户端（见 §9.8），**登录流程以 `AuthService` 为准**。
+- `frontend/js/utils/ApiClient.js` 另有通用客户端 `apiClient`（默认 `/api`），但其方法路径（`/auth/*`）与后端实际 `/api/user/*` 不一致，属遗留并行客户端（见 §9.8），**登录流程以 `AuthService` 为准**。
 
-### 6.6 前端数据层：StorageService（`js/core/Storage.js`，核心）
+### 6.6 前端数据层：StorageService（`frontend/js/core/Storage.js`，核心）
 
 **这是前端最核心的数据访问层**，所有检测记录模块（`Tableware` / `Pathogen` / `GenericTest`(pesticide/oil/leanMeat) / `Dashboard` / `ExportService`）都通过 `new StorageService('<tableName>')` 读写数据，实现「**离线优先 + 最终一致**」：
 
@@ -292,9 +310,9 @@ Tianjiabing_foodtestlab/
 - **重试与退避**：写请求失败按 HTTP 状态分类——`429` 触发**全局退避**（跨所有 table 的 `app_sync_backoff_until` 键）；`409` 版本冲突拉取最新 `version` 后重试（≤2 次）；4xx（非 429/409）不重试直接标记失败；其余指数退避（≤3 次）。
 - **事件**：通过 `on('sync', cb)` / `on('error', cb)` 通知模块刷新 UI / 提示错误。
 
-> ⚠️ 注意区分：`js/core/Storage.js` 是**数据同步层**（不是简单的 localStorage 封装）。原 `js/utils/CacheManager.js` 等通用 KV 缓存遗留模块已从仓库移除，请勿再依赖。
+> ⚠️ 注意区分：`frontend/js/core/Storage.js` 是**数据同步层**（不是简单的 localStorage 封装）。原 `frontend/js/utils/CacheManager.js` 等通用 KV 缓存遗留模块已从仓库移除，请勿再依赖。
 
-### 6.7 上传队列：AdaptiveUploadQueue（`js/core/AdaptiveUploadQueue.js`）
+### 6.7 上传队列：AdaptiveUploadQueue（`frontend/js/core/AdaptiveUploadQueue.js`）
 
 `StorageService` 内部持有一个 `AdaptiveUploadQueue` 实例，负责把写请求「渐进式节流」发往后端：
 
@@ -399,7 +417,7 @@ Caddy 主配置 `/etc/caddy/Caddyfile` 通过 `import /etc/caddy/sites/*.caddy` 
 
 2. ~~**AuthService 与后端路由细微不一致**~~ **（已解决，2026-07，`ef4394b` 清理 TD-Naming/Auth-Path）**：改密码、校验令牌、登出前后端现已一致——均为 `POST /api/user/{change-password,verify-token,logout}`。
 
-3. **遗留并行 API 客户端**：`js/utils/ApiClient.js` 的 `apiClient` 方法路径为 `/auth/*`（如 `/auth/login`），与后端 `/api/user/*` 不符；该客户端并非登录流程所用（登录走 `AuthService`），属历史遗留，新代码不应依赖它。
+3. **遗留并行 API 客户端**：`frontend/js/utils/ApiClient.js` 的 `apiClient` 方法路径为 `/auth/*`（如 `/auth/login`），与后端 `/api/user/*` 不符；该客户端并非登录流程所用（登录走 `AuthService`），属历史遗留，新代码不应依赖它。
 
 4. **用户管理路由重复**：`server.js` 直接定义了 `/api/users`（列表）与 `/api/users/:userId/disable|enable`，与 `userRoutes.js` 中的 `/api/user/list`、`/:userId/disable|enable` 功能重复。（遗留，若触碰可合并，否则不影响功能。）
 
@@ -431,7 +449,7 @@ Caddy 主配置 `/etc/caddy/Caddyfile` 通过 `import /etc/caddy/sites/*.caddy` 
 
 - 配置：`jest.config.cjs`（项目为 ESM，故用 `.cjs` 后缀 + `babel-jest` + `.babelrc` 的 `env.test` 预设转译；`testEnvironment: jsdom`）。
 - 用例匹配：`tests/**/*.test.js`。
-- 现有冒烟用例：`tests/smoke.test.js`，覆盖 `js/utils/Validator.js`（`Validator` / `validator`）与 `js/utils/pathogenRisk.js`（`isPositiveResult` / `calculatePathogenRisk`）。
+- 现有冒烟用例：`tests/smoke.test.js`，覆盖 `frontend/js/utils/Validator.js`（`Validator` / `validator`）与 `frontend/js/utils/pathogenRisk.js`（`isPositiveResult` / `calculatePathogenRisk`）。
 - 运行：
 
 ```bash
