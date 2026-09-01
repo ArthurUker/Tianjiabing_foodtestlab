@@ -12,7 +12,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { PNG } from 'pngjs';
-import { recognize, setCv } from '../../js/opencv/recognizer.js';
+// 洗涤剂识别算法由前后端共用（前端 opencv 直跑 + 后端队列识别）。
+// 2026-09-01 前端源码迁入 frontend/ 后路径同步；改此路径前先确认
+// frontend/js/opencv/recognizer.js 是否移动（该文件是唯一的算法实现）。
+import { recognize, setCv } from '../../frontend/js/opencv/recognizer.js';
 
 function getCv(m) {
   return new Promise((res) => {

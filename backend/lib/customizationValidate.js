@@ -31,7 +31,7 @@ function sanitizeFieldOptionsForClient(fo) {
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/
 const CUSTOM_FIELD_NAME_RE = /^[a-zA-Z][a-zA-Z0-9_]{0,63}$/
 const TYPE_CODE_RE = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/
-// 菜单项 code：camelCase（与 js/modules/registry.js 的 MENU_ITEMS 注册表对齐）
+// 菜单项 code：camelCase（与 frontend/js/modules/registry.js 的 MENU_ITEMS 注册表对齐）
 const MENU_CODE_RE = /^[a-z][a-zA-Z0-9]{0,63}$/
 const CUSTOM_FIELD_TYPES = new Set(['text', 'number', 'date', 'select', 'textarea', 'checkbox'])
 const MAX_JSON_FIELD_BYTES = 200 * 1024 // 单字段序列化后上限 200KB

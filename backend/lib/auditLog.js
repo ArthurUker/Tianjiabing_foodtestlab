@@ -11,7 +11,7 @@
 //     专用入口，内部委派 writeSystemLog，message 格式与 UserManager.logAdminAction 的
 //     超管兜底路径一致（`[admin-audit] <action> target=<id>`），保证单一查询前缀可覆盖。
 //
-// 前端离线日志（js/utils/AuditLogger.js 写 localStorage）属离线兜底，不进库，不在此收口。
+// 前端离线日志（frontend/js/utils/AuditLogger.js 写 localStorage）属离线兜底，不进库，不在此收口。
 //
 // ─── 统一审计字段规范 v1（IF-3/REG-3）───────────────────────────────────────
 // 全量审计事件分布在两张表，canonical 字段映射如下：

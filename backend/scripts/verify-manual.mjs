@@ -18,7 +18,7 @@ function getCv(m) {
 
 const cv = await getCv(opencvBuild);
 
-const rec = await import('../../js/opencv/recognizer.js');
+const rec = await import('../../frontend/js/opencv/recognizer.js');
 rec.setCv(cv);
 
 // 合成一张 1000x1000 的图（灰底，无角标）走手动模式兜底

@@ -1,7 +1,7 @@
 // backend/scripts/verify-recognize.mjs (OpenCV 5.0)
 // 用正确静区合成图验证 recognize() 完整成功路径。
 import cvModule from '@techstark/opencv-js';
-import { recognize, setCv, MARKER_DICT, CONCENTRATIONS } from '../../js/opencv/recognizer.js';
+import { recognize, setCv, MARKER_DICT, CONCENTRATIONS } from '../../frontend/js/opencv/recognizer.js';
 
 function getCv(m) {
   return new Promise((res) => {

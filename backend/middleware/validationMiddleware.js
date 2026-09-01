@@ -46,7 +46,7 @@ export function sanitizeText(text) {
 }
 
 // ====== SQL Injection Prevention ======
-// ⚠️ 单一事实源锚点：本函数为 SQL 注入校验的权威实现，与前端 js/utils/FormValidator.js:104 (sqlInjection 规则) 同步维护，
+// ⚠️ 单一事实源锚点：本函数为 SQL 注入校验的权威实现，与前端 frontend/js/utils/FormValidator.js:104 (sqlInjection 规则) 同步维护，
 //    任一侧改动须同步另一侧（P2-8 收敛）。
 
 export function detectSqlInjection(value) {
@@ -197,7 +197,7 @@ export function validateData(data, fieldsToCheck = []) {
 
 /**
  * 检测XSS攻击
- * ⚠️ 单一事实源锚点：与前端 js/utils/FormValidator.js:86 (xss 规则) 同步维护，任一侧改动须同步另一侧（P2-8 收敛）。
+ * ⚠️ 单一事实源锚点：与前端 frontend/js/utils/FormValidator.js:86 (xss 规则) 同步维护，任一侧改动须同步另一侧（P2-8 收敛）。
  */
 export function detectXss(value) {
     if (typeof value !== 'string') {

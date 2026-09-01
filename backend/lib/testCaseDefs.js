@@ -4,7 +4,7 @@
  * 该清单是「浏览器验证操作流程」各用例的单一数据源：
  *   后端：testResultRoutes.js（GET /api/test-results/defs 供前端渲染任务列表）
  *   前端：经 admin-schools.html 左侧菜单「测试报告」原生三视图
- *         （js/modules/adminSchools/views/testReports/）动态拉取渲染，
+ *         （frontend/js/modules/adminSchools/views/testReports/）动态拉取渲染，
  *         不再使用已废弃的 test-report.html 独立页面。
  *
  * 本清单为「生产环境备份与恢复功能验证」专项（2026-08-26 重排）：

@@ -1,7 +1,7 @@
 // backend/scripts/diag-perid.mjs
 // 对每个 id 单独生成+检测，确认 generateImageMarker 对不同 id 是否正常。
 import cvModule from '@techstark/opencv-js';
-import { MARKER_DICT } from '../../js/opencv/recognizer.js';
+import { MARKER_DICT } from '../../frontend/js/opencv/recognizer.js';
 
 function getCv(m) {
   return new Promise((res) => {

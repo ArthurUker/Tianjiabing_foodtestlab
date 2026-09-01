@@ -160,7 +160,7 @@ export async function provisionSchool({
     update: {}
   })
   // BS-02：开通即写入安全默认值（仅首次创建生效，不覆盖已有记录）。
-  // 各字段 JSON 形态与前端 js/utils/schoolCustomization.js 解析逻辑一致：
+  // 各字段 JSON 形态与前端 frontend/js/utils/schoolCustomization.js 解析逻辑一致：
   //   对象类（field_labels/field_rules/field_options/field_order/custom_fields/theme_config）→ {}
   //   数组类（hidden_fields/test_types）→ []
   //   visible_types → 默认五大模块全开，避免开通即白屏

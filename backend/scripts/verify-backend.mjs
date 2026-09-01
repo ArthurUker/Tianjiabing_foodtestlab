@@ -2,7 +2,7 @@
 // 验证后端识别链路：队列 + Worker + 共享 recognizer。
 // 生成合成图 -> base64 -> recognitionQueue.submit -> 轮询 status -> 打印结果。
 import recognitionQueue from '../modules/recognitionQueue.js';
-import { CONCENTRATIONS } from '../../js/opencv/recognizer.js';
+import { CONCENTRATIONS } from '../../frontend/js/opencv/recognizer.js';
 import fs from 'node:fs';
 import { PNG } from 'pngjs';
 
