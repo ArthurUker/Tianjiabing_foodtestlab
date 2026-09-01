@@ -7,7 +7,7 @@
  *     作为已知限制），确保修复未引入新的失败模式。
  */
 
-import { StorageService } from '../js/core/Storage.js';
+import { StorageService } from '../frontend/js/core/Storage.js';
 
 function jsonResponse(status, body = {}) {
     return {

@@ -231,7 +231,10 @@ app.use((req, _res, next) => {
 // Optional static hosting for local convenience.
 // Production Tencent Cloud deployment should use Nginx/COS for static files.
 if (serveStatic) {
-    app.use(express.static(path.join(__dirname, '../')))
+    // 前端源码已迁入 frontend/，仓库根目录不再直接是站点根。
+    // 托管构建产物 dist/（其内布局与线上 Caddy 直供的目录一致），
+    // 同时避免把 backend/ 源码与 .env 等静态暴露出去。
+    app.use(express.static(path.join(__dirname, '../dist')))
 }
 
 // Health Check (P2-06: 合并重复定义，两个路由共用同一处理器)

@@ -24,8 +24,9 @@ module.exports = {
     }],
   },
   moduleFileExtensions: ['js', 'json'],
+  // 前端源码已迁入 frontend/js/，覆盖率收集路径同步更新
   collectCoverageFrom: [
-    'js/utils/Validator.js',
-    'js/utils/pathogenRisk.js',
+    'frontend/js/utils/Validator.js',
+    'frontend/js/utils/pathogenRisk.js',
   ],
 };

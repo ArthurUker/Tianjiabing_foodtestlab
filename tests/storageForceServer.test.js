@@ -8,7 +8,7 @@
  *      不再被本地旧 dirty 记录覆盖）
  */
 
-import { StorageService } from '../js/core/Storage.js';
+import { StorageService } from '../frontend/js/core/Storage.js';
 
 function freshStorage() {
     localStorage.clear();

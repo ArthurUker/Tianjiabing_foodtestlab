@@ -2,7 +2,9 @@
  * Cypress E2E 全局支持文件（TD-Cypress-Coverage · W6）
  *
  * 提供可复用命令；所有用例默认依赖“运行中的完整栈”：
- *   - 静态站点：npx http-server -p 8080（baseUrl 已设为 http://localhost:8080）
+ *   - 静态站点：托管**构建产物 dist/**（baseUrl 已设为 http://localhost:8080）：
+ *       node scripts/build-static.js && npx http-server dist -p 8080
+ *     （前端源码已迁入 frontend/，不能再托管仓库根目录，否则 /login.html 404）
  *   - 后端 + PostgreSQL（含 seed 初始账号 admin/admin123，dev 环境）
  * 与既有 smome.cy.js 冒烟用例的前置条件一致。
  */

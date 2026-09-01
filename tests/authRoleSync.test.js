@@ -21,7 +21,7 @@ if (typeof global.Headers === 'undefined') {
   }
 }
 
-import { AuthService } from '../js/services/AuthService.js'
+import { AuthService } from '../frontend/js/services/AuthService.js'
 
 const FAKE_JWT = 'aaaa.bbbb.cccc'
 

@@ -6,7 +6,7 @@
  * U2：409 + GET 拉取成功 → 重试自愈后，本地缓存 version 与服务端对齐
  */
 
-import { StorageService } from '../js/core/Storage.js';
+import { StorageService } from '../frontend/js/core/Storage.js';
 
 function jsonResponse(status, body = {}) {
     return {

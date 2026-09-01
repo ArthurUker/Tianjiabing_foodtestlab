@@ -27,7 +27,7 @@ if (typeof global.Headers === 'undefined') {
     };
 }
 
-import { AuthService, installAuthRefreshFetchInterceptor } from '../js/services/AuthService.js';
+import { AuthService, installAuthRefreshFetchInterceptor } from '../frontend/js/services/AuthService.js';
 
 const FAKE_JWT = 'aaaa.bbbb.cccc';
 const NEW_JWT = 'dddd.eeee.ffff';

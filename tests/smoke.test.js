@@ -5,7 +5,7 @@
  * 覆盖零依赖的纯函数模块：pathogenRisk（具名导出函数）。
  */
 
-import { isPositiveResult, calculatePathogenRisk } from '../js/utils/pathogenRisk.js';
+import { isPositiveResult, calculatePathogenRisk } from '../frontend/js/utils/pathogenRisk.js';
 
 describe('pathogenRisk 纯函数（ESM 具名导出）', () => {
   test('isPositiveResult 正确识别阳性标记', () => {

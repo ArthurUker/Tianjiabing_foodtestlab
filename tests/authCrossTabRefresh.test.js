@@ -23,7 +23,7 @@
  *     · 宽限外 → 判定重放，吊销全部会话。
  */
 
-import { AuthService } from '../js/services/AuthService.js';
+import { AuthService } from '../frontend/js/services/AuthService.js';
 
 const OLD_JWT = 'oldA.oldB.oldC';
 const RT1 = 'rt1a.rt1b.rt1c';

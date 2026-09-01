@@ -10,7 +10,7 @@
  *   4. 死锁修复后：紧接的新 enqueue 能正常进入处理流程（_isProcessing 恢复工作）
  */
 
-import { AdaptiveUploadQueue } from '../js/core/AdaptiveUploadQueue.js';
+import { AdaptiveUploadQueue } from '../frontend/js/core/AdaptiveUploadQueue.js';
 
 function jsonResponse(status, body = {}) {
     return {

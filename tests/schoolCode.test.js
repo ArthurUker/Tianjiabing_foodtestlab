@@ -3,7 +3,7 @@
  * 覆盖：路径前缀解析、查询参数兜底、路径 vs 查询优先级、大小写、特殊字符、
  * 多层基路径已知限制、API 前缀冲突、生成-解析一致性。
  */
-import { extractSchoolCode, buildSchoolLoginUrl } from '../js/utils/schoolCode.js';
+import { extractSchoolCode, buildSchoolLoginUrl } from '../frontend/js/utils/schoolCode.js';
 
 describe('extractSchoolCode — 解析优先级与边界', () => {
   // [pathname, search, 期望结果]
