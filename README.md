@@ -103,10 +103,10 @@ logrotate 配置、适配文件 `/opt/deploy/deploy.foodtestlab.conf`。
 - **学校管理者（manager）**：学校内最高权限，用户与权限管理、审计日志、检测频率配置、全部业务操作。学校首个账号即为 manager。
 - **检测员（operator）**：录入与维护检测记录（仅可修改本人创建的记录）。
 - **只读用户（viewer）**：学校**内部**只读员工账号，可查看看板与全部检测记录（含致病菌）、导出 PDF，但无写入权限；走正常登录，为持久账号。与 `guest` 是两套独立体系。
-- **访客（guest，快速访问）**：面向**外部/临时**人员的只读访问，落独立 `Guest` 表，分两种——
-  - `readonly`：免凭证快速访问（JWT 2h），模块白名单受限（不含致病菌）、默认无导出权限；
-  - `export_applicant`：自助注册、可提交数据导出申请，经审批后开通 `has_export_permission`。
-  - 与 `viewer` 的差异：访客有模块隔离（去致病菌）、默认无导出、可时效过期、走轻量独立鉴权。
+- **访客（guest，快速访问）**：面向**外部/临时**人员的只读访问，落独立 `Guest` 表（租户级），**仅 `readonly` 一种类型**：免凭证快速访问（JWT **2h**），模块白名单受限（强制去致病菌）、**恒定无导出权限**。
+  - **开关**：访客功能**默认关闭**，须由**平台超管**在学校管理控制台（`admin-schools.html`）按校开启「开启访客功能」后，该校登录页才显示访客入口、后端才签发访客令牌；未开启一律 403。
+  - **不可用的历史通道**（代码已关闭，无审批入口）：自助注册、数据导出申请、病原体查看申请。
+  - 与 `viewer` 的差异：访客有模块隔离（去致病菌）、无导出、有时效（2h）、走轻量独立鉴权；`viewer` 是校内持久账号，可看致病菌、可导出 PDF。
 
 ### 部署形态
 
@@ -383,6 +383,8 @@ erDiagram
         string created_by FK "nullable"
         string guest_type "default readonly"
         boolean has_export_permission "default false"
+        boolean can_view_pathogen "default false"
+        boolean request_pathogen_view "default false"
         datetime valid_until "nullable"
         string status "default active"
         datetime created_at
@@ -520,7 +522,7 @@ erDiagram
 | `TestItem` | — | `test_record_id` | `test_record_id → TestRecord`（**Cascade**） |
 | `Attachment` | — | `test_record_id` | `test_record_id → TestRecord`（**SetNull**） |
 | `Guest` | `username` | `created_by`、`guest_type` | `created_by → User`（**SetNull**，可空） |
-| `GuestExportRequest` | — | `guest_id`、`status` | `guest_id → Guest`（**Cascade**） |
+| `GuestExportRequest` | — | `guest_id`、`status` | `guest_id → Guest`（**Cascade**）⚠️ **遗留结构**：应用层已无读写路径（对应路由文件已删除），仅存于数据库 |
 | `Session` | — | `user_id`、`status` | `user_id → User`（**Cascade**） |
 | `FieldOption` | `[module_code, field_code, value, parent_option_id]` | `[module_code, field_code, parent_option_id]`、`parent_option_id` | `parent_option_id → FieldOption`（**Cascade**，自引用） |
 | `BackupRun` | `file_path` | `created_at`、`school_code`、`status` | 无外键（跨 schema 不可达，`created_by` 存用户名或 `system`） |
@@ -594,24 +596,25 @@ erDiagram
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/guest/quick-access` | 免凭证签发只读 JWT（2h，`guest_type=readonly`、无导出权限；需 `schoolCode`） |
-| POST | `/api/guest/register` | 访客自助注册（需 `schoolCode`+`username`+`password`，密码 bcrypt 落当前租户 `Guest` 表） |
-| POST | `/api/guest/login` | 访客登录，返回 `{ token, guest, expiresIn }` |
+| POST | `/api/guest/quick-access` | 免凭证签发只读 JWT（**2h**，`guest_type=readonly`、`has_export_permission=false`、`can_view_pathogen=false`；需 `schoolCode`） |
+| POST | `/api/guest/register` | **已关闭**：恒定返回 `403`（提示申请 viewer 账号）。历史上为访客自助注册 |
 | POST | `/api/guest/verify-token` | 校验访客令牌（需 guest 角色 JWT） |
 | GET | `/api/guest/stats` | 访客看板汇总统计（仅聚合，不返回记录明细） |
 
-> 访客 `register` / `login` / `quick-access` 三个端点均强制校验 `SchoolCustomization.guest_enabled` 开关（fail-closed：未开启一律拒绝），并分别挂独立限流。
+> **开关（fail-closed）**：`quick-access` 强制校验 `SchoolCustomization.guest_enabled`
+> （`guestRoutes.js` 查 `School.guest_enabled`，未开启返回 `403 该校未开放访客访问`），
+> 并挂独立限流（30 次/分钟，防批量枚举学校代码拉取数据）。
+> 该开关由**平台超管**在学校管理控制台按校开启（写入 `PUT /api/admin/schools/:code` 的 `guestEnabled`）。
+>
+> ⚠️ **`/api/guest/login` 端点不存在**（历史实现已移除）：访客**没有**用户名密码登录通道，
+> 唯一入口是免凭证的 `quick-access`。
 
-#### 5.3.1 数据导出申请（`/api/guest-export-request`）
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/guest-export-request/submit` | 访客提交导出申请（`status=pending`） |
-| GET | `/api/guest-export-request/my-requests` | 当前访客的导出申请列表 |
-| GET | `/api/guest-export-request/check-permission` | 当前访客是否具备导出权限 |
-| GET | `/api/guest-export-request/admin/pending` | 管理端：待审批列表（admin/manager） |
-| POST | `/api/guest-export-request/admin/:requestId/approve` | 批准（置 `has_export_permission=true` + 审计） |
-| POST | `/api/guest-export-request/admin/:requestId/reject` | 驳回 + 审计 |
+> **已下线（文档保留说明，勿再寻找）**：原「数据导出申请」全套接口
+> （`/api/guest-export-request/{submit,my-requests,check-permission,admin/pending,admin/:id/approve,admin/:id/reject}`）
+> **路由文件已删除**，`server.js` 未挂载。因此访客的 `has_export_permission` **无法被置为 true**——
+> 签发方对所有访客令牌硬写 `false`，且无任何审批入口。数据库层
+> （`GuestExportRequest` 表及 `has_export_permission`、`can_view_pathogen`、`request_pathogen_view` 字段）
+> 作为历史遗留结构保留，但**应用层无任何写入路径**。
 
 ### 5.4 检测记录
 
@@ -835,7 +838,7 @@ frontend/js/
 | 用户管理（增删改角色） | ✅ | ✅（本校） | ❌ | ❌ | ❌ |
 | 审计日志查看 | ✅ | ✅（本校） | ✅（仅本人） | ✅（仅本人） | ❌ |
 | 检测频率配置 | ✅ | ✅ | ❌ | ❌ | ❌ |
-| 数据导出 | ✅（PDF+Excel） | ✅（PDF+Excel） | ✅（仅 PDF） | ✅（仅 PDF） | ❌（默认，经审批可开） |
+| 数据导出 | ✅（PDF+Excel） | ✅（PDF+Excel） | ✅（仅 PDF） | ✅（仅 PDF） | ❌（**恒定拒绝，无审批通道**） |
 | **学校管理控制台 / 回收站 / 运维备份** | ✅ | ❌ | ❌ | ❌ | ❌ |
 
 - **平台超管**（`role=admin` 且 `schoolCode=null`，位于 public schema）：拥有 `schools:manage` 权限，可管理所有学校（新增/编辑/停用/回收站/界面定制/学校用户/运维备份）。学校内最高权限为 `manager`，`admin` 角色不分配给学校用户，避免跨校越权。
@@ -852,14 +855,19 @@ frontend/js/
 - **双令牌对（DS3-H1 破坏性变更）**：登录 / 刷新返回 `{ token, expiresIn, refreshToken, refreshExpiresIn }`。
   - **access token**：payload `{ userId, username, email, role, schoolCode, jti, iat, exp }`，有效期 **`JWT_ACCESS_EXPIRE`（默认 `30m`）**，HS256 签发，`jti` 为 `crypto.randomUUID()`。
   - **refresh token**：payload `{ userId, schoolCode, type:'refresh', jti, deviceId? }`（**不带 role/email**，最小化），有效期 **`JWT_REFRESH_EXPIRE`（默认 `7d`）**，独立密钥 `JWT_REFRESH_SECRET`（缺省派生 `${JWT_SECRET}:refresh`，保证 access/refresh 不能互换验签）。
-  - ⚠️ **`JWT_EXPIRE` 不再作用于员工 access token**，仅访客令牌（`guestRoutes.js`）沿用（默认 `7d`）。
+  - ⚠️ **`JWT_EXPIRE` 当前不作用于任何令牌**：员工 access token 用 `JWT_ACCESS_EXPIRE`、
+    refresh 用 `JWT_REFRESH_EXPIRE`，访客令牌有效期在 `guestRoutes.js` 中**硬编码 `2h`**。
+    该变量仅为兼容旧配置保留（见 §环境变量表）。
 - **令牌吊销（H2）**：`public.revoked_tokens` 表（运行时 DDL，非 Prisma schema）按 `jti` 精确吊销 + `user_all` 全量吊销。高危操作（禁用/删除/改角色/重置密码/改密）后 `revokeAllUserTokens` 写 `user_all` 记录，使该用户所有 `iat < revoked_at` 的令牌立即失效；`authenticateUser` 每请求校验吊销表 + 回查 DB（status/school_code/must_change_password/role），生效延迟为 0。
 - **refresh token 轮转（DS3-H1）**：仅接受 `X-Refresh-Token` 头（已移除 access-token 自续期）；一次性轮转，旧 token 用后立即吊销；重放检测（同一 token 二次使用 → 吊销该用户全部会话）；并发轮转宽限 30s（`REFRESH_REPLAY_GRACE_MS`，返回 `REFRESH_CONCURRENT`）；设备绑定（`X-Device-Id` + `foodtestlab_dev_id` cookie，跨设备拒绝轮转）。
 - **多标签页刷新协调（第六轮）**：前端 `AuthService` 用 Web Locks（回退 localStorage 自旋锁）+ 共享 token 采用 + 轮转信标三层串行化刷新，配合后端 30s 宽限，消除并发刷新触发重放导致的「全端登出」。
 - **首登强制改密（IF-2/M2）**：`must_change_password=true`（建校初始 manager、重置密码、平台超管新建）的账号，服务端 `authenticateUser` 对非改密白名单接口（`/api/user/change-password|logout|me|verify-token`）一律 403（`code: MUST_CHANGE_PASSWORD`），不依赖前端自觉。
-- **访客令牌**：
-  - 普通访客（register/login）payload `{ userId:guest.id, username, role:'guest', schoolCode, guestId, guest_type, has_export_permission, is_quick_access:false, iat }`，有效期跟随 `JWT_EXPIRE`（默认 `7d`）；
-  - 快速访问（quick-access）payload `{ userId:'quick-access', guestId:0, role:'guest', guest_type:'readonly', has_export_permission:false, is_quick_access:true, iat }`，有效期 **`2h`**，无 DB 实体。
+- **访客令牌**：**仅一种** —— 快速访问（quick-access）。payload 为
+  `{ userId:guest.id, guestId:guest.id, role:'guest', guest_type:'readonly', has_export_permission:false, can_view_pathogen:false, schoolCode, iat }`，
+  有效期**硬编码 `2h`**（`guestRoutes.js`，**不使用** `JWT_EXPIRE`）。
+  有 DB 实体：`quick-access` 会以 `username=quick_<schoolCode>` 在租户 `Guest` 表 upsert 一行
+  （`status=active`、`valid_until=now+2h`、`password_hash='quick_access_no_password'` 占位），
+  用于时效与状态回查。**无普通访客登录态**（`register` 已关闭、`login` 端点不存在）。
 
 ### 7.3 中间件链
 
@@ -912,7 +920,7 @@ flowchart LR
 | `JWT_ACCESS_EXPIRE` | `30m` | **员工 access token 有效期** |
 | `JWT_REFRESH_EXPIRE` | `7d` | refresh token 有效期（一次性轮转） |
 | `JWT_REFRESH_SECRET` | （可选） | refresh token 独立密钥（缺省派生 `${JWT_SECRET}:refresh`） |
-| `JWT_EXPIRE` | `7d` | 仅访客令牌有效期 |
+| `JWT_EXPIRE` | `7d` | ⚠️ **已失效**：当前不作用于任何令牌（员工用 `JWT_ACCESS_EXPIRE`/`JWT_REFRESH_EXPIRE`，访客令牌在 `guestRoutes.js` 硬编码 `2h`）。仅为兼容旧配置保留 |
 | `CORS_ORIGIN` | **`https://foodsentinel.digifluidic.com`** | 逗号分隔来源；**禁止通配符 `*`**（含 `*` 会拒绝启动）。⚠️ 旧文档中的 `http://<公网IP>:<端口>` 为过时口径，生产只走域名 443 |
 | `CORS_HOSTNAMES` | （可选） | hostname[:port] 白名单 |
 | `SEED_ADMIN_PASSWORD` / `SEED_OPERATOR_PASSWORD` / `SEED_VIEWER_PASSWORD` | 自动生成 14 位 | seed 初始密码 |

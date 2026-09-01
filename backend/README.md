@@ -75,7 +75,7 @@ backend/
 ├── routes/
 │   ├── userRoutes.js         # /api/user/* 用户与认证
 │   ├── auditRoutes.js        # /api/audit-logs/*
-│   ├── guestRoutes.js        # /api/guest/* 与 /api/guest-export-request/*（含 admin 审批）
+│   ├── guestRoutes.js        # /api/guest/*（quick-access / verify-token / stats；register 已关闭）
 │   ├── sessionRoutes.js      # /api/session/* 会话同步与事件
 │   └── syncRoutes.js         # /api/sync/*
 ├── lib/
@@ -129,18 +129,22 @@ backend/
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/guest/quick-access` | 免凭证签发只读限权 JWT（2h） |
-| POST | `/api/guest/register` | 访客自注册（落到对应租户 schema） |
-| POST | `/api/guest/login` | 访客登录（签发 guest 作用域 JWT） |
-| POST | `/api/guest/verify-token` | 校验访客令牌 |
-| POST | `/api/guest-export-request/submit` | 提交导出申请 |
-| GET  | `/api/guest-export-request/my-requests` | 查看我的申请 |
-| GET  | `/api/guest-export-request/check-permission` | 查看导出权限状态 |
-| GET  | `/api/guest-export-request/admin/pending` | 管理端待审批列表（admin/manager） |
-| POST | `/api/guest-export-request/admin/:id/approve` | 管理端批准（置 `has_export_permission=true`） |
-| POST | `/api/guest-export-request/admin/:id/reject` | 管理端驳回 |
+| POST | `/api/guest/quick-access` | 免凭证签发只读限权 JWT（**2h**，`guest_type='readonly'`、无导出权限、不可看病原体） |
+| POST | `/api/guest/register` | **已关闭**：恒定 `403`（提示申请 viewer 账号） |
+| POST | `/api/guest/verify-token` | 校验访客令牌（需 guest 角色 JWT） |
+| GET  | `/api/guest/stats` | 访客看板汇总统计（仅聚合，不返回记录明细） |
 
-> 访客自助路由（TD-Guest）与导出审批端均已实现，详见 `guestRoutes.js`。
+> **开关（fail-closed）**：`quick-access` 强制校验 `School.guest_enabled`，
+> 未开启返回 `403 该校未开放访客访问`；并挂独立限流（30 次/分钟）。
+> 该开关由**平台超管**在学校管理控制台按校开启（写入 `PUT /api/admin/schools/:code` 的 `guestEnabled`）。
+>
+> **已下线（勿再寻找）**：
+> - `/api/guest/login` 端点**不存在**（已移除）：访客无用户名密码登录通道，`quick-access` 是唯一入口。
+> - `/api/guest-export-request/*` 全套（submit / my-requests / check-permission / admin/pending /
+>   approve / reject）**路由文件已删除**、`server.js` 未挂载。故 `has_export_permission` **无法置为 true**，
+>   访客导出为**恒定拒绝**。数据库层 `GuestExportRequest` 表作遗留结构保留。
+> - 访客只读与模块白名单由 `requireGuestReadOnly`（`middleware/authMiddleware.js`）强制：
+>   非 `GET`/`HEAD` 一律 403；白名单为 `visible_types` **强制剔除 `pathogen`**。
 
 ### 检测记录
 

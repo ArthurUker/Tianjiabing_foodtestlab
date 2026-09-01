@@ -212,7 +212,7 @@ server.js（入口/路由/中间件装配）
 | 编号 | 描述 | 状态 |
 |------|------|------|
 | TD-P2-13 | 三套审计日志字段口径尚未完全统一，但已收敛：新增 `lib/auditLog.js` 门面（`writeTenantAuditLog`/`writeSystemLog`），handler 统一经此落库；`auditRoutes` 已改用门面、并移除 `DELETE /cleanup` 删除端点。后续仍待统一三套为单一接口。 | 收敛中（规则五） |
-| TD-Guest | 后端 `guestRoutes.js` 已实现 `POST /api/guest/register|login|verify-token`、`POST /api/guest-export-request/submit`、`GET /api/guest-export-request/my-requests|check-permission`；schema 新增 `Guest`/`GuestExportRequest`（租户级）；前端 `GuestAuthService` 经 `extractSchoolCode()` 补齐 `schoolCode`；真实 PostgreSQL 冒烟（`scripts/smoke-guest.mjs`）通过。 | ✅已解决 |
+| TD-Guest | 后端 `guestRoutes.js` 已实现访客体系（`quick-access` / `verify-token` / `stats` + `register` 关闭）；schema 新增 `Guest`/`GuestExportRequest`（租户级）；前端 `GuestAuthService` 经 `extractSchoolCode()` 补齐 `schoolCode`。**现状以代码为准（2026-09-01 核实）**：访客**仅 `readonly` 一种**、恒定无导出权限；`register` 已关闭（403）、`login` 端点与 `guest-export-request/*` 全套**已删除**；访客功能受超管按校开关 `guest_enabled` 控制。 | ✅已解决（口径已收敛） |
 | TD-Auth-Path | `AuthService` 路径已对齐后端（改密码 `POST /change-password`、校验令牌 `POST /verify-token`、登出后端新增无状态端点） | ✅已解决 |
 | TD-Users-Dup | `server.js` 内联 `/api/users*` 与 `userRoutes` 重复（且无租户隔离） | ✅已解决（内联已删，统一走 `/api/user`） |
 | TD-Session | 后端 `sessionRoutes.js` 已实现 `POST/GET /api/session`、`DELETE /api/session/:id|others`；schema 新增 `Session`（租户级）；前端 `SessionManager.syncToBackend/syncSessions` 已对接后端。 | ✅已解决 |

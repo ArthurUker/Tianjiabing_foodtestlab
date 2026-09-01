@@ -205,18 +205,23 @@ Tianjiabing_foodtestlab/
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/guest/quick-access` | 免凭证签发只读限权 JWT（2h，`is_quick_access=true`） |
-| POST | `/api/guest/register` | 访客自注册（落到对应租户 schema，TD-Guest 已实现） |
-| POST | `/api/guest/login` | 访客登录（签发 guest 作用域 JWT） |
-| POST | `/api/guest/verify-token` | 校验访客令牌 |
-| POST | `/api/guest-export-request/submit` | 提交导出申请 |
-| GET  | `/api/guest-export-request/my-requests` | 查看我的申请 |
-| GET  | `/api/guest-export-request/check-permission` | 查看导出权限状态 |
-| GET  | `/api/guest-export-request/admin/pending` | 管理端待审批列表（admin/manager） |
-| POST | `/api/guest-export-request/admin/:id/approve` | 管理端批准（置 `has_export_permission=true`） |
-| POST | `/api/guest-export-request/admin/:id/reject` | 管理端驳回 |
+| POST | `/api/guest/quick-access` | 免凭证签发只读限权 JWT（**2h**；`guest_type='readonly'`、`has_export_permission=false`、`can_view_pathogen=false`） |
+| POST | `/api/guest/register` | **已关闭**：恒定 `403`（提示申请 viewer 账号） |
+| POST | `/api/guest/verify-token` | 校验访客令牌（需 guest 角色 JWT） |
+| GET  | `/api/guest/stats` | 访客看板汇总统计（仅聚合，不返回记录明细） |
 
-> 访客自助注册 / 登录 / 导出申请的后端路由**已于 TD-Guest 实现**（见 `guestRoutes.js`），前端 `GuestAuthService` 的调用均有对应实现，不再 404。仅「访客导出**审批端**」为后续迭代补齐（admin approve/reject，见 `guestRoutes.js` 的 `/admin/*`）。
+> **开关与现状（以代码为准，勿照抄旧文档）**
+> - 访客功能**默认关闭**，须由**平台超管**在学校管理控制台按校开启（写入
+>   `SchoolCustomization.guest_enabled`）；`quick-access` 未开启时返回 `403 该校未开放访客访问`，
+>   并挂独立限流（30 次/分钟）。
+> - **`/api/guest/login` 端点不存在**（已移除）：访客无用户名密码登录通道，`quick-access` 是唯一入口。
+> - **`/api/guest-export-request/*` 全套已删除**（含 submit / my-requests / check-permission /
+>   admin/pending / approve / reject），路由文件已不存在、`server.js` 未挂载。
+>   因此 `has_export_permission` **无法被置为 true**，访客导出为**恒定拒绝**。
+>   数据库层 `GuestExportRequest` 表作为遗留结构保留。
+> - 访客只读与模块白名单由 `requireGuestReadOnly`（`backend/middleware/authMiddleware.js`）强制：
+>   非 `GET`/`HEAD` 一律 403；白名单为该校 `visible_types` **强制剔除 `pathogen`**，
+>   查询失败时降级 `['tableware','pesticide','oil','leanMeat']`。
 
 ### 5.4 审计日志（`/api/audit-logs`，`auditRoutes.js`）
 
@@ -413,7 +418,16 @@ Caddy 主配置 `/etc/caddy/Caddyfile` 通过 `import /etc/caddy/sites/*.caddy` 
 
 以下内容为**前端与后端当前实际不一致或历史遗留**，改动前请先阅读并在必要时按 PROJECT_CONVENTIONS 的「方法偏离预先报备」原则说明：
 
-1. ~~**访客自助路由缺失**~~ **（已解决，2026-07，TD-Guest）**：`guestRoutes.js` 已实现 `register`/`login`/`verify-token` 及 `guest-export-request/{submit,my-requests,check-permission}`，前端 `GuestAuthService` 调用均有对应实现，不再 404。仅「导出审批端」为后续补齐（见 `guestRoutes.js` `/admin/*`，已在 2026-07-18 实现 list-pending/approve/reject）。
+1. ~~**访客自助路由缺失**~~ **（已解决 2026-07；2026-09-01 口径再收敛）**：`guestRoutes.js` 曾实现
+   `register`/`login`/`verify-token` 及 `guest-export-request/{submit,my-requests,check-permission}`
+   与 `/admin/*` 审批端。但按 2026-09-01 对**真实代码**的核实，这些自助与审批通道**现已删除/关闭**：
+   - `POST /api/guest/register` → 恒定 `403`；
+   - `POST /api/guest/login` → **端点不存在**；
+   - `/api/guest-export-request/*` 全套 → **路由文件已删除**，`server.js` 未挂载。
+   
+   当前访客**仅 `readonly` 一种**，唯一入口为免凭证的 `POST /api/guest/quick-access`（JWT 2h），
+   且受超管按校开关 `guest_enabled` 控制。**勿再依据本条旧描述调用上述接口。**
+   详见 §5.3 与根 `README.md` §5.3。
 
 2. ~~**AuthService 与后端路由细微不一致**~~ **（已解决，2026-07，`ef4394b` 清理 TD-Naming/Auth-Path）**：改密码、校验令牌、登出前后端现已一致——均为 `POST /api/user/{change-password,verify-token,logout}`。
 
