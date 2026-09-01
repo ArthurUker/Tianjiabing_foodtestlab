@@ -78,7 +78,8 @@ export class UserManager {
      * 【H2】payload 携带 jti（crypto.randomUUID），供吊销表（public.revoked_tokens）精确吊销。
      * 【DS3-H1 破坏性变更】access token TTL 从 JWT_EXPIRE（默认 7d）缩短为
      * JWT_ACCESS_EXPIRE（默认 30m）；长会话由一次性轮转的 refresh token（7d）维持。
-     * 注意：JWT_EXPIRE 不再作用于员工 access token（访客令牌 guestRoutes 仍沿用）。
+     * 注意：JWT_EXPIRE 已完全失效 —— 不作用于员工 access token，也不作用于访客令牌
+     * （访客令牌有效期在 guestRoutes.js 中硬编码为 2h，见 2026-09-01 核实）。
      */
     buildAccessToken(user) {
         const payload = {

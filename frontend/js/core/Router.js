@@ -286,11 +286,11 @@ export class Router {
         console.log('🔴 ===== 登出流程开始 =====');
         
         try {
-            // P2-05: 使用模块级共享单例（兼容 main.js 可能挂载的 window.guestAuthService）
-            const guestAuthServiceInstance = window.guestAuthService || guestAuthService;
-            
+            // 2026-09-01 清理：原 `window.guestAuthService || guestAuthService` 兼容分支已移除。
+            // 经全仓库核实 main.js 从未挂载 window.guestAuthService，该分支恒走模块级单例，
+            // 属无效兼容代码。现统一使用模块级共享单例 guestAuthService。
             console.log('  1️⃣ 检查用户身份类型...');
-            const isGuest = guestAuthServiceInstance.isLoggedIn();
+            const isGuest = guestAuthService.isLoggedIn();
             const isAdmin = this.isAdmin();
             console.log(`  身份: 访客=${isGuest}, 管理员=${isAdmin}`);
             
@@ -300,7 +300,7 @@ export class Router {
             // 清除访客认证（如果是访客）
             if (isGuest) {
                 console.log('  📍 清除访客认证...');
-                guestAuthServiceInstance.logout();
+                guestAuthService.logout();
             }
             
             // 清除用户认证（所有角色均需清除）

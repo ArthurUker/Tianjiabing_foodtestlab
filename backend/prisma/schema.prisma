@@ -161,11 +161,14 @@ model Guest {
   full_name            String?
   // 自注册访客无创建者用户，故允许为空（P1-08 同款 Restrict 关系仅在非空时生效）
   created_by           String?
-  guest_type           String    @default("readonly") // readonly（只读） / export_applicant（导出申请人，历史别名）
-  has_export_permission Boolean  @default(false)   // 导出权限（默认关，经 export 申请审批后开通）
-  can_view_pathogen    Boolean   @default(false)   // 查看病原体数据权限（默认关，经 pathogen_access 申请审批后开通；开启后仍为只读，绝不含导出）
-  request_pathogen_view Boolean  @default(false)   // 注册时登记的「希望查看病原体」意向（仅标记，需审批才生效）
-  valid_until          DateTime? // 访客有效期（自注册时按 valid_days 计算）
+  // 实际只写入 'readonly'：访客自助注册与导出/病原体申请审批入口均已下线（对应路由已删除），
+  // 故 export_applicant 已是死枚举值，仅作历史兼容保留。
+  guest_type           String    @default("readonly") // readonly（只读）/ export_applicant（导出申请人，历史别名，已无写入路径）
+  // 以下三个布尔字段为遗留结构：应用层无任何路径会将其置为 true（签发方硬写 false，审批入口已删除）。
+  has_export_permission Boolean  @default(false)   // 导出权限（恒定 false；原需 export 申请审批，该审批流已下线）
+  can_view_pathogen    Boolean   @default(false)   // 查看病原体数据权限（恒定 false；原需 pathogen_access 审批，已下线）
+  request_pathogen_view Boolean  @default(false)   // 「希望查看病原体」意向（仅标记；原自助注册登记用，注册已关闭）
+  valid_until          DateTime? // 访客有效期（quick-access 按签发时刻 +2h 计算）
   status               String    @default("active") // active / disabled
   created_at           DateTime  @default(now())
   updated_at           DateTime  @updatedAt

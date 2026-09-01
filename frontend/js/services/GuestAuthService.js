@@ -146,32 +146,11 @@ export class GuestAuthService {
         return !!this.getToken();
     }
 
-    /**
-     * 获取访客类型
-     * @returns {string|null}
-     */
-    getGuestType() {
-        const guest = this.getCurrentGuest();
-        return guest ? guest.guest_type : null;
-    }
-
-    /**
-     * 是否有导出权限（访客写死无导出权限）
-     * @returns {boolean}
-     */
-    hasExportPermission() {
-        const guest = this.getCurrentGuest();
-        return guest ? guest.has_export_permission : false;
-    }
-
-    /**
-     * 是否可查看病原体数据（访客写死不可查看）
-     * @returns {boolean}
-     */
-    hasPathogenPermission() {
-        const guest = this.getCurrentGuest();
-        return guest ? !!guest.can_view_pathogen : false;
-    }
+    // 2026-09-01 清理：移除 getGuestType() / hasExportPermission() / hasPathogenPermission()。
+    // 三者均零调用，且读取的 guest_type / has_export_permission / can_view_pathogen
+    // 在后端签发时已恒定写为 'readonly' / false / false，审批入口（导出申请、病原体查看申请）
+    // 对应的路由文件已删除，故这些方法必然返回常量，属已废弃的「可申请审批」权限模型残留。
+    // 现行口径：访客仅 readonly、恒定无导出、恒定不可看病原体（由后端 requireGuestReadOnly 强制）。
 
     /**
      * 快速访问模式 - 调用后端接口获取真实 JWT
