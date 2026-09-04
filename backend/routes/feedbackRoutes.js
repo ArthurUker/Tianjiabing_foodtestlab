@@ -195,7 +195,12 @@ export function createFeedbackRoutes({ prisma, authenticateUser }) {
         try {
           saved.push(await saveEvidenceImage(images[i], i))
         } catch (e) {
-          return res.status(400).json({ error: e.message })
+          // 校验类错误（「第 N 张…」）可回显；系统级错误（磁盘/权限等，消息含服务器路径）不外泄
+          if (/^第 \d+ 张/.test(e.message || '')) {
+            return res.status(400).json({ error: e.message })
+          }
+          console.error('[feedback] 截图保存失败（系统级）:', e)
+          return res.status(500).json({ error: '截图保存失败，请稍后重试或联系管理员' })
         }
       }
 
