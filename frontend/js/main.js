@@ -28,6 +28,8 @@ import { GuestDashboard } from './modules/GuestDashboard.js';
 import { showTodayDetectionHint, renderFrequencyCards, initFrequencySettings, loadDailyReminderBar } from './modules/FrequencyModule.js';
 // P0-quickAccess: 快速访问模式检测 + CSS 注入收敛为单一事实来源（原 index.html ~330 行散落逻辑）
 import { isQuickAccessMode, injectQuickAccessStyle } from './modules/quickAccess.js';
+// ✨ 问题反馈（manager/operator/viewer/guest 全角色通用，推送钉钉群机器人）
+import { initFeedback } from './modules/Feedback.js';
 
 // P0-quickAccess: 表格渲染由 Tableware/GenericTest 内建 quickAccess 分支处理；
 // dashboard 卡片由 Dashboard.js loadDashboardData 处理；登出按钮由 Router.setupLogoutButton 绑定。
@@ -411,6 +413,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             sessionManager.init();
         } catch (error) {
             console.error('❌ SessionManager 初始化失败:', error);
+        }
+
+        // 8b. ✨ 初始化问题反馈表单 (所有身份：员工/管理员/访客/快速访问)
+        try {
+            initFeedback();
+        } catch (error) {
+            console.error('❌ FeedbackModule 初始化失败:', error);
         }
 
         // ✨ 导航已在初始化开始时设置，无需重复调用

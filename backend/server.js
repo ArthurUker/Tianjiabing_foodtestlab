@@ -16,6 +16,7 @@ import { createUserRoutes } from './routes/userRoutes.js'
 import { createAuditRoutes } from './routes/auditRoutes.js'
 import { createSessionRoutes } from './routes/sessionRoutes.js'
 import { createGuestRoutes } from './routes/guestRoutes.js'
+import { createFeedbackRoutes } from './routes/feedbackRoutes.js'
 import { rateLimit } from './middleware/validationMiddleware.js'
 import idempotencyMiddleware from './middleware/idempotencyMiddleware.js'
 import { createAuthMiddleware } from './middleware/authMiddleware.js'
@@ -289,6 +290,11 @@ app.use('/api/session', sessionRoutes)
 // ====== Guest Routes（TD-Guest 收口）======
 const guestRoutes = createGuestRoutes(userManager, prisma, JWT_SECRET)
 app.use('/api/guest', guestRoutes)
+
+// ====== Feedback Routes（问题反馈：manager/operator/viewer/guest 全角色可提交，
+// 落 public.SystemLog 留档 + 推送钉钉群机器人 DINGTALK_WEBHOOK_URL）======
+const feedbackRoutes = createFeedbackRoutes({ prisma, authenticateUser })
+app.use('/api/feedback', feedbackRoutes)
 
 // ====== Sync Routes ======
 const syncRoutes = createSyncRoutes(userManager, prisma)

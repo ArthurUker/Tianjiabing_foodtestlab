@@ -230,6 +230,11 @@ export class GuestDashboard {
                             data-nav-target="lean-meat-test">
                             <i class="fas fa-drumstick-bite mr-1"></i>肉蛋农残
                         </button>
+                        <!-- ✨ 问题反馈：访客唯一可发起的写操作（后端 /api/feedback 全角色放行） -->
+                        <button class="p-2 bg-purple-50 text-purple-600 rounded hover:bg-purple-100 text-sm font-medium flex items-center justify-center transition"
+                            data-nav-target="feedback">
+                            <i class="fas fa-comment-dots mr-1"></i>问题反馈
+                        </button>
                         <!-- ❌ 访客无权访问病原体检测 - 已移除快速链接 -->
                     </div>
                 </div>

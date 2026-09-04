@@ -320,6 +320,10 @@
                 <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="frequency-report">
                     <i class="fas fa-chart-line mr-3 w-5"></i>检测频率与月报
                 </button>
+                <!-- 问题反馈：所有角色可见（manager/operator/viewer/guest），不注册 MENU_ITEMS 定制显隐（与 frequency-report 同策略） -->
+                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="feedback">
+                    <i class="fas fa-comment-dots mr-3 w-5"></i>问题反馈
+                </button>
 
                 <!-- 管理功能 (仅管理员可见) -->
                 <div class="border-t border-gray-700 my-2" data-admin-only></div>
@@ -723,6 +727,47 @@
             <!-- 12. ✨ 访客中心 (仅访客登录后显示) -->
             <div id="guest-dashboard" class="content-section hidden">
                 <!-- GuestDashboard.js 会把界面渲染到这里 -->
+            </div>
+
+            <!-- 13. ✨ 问题反馈 (所有角色：manager/operator/viewer/guest 通用) -->
+            <div id="feedback" class="content-section hidden">
+                <div class="glass p-6 max-w-3xl">
+                    <h2 class="text-2xl font-bold mb-4 border-b pb-2">问题反馈</h2>
+                    <p class="text-sm text-gray-600 mb-5">
+                        <i class="fas fa-circle-info text-blue-500 mr-1"></i>
+                        使用中遇到 Bug、有改进意见或新功能需求，欢迎告诉我们 —— 提交后会实时推送到开发团队，我们会尽快跟进。
+                    </p>
+                    <form id="feedbackForm" class="space-y-4" novalidate>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">反馈类型 <span class="text-red-500">*</span></label>
+                            <select name="type" class="w-full border border-gray-300 p-2 rounded-md shadow-sm" required>
+                                <option value="suggestion">意见反馈</option>
+                                <option value="bug">Bug 反馈</option>
+                                <option value="feature">新需求建议</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">反馈内容 <span class="text-red-500">*</span></label>
+                            <textarea name="content" rows="6" maxlength="2000" required
+                                placeholder="请尽量描述清楚：做了什么操作、遇到什么现象 / 或您希望的效果（Bug 反馈建议附上复现步骤）"
+                                class="w-full border border-gray-300 p-2 rounded-md shadow-sm resize-y"></textarea>
+                            <p class="text-xs text-gray-400 mt-1 text-right"><span id="feedbackContentCount">0</span> / 2000</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">联系方式（选填）</label>
+                            <input type="text" name="contact" maxlength="100"
+                                placeholder="手机号 / 微信号 / 邮箱，便于我们回访跟进"
+                                class="w-full border border-gray-300 p-2 rounded-md shadow-sm">
+                        </div>
+                        <div id="feedbackMsg" class="hidden p-3 rounded-md text-sm"></div>
+                        <div class="flex justify-end pt-2 border-t">
+                            <button type="submit" id="feedbackSubmitBtn"
+                                class="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed">
+                                <i class="fas fa-paper-plane mr-2"></i>提交反馈
+                            </button>
+                        </div>
+                    </form>
+                </div>
             </div>
 
         </div>
