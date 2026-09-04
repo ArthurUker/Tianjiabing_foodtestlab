@@ -1424,7 +1424,7 @@ function openAiDetectModal(targetPointDiv = null) {
     // 用绝对路径而不是相对路径，避免多租户 URL（/schoolCode/xxx.html）下被拼成
     // /schoolCode/detergent-image-demo.html 后被 Caddy try_files fallback 到 /index.html
     // 导致 iframe 错误地显示了主系统首页。Caddy try_files:
-    //   root * /opt/foodtestlab/dist; try_files {path} /index.html
+    //   root * /opt/foodsentinel/dist; try_files {path} /index.html
     const demoUrl = new URL('/detergent-image-demo.html', window.location.origin);
     demoUrl.searchParams.set('embed', '1');
 

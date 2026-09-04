@@ -1,6 +1,6 @@
 # 后端 API 服务（backend/）
 
-食品安全检验系统（部署代号 `foodtestlab`）的后端，基于 **Express + Prisma + PostgreSQL**，使用 **JWT（Bearer）** 认证。生产部署由 **systemd** 托管，前端经 **Caddy** 反向代理（非 Windows / 非 PM2）。开发/测试/生产统一使用 PostgreSQL。
+食品安全检验系统（部署代号 `foodsentinel`）的后端，基于 **Express + Prisma + PostgreSQL**，使用 **JWT（Bearer）** 认证。生产部署由 **systemd** 托管，前端经 **Caddy** 反向代理（非 Windows / 非 PM2）。开发/测试/生产统一使用 PostgreSQL。
 
 > 完整架构、API 清单、前端与部署说明见 [`../docs/DEVELOPMENT_GUIDE.md`](../docs/DEVELOPMENT_GUIDE.md)。本文仅覆盖后端自身的本地开发与运行。
 
@@ -49,7 +49,7 @@ curl http://127.0.0.1:3002/api/health   # 本地开发端口；部署环境为 3
 | `NODE_ENV` | development / production |
 | `PORT` | 后端内部端口（默认 3000） |
 | `SERVE_STATIC` | 是否后端托管静态资源（生产 false，由 Caddy 托管 `dist/`） |
-| `DATABASE_URL` | `postgresql://<user>:<pass>@127.0.0.1:5432/foodtestlab` |
+| `DATABASE_URL` | `postgresql://<user>:<pass>@127.0.0.1:5432/foodsentinel` |
 | `JWT_SECRET` | 强随机密钥（不可为弱密钥黑名单，否则启动即退出） |
 | `JWT_EXPIRE` | 令牌有效期（默认 7d） |
 | `CORS_ORIGIN` | 逗号分隔允许来源；`*` 全开 |

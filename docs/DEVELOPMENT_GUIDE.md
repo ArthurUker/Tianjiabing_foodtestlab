@@ -14,7 +14,7 @@
 - **多学校架构（目标）**：单应用 + 单 PostgreSQL 实例 + **Schema-per-tenant（方案②）**——50+ 学校共用同一份数据模型，每校数据在独立 schema（`school_<code>`）；应用层经 `backend/lib/tenantClient.js` 的 `createTenantClient` 为每校缓存独立 `PrismaClient`（连接串带 `?schema=<schema>`）路由，而非 `SET search_path`（该方案已证伪废弃，见 §8）。开发/测试用共享 schema。
 - 认证：**JWT（Bearer）**，后端统一签发与校验；JWT 中携带学校标识（`schoolCode`）用于租户路由。
 
-> 命名已品牌中立化：根 `package.json` 的 `name` 为 `foodtestlab`，部署使用 `SYSTEM_NAME=foodtestlab`；学校名（珠海一中 / 田家炳中学 / 珠海实验中学等）均为 `School` 表数据，按 `schoolCode` 动态读取，代码层不出现学校专有命名。每校个性化（界面 / 内容 / 字段）由 `SchoolCustomization` 承载。
+> 命名已品牌中立化：根 `package.json` 的 `name` 为 `foodsentinel`，部署使用 `SYSTEM_NAME=foodsentinel`；学校名（珠海一中 / 田家炳中学 / 珠海实验中学等）均为 `School` 表数据，按 `schoolCode` 动态读取，代码层不出现学校专有命名。每校个性化（界面 / 内容 / 字段）由 `SchoolCustomization` 承载。
 
 ---
 
@@ -439,7 +439,7 @@ Caddy 主配置 `/etc/caddy/Caddyfile` 通过 `import /etc/caddy/sites/*.caddy` 
 
 6. ~~**SessionManager 后端 API 未实现**~~ **（已落地，2026-07，TD-Session）**：`sessionRoutes.js` 提供 `POST/GET /api/session`、`DELETE /api/session/:id|others`、`POST /api/session/event`；`SessionManager.syncToBackend`/`syncSessions`/`recordSessionEvent` 均已调用后端（消除 TODO 占位）。
 
-7. **命名已中立化**：`package.json` 的 `name` 为 `foodtestlab`；`engines.node` 写的是 `>=14.0.0`，而部署脚本实际用 `NODE_VERSION=20`（待统一）；`.env.example` 含 Windows 路径与旧字段，仅供格式参考，实际以部署脚本生成 `.env` 为准。根 `package.json` 同时列出了后端运行依赖（express / jsonwebtoken 等），而后端另有独立 `backend/package.json`，以后端目录的为准。
+7. **命名已中立化**：`package.json` 的 `name` 为 `foodsentinel`；`engines.node` 写的是 `>=14.0.0`，而部署脚本实际用 `NODE_VERSION=20`（待统一）；`.env.example` 含 Windows 路径与旧字段，仅供格式参考，实际以部署脚本生成 `.env` 为准。根 `package.json` 同时列出了后端运行依赖（express / jsonwebtoken 等），而后端另有独立 `backend/package.json`，以后端目录的为准。
 
 8. **多租户架构已定稿为方案②（Schema-per-tenant）**：原"每校物理隔离部署"描述已废弃。50+ 学校共用单应用与单 PostgreSQL 实例，每校独立 schema、表结构统一。
 

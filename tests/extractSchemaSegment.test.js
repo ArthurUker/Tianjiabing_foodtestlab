@@ -310,7 +310,7 @@ describe('extractSchemaSegment', () => {
       '--',
       '\\restrict xxxxxx',
       '\\encoding UTF8',
-      '\\connect foodtestlab',
+      '\\connect foodsentinel',
       '\\set foo bar',
       '\\unset foo',
       '\\echo begin',

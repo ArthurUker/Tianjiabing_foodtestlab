@@ -103,7 +103,7 @@ export async function scanAndAlertSecurityEvents(prisma, state, {
     return lines
   })
   const text = [
-    `🚨 [foodtestlab] 检测到 ${events.length} 条新安全事件（SECURITY:*）`,
+    `🚨 [foodsentinel] 检测到 ${events.length} 条新安全事件（SECURITY:*）`,
     ...summaryLines,
     `窗口: ${since.toISOString()} ~ ${state.lastScanAt.toISOString()}`,
     `排查: SELECT * FROM public."SystemLog" WHERE message LIKE 'SECURITY:%' ORDER BY created_at DESC;`,

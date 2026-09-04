@@ -24,7 +24,7 @@
 set -u
 
 # ---------- 路径与默认值 ----------
-DIR="${LOG_ALERT_DIR:-/var/log/foodtestlab}"
+DIR="${LOG_ALERT_DIR:-/var/log/foodsentinel}"
 TARGETS="${LOG_ALERT_TARGETS:-$DIR/app.err.log}"
 STATE_FILE="${LOG_ALERT_STATE:-$DIR/.log-alert.cursor}"
 WEBHOOK="${LOG_ALERT_WEBHOOK:-${LOG_ALERT_DINGTALK:-}}"

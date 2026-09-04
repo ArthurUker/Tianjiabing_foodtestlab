@@ -24,7 +24,7 @@
 | 对外入口 | **https://foodsentinel.digifluidic.com**（Caddy 443 → 3002；HTTP 80 仅跳转，不提供业务） |
 | 日志 | `/mnt/datadisk0/foodsentinel/logs/app.out.log`、`app.err.log` |
 | 备份 / 审计留档 | `/mnt/datadisk0/foodsentinel/backups`、`/mnt/datadisk0/foodsentinel/backups/audit-exports` |
-| 仓库标识 | `package.json#name` 仍为历史名 `foodtestlab`，**不代表任何环境**，勿据此判断 |
+| 仓库标识 | `package.json#name` 为 `foodsentinel`，**不代表任何环境**，勿据此判断 |
 
 ### 0.2 开发/测试环境已彻底下线（2026-08-27）
 
@@ -116,7 +116,7 @@ logrotate 配置、适配文件 `/opt/deploy/deploy.foodtestlab.conf`。
 - **多学校架构（方案② Schema-per-tenant）**：50+ 学校共用同一套应用与同一份数据模型，每校数据存放在 PostgreSQL 的**独立 schema**（表结构一致）；应用层按当前登录学校经 `?schema=` 连接串路由（`backend/lib/tenantClient.js` 的 `createTenantClient` 为每校缓存独立 PrismaClient）。
 - ⚠️ **本系统只有生产一套环境**（见 §0）：没有 dev/test 服务器，也没有共享 schema 形态。文档里出现的「dev/test 共享 schema」均为历史设计说明，当前不适用。
 
-> 命名已品牌中立化：根 `package.json` 的 `name` 为 `foodtestlab`，部署统一使用 `SYSTEM_NAME=foodtestlab`；具体学校名均为 `School` 表中的数据，由登录时按 `schoolCode` 动态读取，业务运行逻辑不依赖任何学校专有命名。每校的界面 / 显示内容 / 字段要求的差异，统一由 `public` 系统表中的 `SchoolCustomization` 承载（外观 `theme_color`/`logo_url`/`theme_config`、可见检测类型 `visible_types`、可见菜单项 `visible_menu_items`、食堂信息 `canteens`、字段标签 `field_labels`、隐藏字段 `hidden_fields`、字段必填/校验规则 `field_rules`、下拉选项 `field_options`、字段类型 `field_types`、字段顺序 `field_order`、自定义字段 `custom_fields`、自定义检测类型 `test_types`、访客开关 `guest_enabled`），新增学校零改码。学校管理控制台（`admin-schools.html`，平台超管独有）提供 GUI 完成学校全生命周期管理：新增学校（自动建 schema + 推表 + 首个 manager 账号）、编辑学校信息与外观、配置字段定制、管理学校用户（查看/重置密码/启停用）、回收站管理。
+> 命名已品牌中立化：根 `package.json` 的 `name` 为 `foodsentinel`，部署统一使用 `SYSTEM_NAME=foodsentinel`；具体学校名均为 `School` 表中的数据，由登录时按 `schoolCode` 动态读取，业务运行逻辑不依赖任何学校专有命名。每校的界面 / 显示内容 / 字段要求的差异，统一由 `public` 系统表中的 `SchoolCustomization` 承载（外观 `theme_color`/`logo_url`/`theme_config`、可见检测类型 `visible_types`、可见菜单项 `visible_menu_items`、食堂信息 `canteens`、字段标签 `field_labels`、隐藏字段 `hidden_fields`、字段必填/校验规则 `field_rules`、下拉选项 `field_options`、字段类型 `field_types`、字段顺序 `field_order`、自定义字段 `custom_fields`、自定义检测类型 `test_types`、访客开关 `guest_enabled`），新增学校零改码。学校管理控制台（`admin-schools.html`，平台超管独有）提供 GUI 完成学校全生命周期管理：新增学校（自动建 schema + 推表 + 首个 manager 账号）、编辑学校信息与外观、配置字段定制、管理学校用户（查看/重置密码/启停用）、回收站管理。
 
 ---
 
@@ -211,7 +211,7 @@ flowchart TB
 > 本节基于仓库实际目录（`list_dir`，已折叠生成式目录 `node_modules/`、`dist/`、`.git/`、产物 `coverage/`、`vendor/` 等非源码树）。前端 `frontend/js/` 内部的组件级划分另见 §6.2。
 
 ```text
-foodsentinel/                          # 生产部署根目录（/opt/foodsentinel；仓库标识 name=foodtestlab）
+foodsentinel/                          # 生产部署根目录（/opt/foodsentinel；仓库标识 name=foodsentinel）
 ├── frontend/                         # ★ 前端源码（2026-09-01 由根目录迁入）
 │   ├── pages/                        # 正式页面入口（原生 ES Module，浏览器直载）
 │   │   ├── index.html                #   业务主界面
@@ -239,7 +239,7 @@ foodsentinel/                          # 生产部署根目录（/opt/foodsentin
 │                                     #     ⇒ dist/ 内 URL 布局与迁入前完全一致，线上路径零变化
 ├── README.md                         # ★ 系统级总览（唯一权威文档；含 §0 环境唯一性声明）
 ├── PRODUCTION-ENV-RULES.md           # ★ 生产环境强制规则（.gitignore 排除，仅存服务器，GitHub 不可见）
-├── package.json                      # 根依赖与脚本（name=foodtestlab, version=3.1.0, type=module）
+├── package.json                      # 根依赖与脚本（name=foodsentinel, version=3.1.0, type=module）
 ├── jest.config.cjs / cypress.config.cjs / tailwind.config.cjs / .babelrc  # 测试与构建配置
 ├── backend/                          # ★ Node/Express 后端（ESM）
 │   ├── server.js                     # 入口：CORS/JWT 启动守卫、路由挂载（adminDisk @300、recognitionRoutes @314）
@@ -1138,7 +1138,7 @@ caddy validate --config /etc/caddy/Caddyfile && sudo systemctl reload caddy   # 
 | TD-Session | 会话管理落地（`Session` 模型 + `/api/session` + 前端 `SessionManager`）。 | ✅已解决 |
 | TD-Orphan | 前端遗留模块（`CacheManager`/`ConfigManager`/`UserAuth`/`IndexedDBManager`/`OfflineModeManager`/`PerformanceMonitor`）已移出仓库。 | ✅已解决 |
 | TD-Backend-Orphan | `backend/sql/*.sql`、`backend/config/telemetry.js` 等未启用产物已移出仓库。 | ✅已解决 |
-| TD-Naming | `package.json` name 中立化为 `foodtestlab`，`engines.node` 对齐 `>=18`。 | ✅已解决 |
+| TD-Naming | `package.json` name 中立化为 `foodsentinel`，`engines.node` 对齐 `>=18`。 | ✅已解决 |
 | TD-Tenant | 多学校隔离采用 per-schema `?schema=` 专属 PrismaClient 方案；「事务包裹 / search_path」方案已证伪废弃。 | ✅已解决 |
 
 ### 10.2 当前待办

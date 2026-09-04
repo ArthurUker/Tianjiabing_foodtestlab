@@ -1,5 +1,5 @@
 /**
- * ESLint 配置 — foodtestlab 安全护栏
+ * ESLint 配置 — foodsentinel 安全护栏
  *
  * 基于 5 轮代码审计发现的缺陷模式，编写 3 条可持续集成的拦截规则：
  *   规则1 (no-restricted-syntax #1)：禁止直接 new PrismaClient()（租户隔离护栏，对应 TD-Tenant-Route）
@@ -36,7 +36,7 @@ module.exports = {
             {
                 selector: "NewExpression[callee.name='PrismaClient']",
                 message:
-                    '[foodtestlab/no-global-prisma] 禁止直接 new PrismaClient()。' +
+                    '[foodsentinel/no-global-prisma] 禁止直接 new PrismaClient()。' +
                     '租户数据操作必须通过 createTenantClient(prisma, schoolCode) 或 userManager.forTenant(schoolCode) 获取租户客户端，' +
                     '或使用 req.db（由 tenantMiddleware 挂载）。' +
                     '全局单例仅在 server.js 顶层创建一次。详见 TD-Tenant-Route。',
@@ -47,7 +47,7 @@ module.exports = {
                 selector:
                     "CallExpression[callee.object.name='crypto'][callee.property.name='randomUUID']",
                 message:
-                    '[foodtestlab/no-secure-context-api] crypto.randomUUID() 仅在 Secure Context (HTTPS/localhost) 可用。' +
+                    '[foodsentinel/no-secure-context-api] crypto.randomUUID() 仅在 Secure Context (HTTPS/localhost) 可用。' +
                     'HTTP 环境会抛 TypeError。请加降级：const id = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`。' +
                     '详见 TD-HTTP-UUID。',
             },
@@ -90,7 +90,7 @@ module.exports = {
                         selector:
                             "CallExpression[callee.object.name='crypto'][callee.property.name='randomUUID']",
                         message:
-                            '[foodtestlab/no-secure-context-api] crypto.randomUUID() 仅在 Secure Context 可用。加降级。',
+                            '[foodsentinel/no-secure-context-api] crypto.randomUUID() 仅在 Secure Context 可用。加降级。',
                     },
                 ],
             },
@@ -113,7 +113,7 @@ module.exports = {
                         selector:
                             "CallExpression[callee.object.name='crypto'][callee.property.name='randomUUID']",
                         message:
-                            '[foodtestlab/no-secure-context-api] crypto.randomUUID() 仅在 Secure Context 可用。加降级。',
+                            '[foodsentinel/no-secure-context-api] crypto.randomUUID() 仅在 Secure Context 可用。加降级。',
                     },
                 ],
             },

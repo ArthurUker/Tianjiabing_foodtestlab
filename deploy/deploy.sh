@@ -276,7 +276,7 @@ if [ "$INSTALL_RUNTIME" = "true" ]; then
   fi
   ok "Caddy: $(caddy version 2>/dev/null | head -1)"
 
-  # Node（NVM 默认装到 /root/.nvm；但 systemd 服务以非 root 系统用户 foodtestlab 运行，
+  # Node（NVM 默认装到 /root/.nvm；但 systemd 服务以非 root 系统用户 foodsentinel 运行，
   # 无法穿越 /root（700）执行软链过去的 node，会报 Permission denied / status=203/EXEC。
   # 因此必须把 node 整个目录复制到全局可读的 /opt，再从 /usr/local/bin 软链过去。）
   if ! command -v node >/dev/null 2>&1; then
@@ -437,7 +437,7 @@ if [ -z "$TENCENT_SECRET_ID$TENCENT_SECRET_KEY$TENCENT_KMS_KEY_ID" ] && [ -z "$B
 fi
 
 # 导出离线保险副本（独立于 backend/.env，chmod 600）。
-BACKUP_SECRETS_FILE="/root/.foodtestlab-backup-secrets.env"
+BACKUP_SECRETS_FILE="/root/.foodsentinel-backup-secrets.env"
 {
   echo "# Auto-exported by deploy.sh — 备份加密密钥离线保险（与 backend/.env 解耦，防重部署/误覆盖丢失）"
   echo "# 生成时间: $(date -u +%FT%TZ)"

@@ -6,7 +6,7 @@
 # 不是代码 bug，是 backupService.js:296 的安全机制（无密钥拒绝执行，防明文备份裸奔）。
 #
 # 用法（在公网服务器上以 root 运行）：
-#   sudo bash /opt/foodtestlab/scripts/setup-backup-kms.sh [options]
+#   sudo bash /opt/foodsentinel/scripts/setup-backup-kms.sh [options]
 #
 # 必填项（至少一组）：
 #   --tencent                 启用模式 A（腾讯云 KMS 信封加密，**生产推荐**），需依次输入：
@@ -36,7 +36,7 @@
 # ⚠️ 注意：deploy.sh 已在 2026-08-18 修复为复用 BACKUP_MASTER_KEY / TENCENT_*（见
 # deploy.sh 密钥复用循环），重部署不再丢备份密钥。但请确认服务器上的 deploy.sh 已更新
 # （git pull），否则旧版仍会整体覆盖 backend/.env 导致密钥丢失。建议仍把密钥单独保存到
-# /root/.foodtestlab-backup-secrets.env 作为保险。
+# /root/.foodsentinel-backup-secrets.env 作为保险。
 # =========================================================
 set -euo pipefail
 
@@ -226,7 +226,7 @@ case "$MODE" in
         upsert_env BACKUP_MASTER_KEY   "$BACKUP_MASTER_KEY"
         warn "模式 B（本地密钥）以明文存储，仅限开发/过渡；生产必须切换到模式 A"
         warn "本次生成的 BACKUP_MASTER_KEY：$BACKUP_MASTER_KEY"
-        warn "请务必单独保存到 /root/.foodtestlab-backup-secrets.env（deploy.sh 重部署会覆盖 .env）"
+        warn "请务必单独保存到 /root/.foodsentinel-backup-secrets.env（deploy.sh 重部署会覆盖 .env）"
         ;;
 esac
 
@@ -280,5 +280,5 @@ echo ""
 echo "[密钥持久化提醒]"
 echo "  ✅  deploy.sh 已在 2026-08-18 修复：重部署会复用 BACKUP_MASTER_KEY / TENCENT_*，"
 echo "      不再整体覆盖丢失。请先 git pull 把修复拉到服务器。"
-echo "  ⚠️  模式 B 的 BACKUP_MASTER_KEY 仍建议单独持久化（/root/.foodtestlab-backup-secrets.env），"
+echo "  ⚠️  模式 B 的 BACKUP_MASTER_KEY 仍建议单独持久化（/root/.foodsentinel-backup-secrets.env），"
 echo "      双重保险：即使 .env 被意外覆盖，也能找回密钥解密历史备份。"

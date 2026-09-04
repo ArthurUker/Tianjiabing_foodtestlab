@@ -13,10 +13,10 @@
 #
 # 可选环境变量：
 #   BACKUP_ALERT_WEBHOOK  企业微信/钉钉等机器人 webhook 地址（未配置则仅写日志）
-#   BACKUP_ALERT_LOG      告警日志路径（默认 /var/log/foodtestlab/backup.err.log）
+#   BACKUP_ALERT_LOG      告警日志路径（默认 /var/log/foodsentinel/backup.err.log）
 set -u
 
-LOG_FILE="${BACKUP_ALERT_LOG:-/var/log/foodtestlab/backup.err.log}"
+LOG_FILE="${BACKUP_ALERT_LOG:-/var/log/foodsentinel/backup.err.log}"
 TS="$(date -Is)"
 MSG="[backup-alert] ${TS} 数据库备份任务失败，请检查备份服务日志（journalctl -u '*-backup.service'）"
 

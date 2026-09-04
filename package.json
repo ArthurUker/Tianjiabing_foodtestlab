@@ -1,5 +1,5 @@
 {
-  "name": "foodtestlab",
+  "name": "foodsentinel",
   "type": "module",
   "version": "1.0.0",
   "description": "食品安全检验管理系统 - Pro版本",
@@ -36,7 +36,7 @@
     "management",
     "system"
   ],
-  "author": "foodtestlab",
+  "author": "foodsentinel",
   "license": "MIT",
   "dependencies": {
     "bcryptjs": "^2.4.3",

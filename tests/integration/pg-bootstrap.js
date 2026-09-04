@@ -20,7 +20,7 @@ export function getDatabaseUrl() {
   // 允许通过环境变量注入真实连接串；缺省使用本机 brew 安装的 PG 默认参数
   return (
     process.env.DATABASE_URL ||
-    'postgresql://postgres:postgres@127.0.0.1:5432/foodtestlab_test'
+    'postgresql://postgres:postgres@127.0.0.1:5432/foodsentinel_test'
   )
 }
 
