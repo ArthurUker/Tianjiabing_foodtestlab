@@ -3,12 +3,17 @@
  *
  * 面向全部登录身份（manager / operator / viewer / guest）：
  *   - 员工令牌（auth_token）与访客令牌（guest_token）均可提交；
- *   - 后端 POST /api/feedback 落 public.SystemLog 留档并推送钉钉群机器人；
+ *   - 支持附加截图（≤3 张、单张 ≤5MB，base64 随 JSON 提交，后端落盘并内嵌钉钉消息）；
  *   - 表单位于 index.html #feedback 区块，普通访客经 GuestDashboard 快速导航进入。
  */
 
 import { authService } from '../services/AuthService.js';
 import guestAuthService from '../services/GuestAuthService.js';
+
+// 截图限制（与后端 feedbackRoutes.js 保持一致）
+const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_IMAGES = 3;
 
 export function initFeedback() {
     const form = document.getElementById('feedbackForm');
@@ -18,8 +23,13 @@ export function initFeedback() {
     const submitBtn = document.getElementById('feedbackSubmitBtn');
     const contentEl = form.querySelector('textarea[name="content"]');
     const countEl = document.getElementById('feedbackContentCount');
+    const imageInput = document.getElementById('feedbackImageInput');
+    const imageListEl = document.getElementById('feedbackImageList');
 
-    // 内容字数实时统计
+    // 已选截图：{ name, dataURL }
+    const images = [];
+
+    // ── 内容字数实时统计 ──
     if (contentEl && countEl) {
         contentEl.addEventListener('input', () => {
             countEl.textContent = String(contentEl.value.length);
@@ -40,6 +50,73 @@ export function initFeedback() {
         }
     }
 
+    // ── 截图选择 / 预览 / 删除 ──
+    function escapeAttr(s) {
+        return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function renderImages() {
+        if (!imageListEl) return;
+        imageListEl.innerHTML = images.map((img, i) => `
+            <div class="relative group">
+                <img src="${img.dataURL}" alt="${escapeAttr(img.name)}"
+                    class="w-20 h-20 object-cover rounded-md border border-gray-300">
+                <button type="button" data-fb-img-idx="${i}" title="移除"
+                    class="absolute -top-2 -right-2 w-5 h-5 bg-red-600 text-white rounded-full text-xs leading-none shadow hover:bg-red-700 transition">&times;</button>
+            </div>
+        `).join('');
+    }
+
+    function readAsDataURL(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(new Error('读取失败'));
+            reader.readAsDataURL(file);
+        });
+    }
+
+    if (imageInput) {
+        imageInput.addEventListener('change', async () => {
+            const files = Array.from(imageInput.files || []);
+            imageInput.value = ''; // 允许重复选择同一文件
+            for (const file of files) {
+                if (images.length >= MAX_IMAGES) {
+                    showMsg(`截图最多 ${MAX_IMAGES} 张。`, 'error');
+                    break;
+                }
+                if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+                    showMsg(`「${file.name}」不是支持的图片格式（png / jpg / webp / gif）。`, 'error');
+                    continue;
+                }
+                if (file.size > MAX_IMAGE_BYTES) {
+                    showMsg(`「${file.name}」超过 5MB，请压缩后再添加。`, 'error');
+                    continue;
+                }
+                try {
+                    const dataURL = await readAsDataURL(file);
+                    images.push({ name: file.name, dataURL });
+                } catch (e) {
+                    showMsg(`「${file.name}」读取失败，请重试。`, 'error');
+                }
+            }
+            renderImages();
+        });
+    }
+
+    if (imageListEl) {
+        imageListEl.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-fb-img-idx]');
+            if (!btn) return;
+            const idx = Number(btn.dataset.fbImgIdx);
+            if (idx >= 0 && idx < images.length) {
+                images.splice(idx, 1);
+                renderImages();
+            }
+        });
+    }
+
+    // ── 提交 ──
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
 
@@ -73,14 +150,22 @@ export function initFeedback() {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`,
                 },
-                body: JSON.stringify({ type, content, contact }),
+                body: JSON.stringify({
+                    type,
+                    content,
+                    contact,
+                    images: images.map((img) => img.dataURL),
+                }),
             });
             const data = await resp.json().catch(() => ({}));
 
             if (resp.ok && data.success) {
-                showMsg('✅ 反馈已提交成功！开发团队会尽快跟进处理，感谢您的支持。', 'success');
+                const n = Array.isArray(data.images) ? data.images.length : 0;
+                showMsg(`✅ 反馈已提交成功！开发团队会尽快跟进处理，感谢您的支持。`, 'success');
                 form.reset();
                 if (countEl) countEl.textContent = '0';
+                images.length = 0;
+                renderImages();
             } else {
                 showMsg(data.error || `提交失败（HTTP ${resp.status}），请稍后重试。`, 'error');
             }

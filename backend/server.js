@@ -179,6 +179,8 @@ app.use(cors({
 // TestResult 证据图片上传：base64 JSON 体积约为原图 1.33 倍，需在全局 8mb 限制前放行更大 body
 // （路径级中间件先于全局挂载执行，命中后 req.body 已就绪，全局 express.json 会跳过二次解析）
 app.use('/api/test-results/upload', express.json({ limit: process.env.BODY_LIMIT_UPLOAD || '30mb' }))
+// 问题反馈截图随反馈 JSON 一并提交（≤3 张、单张 5MB，base64 后约 20MB），同理在全局限制前放行
+app.use('/api/feedback', express.json({ limit: process.env.BODY_LIMIT_FEEDBACK || '25mb' }))
 app.use(express.json({ limit: process.env.BODY_LIMIT || '8mb' }))
 
 // P1 维护模式写阻断：READONLY_MODE=true 时所有写请求返回 503（配合 Caddy 网关层双保险，

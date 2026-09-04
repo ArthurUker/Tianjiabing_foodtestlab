@@ -941,6 +941,7 @@ flowchart LR
 | `SECURITY_ALERT_WEBHOOK_URL` | （可选） | 安全事件告警 webhook（企业微信/钉钉同构） |
 | `SECURITY_ALERT_INTERVAL_MS` / `_LOOKBACK_MS` / `_DISABLED` | 300000 / 3600000 / — | 告警扫描间隔 / 重启回看 / 关闭开关 |
 | `DINGTALK_WEBHOOK_URL` / `DINGTALK_SECRET` | （未配置） | 问题反馈钉钉群机器人推送（Webhook + 可选加签密钥；未配置仅落 SystemLog 留档） |
+| `FEEDBACK_PUBLIC_BASE_URL` / `BODY_LIMIT_FEEDBACK` | （缺省生产域名）/ 25mb | 反馈截图公网 URL 前缀（钉钉内嵌渲染用）/ 反馈提交 body 上限 |
 | `TENCENT_SECRET_ID` / `TENCENT_SECRET_KEY` / `TENCENT_KMS_REGION` / `TENCENT_KMS_KEY_ID` | （未配置） | 备份 KMS 信封加密主密钥（模式 A，腾讯云 KMS）。本生产**未启用** |
 | `BACKUP_MASTER_KEY` | **已配置** | 备份本地主密钥（32 字节 base64，模式 B）。**本生产采用此模式**；备份引擎 fail-closed——无 `BACKUP_MASTER_KEY` 且无 `TENCENT_*` 时拒绝执行备份，绝不明文降级 |
 
@@ -1094,7 +1095,7 @@ caddy validate --config /etc/caddy/Caddyfile && sudo systemctl reload caddy   # 
 - **客户端上报限制**：`POST /api/audit-logs` 仅允许预定义 action 白名单（create/update/delete/export/import/print/logout），guest/viewer 禁止，`details` 限长 2000 并打 `source:'client'` 标记。
 - **登录审计记录来源 IP**（2026-08-31）：`userRoutes` 在租户登录与超管登录两处取 `x-forwarded-for` 首个 IP（回退 `req.ip`），透传给 `UserManager.loginUser(username, password, deviceId, ip)`，成功落 `AuditLog.action='login'`、失败落 `'login_failed'`，均写入 `ip_address`。服务端已 `app.set('trust proxy', 1)`（`server.js:147`），反代后取到的 IP 可信，可直接用于安全审计与账号锁定溯源。
 - **安全事件告警**（`securityAlerts.js`）：`startSecurityEventAlerting` 每 5 分钟（`SECURITY_ALERT_INTERVAL_MS`）扫描 `SystemLog` 中 `message LIKE 'SECURITY:%'` 的新增事件——事件码含 `REVOCATION_WRITE_FAILED`（吊销写入失败）/ `REFRESH_TOKEN_REPLAY`（刷新重放）/ `REFRESH_CONCURRENT_ROTATION`（并发轮转）/ `TENANT_SCHEMA_MISMATCH`（租户绑定漂移）/ `BACKUP_FAILED`（备份失败，`backupService` 写入）。有新增即 `console.error` 高声汇总 + 可选 `SECURITY_ALERT_WEBHOOK_URL`（企业微信/钉钉同构 `{msgtype:'text'}`）推送；按事件码聚合防告警风暴，附运维处置注释。**扫描游标存进程内存（单实例假设）**，重启回看 `SECURITY_ALERT_LOOKBACK_MS`（默认 1h）宁可重报不漏报；`SECURITY_ALERT_DISABLED=true` 可关闭（测试/本地）。
-- **问题反馈**（`backend/routes/feedbackRoutes.js`，挂 `server.js` `/api/feedback`）：左侧菜单「问题反馈」对 manager/operator/viewer/guest **全角色开放**（访客唯一写通道，普通访客经访客中心快速导航进入）→ `POST /api/feedback` → 落 `public.SystemLog` 留档（`FEEDBACK:` 前缀）+ 推送钉钉群机器人（`DINGTALK_WEBHOOK_URL`，可选 `DINGTALK_SECRET` 加签；未配置仅留档不推送，受理永不因推送失败失败）。单身份 60s 节流（钉钉官方限流 20 条/分钟），机器人「自定义关键词」建议设为「反馈」。
+- **问题反馈**（`backend/routes/feedbackRoutes.js`，挂 `server.js` `/api/feedback`）：左侧菜单「问题反馈」对 manager/operator/viewer/guest **全角色开放**（访客唯一写通道，普通访客经访客中心快速导航进入）→ `POST /api/feedback` → 落 `public.SystemLog` 留档（`FEEDBACK:` 前缀）+ 推送钉钉群机器人（`DINGTALK_WEBHOOK_URL`，可选 `DINGTALK_SECRET` 加签；未配置仅留档不推送，受理永不因推送失败失败）。单身份 60s 节流（钉钉官方限流 20 条/分钟），机器人「自定义关键词」建议设为「反馈」。支持附截图（≤3 张、单张 5MB，base64 随 JSON 提交）：落 `backend/uploads/feedback-evidence/`（整体 gitignore，文件名含 24 hex 随机段不可枚举），以公网 URL 内嵌钉钉 markdown 消息；读取端点 `GET /api/feedback/evidence/:file` **无认证**（钉钉客户端渲染图片不带凭证；basename + 严格格式白名单防穿越，与 testResultRoutes evidence 同口径）。
 
 > 生产环境审计记录**不得物理删除**（见 `docs/PROJECT_CONVENTIONS.md` 规则一）。`/api/audit-logs/cleanup` 物理删除端点已移除。
 > **唯一例外**：磁盘水位 ≥90% 时，平台超管可走 §5.12 的「审计日志人工归档清理」——先导出 JSON Lines 留档落数据盘，
