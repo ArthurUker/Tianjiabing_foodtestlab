@@ -786,7 +786,7 @@ erDiagram
 
 ### 6.1 路由结构（无框架路由，SPA 分区显隐）
 
-- 入口页：`login.html`（登录，含访客快速访问 Tab）、`super-admin-login.html`（平台超管登录）、`index.html`（主应用）、`admin-schools.html`（平台超管控制台：学校全生命周期管理 + 测试报告 + **磁盘管理**，见 §5.12）、`detergent-image-demo.html`（洗涤剂识别演示）、`help.html`（帮助）。
+- 入口页：`login.html`（登录，含访客快速访问 Tab，登录卡下方有「友情链接：校园食安卫士」推广页入口，新窗口打开）、`super-admin-login.html`（平台超管登录）、`index.html`（主应用）、`admin-schools.html`（平台超管控制台：学校全生命周期管理 + 测试报告 + **磁盘管理**，见 §5.12）、`detergent-image-demo.html`（洗涤剂识别演示）、`help.html`（帮助）。
 - 侧边栏导航按钮用 `data-target` 标识目标区块（`dashboard`、`tableware-test`、`pesticide-test`、`oil-test`、`lean-meat-test`、`pathogen-test`、`export-data`、`backup-restore`、`user-management`、`audit-log`、`frequency-report`、`frequency-settings`），`data-admin-only` 仅管理员可见，`data-super-admin-only` 仅平台超管可见（如"学校管理"入口），`data-required-role` 按具体角色显隐导航项。
 - `frontend/js/core/Router.js`：权限守卫（按角色显隐 admin/guest 菜单、平台超管独有菜单）、Token 每 60s 定时校验 + 临期 5 分钟主动续期、30 分钟空闲登出（`visibilitychange` 时暂停/恢复定时器，TD-NoBeforeUnload）；FIX-15 无 `records:create` 权限（viewer）时从入口隐藏所有检测录入表单；角色中文标签映射（admin=管理员 / manager=主管 / operator=操作人员 / viewer=查看者 / guest=访客）。
 - `frontend/js/services/PermissionService.js`：RBAC 权限矩阵，`schools:manage` 权限仅当 `user.role==='admin' && !user.schoolCode` 时动态注入；`isPlatformSuperAdmin()` 方法供前端判断。

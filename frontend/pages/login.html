@@ -146,6 +146,22 @@
             inset: 0;
             background: rgba(0, 0, 0, var(--ls-overlay, 0));
         }
+
+        /* 友情链接（登录卡下方）：毛玻璃胶囊，浅色壁纸/深色自定义背景均保持可读 */
+        .friendly-link {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: fit-content;
+            margin: 20px auto 0;
+            padding: 7px 18px;
+            border-radius: 999px;
+            font-size: 13px;
+            color: #374151;
+            transition: color 0.2s ease;
+        }
+        .friendly-link i { margin-right: 8px; font-size: 12px; }
+        .friendly-link:hover { color: #2563eb; }
     </style>
 </head>
 <body>
@@ -297,6 +313,16 @@
                 <p class="text-xs text-gray-400 mt-2">© 2026 食品安全检验系统. 版权所有</p>
             </div>
         </div>
+
+        <!-- 友情链接：校园食安卫士推广页（新窗口打开，避免中断登录流程） -->
+        <a class="friendly-link glass"
+           href="https://foodsafety.digifluidic.com/"
+           target="_blank"
+           rel="noopener noreferrer"
+           title="校园食品安全「检·教·治」一体化推广方案（新窗口打开）">
+            <i class="fas fa-link" aria-hidden="true"></i>
+            <span>友情链接：校园食安卫士</span>
+        </a>
 
     </div>
 
