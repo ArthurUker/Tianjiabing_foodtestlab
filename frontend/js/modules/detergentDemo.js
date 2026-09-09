@@ -103,10 +103,10 @@ function init() {
     }
 
     const valueText = lastResult.mainValueText || (val != null ? `${val} mg/L` : '');
-    // GB 14934 洗涤剂残留判定：≤0.005 mg/100cm² 合格（与 Tableware.js 保持一致）
+    // 洗涤剂残留判定：≤0.1 mg/L 合格，>0.1 不合格（与 Tableware.js 保持一致）
     let judge = '';
     if (val != null && !Number.isNaN(Number(val))) {
-      judge = Number(val) <= 0.005 ? '合格 (≤0.005)' : '不合格 (>0.005)';
+      judge = Number(val) <= 0.1 ? '合格 (≤0.1)' : '不合格 (>0.1)';
     }
 
     postToParent({

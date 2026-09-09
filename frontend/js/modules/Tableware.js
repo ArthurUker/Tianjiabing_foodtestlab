@@ -429,7 +429,7 @@ function showEditModal(record, currentUser) {
 
 // 简化的点位模板（用于复检弹窗）
 // P2-洗涤剂残留复检修复：复检点位需区分检测类型（atp=表面清洁度 RLU / detergent=洗涤剂残留浓度），
-// 洗涤剂残留按 GB 判定标准「≤0.005 mg/100cm² 合格」，不再与表面清洁度共用 RLU 判定。
+// 洗涤剂残留判定标准「≤0.1 mg/L 合格（>0.1 不合格）」，不再与表面清洁度共用 RLU 判定。
 function getSimplePointTemplate(defaultLoc, testType) {
     const isDetergent = testType === 'detergent' || testType === 'detergentImage';
     const isDetImg = testType === 'detergentImage';
@@ -467,19 +467,17 @@ function determineResult(rluValue) {
 }
 
 // 模块级判定文本（供点位闭包与图检回填共用）
-// 洗涤剂残留人工判读：比色卡单位 mg/L，合格限值 0.05 mg/L
+// 洗涤剂残留：比色卡单位 mg/L，合格限值 0.1 mg/L（2026-09-09 调整：>0.1 不合格）
 function getResultText(type, val) {
     if (type === 'detergent') {
         const v = parseFloat(val);
         if (isNaN(v) || val === '') return '';
-        return v <= 0.05 ? '合格 (≤0.05 mg/L)' : '不合格 (>0.05 mg/L)';
+        return v <= 0.1 ? '合格 (≤0.1 mg/L)' : '不合格 (>0.1 mg/L)';
     }
     if (type === 'detergentImage') {
         const v = parseFloat(val);
         if (isNaN(v) || val === '') return '';
-        if (v <= 0.05) return '合格 (≤0.05)';
-        if (v <= 0.1) return '警戒 (0.05~0.1)';
-        return '不合格 (>0.1)';
+        return v <= 0.1 ? '合格 (≤0.1)' : '不合格 (>0.1)';
     }
     return determineResult(parseInt(val) || 0);
 }
@@ -1292,8 +1290,8 @@ function bindPointEvents(pointDiv) {
                         <option value="">请选择浓度值（对照比色卡）</option>
                         <option value="0">0 mg/L（未检出）</option>
                         <option value="0.01">0.01 mg/L</option>
-                        <option value="0.05">0.05 mg/L（合格限值）</option>
-                        <option value="0.1">0.1 mg/L</option>
+                        <option value="0.05">0.05 mg/L</option>
+                        <option value="0.1">0.1 mg/L（合格限值）</option>
                         <option value="0.5">0.5 mg/L</option>
                         <option value="1">1.0 mg/L</option>
                         <option value="2">2.0 mg/L</option>
