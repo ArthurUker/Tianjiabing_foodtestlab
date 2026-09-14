@@ -1,11 +1,16 @@
 // ====== 检测记录路由（/api/test-records + /api/records，P1-5 拆路由 Step 2）======
 // 从 server.js 抽取。req.db 由 authenticateUser 注入；幂等中间件经参数传入。
 import express from 'express'
-import { normalizeRecordType, buildRecordPayload, buildRecordWriteData, validateRecordPayload, writeRecordAuditLog, getLatestRecheckPassed, buildDeterministicRecordCode } from '../lib/recordNormalize.js'
+import { normalizeRecordType, buildRecordPayload, buildRecordWriteData, validateRecordPayload, writeRecordAuditLog, getLatestRecheckPassed, buildDeterministicRecordCode, RECORD_ROUTE_TYPES } from '../lib/recordNormalize.js'
 import { sanitizeObjectKeys, safeParseJson } from '../lib/sanitize.js'
 import { canModifyRecord, maskGuestSensitiveFields } from '../lib/securityGuards.js'
 
 const VALID_TEST_RECORD_STATUSES = new Set(['pending', 'completed', 'failed', 'archived'])
+
+// A+B 修复（2026-09-14）：列表接口单次返回上限。
+// 原为 500，但前端 Storage 的同步窗口（maxSyncRows）已提升到 1000 —— 若后端仍卡 500，
+// 单模块超过 500 条时前端永远拉不全（田家炳补导后 leanMeat 481 条即接近该阈值）。
+const MAX_RECORDS_LIMIT = 2000
 
 export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, requireGuestReadOnly, idempotencyMiddleware }) {
     const router = express.Router()
@@ -100,7 +105,7 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
                 }
             }
 
-            const safeLimit = Math.min(parseInt(limit) || 100, 500)
+            const safeLimit = Math.min(parseInt(limit) || 100, MAX_RECORDS_LIMIT)
             const safeOffset = Math.max(0, parseInt(offset) || 0)
 
             const records = await req.db.testRecord.findMany({
@@ -129,6 +134,96 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
         }
     })
 
+    // ── GET /api/test-records/stats — 全校汇总统计（服务端聚合，不返回明细）──
+    // 背景（A 方案）：看板原先用前端本地缓存统计，而 Storage 每模块最多同步 maxSyncRows 条
+    // （服务端 orderBy created_at desc），数据量超过窗口后 总数/合格率 会漏统计。
+    // 2026-09-14 田家炳补导历史数据后暴露：库内 1109 条，看板只显示 703。
+    // 本接口在 DB 侧聚合，与前端 Dashboard.isQualified 口径对齐：
+    //   tableware / pesticide / leanMeat：result 含"合格"且不含"不合格"
+    //   oil：colorLevel 非空时按"不含不合格"判定，为空时回退 result 规则
+    //   pathogen：riskLevel === '无风险' 计为合格；阳性数 = riskLevel 非空且 ≠ '无风险'
+    // ⚠ 前端 isQualified 还含「学校自定义字段判定」(statRole='result')，本接口未复刻该分支；
+    //   田家炳/实验中学/一中 field_rules 与 custom_fields 均为空，故当前完全一致。
+    // 访客：仅统计 req.guestVisibleTypes（requireGuestReadOnly 注入，pathogen 恒定排除）。
+    router.get('/api/test-records/stats', authenticateUser, requireGuestReadOnly, async (req, res) => {
+        try {
+            const isGuest = req.user?.role === 'guest'
+            const types = isGuest ? (req.guestVisibleTypes || []) : [...RECORD_ROUTE_TYPES]
+
+            const byType = {}
+            for (const t of types) byType[t] = { count: 0, passCount: 0, passRate: null, positiveCount: null }
+            if (!types.length) {
+                return res.json({
+                    success: true,
+                    data: { total: 0, passCount: 0, passRate: null, byType, visibleTypes: types, generatedAt: new Date().toISOString() }
+                })
+            }
+
+            const DATE_EXPR = `(CASE WHEN "sample_info"->>'testDate' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+                                     THEN ("sample_info"->>'testDate')::date END)`
+            const PASS_EXPR = `(CASE "test_type"
+                WHEN 'pathogen' THEN COALESCE("result_data"->>'riskLevel','') = '无风险'
+                WHEN 'oil' THEN (CASE WHEN COALESCE("result_data"->>'colorLevel','') <> ''
+                                      THEN "result_data"->>'colorLevel' NOT LIKE '%不合格%'
+                                      ELSE (COALESCE("result_data"->>'result','') LIKE '%合格%'
+                                            AND COALESCE("result_data"->>'result','') NOT LIKE '%不合格%') END)
+                ELSE (COALESCE("result_data"->>'result','') LIKE '%合格%'
+                      AND COALESCE("result_data"->>'result','') NOT LIKE '%不合格%')
+            END)`
+
+            const theDayRe = /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/
+            const start = theDayRe.test(String(req.query.start || '')) ? req.query.start : '1970-01-01'
+            const end = theDayRe.test(String(req.query.end || '')) ? req.query.end : '2099-12-31'
+            const canteenRaw = typeof req.query.canteen === 'string' ? req.query.canteen.trim() : ''
+            const canteen = canteenRaw && canteenRaw !== 'all' ? canteenRaw : null
+
+            // P1-14 口径：与前端 getRecordDateTime 一致 —— testDate 无法解析的记录不计入任何统计
+            const rows = await req.db.$queryRawUnsafe(
+                `SELECT "test_type",
+                        COUNT(*)::int AS "total",
+                        COUNT(*) FILTER (WHERE ${PASS_EXPR})::int AS "pass",
+                        COUNT(*) FILTER (WHERE "test_type" = 'pathogen'
+                                           AND COALESCE("result_data"->>'riskLevel','') NOT IN ('', '无风险'))::int AS "positive"
+                   FROM "TestRecord"
+                  WHERE "test_type" = ANY($1::text[])
+                    AND ${DATE_EXPR} IS NOT NULL
+                    AND ${DATE_EXPR} >= $2::date
+                    AND ${DATE_EXPR} <= $3::date
+                    AND ($4::text IS NULL OR "sample_info"->>'canteen' = $4)
+                  GROUP BY "test_type"`,
+                types, start, end, canteen
+            )
+
+            let total = 0, passTotal = 0
+            for (const row of rows) {
+                const slot = byType[row.test_type]
+                if (!slot) continue
+                slot.count = row.total
+                slot.passCount = row.pass
+                slot.passRate = row.total ? Math.round((row.pass / row.total) * 1000) / 10 : null
+                if (row.test_type === 'pathogen') slot.positiveCount = row.positive
+                total += row.total
+                passTotal += row.pass
+            }
+
+            res.json({
+                success: true,
+                data: {
+                    total,
+                    passCount: passTotal,
+                    passRate: total ? Math.round((passTotal / total) * 1000) / 10 : null,
+                    byType,
+                    visibleTypes: types,
+                    range: { start, end, canteen },
+                    generatedAt: new Date().toISOString()
+                }
+            })
+        } catch (error) {
+            console.error('❌ Error building test-record stats:', error)
+            res.status(500).json({ error: '统计获取失败' })
+        }
+    })
+
     // ====== Legacy Frontend Compatibility: /api/records/:tableName ======
 
     // 越权修复：guest 只能读取该校 visible_types 白名单模块（强制排除 pathogen），见 requireGuestReadOnly
@@ -140,7 +235,7 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
             }
 
             const { limit = 100, offset = 0, status } = req.query
-            const safeLimit = Math.min(parseInt(limit) || 100, 500)
+            const safeLimit = Math.min(parseInt(limit) || 100, MAX_RECORDS_LIMIT)
             const safeOffset = Math.max(0, parseInt(offset) || 0)
             const where = { test_type: testType }
             if (status) where.status = status

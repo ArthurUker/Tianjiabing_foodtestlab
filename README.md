@@ -599,11 +599,14 @@ erDiagram
 | POST | `/api/guest/quick-access` | 免凭证签发只读 JWT（**2h**，`guest_type=readonly`、`has_export_permission=false`、`can_view_pathogen=false`；需 `schoolCode`） |
 | POST | `/api/guest/register` | **已关闭**：恒定返回 `403`（提示申请 viewer 账号）。历史上为访客自助注册 |
 | POST | `/api/guest/verify-token` | 校验访客令牌（需 guest 角色 JWT） |
-| GET | `/api/guest/stats` | 访客看板汇总统计（仅聚合，不返回记录明细） |
+| GET | `/api/guest/stats` | 访客看板汇总统计（仅聚合，不返回记录明细；合格率口径见 §5.4 说明） |
 
 > **开关（fail-closed）**：`quick-access` 强制校验 `SchoolCustomization.guest_enabled`
-> （`guestRoutes.js` 查 `School.guest_enabled`，未开启返回 `403 该校未开放访客访问`），
+> （`guestRoutes.js` 从 **public 系统表** `prisma.school` + `prisma.schoolCustomization` 取学校与开关，未开启返回 `403 该校未开放访客访问`），
 > 并挂独立限流（30 次/分钟，防批量枚举学校代码拉取数据）。
+> ⚠️ 2026-09-14 修复：此前该路由经**租户客户端**查 `school` 并读 `school.guest_enabled` / `school.visible_types`
+> ——租户 schema 的 `School` 表为空、且这两列早已迁至 `SchoolCustomization`，导致**已开通访客的学校也恒 404/403**。
+> 现在 `School`/`SchoolCustomization` 一律取自 public，租户客户端仅用于 `Guest` 实体 upsert。
 > 该开关由**平台超管**在学校管理控制台按校开启（写入 `PUT /api/admin/schools/:code` 的 `guestEnabled`）。
 >
 > ⚠️ **`/api/guest/login` 端点不存在**（历史实现已移除）：访客**没有**用户名密码登录通道，
@@ -620,7 +623,8 @@ erDiagram
 
 | 方法 | 路径 | 权限 | 说明 |
 |------|------|------|------|
-| GET | `/api/test-records` | 登录 | 列表（`limit/offset/test_type/status`） |
+| GET | `/api/test-records` | 登录 | 列表（`limit/offset/test_type/status`；`limit` 上限 2000） |
+| GET | `/api/test-records/stats` | 登录 | **看板汇总统计**（服务端聚合，不返回明细）：`start`/`end`（`YYYY-MM-DD`）/`canteen` 可选 → `{total, passCount, passRate, byType:{count,passCount,passRate,positiveCount}}`；访客仅统计其可见类型（pathogen 恒定排除） |
 | POST | `/api/test-records` | 编辑者↑ | 创建（幂等：命中 `record_code` 返回已有） |
 | GET | `/api/test-records/:id` | 登录 | 单条（含 `test_items`/`attachments`/`created_user`） |
 | PUT | `/api/test-records/:id` | 编辑者↑ | 更新 `test_name/status/result_data` |
@@ -636,6 +640,12 @@ erDiagram
 - 归属校验：operator 仅可修改/删除**本人创建**的记录，manager 可改全校记录（`canModifyRecord`）。
 - bulk-upsert：命中已有记录时执行归属校验（无权覆盖他人记录则跳过并计入 `failed`）；支持 `expected_updated_at` 乐观锁（冲突跳过）；默认「最后写入胜出」（NB-25）。
 - 写请求可带 `Idempotency-Key` 头（配合 `/api/records`、`/api/test-records` 的幂等中间件）。
+- **合格率口径**（2026-09-14 起 `/api/test-records/stats` 与 `/api/guest/stats` 统一，且与前端 `Dashboard.isQualified` 对齐）：
+  `tableware`/`pesticide`/`leanMeat` 看 `result` 含「合格」且不含「不合格」；
+  **`oil` 优先 `colorLevel`**（非空时按「不含不合格」判定，为空才回退 `result`）——食用油记录只有 `colorLevel` 而无 `result`，旧规则曾使其合格率**恒为 0%**；
+  `pathogen` 按 `riskLevel = '无风险'` 计合格，`positiveCount` = `riskLevel` 非空且 ≠ 无风险。
+  `testDate` 缺失或无法解析的记录**不计入统计**（与前端 `getRecordDateTime` 一致）。
+  ⚠ 该口径未复刻「学校自定义字段判定」（`statRole='result'`）；学校配置了此类字段时需另行扩展。
 
 ### 5.5 审计日志与同步
 
@@ -821,6 +831,8 @@ frontend/js/
 - **无集中式状态库**；状态分散在各模块与浏览器存储：
   - 认证态 key 采用**租户命名空间**（`auth_token__<schoolCode>` / `current_user__<schoolCode>` / `guest_token__<schoolCode>`，TD-TenantIsolation），并按 DS-17 三级读取：**内存 → sessionStorage → localStorage**（localStorage 仅「记住我」勾选时持久化，否则仅 sessionStorage，关浏览器即登出，P0-1；无 `schoolCode` 的请求——如平台超管走 `public`——退化为裸 key）；其余缓存 key 不带命名空间：`cache_<table>`（记录缓存）、`pending_<table>`（待同步队列）、`fingerprint_index_<table>`（去重索引）、`audit_YYYY-MM-DD`（前端离线日志）。
   - `StorageService`（`frontend/js/core/Storage.js`）是核心数据层：**离线优先**（`getAll()` 先返回本地缓存再后台刷新）、乐观写入（`temp_` 临时 ID）、三层去重（本地/云端/队列）、`429` 全局退避、`409` 版本冲突恢复。
+    - ⚠️ **同步窗口 `maxSyncRows`（现为 1000）**：每次同步固定请求 `?limit=<maxSyncRows>&offset=0`，服务端按 `created_at desc` 排序，且合并时会**丢弃落在窗口外的已同步记录** → 本地缓存恒等于「该模块最新 N 条」。单模块超过该值时更早的历史记录在界面上不可见（列表/图表/客户端统计都会漏）。2026-09-14 由 200 提升至 1000（后端 `MAX_RECORDS_LIMIT=2000` 兜底）；若将来逼近该值，应改为**服务端聚合 + 分页拉取**，而非继续抬高。
+    - 因此**看板卡片数字不再依赖本地缓存**：`Dashboard.js` 的 `fetchServerStats()` 会异步请求 `GET /api/test-records/stats` 覆盖各卡片（数量/合格率、病原体阳性数、总检测数/总合格率），失败时静默回退本地统计；列表与图表仍用缓存。
   - `AuditService`（`frontend/js/services/AuditService.js`）是审计唯一入口：**双写后端（系统真相源）+ localStorage 镜像**（按天 `audit_YYYY-MM-DD`，保留 30 天）。
   - 学校定制配置缓存：`frontend/js/utils/schoolCustomization.js` 按 `schoolCode` 缓存 `SchoolCustomization`，支持跨标签页 `storage` 事件与 `visibilitychange` 重校验同步。
   - `AuthService` 安装**全局 401 刷新拦截器**（`installAuthRefreshFetchInterceptor`）：同源 `/api/*` 请求收到 401 时用 refresh token 静默换新并重放一次（每请求最多一次，认证类端点不拦截）。

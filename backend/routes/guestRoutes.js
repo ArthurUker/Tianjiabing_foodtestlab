@@ -11,7 +11,9 @@
  *   - 访客仅 readonly，默认无导出权限，默认不可查看病原体数据；
  *   - 不提供自助注册、数据导出申请、病原体查看申请及任何审批入口。
  *
- * 租户隔离：quick-access 按请求体 schoolCode 用 createTenantClient 落到对应 schema；
+ * 租户隔离：quick-access 的 **Guest 实体**按请求体 schoolCode 用 createTenantClient 落到对应 schema；
+ * 学校基础信息 / 访客开关 / visible_types 一律取自 **public 系统表**（School、SchoolCustomization）——
+ * 租户 schema 的 School 表为空、且无 guest_enabled/visible_types 列（2026-09-14 修复）。
  * 其余需鉴权的端点从 JWT（req.user.schoolCode）取租户，与全局认证一致。
  * guest 令牌字段：{ role:'guest', schoolCode, guestId, guest_type, has_export_permission, can_view_pathogen }。
  */
@@ -78,17 +80,38 @@ export function createGuestRoutes(userManager, prisma, jwtSecret) {
                 return res.status(400).json({ error: '缺少或无效的学校代码' })
             }
 
-            const db = createTenantClient(prisma, schoolCode)
-            const school = await db.school.findUnique({ where: { code: schoolCode } })
+            // 2026-09-14 修复（访客入口已开通学校仍恒 404/403）：
+            //   学校基础信息与访客开关都在 **public 系统表**，不能走租户客户端——
+            //   ① 租户 schema 的 "School" 表是空的（学校行只在 public.School）→ 恒 404「学校不存在」；
+            //   ② guest_enabled / visible_types 早已从 School 迁到 SchoolCustomization，
+            //      旧写法 school.guest_enabled 恒为 undefined → 即便查到学校也会恒 403。
+            const school = await prisma.school.findUnique({ where: { code: schoolCode } })
             if (!school) {
                 return res.status(404).json({ error: '学校不存在' })
             }
 
-            if (!school.guest_enabled) {
+            const customization = await prisma.schoolCustomization.findUnique({
+                where: { school_code: schoolCode },
+                select: { guest_enabled: true, visible_types: true }
+            })
+            if (!customization || !customization.guest_enabled) {
                 return res.status(403).json({ error: '该校未开放访客访问' })
             }
 
-            const visibleTypes = Array.isArray(school.visible_types) ? school.visible_types : []
+            // 与 requireGuestReadOnly 的 resolveGuestVisibleTypes 保持同一口径：
+            // 未配置 visible_types 时降级为默认四大常规模块；pathogen 恒定排除。
+            const GUEST_DEFAULT_VISIBLE_TYPES = ['tableware', 'pesticide', 'oil', 'leanMeat']
+            let parsedVisible = customization.visible_types
+            if (typeof parsedVisible === 'string') {
+                try { parsedVisible = JSON.parse(parsedVisible) } catch (_) { parsedVisible = [] }
+            }
+            const visibleTypes = (Array.isArray(parsedVisible) && parsedVisible.length
+                ? parsedVisible.filter(t => typeof t === 'string')
+                : [...GUEST_DEFAULT_VISIBLE_TYPES]
+            ).filter(t => t !== 'pathogen')
+
+            // Guest 实体在租户 schema（school_<code>），这一层仍走租户客户端
+            const db = createTenantClient(prisma, schoolCode)
             const validUntil = new Date(Date.now() + GUEST_JWT_MAX_AGE)
 
             const guestRecord = await db.guest.upsert({
@@ -151,8 +174,11 @@ export function createGuestRoutes(userManager, prisma, jwtSecret) {
 
     // BS-09: 访客看板汇总统计 —— 只返回聚合结果（总数 / 各可见模块计数 / 合格率），不含任何记录明细。
     // 口径与员工端一致：按该校 visible_types 白名单聚合、强制排除 pathogen（requireGuestReadOnly 注入）。
-    // 合格率规则（后端复刻员工端简单口径）：tableware/pesticide/leanMeat/oil 看
-    // result_data.result 含"合格"且不含"不合格"；pathogen 不纳入统计。
+    // 合格率规则（与 /api/test-records/stats 的 CASE 表达式保持完全一致）：
+    //   tableware / pesticide / leanMeat：result 含"合格"且不含"不合格"；
+    //   oil：**优先 colorLevel**（非空时按"不含不合格"判定），为空才回退 result 规则
+    //        —— 2026-09-14 修复：食用油记录只有 colorLevel、没有 result，旧规则使其合格率恒为 0%；
+    //   pathogen 不纳入统计。
     const PASS_RULE_TYPES = new Set(['tableware', 'pesticide', 'leanMeat', 'oil'])
     const STATS_TYPE_LABELS = {
         tableware: '餐具洁净度检测',
@@ -192,8 +218,14 @@ export function createGuestRoutes(userManager, prisma, jwtSecret) {
                 const passRows = await req.db.$queryRawUnsafe(
                     `SELECT "test_type", COUNT(*)::int AS "total",
                      COUNT(*) FILTER (
-                       WHERE ("result_data"::jsonb ->> 'result') LIKE '%' || '合格' || '%'
-                       AND ("result_data"::jsonb ->> 'result') NOT LIKE '%' || '不合格' || '%'
+                       WHERE (CASE "test_type"
+                         WHEN 'oil' THEN (CASE WHEN COALESCE("result_data"::jsonb ->> 'colorLevel','') <> ''
+                                               THEN "result_data"::jsonb ->> 'colorLevel' NOT LIKE '%不合格%'
+                                               ELSE (COALESCE("result_data"::jsonb ->> 'result','') LIKE '%合格%'
+                                                     AND COALESCE("result_data"::jsonb ->> 'result','') NOT LIKE '%不合格%') END)
+                         ELSE (COALESCE("result_data"::jsonb ->> 'result','') LIKE '%合格%'
+                               AND COALESCE("result_data"::jsonb ->> 'result','') NOT LIKE '%不合格%')
+                       END)
                      )::int AS "pass"
                      FROM "TestRecord"
                      WHERE "test_type" = ANY($1::text[])

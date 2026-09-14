@@ -7,7 +7,12 @@ import { extractSchoolCode } from '../utils/schoolCode.js';
 
 const DEFAULT_CONFIG = {
     apiBaseUrl: '/api/records',
-    maxSyncRows: 200,
+    // A+B 修复（2026-09-14）：原为 200 —— 每次同步固定请求 ?limit=200&offset=0，
+    // 服务端按 created_at desc 排序，导致单模块超过 200 条时更早的历史记录永远拉不到，
+    // 看板/列表据此漏数据（田家炳补导后 leanMeat 481、pesticide 290、tableware 234）。
+    // 提升到 1000（后端 MAX_RECORDS_LIMIT=2000 兜底）。若将来单模块逼近该值，
+    // 应改为服务端聚合统计 + 分页拉取，而不是继续抬高此值（全量拉取会拖慢首屏）。
+    maxSyncRows: 1000,
     syncCooldownMs: 30000,
     queueBatchSize: 5,
     queueBatchDelayMs: 400,
@@ -209,6 +214,12 @@ export class StorageService {
         const headers = { 'Content-Type': 'application/json' };
         if (token) headers.Authorization = `Bearer ${token}`;
         return headers;
+    }
+
+    // 供同页其它模块（如 Dashboard 拉取服务端聚合统计）复用同一套
+    // 租户命名空间 + 员工/访客令牌回退逻辑，避免各模块各写一份导致鉴权口径分叉。
+    getAuthHeaders() {
+        return this._getHeaders();
     }
 
     _getAuthToken() {

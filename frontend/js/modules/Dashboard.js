@@ -796,6 +796,10 @@ function loadDashboardData() {
 
     // 更新图表
     updateCharts(startDate, endDate, selectedCanteen);
+
+    // A 方案：用服务端聚合结果校正卡片数字（本地缓存受同步窗口限制，可能漏统计）。
+    // 异步、不阻塞首屏；失败时保留上面基于本地缓存的渲染结果。
+    fetchServerStats(startDate, endDate, selectedCanteen);
 }
 
 // ✅ 修改：获取肉蛋农残分类统计（增加食堂筛选）
@@ -1085,6 +1089,77 @@ function updateCard(type, stats) {
     const passEl = document.getElementById(`card_${type}_pass`);
     if(countEl) countEl.textContent = stats.count;
     if(passEl) passEl.textContent = stats.passRate !== null ? `${stats.passRate}%` : '—';
+}
+
+// ── A 方案（2026-09-14）：服务端聚合统计校正 ────────────────────────────────
+// 卡片数字原先完全由本地缓存算出，而 Storage 每模块最多同步 maxSyncRows 条
+// （服务端按 created_at desc 排序），超出窗口的历史记录会被漏统计
+// （田家炳补导后：库内 1109 条，看板仅显示 703）。
+// 这里额外拉一次服务端聚合覆盖卡片；失败时静默回退本地计算，不影响其它区域。
+let _serverStatsSeq = 0;
+let _serverStatsAbort = null;
+
+function fetchServerStats(startDate, endDate, selectedCanteen) {
+    const seq = ++_serverStatsSeq;
+    try { _serverStatsAbort?.abort(); } catch (_) { /* 上一次请求已结束 */ }
+    const ctrl = new AbortController();
+    _serverStatsAbort = ctrl;
+
+    const params = new URLSearchParams();
+    const s = getLocalDateStr(startDate);
+    const e = getLocalDateStr(endDate);
+    if (s) params.set('start', s);
+    if (e) params.set('end', e);
+    if (selectedCanteen && selectedCanteen !== 'all') params.set('canteen', selectedCanteen);
+
+    return fetch(`/api/test-records/stats?${params.toString()}`, {
+        headers: services.tableware.getAuthHeaders(),
+        signal: ctrl.signal
+    })
+        .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+        .then((json) => {
+            if (seq !== _serverStatsSeq) return null;   // 已被更新的筛选请求取代，丢弃
+            const data = json && json.data;
+            if (!data || !data.byType) return null;
+            applyServerStats(data);
+            return data;
+        })
+        .catch((err) => {
+            if (err && err.name === 'AbortError') return null;
+            console.warn('[Dashboard] 服务端统计获取失败，回退本地统计:', err && err.message);
+            return null;
+        });
+}
+
+// 用服务端聚合结果覆盖卡片（总数 / 各模块数量与合格率 / 病原体阳性数）
+function applyServerStats(data) {
+    const visibleTypes = getDashboardVisibleTypes();
+    let totalCount = 0;
+    let totalPassed = 0;
+
+    ['tableware', 'pesticide', 'oil', 'pathogen', 'leanMeat'].forEach((type) => {
+        if (!visibleTypes.includes(type)) return;
+        const s = data.byType[type];
+        if (!s) return;
+        if (type === 'pathogen') {
+            const countEl = document.getElementById('card_pathogen_count');
+            const positiveEl = document.getElementById('card_pathogen_positive');
+            if (countEl) countEl.textContent = s.count;
+            if (positiveEl) positiveEl.textContent = s.positiveCount ?? 0;
+        } else {
+            const rate = (s.passRate === null || s.passRate === undefined) ? null : Math.round(s.passRate);
+            updateCard(type, { count: s.count, passRate: rate });
+        }
+        totalCount += s.count;
+        totalPassed += s.passCount || 0;
+    });
+
+    const totalEl = document.getElementById('card_total_count');
+    const totalPassEl = document.getElementById('card_total_pass');
+    if (totalEl) totalEl.textContent = totalCount;
+    if (totalPassEl) {
+        totalPassEl.textContent = totalCount > 0 ? `${Math.round((totalPassed / totalCount) * 100)}%` : '—';
+    }
 }
 
 function updateOverviewList(type, records) {
