@@ -814,6 +814,9 @@ erDiagram
 | POST | `/api/admin/open-api/clients/:id/credentials/:cid/revoke` | 吊销密钥（立即失效） |
 | PUT | `/api/admin/open-api/clients/:id/grants` | 覆盖式设置学校授权；未出现的学校 → `status='disabled'`（保留历史） |
 | GET | `/api/admin/open-api/clients/:id/preview?schoolCode=` | 预览该对接方实际会拿到的 JSON（脱敏后，供人工核对） |
+| GET | `/api/admin/open-api/clients/:id/dict?schoolCode=` | 与对外 `/v1/dict` **同源**的字段字典（控制台「接入说明」用；仅对已生效授权提供） |
+| GET | `/api/admin/open-api/clients/:id/samples?schoolCode=[&test_type=]` | 与对外 `/v1/samples` 同源的合成样例预览 |
+| GET | `/api/admin/open-api/clients/:id/package` | **接入包**（Markdown 下载）：接口说明 + 已保存授权摘要 + 字段字典 + 合成样例 + 错误码 + 同步规则 + 检查清单；不含密钥/哈希/生产数据 |
 | GET | `/api/admin/open-api/export` | 导出配置 JSON（含 `key_hash`，**不含明文密钥**）——public 段不参与备份恢复，灾后靠此重建 |
 | POST | `/api/admin/open-api/import` | 导入配置（按 id upsert，凭证按 `key_hash` 去重） |
 
@@ -824,18 +827,30 @@ erDiagram
 | GET | `/api/open/v1/ping` | 连通性自检 + 服务器时间（对账时钟） |
 | GET | `/api/open/v1/profile` | 当前密钥的对接方身份、限流、授权学校与 `scope_version` |
 | GET | `/api/open/v1/schools` | 授权范围内学校列表 |
-| GET | `/api/open/v1/dict?school_code=` | 字典：开放类型 / 食堂列表 / 结论枚举 |
-| GET | `/api/open/v1/test-records?school_code=&cursor=&limit=&since=&until=&test_type=` | 检测记录**增量拉取**（游标分页，`(updated_at,id)` 复合水位） |
-| GET | `/api/open/v1/sync/manifest?school_code=[&detail=1]` | 全量清单 `total`+`digest`（`detail=1` 附 `[{record_code,updated_at}]`）——**删除感知与对账唯一途径** |
-| GET | `/api/open/v1/stats?school_code=&start=&end=` | 合格率统计（口径同员工端 `/api/test-records/stats`，对账用） |
+| GET | `/api/open/v1/dict?school_code=` | 字典：开放类型 / 食堂列表 / 结论枚举 / **字段字典**（字段路径、中文名、类型、单位、必现、可空、说明、自定义字段标注） |
+| GET | `/api/open/v1/samples?school_code=[&test_type=]` | **合成样例**（非真实数据，`SAMPLE-` 前缀 + `synthetic:true`）：对方在无真实数据时即可开发；复检场景仅对真实有复检结构的类型产出 |
+| GET | `/api/open/v1/test-records?school_code=&cursor=&limit=&since=&until=&test_type=` | 检测记录**增量拉取**（游标 v2：绑定筛选条件 + 授权版本 + 投影策略；`(updated_at,id)` 复合水位） |
+| GET | `/api/open/v1/sync/manifest?school_code=[&detail=1]` | 全量清单 `total`+`digest`；`digest` 覆盖「协议版本+`scope_version`+`projection_fingerprint`+各记录 `record_code@updated_at`」；超上限返回 `413`（**绝不返回截断清单**） |
+| GET | `/api/open/v1/stats?school_code=&start=&end=` | 合格率统计：`scope_total`/`included_total`/`excluded[]`（含原因）/`pass_rate_detail`（分子分母、分母为 0 返回 null） |
 
-**同步协议（每轮拉取即完成一次删除对账）**：① 先调 `sync/manifest`，`digest` 一致即结束；② `digest` 变化 → `detail=1` 拉全量清单，本地 diff 出「新增/变更/已删除」（**本地有、清单无 = 已删除**，平台为硬删除）；③ 明细用 `test-records` 游标增量拉取，中断带 `cursor` 续传；④ 收到 `409 SCOPE_CHANGED` 表示授权范围变更，需重新对账。
+**同步协议（每轮拉取即完成一次对账）**：① 先调 `sync/manifest`，`digest` 一致即结束；② `digest` 变化 → `detail=1` 拉全量清单，`complete:true` 时与本地 diff；③ 明细用 `test-records` 游标增量拉取，中断带 `cursor` 续传（**每页处理成功后才保存新游标**）；④ 同步前后各取一次 `digest`，不一致则重跑一轮。
+
+**三种「记录不见了」必须区分**（文档与参考实现均按此处理）：
+
+| 情况 | 判定 | 建议动作 |
+|---|---|---|
+| 源记录确实删除 | 清单**完整获取成功** 且 `scope_version`/`projection_fingerprint` 未变 且该码不在清单 | 按约定删除或标记撤回（平台为硬删除，无回收站） |
+| 授权收紧导致不可见 | `scope_version` 变化 / 该校 403 / 类型已不在 `visible_types` | **标记撤回或不可见**，不要直接物理删除 |
+| 请求失败状态未知 | 401/403/409/429/超时/解析失败/部分分页失败 | **绝不可当作空清单**：保留旧水位与本地数据并重试 |
+
+**字段撤回**：关闭「下发检测人姓名」后新响应不含该字段，但对方本地旧值不会自动消失——对方必须在 `projection_fingerprint` 变化时执行**替换式重投影**（整体覆盖或显式清除），否则姓名残留。授权/策略变化只影响**被改动的那所学校**（`scope_version` 按 grant 独立），其他学校的游标不受影响。
 
 **安全与口径边界**
 
 - 越权防护：`school_code` 必须命中该对接方的 `active` grant，否则 `403 SCHOOL_NOT_AUTHORIZED`；类型必须命中 `visible_types` 白名单（**病原体需显式开启**，自定义检测类型默认不开放）。
 - 字段投影：**绝不下发 `result_data` 原始 JSON**。服务端先剔内部字段（`modificationLogs`/`traceabilityRecords`/`created_by` 等），再**递归**剔除人名类 PII（`inspector` / `recheckRecords[].user` 等，含正则兜底，未来新增人名类字段自动不外泄）；`inspector` 是否下发由 grant 的 `include_inspector` 决定（默认 false）。
-- 结论口径：接口给 `initial_conclusion`（初检）与 `final_conclusion`（复检后，`finalStatus` 优先）并标注 `conclusion_source='stored'` —— 记录内冻结值，非实时重算；`/stats` 另按 SQL 口径计算供对账，**其口径排除 `testDate` 缺失/非法的记录**（故与明细条数可能相差极少数脏数据）。
+- 结论口径：`initial_conclusion`（初检）+ `final_conclusion`（复检后）+ `final_conclusion_basis`（`initial`=沿用初检 / `recheck`=复检覆盖）+ `conclusion_source='stored'`——结论是**录入/检测当时保存的值**，不是按当前阈值重算的结果。各类判定：餐具/果蔬/肉蛋看 `result` 文本；**食用油按业务裁定**——`colorLevel` 仅含「不合格」判不合格，其余等级视为合格，无 `colorLevel` 回退 `result`（与前端看板、`/stats` 同源）；病原体看 `riskLevel='无风险'`。`test_date` 缺失与结论 `unknown` 是两件事，不联动。
+- 统计口径（`/stats`）：`scope_total`（授权范围内记录数与明细应一致）、`included_total`（参与计算）、`excluded[]`（未参与的原因与条数，现仅「检测日期缺失/非法」）、`pass_rate_detail`（分子/分母；分母为 0 返回 `null` 而非 0）。对账差异按 `excluded` 定位，不再使用"以某个接口为准"的含糊说法。
 - 限流与审计：按凭证滑动窗口限流（`rate_limit_per_min`，默认 60，超限 429 + `Retry-After`）；密钥/对接方拒绝事件节流写 `public.SystemLog`（`OPENAPI_DENIED <code>`，同 IP 同原因 60s 一条）。
 
 **⚠️ 运维要点（务必遵守）**

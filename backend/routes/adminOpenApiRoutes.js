@@ -21,7 +21,8 @@ import { writeAdminOpsLog } from '../lib/auditLog.js'
 import { generateApiKey } from '../lib/openApiKeys.js'
 import { createTenantClient, schemaNameOf, isValidSchoolCode, assertSafeSchemaName } from '../lib/tenantClient.js'
 import { RECORD_ROUTE_TYPES } from '../lib/recordNormalize.js'
-import { resolveGrantTypes, grantDateRange, buildOpenRecord } from '../lib/openApiScope.js'
+import { resolveGrantTypes, grantDateRange, buildOpenRecord, computeProjectionFingerprint } from '../lib/openApiScope.js'
+import { OPEN_API_CONTRACT_VERSION, listFieldDescriptors, buildSyntheticSamples, extractCustomFieldMeta } from '../lib/openApiFieldSchema.js'
 
 const TAG = '[adminOpenApiRoutes]'
 const OPS_ACTION = {
@@ -64,10 +65,17 @@ function normalizeVisibleTypes(raw, includePathogen) {
   return list.length ? list : null
 }
 
-/** 判断授权范围是否有实质变化（用于 scope_version 递增 → 触发对方重新同步）。 */
+/**
+ * 判断授权范围是否有实质变化（用于 scope_version 递增 → 触发对方重新同步）。
+ *
+ * ⚠️ 必须按**生效值**比较，而不是按存储形态比较，否则两类"看起来变了、实际没变"的保存会误触发失效：
+ *   ① visible_types 数组顺序不同（["oil","tableware"] vs ["tableware","oil"]）；
+ *   ② null/缺省（= 系统默认四类）与显式写出这四类等价。
+ * 因此这里统一用 resolveGrantTypes()（已归一 + 过滤病原体开关）后再排序比较。
+ */
 function scopeSignature(g) {
   return JSON.stringify({
-    t: Array.isArray(g.visible_types) ? [...g.visible_types].sort() : null,
+    t: [...resolveGrantTypes(g)].sort(),
     p: g.include_pathogen === true,
     i: g.include_inspector === true,
     a: g.include_attachments === true,
@@ -368,7 +376,10 @@ export function createAdminOpenApiRoutes({ prisma, authenticateUser, requirePlat
       const schoolCode = String(req.query.schoolCode || '').trim()
       if (!isValidSchoolCode(schoolCode)) return badRequest(res, 'schoolCode 非法')
       const grant = client.grants.find((g) => g.school_code === schoolCode)
-      if (!grant) return badRequest(res, '该校未授权给此对接方')
+      // 与对外接口保持同一授权边界：已停用的授权不可预览（否则会"预览得到、接口取不到"）
+      if (!grant || grant.status !== 'active') {
+        return badRequest(res, grant ? '该校授权已停用，如需预览请先恢复授权' : '该校未授权给此对接方')
+      }
 
       const school = await prisma.school.findUnique({ where: { code: schoolCode }, select: { code: true, name: true } })
       const schema = schemaNameOf(schoolCode)
@@ -397,6 +408,233 @@ export function createAdminOpenApiRoutes({ prisma, authenticateUser, requirePlat
     } catch (e) {
       console.error(`${TAG} 预览失败:`, e)
       res.status(500).json({ success: false, error: e.message || '预览失败' })
+    }
+  })
+
+  /**
+   * 控制台「接入说明」用：与对外 GET /v1/dict **同源**的字段字典（超管经 JWT 访问，不需要 API Key）。
+   * 仅对**已生效授权**（active）提供，与对外接口的可见范围一致。
+   */
+  router.get('/clients/:id/dict', async (req, res) => {
+    try {
+      const client = await prisma.openApiClient.findUnique({ where: { id: req.params.id }, include: { grants: true } })
+      if (!client) return res.status(404).json({ success: false, error: '对接方不存在' })
+      const schoolCode = String(req.query.schoolCode || '').trim()
+      const grant = client.grants.find((g) => g.school_code === schoolCode && g.status === 'active')
+      if (!grant) return badRequest(res, '该校未授权或授权已停用（字段字典仅对已生效授权提供）')
+      const school = await prisma.school.findUnique({ where: { code: schoolCode }, select: { code: true, name: true } })
+      const cust = await prisma.schoolCustomization.findUnique({ where: { school_code: schoolCode } })
+      const visibleTypes = resolveGrantTypes(grant)
+      const field_schema = {}
+      for (const t of visibleTypes) {
+        field_schema[t] = {
+          contract_version: OPEN_API_CONTRACT_VERSION,
+          fields: listFieldDescriptors(t, extractCustomFieldMeta(cust, t)),
+        }
+      }
+      res.json({
+        success: true,
+        data: {
+          contract_version: OPEN_API_CONTRACT_VERSION,
+          school_code: schoolCode,
+          school_name: school?.name || null,
+          scope_version: grant.scope_version,
+          projection_fingerprint: computeProjectionFingerprint(grant),
+          include_inspector: grant.include_inspector === true,
+          visible_types: visibleTypes,
+          field_schema,
+        },
+      })
+    } catch (e) {
+      console.error(`${TAG} 字典预览失败:`, e)
+      res.status(500).json({ success: false, error: e.message || '读取字段字典失败' })
+    }
+  })
+
+  /** 控制台「接入说明」用：与对外 GET /v1/samples 同源的合成样例预览。 */
+  router.get('/clients/:id/samples', async (req, res) => {
+    try {
+      const client = await prisma.openApiClient.findUnique({ where: { id: req.params.id }, include: { grants: true } })
+      if (!client) return res.status(404).json({ success: false, error: '对接方不存在' })
+      const schoolCode = String(req.query.schoolCode || '').trim()
+      const grant = client.grants.find((g) => g.school_code === schoolCode && g.status === 'active')
+      if (!grant) return badRequest(res, '该校未授权或授权已停用（样例仅对已生效授权提供）')
+      const school = await prisma.school.findUnique({ where: { code: schoolCode }, select: { code: true, name: true } })
+      const visibleTypes = resolveGrantTypes(grant)
+      let target = visibleTypes
+      if (req.query.test_type) {
+        const t = String(req.query.test_type)
+        if (!visibleTypes.includes(t)) return badRequest(res, `该类型未对${schoolCode}开放: ${t}`)
+        target = [t]
+      }
+      const samples = []
+      for (const t of target) {
+        for (const s of buildSyntheticSamples(t)) {
+          samples.push({
+            test_type: t,
+            scenario: s.scenario,
+            synthetic: true,
+            item: buildOpenRecord(s.record, grant, { schoolCode, schoolName: school?.name || null }),
+          })
+        }
+      }
+      res.json({
+        success: true,
+        data: {
+          contract_version: OPEN_API_CONTRACT_VERSION,
+          school_code: schoolCode,
+          scope_version: grant.scope_version,
+          include_inspector: grant.include_inspector === true,
+          count: samples.length,
+          samples,
+        },
+      })
+    } catch (e) {
+      console.error(`${TAG} 样例预览失败:`, e)
+      res.status(500).json({ success: false, error: e.message || '生成样例失败' })
+    }
+  })
+
+  /**
+   * 接入包（Markdown）：一次性把对方开发者需要的东西打包下载。
+   * 内容 = 接口说明 + **已保存**的开放范围 + 字段字典 + 合成样例 + 错误码 + 同步规则 + 检查清单。
+   * 安全：不含完整密钥、不含 key_hash、不含生产记录、不含内部配置原文。
+   */
+  router.get('/clients/:id/package', async (req, res) => {
+    try {
+      const client = await prisma.openApiClient.findUnique({ where: { id: req.params.id }, include: { grants: true } })
+      if (!client) return res.status(404).json({ success: false, error: '对接方不存在' })
+      const activeGrants = client.grants.filter((g) => g.status === 'active').sort((a, b) => (a.school_code < b.school_code ? -1 : 1))
+      const codes = activeGrants.map((g) => g.school_code)
+      const schools = codes.length
+        ? await prisma.school.findMany({ where: { code: { in: codes } }, select: { code: true, name: true } })
+        : []
+      const nameOf = new Map(schools.map((s) => [s.code, s.name]))
+      const custs = codes.length
+        ? await prisma.schoolCustomization.findMany({ where: { school_code: { in: codes } }, select: { school_code: true, custom_fields: true, field_labels: true } })
+        : []
+      const custOf = new Map(custs.map((c) => [c.school_code, c]))
+      const base = `https://${req.get('host') || '<平台域名>'}/api/open/v1`
+      const L = []
+      const push = (...xs) => L.push(...xs)
+
+      push(
+        '# foodSentinel 开放接口 · 接入包',
+        '',
+        `- 对接方：**${client.name}**`,
+        `- 契约版本：\`${OPEN_API_CONTRACT_VERSION}\``,
+        `- 生成时间：${new Date().toISOString()}`,
+        '- ⚠️ 本文件**不包含任何密钥**：API Key 由平台超管通过安全渠道单独提供，明文只在生成时显示一次。',
+        '',
+        '## 1. 接口地址与认证',
+        '',
+        `- 基址：\`${base}\``,
+        '- 认证（二选一）：`X-API-Key: <密钥>` 或 `Authorization: Bearer <密钥>`；必须 HTTPS。',
+        '- 限流：默认 60 次/分钟（超限返回 429，请按 `Retry-After` 退避）。',
+        '- 所有成功响应为 `{ "code": 0, "data": {...} }`；失败为 `{ "code": "<错误码>", "error": "..." }`。',
+        '',
+        '| 端点 | 说明 |',
+        '|---|---|',
+        '| `GET /ping` | 连通性 + 服务器时间 |',
+        '| `GET /profile` | 当前密钥的授权范围（含 scope_version / projection_fingerprint） |',
+        '| `GET /schools` | 授权学校清单 |',
+        '| `GET /dict?school_code=` | 字典：类型、食堂、结论枚举、**字段字典** |',
+        '| `GET /samples?school_code=&test_type=` | **合成样例**（非真实数据，可在无数据时开发） |',
+        '| `GET /sync/manifest?school_code=[&detail=1]` | 全量清单（total + digest）；`detail=1` 附明细用于对账 |',
+        '| `GET /test-records?school_code=&cursor=&limit=` | 检测记录增量拉取（游标分页） |',
+        '| `GET /stats?school_code=&start=&end=` | 合格率统计（含排除原因，可对账） |',
+        '',
+        '## 2. 当前已保存的开放范围',
+        '',
+      )
+      if (!activeGrants.length) {
+        push('> ⚠️ 当前**没有任何生效授权**（未勾选学校或已全部停用）。请先在控制台「开放接口 → 学校授权」中配置。', '')
+      } else {
+        push('| 学校 | 学校代码 | 开放类型 | 业务日期范围 | 检测人姓名 | 病原体 | scope_version |', '|---|---|---|---|---|---|---|')
+        for (const g of activeGrants) {
+          const { start, end } = grantDateRange(g)
+          push(`| ${nameOf.get(g.school_code) || '-'} | \`${g.school_code}\` | ${resolveGrantTypes(g).join('、')} | ${start || '不限'} ~ ${end || '不限'} | ${g.include_inspector ? '下发' : '不下发'} | ${g.include_pathogen ? '开放' : '不开放'} | ${g.scope_version} |`)
+        }
+        push('')
+      }
+
+      push('## 3. 字段字典', '')
+      for (const g of activeGrants) {
+        const cust = custOf.get(g.school_code) || {}
+        const cf = cust.custom_fields && typeof cust.custom_fields === 'object' ? cust.custom_fields : {}
+        const labels = cust.field_labels && typeof cust.field_labels === 'object' ? cust.field_labels : {}
+        for (const t of resolveGrantTypes(g)) {
+          const arr = Array.isArray(cf[t]) ? cf[t] : []
+          const names = arr.filter((f) => f && f.name).map((f) => String(f.name))
+          const localLabels = { ...labels }
+          for (const f of arr) if (f && f.name && f.label) localLabels[f.name] = String(f.label)
+          push(`### ${nameOf.get(g.school_code) || g.school_code} / ${t}`, '')
+          push('| 路径 | 中文名 | 类型 | 单位 | 必现 | 可空 | 说明 |', '|---|---|---|---|---|---|---|')
+          for (const f of listFieldDescriptors(t, { customFieldNames: names, fieldLabels: localLabels })) {
+            push(`| \`${f.path}\` | ${f.label || ''} | ${f.type} | ${f.unit || '—'} | ${f.required ? '是' : '否'} | ${f.nullable ? '是' : '否'} | ${String(f.description || '').replace(/\|/g, '/').replace(/\n/g, ' ')} |`)
+          }
+          push('')
+        }
+      }
+
+      push('## 4. 合成样例（非真实数据）', '', '> 以下为**构造样例**，`record_code` 以 `SAMPLE-` 前缀标记，请勿写入正式数据集；字段形态与真实响应一致。', '')
+      for (const g of activeGrants) {
+        for (const t of resolveGrantTypes(g)) {
+          for (const s of buildSyntheticSamples(t)) {
+            const item = buildOpenRecord(s.record, g, { schoolCode: g.school_code, schoolName: nameOf.get(g.school_code) || null })
+            push(`### ${g.school_code} / ${t} / ${s.scenario}`, '', '```json', JSON.stringify(item, null, 2), '```', '')
+          }
+        }
+      }
+
+      push(
+        '## 5. 同步规则（必读）',
+        '',
+        '1. 每轮同步先调 `sync/manifest`（只取 `total` + `digest`）。',
+        '2. `digest` 与本地记录一致 → 本轮结束。digest 覆盖：游标协议版本 + `scope_version` + `projection_fingerprint` + 每条 `record_code@updated_at`。',
+        '3. digest 变化 → `detail=1` 拉全量清单，与本地清单 diff，得到三类结果：',
+        '   - **源记录已删除**（本地有、清单无，且本轮清单完整获取）→ 按双方约定删除或标记撤回；',
+        '   - **授权收紧导致不可见**（`scope_version` 变化 / 该校 403 / 该类型不在 `visible_types`）→ 建议**标记撤回或不可见**，不要直接物理删除；',
+        '   - **请求失败导致状态未知**（401/403/409/429/超时/解析失败/部分分页失败）→ **绝不可当作"空清单"**，必须保留旧水位并重试。',
+        '4. 明细用 `test-records` 游标增量拉取；中断后带 `next_cursor` 续传；重试允许重复，按 `record_code` 幂等 upsert。',
+        '5. **只在成功处理完一页之后**保存 `next_cursor`；不要预先保存。',
+        '6. 本轮清单的 `generated_at` 之前若又发生变更，本轮结果可能不一致：**同步前后各取一次 digest，不一致就重跑一轮**。',
+        '7. 收到 `409 SCOPE_CHANGED`（授权或字段可见性变化 / 游标过旧）→ 回到第 1 步重新对账，并**重新拉取全部明细以重新投影**。',
+        '8. **字段撤回**：授权关闭「检测人姓名」后，新响应中不再包含该字段——若你方只做字段 merge，旧值会残留。'
+          + '必须在检测到 `projection_fingerprint` 变化时，对影响范围内的本地记录**执行替换式重投影**（以新响应整体覆盖，或显式清除已撤回字段）。',
+        '',
+        '## 6. 错误码',
+        '',
+        '| HTTP | code | 含义 |',
+        '|---|---|---|',
+        '| 401 | `MISSING_KEY` / `INVALID_KEY` / `CREDENTIAL_REVOKED` / `CREDENTIAL_EXPIRED` | 未携带 / 无效 / 已吊销 / 已过期 |',
+        '| 403 | `CLIENT_DISABLED` / `IP_DENIED` / `SCHOOL_NOT_AUTHORIZED` / `TYPE_NOT_AUTHORIZED` | 停用 / IP 不在白名单 / 未授权学校 / 未授权类型 |',
+        '| 400 | `INVALID_CURSOR` / `CURSOR_SCHOOL_MISMATCH` / `CURSOR_FILTER_MISMATCH` | 游标非法 / 换学校 / 换筛选条件复用游标 |',
+        '| 409 | `SCOPE_CHANGED` | 授权或字段可见性变化、游标协议过旧 → 重新对账 |',
+        '| 413 | `MANIFEST_TOO_LARGE` | 清单超单次上限（**明确拒绝，不返回截断清单**） |',
+        '| 429 | `RATE_LIMITED` | 触发限流，按 `Retry-After` 退避 |',
+        '',
+        '## 7. 接入检查清单',
+        '',
+        '- [ ] `GET /ping` 通，且服务器时间与本机偏差可接受',
+        '- [ ] `GET /profile` 的学校与类型范围与约定一致',
+        '- [ ] `GET /dict` 能取到字段字典（据此完成字段映射）',
+        '- [ ] `GET /samples` 能取到合成样例（覆盖合格/不合格/复检等场景）',
+        '- [ ] 全量拉取一次：条数与 `manifest.total` 一致，`record_code` 无重复',
+        '- [ ] 增量拉取：翻页不重不漏，中断后带 `cursor` 可续传',
+        '- [ ] 未授权学校/类型被 403 拒绝',
+        '- [ ] 已实现 `409` 重新对账、字段撤回重投影、失败不当空清单三条规则',
+        '- [ ] 抽样 3~5 条与平台方人工核对字段与结论（含不合格与复检各至少 1 条）',
+        '',
+      )
+
+      const md = L.join('\n')
+      res.setHeader('Content-Type', 'text/markdown; charset=utf-8')
+      res.setHeader('Content-Disposition', `attachment; filename="open-api-onboarding-${client.id.slice(0, 8)}-${new Date().toISOString().slice(0, 10)}.md"`)
+      res.send(md)
+    } catch (e) {
+      console.error(`${TAG} 接入包生成失败:`, e)
+      res.status(500).json({ success: false, error: e.message || '接入包生成失败' })
     }
   })
 

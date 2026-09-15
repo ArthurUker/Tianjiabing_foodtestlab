@@ -141,9 +141,14 @@ export function deriveConclusion(testType, resultData) {
     initial = risk ? (risk === '无风险' ? PASS : FAIL) : UNKNOWN
     text = risk
   } else if (testType === 'oil') {
+    // 食用油口径（业务方 2026-07-23 裁定，与前端 Dashboard.isOilQualified 及 /api/test-records/stats 一致）：
+    //   按「品质等级」colorLevel 判定，**仅含“不合格”才判不合格**；其余等级（合格/警戒/其它颜色）均视为合格；
+    //   无 colorLevel 时以 result 兜底。
+    // ⚠️ 2026-09-15 修正：早期实现用通用文本解析，导致 colorLevel=「深绿色」被判为 unknown，
+    //    与 /stats 的合格率口径分叉（同一批数据两种结论）。
     const color = String(data.colorLevel ?? '').trim()
     if (color) {
-      initial = textToConclusion(color)
+      initial = color.includes('不合格') ? FAIL : PASS
       text = color
     } else {
       text = String(data.result ?? '').trim()
@@ -157,18 +162,21 @@ export function deriveConclusion(testType, resultData) {
   const finalStatus = String(data.finalStatus ?? '').trim()
   const recheckPassed = getLatestRecheckPassed(data)
   let final = initial
+  let basis = 'initial'
   if (finalStatus) {
     final = textToConclusion(finalStatus)
     text = finalStatus
+    basis = 'recheck'
   } else if (typeof recheckPassed === 'boolean') {
     final = recheckPassed ? PASS : FAIL
+    basis = 'recheck'
   }
 
   const isPositive = testType === 'pathogen'
     ? (String(data.riskLevel ?? '').trim() ? String(data.riskLevel).trim() !== '无风险' : null)
     : null
 
-  return { initial, final, text: text || null, isPositive }
+  return { initial, final, text: text || null, isPositive, basis }
 }
 
 /* ─────────────── 对外记录序列化 ─────────────── */
@@ -216,7 +224,8 @@ export function buildOpenRecord(record, grant, ctx = {}) {
     final_conclusion: conclusion.final,
     conclusion: conclusion.final,          // 对外统一以"最终结论"为准
     conclusion_text: conclusion.text,
-    conclusion_source: 'stored',           // 记录内冻结值（非实时重算）
+    conclusion_source: 'stored',           // 录入/检测当时保存的值（非按当前规则实时重算）
+    final_conclusion_basis: conclusion.basis, // 'initial'（无复检）| 'recheck'（由复检结论覆盖）
     is_positive: conclusion.isPositive,
     result: projectResultData(resultData),
     created_at: toIsoShanghai(record.created_at),
@@ -231,32 +240,98 @@ export function buildOpenRecord(record, grant, ctx = {}) {
 
 /* ─────────────── 增量游标 ─────────────── */
 
-const CURSOR_VERSION = 1
+// 游标版本：v2 起额外携带 filters 指纹（f）与投影策略指纹（p），用于拒绝"换筛选条件/换策略"复用游标。
+const CURSOR_VERSION = 2
 
-/** 游标 = base64url(JSON)，携带学校 + 授权指纹 + 水位(updated_at,id)，由服务端生成/校验。 */
-export function encodeCursor({ schoolCode, scopeVersion, updatedAt, id }) {
-  const payload = { v: CURSOR_VERSION, s: schoolCode, g: scopeVersion, u: updatedAt, i: id }
+/**
+ * 游标 = base64url(JSON)，携带：学校 + 授权版本 + **筛选条件指纹** + **投影策略指纹** + 水位(updated_at,id)。
+ * 由服务端生成、服务端校验：客户端无法通过替换 school_code / test_type / 日期条件或复用旧策略游标
+ * 来扩大可见范围。
+ */
+export function encodeCursor({ schoolCode, scopeVersion, updatedAt, id, filtersFingerprint, projectionFingerprint }) {
+  const payload = {
+    v: CURSOR_VERSION,
+    s: schoolCode,
+    g: scopeVersion,
+    f: filtersFingerprint || null,
+    p: projectionFingerprint || null,
+    u: updatedAt,
+    i: id,
+  }
   return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url')
 }
 
-/** 解析游标；格式非法返回 null；scopeVersion 不匹配由调用方判 409。 */
+/** 筛选条件指纹：学校 + 类型集合 + 业务日期范围（客户端请求条件，非授权范围）。 */
+export function computeFiltersFingerprint({ schoolCode, types, start, end }) {
+  const payload = JSON.stringify({
+    s: String(schoolCode || ''),
+    t: [...(types || [])].map(String).sort(),
+    b: start || null,
+    e: end || null,
+  })
+  return crypto.createHash('sha256').update(payload).digest('hex').slice(0, 16)
+}
+
+/**
+ * 投影/可见性策略指纹：任何会改变"对方能看到什么"的授权属性（类型白名单、病原体、检测人、
+ * 附件开关、业务日期范围）都参与计算。
+ * 用途：① 让清单 digest 能反映"字段可见性变化"（否则关闭检测人姓名时 digest 不变，
+ * 客户端会误判为无变化而跳过重投影）；② 校验游标策略一致性。
+ */
+export function computeProjectionFingerprint(grant) {
+  const { start, end } = grantDateRange(grant)
+  const payload = JSON.stringify({
+    c: CONTRACT_VERSION_FOR_FINGERPRINT,
+    t: resolveGrantTypes(grant),
+    p: grant?.include_pathogen === true,
+    i: grant?.include_inspector === true,
+    a: grant?.include_attachments === true,
+    s: start,
+    e: end,
+  })
+  return crypto.createHash('sha256').update(payload).digest('hex').slice(0, 16)
+}
+
+// 独立常量，避免与 openApiFieldSchema 形成循环依赖（该模块不反向依赖本模块）
+const CONTRACT_VERSION_FOR_FINGERPRINT = 'v1'
+
+/**
+ * 解析游标。格式非法返回 null（调用方判 400）。
+ * 版本号写入 `_version` 由调用方判断：低于当前版本 = 旧协议游标（应要求重新对账，而非静默继续）。
+ */
 export function decodeCursor(cursor) {
   if (!cursor || typeof cursor !== 'string') return null
   try {
     const obj = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'))
-    if (!obj || obj.v !== CURSOR_VERSION || !obj.s || !obj.u || !obj.i) return null
+    if (!obj || typeof obj !== 'object' || !obj.s || !obj.u || !obj.i) return null
+    obj._version = Number(obj.v) || 0
+    obj._current = obj._version === CURSOR_VERSION
     return obj
   } catch {
     return null
   }
 }
 
-/** 全量清单摘要指纹：record_code + updated_at 升序拼接后 sha256（对方据此判断是否需要重对账）。 */
-export function computeManifestDigest(rows) {
+export const CURRENT_CURSOR_VERSION = CURSOR_VERSION
+
+/**
+ * 全量清单摘要指纹。
+ * 组成 = 协议版本 + 授权版本 + 投影策略指纹 + 每条 `record_code@updated_at`（升序）。
+ * 因此以下任一变化都会改变 digest：记录增删改、**授权范围变化、字段可见性策略变化**
+ * （后者若不纳入，关闭"下发检测人姓名"后 digest 不变，客户端会误判为无变化而跳过重投影）。
+ * @param {Array<{record_code: string, updated_at: Date|string}>} rows
+ * @param {{scopeVersion?: number|string, projectionFingerprint?: string}} [meta]
+ */
+export function computeManifestDigest(rows, meta = {}) {
+  const header = [
+    `cursor_v${CURSOR_VERSION}`,
+    `scope=${meta.scopeVersion ?? ''}`,
+    `projection=${meta.projectionFingerprint ?? ''}`,
+  ].join('|')
   const lines = rows
     .map((r) => `${r.record_code}@${r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at)}`)
     .sort()
-  return crypto.createHash('sha256').update(lines.join('\n')).digest('hex')
+  return crypto.createHash('sha256').update(`${header}\n${lines.join('\n')}`).digest('hex')
 }
 
 export default {
@@ -272,4 +347,6 @@ export default {
   encodeCursor,
   decodeCursor,
   computeManifestDigest,
+  computeFiltersFingerprint,
+  computeProjectionFingerprint,
 }

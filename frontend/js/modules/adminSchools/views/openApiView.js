@@ -473,55 +473,220 @@ export function initOpenApiView({ API_BASE, authHeaders, notify }) {
         }
     }
 
-    /* ─────────────── 接入说明 ─────────────── */
+    /* ─────────────── 接入说明（开放范围 / 字段字典 / 样例预览 / 接入包）─────────────── */
+    function activeGrantOf(c, schoolCode) {
+        return c.grants.find((g) => g.school_code === schoolCode && g.status === 'active') || null;
+    }
+
+    function fillTypeSelect(selId, grant) {
+        const sel = document.getElementById(selId);
+        if (!sel) return;
+        sel.innerHTML = (grant?.effective_types || []).map((t) => `<option value="${t}">${TYPE_LABELS[t] || t}</option>`).join('');
+    }
+
     function renderGuideTab(host, c) {
         const base = `${location.origin}/api/open/v1`;
-        const keySample = c.credentials.find((k) => k.status === 'active')?.key_prefix
-            ? `${c.credentials.find((k) => k.status === 'active').key_prefix}…（完整密钥只在生成时显示）`
-            : 'oap_xxxxxxxx…（请先生成密钥）';
+        const activeGrants = c.grants.filter((g) => g.status === 'active');
+        const activeKey = c.credentials.find((k) => k.status === 'active');
+        const hasDraft = !!state.draft;
+
+        const grantRows = activeGrants.map((g) => `<tr class="border-b last:border-0">
+            <td class="py-1.5 px-2">${escapeHtml(g.school_name || g.school_code)} <span class="font-mono text-xs text-gray-400">${escapeHtml(g.school_code)}</span></td>
+            <td class="py-1.5 px-2 text-xs">${g.effective_types.map((t) => TYPE_LABELS[t] || t).join('、')}</td>
+            <td class="py-1.5 px-2 text-xs text-gray-500">${escapeHtml(g.start_date || '不限')} ~ ${escapeHtml(g.end_date || '不限')}</td>
+            <td class="py-1.5 px-2 text-xs">${g.include_inspector ? '下发' : '不下发'}</td>
+            <td class="py-1.5 px-2 text-xs text-gray-500">v${g.scope_version}</td>
+        </tr>`).join('');
+
+        const schoolOptions = activeGrants
+            .map((g) => `<option value="${escapeHtml(g.school_code)}">${escapeHtml(g.school_name || g.school_code)}</option>`)
+            .join('');
+
         host.innerHTML = `
-            <div class="text-sm text-gray-700 space-y-3">
-                <div class="rounded-lg bg-blue-50 border border-blue-100 p-3 text-xs">
-                    <b>接口地址</b>（只读）：<code class="font-mono">${escapeHtml(base)}</code><br>
-                    认证方式：请求头 <code class="font-mono">X-API-Key: &lt;密钥&gt;</code>（亦支持 <code class="font-mono">Authorization: Bearer &lt;密钥&gt;</code>）<br>
-                    当前对接方密钥：<code class="font-mono">${escapeHtml(keySample)}</code>
+            <div class="text-sm text-gray-700 space-y-4">
+                <div class="admin-card">
+                    <h4 class="font-medium text-gray-800 mb-2"><i class="fas fa-list-check text-blue-500 mr-2"></i>1. 当前开放范围（已保存的授权）</h4>
+                    <div class="rounded-lg bg-blue-50 border border-blue-100 p-3 text-xs mb-3">
+                        <b>接口地址</b>：<code class="font-mono">${escapeHtml(base)}</code><br>
+                        认证：<code class="font-mono">X-API-Key: &lt;密钥&gt;</code> 或 <code class="font-mono">Authorization: Bearer &lt;密钥&gt;</code><br>
+                        有效密钥：<code class="font-mono">${escapeHtml(activeKey ? `${activeKey.key_prefix}…${activeKey.key_last4}` : '（无有效密钥）')}</code>
+                        <span class="text-gray-500">${activeKey ? '（完整密钥只在生成时显示一次）' : '——请先在「凭证管理」中生成'}</span>
+                    </div>
+                    ${hasDraft ? '<p class="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2 mb-3"><i class="fas fa-exclamation-triangle mr-1"></i>「学校授权」中存在<b>未保存</b>的修改：本页与接入包一律按<b>已保存</b>的授权生成，请先保存后再交付对方。</p>' : ''}
+                    ${activeGrants.length
+                        ? `<table class="w-full text-sm">
+                             <thead><tr class="text-left text-gray-500 border-b">
+                               <th class="py-1.5 px-2">学校</th><th class="py-1.5 px-2">开放类型</th>
+                               <th class="py-1.5 px-2">业务日期</th><th class="py-1.5 px-2">检测人</th><th class="py-1.5 px-2">授权版本</th>
+                             </tr></thead><tbody>${grantRows}</tbody></table>`
+                        : '<p class="text-xs text-gray-600">⚠️ 当前<b>没有任何生效授权</b>：对方即使拿到密钥也读不到任何数据。请到「学校授权」勾选学校并保存。</p>'}
                 </div>
-                <div>
-                    <b>可用端点</b>
-                    <ul class="list-disc pl-5 text-xs text-gray-600 mt-1 space-y-0.5">
-                        <li><code class="font-mono">GET /ping</code> — 连通性与服务器时间</li>
-                        <li><code class="font-mono">GET /profile</code> — 当前密钥的授权范围（含 scope_version）</li>
-                        <li><code class="font-mono">GET /schools</code> — 授权学校列表</li>
-                        <li><code class="font-mono">GET /dict?school_code=</code> — 检测类型 / 食堂 / 结论枚举</li>
-                        <li><code class="font-mono">GET /sync/manifest?school_code=[&detail=1]</code> — 全量清单与摘要指纹（对账 / 删除感知）</li>
-                        <li><code class="font-mono">GET /test-records?school_code=&cursor=&limit=</code> — 检测记录增量拉取</li>
-                        <li><code class="font-mono">GET /stats?school_code=&start=&end=</code> — 合格率统计（对账）</li>
-                    </ul>
+
+                <div class="admin-card">
+                    <h4 class="font-medium text-gray-800 mb-2"><i class="fas fa-table-columns text-emerald-600 mr-2"></i>2. 字段字典</h4>
+                    <p class="text-xs text-gray-500 mb-2">对方写字段映射的依据：路径 / 中文名 / 类型 / 单位 / 是否必现 / 是否可空 / 说明。与真实下发的 JSON 同源。</p>
+                    <div class="flex items-center flex-wrap gap-2 mb-3">
+                        <select id="oapiDictSchool" class="px-2 py-1.5 text-sm border border-gray-300 rounded-lg">${schoolOptions}</select>
+                        <select id="oapiDictType" class="px-2 py-1.5 text-sm border border-gray-300 rounded-lg"></select>
+                        <button id="oapiDictRun" type="button" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700" ${activeGrants.length ? '' : 'disabled'}>加载字段字典</button>
+                        <span id="oapiDictMsg" class="text-xs text-gray-500"></span>
+                    </div>
+                    <div id="oapiDictOut" class="text-sm text-gray-600">${activeGrants.length ? '（选择学校与类型后点击「加载字段字典」）' : '（无生效授权，暂不可用）'}</div>
                 </div>
-                <div class="rounded-lg bg-gray-50 border border-gray-100 p-3">
-                    <b class="text-xs">同步流程（对接方实现）</b>
-                    <ol class="list-decimal pl-5 text-xs text-gray-600 mt-1 space-y-0.5">
-                        <li>每轮同步先调 <code class="font-mono">sync/manifest</code>（默认只回 total+digest），digest 一致即结束；</li>
-                        <li>digest 变化 → <code class="font-mono">detail=1</code> 拉全量清单，本地 diff 出「新增 / 变更 / 已删除」；</li>
-                        <li>本轮删除感知：<b>本地有、清单没有 = 该记录已删除</b>（平台侧为硬删除，无回收站）；</li>
-                        <li>明细用 <code class="font-mono">test-records</code> 游标增量拉取，中断后带 <code class="font-mono">cursor</code> 续传；</li>
-                        <li>返回 <code class="font-mono">409 SCOPE_CHANGED</code> 表示授权范围已变更，需重新对账（回到第 1 步）。</li>
-                    </ol>
-                    <p class="text-[11px] text-gray-500 mt-2">
-                        提示：条数与合格率对账时请以 <code class="font-mono">/stats</code> 为准（其口径排除检测日期缺失的脏数据，可能与明细条数相差极少数）。
+
+                <div class="admin-card">
+                    <h4 class="font-medium text-gray-800 mb-2"><i class="fas fa-flask text-amber-500 mr-2"></i>3. 合成样例</h4>
+                    <p class="text-xs text-gray-500 mb-2">构造数据（<b>非真实检测记录</b>，<code class="font-mono">record_code</code> 以 <code class="font-mono">SAMPLE-</code> 开头）：对方在没有任何真实数据时也能完成开发。</p>
+                    <div class="flex items-center flex-wrap gap-2 mb-3">
+                        <select id="oapiSampleSchool" class="px-2 py-1.5 text-sm border border-gray-300 rounded-lg">${schoolOptions}</select>
+                        <select id="oapiSampleType" class="px-2 py-1.5 text-sm border border-gray-300 rounded-lg"></select>
+                        <select id="oapiSampleScenario" class="px-2 py-1.5 text-sm border border-gray-300 rounded-lg"><option value="">全部场景</option></select>
+                        <button id="oapiSampleRun" type="button" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700" ${activeGrants.length ? '' : 'disabled'}>加载样例</button>
+                        <button id="oapiSampleCopy" type="button" class="px-2 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">复制 JSON</button>
+                        <span id="oapiSampleMsg" class="text-xs text-gray-500"></span>
+                    </div>
+                    <pre id="oapiSampleOut" class="bg-gray-900 text-gray-100 text-[11px] rounded-lg p-3 overflow-auto max-h-[420px]">${activeGrants.length ? '（点击「加载样例」查看）' : '（无生效授权，暂不可用）'}</pre>
+                </div>
+
+                <div class="admin-card">
+                    <h4 class="font-medium text-gray-800 mb-2"><i class="fas fa-file-arrow-down text-indigo-500 mr-2"></i>4. 下载接入包</h4>
+                    <p class="text-xs text-gray-500 mb-2">
+                        一次交付对方开发者所需内容：接口说明、<b>已保存</b>的开放范围、字段字典、合成样例、错误码与同步规则、接入检查清单。<br>
+                        <b>不含任何密钥</b>（明文密钥请通过安全渠道单独发送）。
                     </p>
+                    <div class="flex items-center gap-3">
+                        <button id="oapiPackageDl" type="button" class="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"><i class="fas fa-download mr-1"></i>下载接入包（Markdown）</button>
+                        <span id="oapiPackageMsg" class="text-xs text-gray-500">${activeGrants.length ? '' : '（当前无生效授权，接入包仍可下载，但内容会提示"无生效授权"）'}</span>
+                    </div>
                 </div>
-                <div>
-                    <b class="text-xs">调用示例</b>
-                    <pre class="bg-gray-900 text-gray-100 text-[11px] rounded-lg p-3 mt-1 overflow-x-auto">curl -H "X-API-Key: &lt;密钥&gt;" "${escapeHtml(base)}/ping"
-curl -H "X-API-Key: &lt;密钥&gt;" "${escapeHtml(base)}/sync/manifest?school_code=&lt;学校代码&gt;&detail=1"
-curl -H "X-API-Key: &lt;密钥&gt;" "${escapeHtml(base)}/test-records?school_code=&lt;学校代码&gt;&limit=100"</pre>
-                </div>
+
                 <p class="text-xs text-gray-500">
-                    ⚠️ 停用对接方或吊销密钥只能阻止<b>后续读取</b>，已下载到对方数据库的数据需按双方约定另行处理；
-                    收紧授权时请在下方「待通知清单」中确认需对方清理的范围。
+                    ⚠️ 停用对接方、吊销密钥、收紧授权都只能阻止<b>后续读取</b>：对方已下载到其数据库的数据不会自动消失，
+                    需按双方约定另行通知清理 —— 本系统无法代其删除。
                 </p>
             </div>`;
+
+        // 学校/类型联动
+        const dictSchool = document.getElementById('oapiDictSchool');
+        const sampleSchool = document.getElementById('oapiSampleSchool');
+        const syncDictTypes = () => fillTypeSelect('oapiDictType', activeGrantOf(c, dictSchool?.value));
+        const syncSampleTypes = () => {
+            fillTypeSelect('oapiSampleType', activeGrantOf(c, sampleSchool?.value));
+            const sc = document.getElementById('oapiSampleScenario');
+            if (sc) sc.innerHTML = '<option value="">全部场景</option>';
+        };
+        dictSchool?.addEventListener('change', syncDictTypes);
+        sampleSchool?.addEventListener('change', syncSampleTypes);
+        syncDictTypes();
+        syncSampleTypes();
+
+        document.getElementById('oapiDictRun')?.addEventListener('click', () => loadDictPreview(c));
+        document.getElementById('oapiSampleRun')?.addEventListener('click', () => loadSamplePreview(c));
+        document.getElementById('oapiSampleCopy')?.addEventListener('click', copySampleJson);
+        document.getElementById('oapiPackageDl')?.addEventListener('click', () => downloadPackage(c));
+    }
+
+    async function loadDictPreview(c) {
+        const schoolCode = document.getElementById('oapiDictSchool')?.value;
+        const testType = document.getElementById('oapiDictType')?.value;
+        const out = document.getElementById('oapiDictOut');
+        const msg = document.getElementById('oapiDictMsg');
+        if (!schoolCode || !testType || !out) return;
+        out.textContent = '加载中…';
+        if (msg) msg.textContent = '';
+        try {
+            const data = await api(`/clients/${c.id}/dict?schoolCode=${encodeURIComponent(schoolCode)}`);
+            const fields = data.field_schema?.[testType]?.fields || [];
+            if (!fields.length) {
+                out.innerHTML = '<p class="text-xs text-gray-400">（该类型暂无字段定义）</p>';
+                return;
+            }
+            out.innerHTML = `
+                <div class="text-xs text-gray-500 mb-2">
+                    契约版本 ${escapeHtml(data.contract_version)} · 授权版本 v${data.scope_version} · 检测人姓名：${data.include_inspector ? '下发' : '不下发'} · 共 ${fields.length} 个字段
+                </div>
+                <div class="max-h-[420px] overflow-auto">
+                <table class="w-full text-sm">
+                    <thead><tr class="text-left text-gray-500 border-b">
+                        <th class="py-1.5 px-2">路径</th><th class="py-1.5 px-2">中文名</th><th class="py-1.5 px-2">类型</th>
+                        <th class="py-1.5 px-2">单位</th><th class="py-1.5 px-2">必现</th><th class="py-1.5 px-2">可空</th><th class="py-1.5 px-2">说明</th>
+                    </tr></thead>
+                    <tbody>${fields.map((f) => `<tr class="border-b last:border-0 ${f.source === 'school_custom' ? 'bg-amber-50/40' : ''}">
+                        <td class="py-1.5 px-2 font-mono text-xs">${escapeHtml(f.path)}</td>
+                        <td class="py-1.5 px-2">${escapeHtml(f.label || '')}${f.source === 'school_custom' ? ' <span class="text-[10px] text-amber-700">自定义</span>' : ''}</td>
+                        <td class="py-1.5 px-2 text-xs">${escapeHtml(f.type || '')}</td>
+                        <td class="py-1.5 px-2 text-xs">${escapeHtml(f.unit || '—')}</td>
+                        <td class="py-1.5 px-2 text-xs">${f.required ? '是' : '否'}</td>
+                        <td class="py-1.5 px-2 text-xs">${f.nullable ? '是' : '否'}</td>
+                        <td class="py-1.5 px-2 text-xs text-gray-600">${escapeHtml(f.description || (f.item_fields ? '元素字段：' + f.item_fields.join('、') : ''))}</td>
+                    </tr>`).join('')}</tbody>
+                </table></div>`;
+            if (msg) msg.textContent = `已加载 ${fields.length} 个字段`;
+        } catch (e) {
+            out.innerHTML = `<p class="text-xs text-red-600">加载失败：${escapeHtml(e.message)}</p>`;
+        }
+    }
+
+    let lastSampleJson = '';
+    async function loadSamplePreview(c) {
+        const schoolCode = document.getElementById('oapiSampleSchool')?.value;
+        const testType = document.getElementById('oapiSampleType')?.value;
+        const scenario = document.getElementById('oapiSampleScenario')?.value || '';
+        const out = document.getElementById('oapiSampleOut');
+        const msg = document.getElementById('oapiSampleMsg');
+        if (!schoolCode || !out) return;
+        out.textContent = '加载中…';
+        if (msg) msg.textContent = '';
+        try {
+            const q = `/clients/${c.id}/samples?schoolCode=${encodeURIComponent(schoolCode)}` + (testType ? `&test_type=${encodeURIComponent(testType)}` : '');
+            const data = await api(q);
+            const sc = document.getElementById('oapiSampleScenario');
+            if (sc) {
+                const cur = sc.value;
+                sc.innerHTML = '<option value="">全部场景</option>'
+                    + [...new Set((data.samples || []).map((s) => s.scenario))].map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
+                sc.value = cur;
+            }
+            const list = (data.samples || []).filter((s) => !scenario || s.scenario === scenario);
+            lastSampleJson = JSON.stringify(list, null, 2);
+            out.textContent = lastSampleJson || '（无样例）';
+            if (msg) msg.textContent = `已加载 ${list.length} 条样例（合成数据，勿入正式库）`;
+        } catch (e) {
+            out.textContent = `加载失败：${e.message}`;
+        }
+    }
+
+    async function copySampleJson() {
+        if (!lastSampleJson) { notify('请先加载样例', 'error'); return; }
+        try {
+            await navigator.clipboard.writeText(lastSampleJson);
+            notify('样例 JSON 已复制', 'success');
+        } catch (e) {
+            // 剪贴板不可用（非 https/无权限）时的降级：提示可手动选择复制
+            notify('复制失败：请手动选中下方文本复制', 'error');
+        }
+    }
+
+    function downloadPackage(c) {
+        const msg = document.getElementById('oapiPackageMsg');
+        if (msg) msg.textContent = '生成中…';
+        fetch(`${API_BASE}/api/admin/open-api/clients/${c.id}/package`, { headers: authHeaders() })
+            .then(async (r) => {
+                if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                const text = await r.text();
+                const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `open-api-onboarding-${new Date().toISOString().slice(0, 10)}.md`;
+                a.click();
+                URL.revokeObjectURL(a.href);
+                if (msg) msg.textContent = '已下载（不含密钥，可安全发给对方）';
+                notify('接入包已下载', 'success');
+            })
+            .catch((e) => {
+                if (msg) msg.textContent = `下载失败：${e.message}`;
+                notify(e.message || '接入包下载失败', 'error');
+            });
     }
 
     /* ─────────────── 数据预览 ─────────────── */
