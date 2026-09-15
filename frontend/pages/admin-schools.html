@@ -177,6 +177,11 @@
                 <button class="admin-sidebar__item" data-view="disk" data-desc="查看数据盘/系统盘水位，人工清理 journal、日志与按天备份（清理动作全部写审计）。" type="button">
                     <i class="fas fa-hdd"></i><span class="admin-sidebar__item-label">磁盘管理</span>
                 </button>
+                <!-- 开放接口（2026-09-15 朴食对接）：按「对接方 × 学校」开通第三方只读数据接口。
+                     配置变更全部写 public.SystemLog 审计；对外接口为 /api/open/v1/*（API Key 认证）。 -->
+                <button class="admin-sidebar__item" data-view="openapi" data-desc="为第三方开通指定学校、指定范围的只读数据接口：管理对接方、密钥与授权范围。" type="button">
+                    <i class="fas fa-plug"></i><span class="admin-sidebar__item-label">开放接口</span>
+                </button>
                 <!-- 测试报告：二级菜单（测试任务 / 问题反馈 / 问题总览）。
                      TR-Rewrite：原生视图模块，废弃 iframe + test-report.html + docs 产物。
                      三视图对齐检测业务模型：任务=计划内执行、反馈=计划外上报、总览=记录列表。 -->
@@ -994,6 +999,8 @@
         import { initBackupView } from '/js/modules/adminSchools/views/backupView.js';
         // 「磁盘管理」视图（2026-08-27 容量策略：90% 水位告警 + 人工清理）
         import { initDiskView } from '/js/modules/adminSchools/views/diskView.js';
+        // 「开放接口」视图（2026-09-15 朴食对接：对接方 / 密钥 / 学校授权 / 接入说明）
+        import { initOpenApiView } from '/js/modules/adminSchools/views/openApiView.js';
         // 「测试报告」三视图（TR-Rewrite：测试任务 / 问题反馈 / 问题总览）
         import { initTasksView } from '/js/modules/adminSchools/views/testReports/tasksView.js';
         import { initIssuesView } from '/js/modules/adminSchools/views/testReports/issuesView.js';
@@ -1084,6 +1091,8 @@
         const backupView = initBackupView({ API_BASE, authHeaders, notify: showNotice });
         // 磁盘管理视图（水位/清理，super_admin 专属）
         initDiskView({ API_BASE, authHeaders, notify: showNotice });
+        // 开放接口视图（第三方数据开放：对接方/密钥/学校授权，super_admin 专属）
+        initOpenApiView({ API_BASE, authHeaders, notify: showNotice });
         initKpiPoller();
         // 学校管理：详情视图先建（导出 openDetail / switchSchoolsSubview / renderCanteenInputs / updateBadgeStyleHint），
         // 再注入定制加载的详情回调与弹层的列表刷新回调，最后装配列表视图（openDetail / switchSchoolsSubview 注入）。
@@ -1844,6 +1853,9 @@
 
     <!-- 磁盘管理视图（2026-08-27 容量策略）：骨架由 views/diskView.js 动态渲染 -->
     <section id="adminViewDisk" class="admin-view hidden" data-view="disk"></section>
+
+    <!-- 开放接口视图（2026-09-15 朴食对接）：骨架由 views/openApiView.js 动态渲染 -->
+    <section id="adminViewOpenApi" class="admin-view hidden" data-view="openapi"></section>
 
     <!-- 测试报告视图（TR-Rewrite）：
          原生三视图（测试任务 / 问题反馈 / 问题总览），由 views/testReports/ 模块

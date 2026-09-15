@@ -30,6 +30,8 @@ import { createRecognitionRoutes } from './routes/recognitionRoutes.js'
 import { createSchoolRoutes, ensureRecycleBinInfra } from './routes/schoolRoutes.js'
 import { createRecordRoutes } from './routes/recordRoutes.js'
 import frequencyRoutes from './routes/frequencyRoutes.js'
+import { createOpenApiRoutes } from './routes/openApiRoutes.js'
+import { createAdminOpenApiRoutes } from './routes/adminOpenApiRoutes.js'
 import { disconnectAllTenantClients } from './lib/tenantClient.js'
 import { syncAllTenantSchemas } from './lib/tenantSync.js'
 import { startSecurityEventAlerting } from './lib/securityAlerts.js'
@@ -315,6 +317,18 @@ app.use('/api/admin/disk', adminDiskRoutes)
 // 但强制以 token 中 req.user.schoolCode 为作用域，禁止跨校读取/恢复。
 const schoolBackupRoutes = createSchoolBackupRoutes({ prisma, authenticateUser })
 app.use('/api/school/backups', schoolBackupRoutes)
+
+// ====== Open API（第三方数据开放，2026-09-15 朴食对接）======
+// ⚠️ 挂载顺序硬约束：必须位于下方 `app.use('/api', recognitionRoutes)` 之前 ——
+// recognitionRoutes 挂载在 /api 根路径且带 router.use(authenticateUser)，
+// 会把 /api/open/* 一律拦成「缺少授权令牌」401（2026-09-15 实测踩坑）。
+// ① /api/admin/open-api —— 超管配置：对接方 / 凭证 / 学校授权（requirePlatformSuperAdmin）
+// ② /api/open/v1       —— 对外只读接口：API Key 认证（非 JWT，独立于 authenticateUser），
+//    按 grant 的 school_code 校验并创建租户客户端取数；无任何写入路径。
+const adminOpenApiRoutes = createAdminOpenApiRoutes({ prisma, authenticateUser, requirePlatformSuperAdmin })
+app.use('/api/admin/open-api', adminOpenApiRoutes)
+const openApiRoutes = createOpenApiRoutes({ prisma })
+app.use('/api/open', openApiRoutes)
 
 // ====== Test Result Routes（临时测试工具：测试结果上报，任意登录用户）======
 const testResultRoutes = createTestResultRoutes(userManager, prisma)

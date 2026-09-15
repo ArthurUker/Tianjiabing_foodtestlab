@@ -63,6 +63,7 @@ logrotate 配置、适配文件 `/opt/deploy/deploy.foodtestlab.conf`。
 5. [API 接口文档](#5-api-接口文档)
    - [5.11 洗涤剂比色识别](#511-洗涤剂比色识别recognize挂载于-serverjs314)
    - [5.12 平台超管磁盘管理](#512-平台超管磁盘管理admin-disk挂载于-serverjs300)
+   - [5.13 开放接口（第三方只读数据开放）](#513-开放接口第三方只读数据开放)
 6. [前端模块设计](#6-前端模块设计)
 7. [认证与权限设计](#7-认证与权限设计)
 8. [部署架构](#8-部署架构)
@@ -790,6 +791,60 @@ erDiagram
 > 默认作用域是「**全部学校**」，操作前务必确认范围与截止日期。
 > 生产审计记录原则上不得物理删除，本能力仅用于磁盘 ≥90% 时的**按校归档清理**：先导出留档 → 校验留档 → 再删除。
 
+### 5.13 开放接口（第三方只读数据开放）
+
+> 2026-09-15 新增（朴食科技对接需求）。**两段式设计，互不复用认证体系**：
+> ① **配置面** `/api/admin/open-api/*` —— `authenticateUser` + `requirePlatformSuperAdmin`（仅平台超管）；
+> ② **数据面** `/api/open/v1/*` —— **API Key 认证（非 JWT）**，机器对机器、只读、**无任何写入路径**；
+> 取数由路由按 grant 的 `school_code` 显式创建租户客户端（`createTenantClient`），不注入 `req.db`。
+>
+> 前端入口：平台超管控制台「开放接口」视图（`frontend/js/modules/adminSchools/views/openApiView.js`）。
+> 数据模型：`OpenApiClient` / `OpenApiCredential` / `OpenApiGrant`（public 权威副本；迁移 `20260915120000_open_api_tables`，
+> 同时为全部 `school_*` 建冗余空表用于结构对齐，租户副本永不写入）。
+> 对接文档（交给第三方）：[`docs/OPEN_API_INTEGRATION.md`](./docs/OPEN_API_INTEGRATION.md)。
+
+**配置面（平台超管）**
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/admin/open-api/clients` | 对接方列表（含凭证摘要、学校授权、最近调用） |
+| POST | `/api/admin/open-api/clients` | 新建对接方（名称/备注/IP 白名单/限流） |
+| PATCH | `/api/admin/open-api/clients/:id` | 修改基础信息、停用/恢复（停用即全部密钥失效） |
+| POST | `/api/admin/open-api/clients/:id/credentials` | 生成新密钥（明文**仅本次响应返回一次**，库中只存 sha256） |
+| POST | `/api/admin/open-api/clients/:id/credentials/:cid/revoke` | 吊销密钥（立即失效） |
+| PUT | `/api/admin/open-api/clients/:id/grants` | 覆盖式设置学校授权；未出现的学校 → `status='disabled'`（保留历史） |
+| GET | `/api/admin/open-api/clients/:id/preview?schoolCode=` | 预览该对接方实际会拿到的 JSON（脱敏后，供人工核对） |
+| GET | `/api/admin/open-api/export` | 导出配置 JSON（含 `key_hash`，**不含明文密钥**）——public 段不参与备份恢复，灾后靠此重建 |
+| POST | `/api/admin/open-api/import` | 导入配置（按 id upsert，凭证按 `key_hash` 去重） |
+
+**数据面（第三方，需 `X-API-Key` 或 `Authorization: Bearer`）**
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/open/v1/ping` | 连通性自检 + 服务器时间（对账时钟） |
+| GET | `/api/open/v1/profile` | 当前密钥的对接方身份、限流、授权学校与 `scope_version` |
+| GET | `/api/open/v1/schools` | 授权范围内学校列表 |
+| GET | `/api/open/v1/dict?school_code=` | 字典：开放类型 / 食堂列表 / 结论枚举 |
+| GET | `/api/open/v1/test-records?school_code=&cursor=&limit=&since=&until=&test_type=` | 检测记录**增量拉取**（游标分页，`(updated_at,id)` 复合水位） |
+| GET | `/api/open/v1/sync/manifest?school_code=[&detail=1]` | 全量清单 `total`+`digest`（`detail=1` 附 `[{record_code,updated_at}]`）——**删除感知与对账唯一途径** |
+| GET | `/api/open/v1/stats?school_code=&start=&end=` | 合格率统计（口径同员工端 `/api/test-records/stats`，对账用） |
+
+**同步协议（每轮拉取即完成一次删除对账）**：① 先调 `sync/manifest`，`digest` 一致即结束；② `digest` 变化 → `detail=1` 拉全量清单，本地 diff 出「新增/变更/已删除」（**本地有、清单无 = 已删除**，平台为硬删除）；③ 明细用 `test-records` 游标增量拉取，中断带 `cursor` 续传；④ 收到 `409 SCOPE_CHANGED` 表示授权范围变更，需重新对账。
+
+**安全与口径边界**
+
+- 越权防护：`school_code` 必须命中该对接方的 `active` grant，否则 `403 SCHOOL_NOT_AUTHORIZED`；类型必须命中 `visible_types` 白名单（**病原体需显式开启**，自定义检测类型默认不开放）。
+- 字段投影：**绝不下发 `result_data` 原始 JSON**。服务端先剔内部字段（`modificationLogs`/`traceabilityRecords`/`created_by` 等），再**递归**剔除人名类 PII（`inspector` / `recheckRecords[].user` 等，含正则兜底，未来新增人名类字段自动不外泄）；`inspector` 是否下发由 grant 的 `include_inspector` 决定（默认 false）。
+- 结论口径：接口给 `initial_conclusion`（初检）与 `final_conclusion`（复检后，`finalStatus` 优先）并标注 `conclusion_source='stored'` —— 记录内冻结值，非实时重算；`/stats` 另按 SQL 口径计算供对账，**其口径排除 `testDate` 缺失/非法的记录**（故与明细条数可能相差极少数脏数据）。
+- 限流与审计：按凭证滑动窗口限流（`rate_limit_per_min`，默认 60，超限 429 + `Retry-After`）；密钥/对接方拒绝事件节流写 `public.SystemLog`（`OPENAPI_DENIED <code>`，同 IP 同原因 60s 一条）。
+
+**⚠️ 运维要点（务必遵守）**
+
+1. **public 段不参与备份恢复**（`restoreService` 只提取租户段）：这 3 张表**既不会被恢复破坏、也不会被恢复还原**；配置丢失只能靠「导出配置」重建，请定期导出留档。
+2. **回滚代码不会删除这 3 张表**（`migrate deploy` 只前向 apply；对 public 的 `db push` 仅存在于首部署分支），但**禁止在旧版本代码上对 public 执行 `prisma db push`**——旧 `schema.prisma` 不含这 3 个 model，db push 会删表导致配置丢失。
+3. 回滚时**必须保留 migration 文件**，否则 `prisma migrate deploy` 会因「库中已登记、本地缺失」报错、部署中止。
+4. ⚠️ 用**旧代码恢复新备份**会失败（行数校验找不到这 3 张表，属安全失败、原数据无损）：回滚窗口内如需恢复，请先升回新版本代码。
+
 ---
 
 ## 6. 前端模块设计
@@ -1280,6 +1335,17 @@ systemctl stop foodsentinel-api
 psql -d foodsentinel < /mnt/datadisk0/foodsentinel/backup/foodsentinel_YYYY-MM-DD.sql
 systemctl start foodsentinel-api
 ```
+
+#### 开放接口配置（public 段）的留档与恢复
+
+应用内备份/恢复**只处理租户 schema**：单校备份不含 `public`，全库备份虽含 `public` 段但恢复时会被丢弃（`restoreService` 只提取目标租户段）。
+因此 `School` / `SchoolCustomization` / `BackupRun` / `TestCase` / **开放接口三张表**等 public 数据**不在恢复范围内**：
+
+- 开放接口配置请定期在控制台「开放接口」→「导出配置」留档（JSON，含密钥哈希、不含明文密钥）；
+  换机/误删后用「导入配置」重建，**第三方无需更换 API Key**。
+- 恢复操作不会影响 public（授权配置不会被回滚）；同样，恢复也无法把 public 回退到备份时状态。
+- 回滚代码：`migrate deploy` 只前向 apply，不会删除这 3 张表；**但禁止在旧版本代码上对 public 执行 `prisma db push`**（会删表）。
+  另外，回滚后**用旧代码恢复新备份会失败**（行数校验找不到这 3 张表，安全失败、原数据无损）——需先升回新版本再恢复。
 
 ### 12.4 健康检查
 

@@ -354,6 +354,85 @@ model SystemLog {
   @@index([created_at])
 }
 
+// ========== 开放接口：第三方数据开放（public schema 权威副本）==========
+// 背景（2026-09-15，朴食科技对接需求）：平台超管按「对接方 × 学校」开通只读数据接口，
+// 第三方持独立 API Key 拉取指定学校的检测数据；未开通的学校/类型一律不可见。
+//
+// ⚠️ 与 BackupRun / TestCase 同模式：权威副本在 public（由 prisma migrate 管理），
+//    provisionSchool 的全量 db push 会在各租户 schema 生成冗余空表 —— 忽略即可；
+//    应用层一律用基础 prisma 单例读写 public，**绝不用 req.db**（租户副本永不写入）。
+// ⚠️ 刻意不建外键：跨 schema 外键不可达（与 BackupRun.created_by 同口径）；
+//    school_code 由应用层校验（public.School 存在性 + 状态），删除学校不阻断。
+// ⚠️ 备份恢复：public 段不参与恢复（restoreService 只取租户段），
+//    故配置数据需靠「超管导出 JSON」留档，切勿以为能从备份还原。
+
+model OpenApiClient {
+  id                String    @id @default(cuid())
+  name              String    // 对接方名称，如「朴食科技」
+  description       String?   // 备注 / 联系人 / 对接说明
+  status            String    @default("active") // active / disabled
+  // IP 白名单（JSON 数组，支持单个 IP 或 CIDR）；为空/缺省 = 不限制
+  ip_whitelist      Json?
+  rate_limit_per_min Int      @default(60) // 单凭证每分钟请求上限
+  last_used_at      DateTime?
+  disabled_at       DateTime?
+  disabled_reason   String?
+  created_by        String?   // 平台超管 user id
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  credentials OpenApiCredential[]
+  grants      OpenApiGrant[]
+}
+
+model OpenApiCredential {
+  id             String    @id @default(cuid())
+  client_id      String
+  label          String    @default("生产") // 生产 / 沙箱 / 轮换批次
+  // 仅存 sha256 哈希，明文只在生成时返回一次，无法找回
+  key_hash       String    @unique
+  key_prefix     String    // 展示用前缀（如 oap_3f9c2a1b）
+  key_last4      String    // 展示用后 4 位
+  status         String    @default("active") // active / revoked
+  // 轮换双活窗口：新建密钥后给旧密钥设 expires_at，到期即失效（中间件按时间判定）
+  expires_at     DateTime?
+  revoked_at     DateTime?
+  revoked_reason String?
+  last_used_at   DateTime?
+  call_count     Int       @default(0) // 累计调用次数（节流累加，非精确计数）
+  created_by     String?
+  created_at     DateTime  @default(now())
+
+  client OpenApiClient @relation(fields: [client_id], references: [id], onDelete: Cascade)
+
+  @@index([client_id])
+  @@index([status])
+}
+
+model OpenApiGrant {
+  id                 String    @id @default(cuid())
+  client_id          String
+  school_code        String
+  // 开放的检测类型白名单（JSON 数组，如 ["tableware","oil"]）；null/空 = 用系统默认（不含病原体）
+  visible_types      Json?
+  include_pathogen   Boolean   @default(false) // 病原体需显式开启（默认不开放）
+  include_inspector  Boolean   @default(false) // 检测人姓名（false = 字段不下发）
+  include_attachments Boolean  @default(false) // 检测图片（v1 预留，暂不实现取图）
+  start_date         DateTime? // 业务检测日期下限（含）；null = 不限
+  end_date           DateTime? // 业务检测日期上限（含）；null = 不限
+  // 授权指纹：任何范围性变更 +1；客户端游标携带该值，不匹配即要求重新同步
+  scope_version      Int       @default(1)
+  status             String    @default("active") // active / disabled
+  created_by         String?
+  created_at         DateTime  @default(now())
+  updated_at         DateTime  @updatedAt
+
+  client OpenApiClient @relation(fields: [client_id], references: [id], onDelete: Cascade)
+
+  @@unique([client_id, school_code])
+  @@index([school_code])
+}
+
 // ========== 学校注册表（系统级，位于 public schema）==========
 
 model School {
