@@ -3,6 +3,20 @@
 本目录存放**一次性数据迁移 / 修复 / 导入**类脚本（区别于 `prisma/seed.js` 的常规初始化）。
 所有新增脚本必须遵守以下规范。
 
+## 0. 存量导入脚本现状（2026-09-16 审阅核实，动手前必读）
+
+| 脚本 | 执行模式 | 与平台现行口径 |
+|---|---|---|
+| `import-tjb-backup.mjs` | **默认写库**（需显式 `--dry-run` 才只预览） | ⚠️ 仍把 `testDate/canteen/inspector` 平铺进 `result_data`（历史口径，见该文件注释） |
+| `import-zhyz-backup.mjs` | **默认写库**（需显式 `--dry-run`） | 同上 |
+| `import-tjb-sqlite.mjs` | 默认 `--dry-run`（需 `--commit` 写库） | 沿用 manifest 的 `record_code`，不自算哈希 |
+| `import-backup-local.mjs` | 无 dry-run，直接写 | ⚠️ 用**基础 prisma 单例**（→ `public` schema），仅适用于本地/public 场景；`JSON.stringify` 传入 Json 列属历史写法 |
+
+要点：
+- 这些脚本**不被**部署/备份/恢复流程引用（`docs/deployment/backup-module.md` 用的是 `003_backup-now.mjs` / `004_backup-verify.mjs`），重跑前请先确认是否仍需要；
+- 平台自 2026-09-16 起规定：上下文三键只落 `sample_info`，`result_data` 不再保留副本（`README.md` §4.3）。**继续使用上表两个 `*-backup.mjs` 导入，会产出带历史副本的记录**（对外仍是同值，字段字典已把副本标为可选）——因此不要宣称"所有新记录都没有副本"，除非先把脚本口径对齐。
+- 任何"改默认执行方式 / 改输出规范 / 改哈希或去重标识"的调整，都必须在报告与本文档中给出迁移说明，不得悄悄破坏既有调用。
+
 ## 1. 命名规范
 
 ```

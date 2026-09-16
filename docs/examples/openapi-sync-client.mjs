@@ -172,7 +172,9 @@ function createMockServer() {
     test_type: type, test_name: type, test_date: '2026-01-15', canteen: '示例食堂', status: 'completed',
     initial_conclusion: 'pass', final_conclusion: 'pass', conclusion: 'pass', conclusion_text: '合格',
     conclusion_source: 'stored', final_conclusion_basis: 'initial', is_positive: null,
-    result: { result: '合格', ...extra }, created_at: '2026-01-15T00:00:00+08:00',
+    // result 内带一个"历史同义副本"（result.canteen）：2026-09-16 前平台全量记录都有，
+    // 收口后新记录不再产生；老记录被再次保存时该副本会消失 → 见场景 7。
+    result: { result: '合格', canteen: '示例食堂（历史副本）', ...extra }, created_at: '2026-01-15T00:00:00+08:00',
     updated_at: updatedAt, data_version: 1,
   })
 
@@ -198,6 +200,13 @@ function createMockServer() {
     if (step === 3) { db.records.delete('RC-demo-001'); return '删除 1 条（RC-demo-001）' }
     if (step === 4) { db.projectionFingerprint = 'P2-with-inspector'; for (const r of db.records.values()) r.inspector = '示例姓名（虚构）'; return '字段可见性变化（开启检测人姓名）' }
     if (step === 5) { db.projectionFingerprint = 'P3-no-inspector'; for (const r of db.records.values()) delete r.inspector; return '字段撤回（关闭检测人姓名）' }
+    if (step === 6) {
+      // 记录级字段减少：平台规范化后 result 内的历史副本消失（updated_at 变化，但 projection_fingerprint 不变）
+      const r = db.records.get('RC-demo-002')
+      r.updated_at = '2026-02-03T00:00:00+08:00'
+      delete r.result.canteen
+      return '记录级字段减少（result.canteen 历史副本被移除，projection_fingerprint 未变）'
+    }
     return null
   }
 
@@ -257,7 +266,7 @@ async function main() {
     return
   }
 
-  // mock 模式：演示 6 种场景的完整状态机（含 409 重同步与字段撤回）
+  // mock 模式：演示 7 种场景的完整状态机（含 409 重同步、字段撤回、记录级字段减少）
   console.log('=== mock 模式（零网络、零凭证；数据为合成数据）===')
   const mock = createMockServer()
   const scenarios = [
@@ -267,8 +276,9 @@ async function main() {
     '删除 1 条',
     '字段可见性变化（开启检测人姓名）→ 应触发全量重投影',
     '字段撤回（关闭检测人姓名）→ 本地旧姓名必须被清除',
+    '记录级字段减少（历史副本被规范化移除）→ 靠"整体替换"清除，不依赖 projection 变化',
   ]
-  for (let step = 0; step <= 5; step++) {
+  for (let step = 0; step <= 6; step++) {
     if (step > 0) {
       const what = mock.mutate(step)
       console.log(`\n--- 场景 ${step + 1}：${scenarios[step]}（服务端变更：${what}）`)
@@ -278,7 +288,9 @@ async function main() {
     const stats = await syncSchool({ schoolCode, fetchJson: mock.fetchJson, log: console.log })
     const st = schoolState(schoolCode)
     const inspectorLeft = [...st.records.values()].filter((r) => r.doc.inspector !== undefined).length
-    console.log(`    结果：新增 ${stats.added} / 更新 ${stats.updated} / 撤回 ${stats.removed}；本地记录 ${st.records.size} 条；含姓名的记录 ${inspectorLeft} 条`)
+    const legacyCopyLeft = [...st.records.values()].filter((r) => r.doc.result && 'canteen' in r.doc.result).length
+    console.log(`    结果：新增 ${stats.added} / 更新 ${stats.updated} / 撤回 ${stats.removed}；本地记录 ${st.records.size} 条；`
+      + `含姓名的记录 ${inspectorLeft} 条；result.canteen 副本残留 ${legacyCopyLeft} 条`)
   }
 
   console.log('\n=== 失败语义验证（请求失败绝不当空清单）===')

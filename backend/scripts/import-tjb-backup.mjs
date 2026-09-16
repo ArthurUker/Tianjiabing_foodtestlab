@@ -68,7 +68,11 @@ function mapRecord(table, row) {
     if (DROP_FIELDS.has(k)) continue
     resultData[k] = v
   }
-  // 与系统写入一致：result_data 平铺时也带上三个上下文字段（buildRecordWriteData 行为）
+  // ⚠️ 历史口径（**已与平台现行写入不一致，刻意保留**）：本脚本把三个上下文字段也平铺进 result_data。
+  // 2026-09-16 起平台写入已收口（`lib/recordNormalize.js` 的 stripContextCopies：三键只落 sample_info，
+  // result_data 内不再留副本），故本脚本产出的记录会带"历史同义副本"（对外仍是同值，字典已声明为可选）。
+  // 保留原因：改动会改变产出行内容 → 影响脚本自身的 record_code 兜底哈希与写前查重（可能导致重复导入）。
+  // 若确需与现行口径对齐，请单独立项并先评估去重/重导影响。
   for (const f of CONTEXT_FIELDS) if (context[f] !== undefined && resultData[f] === undefined) resultData[f] = context[f]
 
   // 优先业务日期；缺失时回退旧系统原始创建时间（比"当前时间"准确）

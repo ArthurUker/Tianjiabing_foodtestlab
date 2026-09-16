@@ -64,7 +64,8 @@ function mapRecord(table, row) {
     if (DROP_FIELDS.has(k)) continue
     resultData[k] = v
   }
-  // 与系统写入一致：result_data 平铺时也带上三个上下文字段（buildRecordWriteData 行为）
+  // ⚠️ 同 import-tjb-backup.mjs：历史口径（把三个上下文字段平铺进 result_data）**已与平台现行写入不一致**，
+  // 刻意保留（改动会影响 record_code 兜底哈希与写前查重）。详见该文件同名注释。
   for (const f of CONTEXT_FIELDS) if (context[f] !== undefined && resultData[f] === undefined) resultData[f] = context[f]
 
   const ts = parseDate(row.testDate) || new Date()

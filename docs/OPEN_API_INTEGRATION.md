@@ -48,7 +48,7 @@ Authorization: Bearer <你的 API Key>
 | 方法 | 路径 | 用途 |
 |---|---|---|
 | GET | `/ping` | 连通性 + 服务器时间（对账时钟） |
-| GET | `/profile` | 当前密钥的授权范围（含 `scope_version`、`projection_fingerprint`） |
+| GET | `/profile` | 当前密钥的授权范围（每校 `scope_version`、类型、日期范围、字段开关） |
 | GET | `/schools` | 授权学校列表 |
 | GET | `/dict?school_code=` | 字典：类型、食堂、结论枚举、**字段字典** |
 | GET | `/samples?school_code=[&test_type=]` | **合成样例**（非真实数据） |
@@ -84,14 +84,27 @@ curl -s -H "X-API-Key: $KEY" "$BASE/samples?school_code=<学校>"    # ← 合�
 | `required` | `true` = 该类型**当前全部记录**都出现该字段；`false` = 可能缺失（历史数据或学校配置差异） |
 | `nullable` | 是否允许 `null` |
 | `enum` | 枚举取值（如有） |
-| `conditional` / `conditional_on` | 条件字段：例如 `inspector` 仅当授权开启 `include_inspector` 时才存在 |
+| `conditional` / `conditional_on` | 条件字段：例如顶层 `inspector` 仅当授权开启 `include_inspector` 时才存在 |
+| `emitted` | `false` = **该字段不会出现在响应中**（如 `result.inspector`），列出仅为说明原始存储结构，请勿据此编写取值逻辑 |
 | `source` | `platform`（平台内置）或 `school_custom`（学校自定义字段，类型不保证，标注为 `unknown`） |
 | `item_fields` | 数组元素包含的键（如 `atpPoints[]` 的 `loc/rlu/res`） |
 
 注意事项：
 
-- 字典描述的是**实际对外契约**，不是数据库原始结构；`result` 内可能出现与顶层同义的冗余副本（`canteen` / `testDate` / `inspector`），**取顶层为准**。
+- 字典描述的是**实际对外契约**，不是数据库原始结构。`result` 内的 `canteen` / `testDate` 是**历史记录的同义副本**（2026-09-16 起写入端已收口，新记录不再产生这两个副本），**取值一律以顶层为准**；`result.inspector` 属个人信息，**任何情况下都不会下发**（字典中标注 `emitted:false`，列出仅为说明原始存储结构，请勿据此开发）。
+- **输出字段采用白名单**（2026-09-16 起）：`result` 内**只下发字典登记过的键**（含你方学校配置的 `source: school_custom` 自定义字段）。平台新增但未登记的字段不会外发——若你方发现某个需要的字段缺失，请联系平台登记，而不要依赖"未登记也会透传"。容器内部（如 `atpPoints[]`、`recheckRecords[]`）仍按递归规则剔除内部字段与个人信息。
+- `result.sampleInfo`（病原体）是**普通字符串**（样品说明，实测 5~16 字符），不是 JSON，请勿解析为对象。
 - 实测类型提醒：`result.rluValue`、`result.tpmValue`、`result.acidValue`、`result.oilTemp` 在源数据中为**字符串**，需自行转数值；`result.allTestItems[].no` 存在 number 与 string 两种形态。
+- **单位与缩放（务必按此实现）**：
+  - `result.tpmValue`：**原始数值口径**，`"0.06"` = **0.06 g/100g（等价 0.06%）**，**不要再 ×100**；平台判定：≤0.13 合格 / ≤0.25 警戒 / >0.25 不合格（实测 0.06~0.20）。
+  - `result.acidValue`：单位 `mg KOH/g`（前端展示简写 `mg/g`）；判定 <2.5 合格 / <5 警戒 / ≥5 不合格；空值出现过（实测 空 21 / 0.3 13 / 0 5）。
+  - `result.oilTemp`：`℃`（实测恒为 35）。
+  - `result.colorLevel`：**不是颜色**，是「综合品质等级」枚举 `合格 / 警戒 / 不合格`（由 TPM 与酸价等级取最差得出）。
+- **病原体字段语义（避免误读）**：
+  - `riskLevel` ∈ {`无风险`, `低风险`, `极低风险`}；**非「无风险」一律视为不合格/有风险**（与 `/stats` 同口径），但**这不等于确诊阳性**；
+  - `positiveDetails` 数组是否非空 = **是否检出的权威依据**（实测：非空 ⟺ `riskLevel` ≠ 无风险）；
+  - `positiveItems` 为文本：有检出时为致病菌名称（可能多个），无风险时是 **1 字符占位（非空）**——不要用"是否为空"判断检出；
+  - 复检结论在 `recheckReports[].isPassed`（病原体实测**没有** `finalStatus` 字段）。
 - 学校自定义字段会出现在字典中（`source: school_custom`），其类型与单位由学校配置决定，平台不做保证。
 
 ### 3.2 合成样例（`/samples`）
@@ -147,6 +160,12 @@ curl -s -H "X-API-Key: $KEY" "$BASE/samples?school_code=<学校>"    # ← 合�
 - 检测到 `projection_fingerprint` 变化时，必须对影响范围内记录执行**替换式重投影**（用新响应整体覆盖，或显式清除已撤回字段）；
 - 同理适用于任何未来新增的可撤回字段。
 
+**记录级字段减少（不依赖 `projection_fingerprint`）**：平台可能对单条记录做规范化（例如移除 `result` 内的历史同义副本 `canteen`/`testDate`），此时该记录 `updated_at` 变化、`digest` 变化，但 `projection_fingerprint` **不变**。因此：
+
+- **凡重新获取到的记录，一律按其"完整投影对象"整体覆盖本地同 `record_code` 的记录**（不要只做字段级 merge）——这样字段减少才能同步生效；
+- 反之，**不要**用"接口没返回该字段"解释为"该字段值为空/未变"：本接口只会返回**完整对象**（不存在部分响应语义）；契约内不返回 = 该字段不应存在于你方本地；
+- 授权变化（`scope_version`/`projection_fingerprint`）与普通记录字段变化，都按同一条"整体覆盖"规则处理即可。
+
 ### 4.4 失败与重试约定
 
 - `401/403`：不要重试，检查密钥/授权/白名单；
@@ -166,7 +185,9 @@ curl -s -H "X-API-Key: $KEY" "$BASE/samples?school_code=<学校>"    # ← 合�
 ```
 
 ### 5.2 `GET /profile`
-返回对接方、当前凭证与**每所学校的授权**（`school_code`/`scope_version`/`visible_types`/`include_pathogen`/`include_inspector`/`include_attachments`/`start_date`/`end_date`）。
+返回对接方、当前凭证与**每所学校的授权**（`school_code`/`school_name`/`status`/`scope_version`/`visible_types`/`include_pathogen`/`include_inspector`/`include_attachments`/`start_date`/`end_date`）。
+
+> ⚠️ `/profile` **不返回** `projection_fingerprint`。字段可见性指纹请从 `/test-records`、`/samples`、`/sync/manifest` 的响应中读取（三处同值，与该校 grant 的 `scope_version` 一起用于判断"是否需要重投影"）。
 
 ### 5.3 `GET /dict`
 `contract_version`、`school_code`、`scope_version`、`visible_types`、`canteens`、`conclusions`、`field_schema`（见 §3.1）、`field_schema_notes`。
@@ -223,8 +244,8 @@ curl -s -H "X-API-Key: $KEY" "$BASE/samples?school_code=<学校>"    # ← 合�
 字段含义见 `/dict` 的字段字典；这里强调三点：
 
 - `conclusion` = `final_conclusion`（有复检取复检结论），`final_conclusion_basis` 说明它来自初检还是复检；
-- `conclusion_source` 固定为 `stored`：结论是**检测/录入当时保存的值**，不是按当前阈值重算的结果；
-- 增量同步只以 **`updated_at`** 为准（`created_at` 对历史导入数据可能等于业务日期零点，不可用于增量）。
+- `conclusion_source` 固定为 `stored`：平台在**录入时按当时规则保存判定文本**（`result` / `colorLevel` / `riskLevel` / `finalStatus` / 复检结论），接口据此**映射**为结论枚举——因此结论反映的是"录入当时的判定"，**不会因平台阈值调整而改变**；
+- 增量同步：`updated_at` 用于**记录变更排序**（`(updated_at ASC, id ASC)`，同一时间戳靠 `id` 决胜），**不是"唯一依据"**——完整的同步必须结合服务端游标、`scope_version` 与清单 `digest` 对账，且**不得仅凭 `updated_at` 判定同步完成**（`created_at` 对历史导入数据可能等于业务日期零点，不可用于增量）。
 
 ### 5.7 `GET /stats`
 
@@ -247,8 +268,8 @@ curl -s -H "X-API-Key: $KEY" "$BASE/samples?school_code=<学校>"    # ← 合�
 | 类型 | 合格判定 |
 |---|---|
 | 餐具 / 果蔬 / 肉蛋 | `result` 含「合格」且不含「不合格」 |
-| 食用油 | 优先 `colorLevel`：**仅含「不合格」判不合格，其余等级均视为合格**；无 `colorLevel` 时回退 `result` |
-| 病原体 | `riskLevel = 无风险` 为合格；阳性数 = `riskLevel` 非空且 ≠ 无风险 |
+| 食用油 | 优先 `colorLevel`（综合品质等级）：**仅「不合格」判不合格，其余等级均视为合格**；无 `colorLevel` 时回退 `result`（实测油记录 `result` 恒为空串） |
+| 病原体 | `riskLevel = 无风险` 为合格；**任何其它非空值视为不合格/有风险**（`is_positive` 同一口径：非空且 ≠ 无风险 → `true`）。⚠️ 「有风险」≠ 确诊阳性：确诊看 `positiveDetails` 是否非空 |
 
 - `scope_total`：授权范围内（类型 + 授权业务日期范围）的记录数；
 - `included_total`：参与合格率计算的记录数；

@@ -1,7 +1,7 @@
 // ====== 检测记录路由（/api/test-records + /api/records，P1-5 拆路由 Step 2）======
 // 从 server.js 抽取。req.db 由 authenticateUser 注入；幂等中间件经参数传入。
 import express from 'express'
-import { normalizeRecordType, buildRecordPayload, buildRecordWriteData, validateRecordPayload, writeRecordAuditLog, getLatestRecheckPassed, buildDeterministicRecordCode, RECORD_ROUTE_TYPES } from '../lib/recordNormalize.js'
+import { normalizeRecordType, buildRecordPayload, buildRecordWriteData, normalizeWriteJson, resolveWritableStatus, validateRecordPayload, writeRecordAuditLog, getLatestRecheckPassed, buildDeterministicRecordCode, RECORD_ROUTE_TYPES } from '../lib/recordNormalize.js'
 import { sanitizeObjectKeys, safeParseJson } from '../lib/sanitize.js'
 import { canModifyRecord, maskGuestSensitiveFields } from '../lib/securityGuards.js'
 
@@ -41,13 +41,26 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
                 })
             }
 
+            // 2026-09-16 审阅修复（H2）：改用统一归一 —— 上下文三键只落 sample_info、result_data 剔控制字段，
+            // 且**拒绝**空结果/非法结构（原先直接透传 body：既不填 sample_info、也不剥离副本，
+            // result_data 为 `{}` 时会静默写出空记录）。
+            const norm = normalizeWriteJson({
+                payload: sanitizeObjectKeys(req.body || {}),
+                resultData: result_data,
+                sampleInfo: sample_info,
+                existingSampleInfo: null,
+                mode: 'create',
+            })
+            if (!norm.ok) {
+                return res.status(400).json({ error: `❌ ${norm.message}`, code: norm.code })
+            }
             const record = await req.db.testRecord.create({
                 data: {
                     record_code: recordCode,
                     test_type: test_type || 'generic',
                     test_name,
-                    sample_info: sanitizeObjectKeys(sample_info || {}),
-                    result_data: sanitizeObjectKeys(result_data || {}),
+                    sample_info: norm.sampleInfo,
+                    result_data: norm.resultData,
                     created_by: req.userId,
                     status: 'pending'
                 }
@@ -281,7 +294,12 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
                 return res.status(400).json({ error: '❌ 字段验证失败', details: validation.errors })
             }
 
-            const writeData = buildRecordWriteData(testType, payload)
+            // 2026-09-16：统一归一（返回 {ok,data}）+ 状态白名单（archived 属管理动作，editor 不可写）
+            const built = buildRecordWriteData(testType, payload)
+            if (!built.ok) return res.status(400).json({ error: `❌ ${built.message}`, code: built.code })
+            const statusCheck = resolveWritableStatus({ requested: payload.status, role: req.user?.role, currentStatus: null })
+            if (!statusCheck.ok) return res.status(400).json({ error: `❌ ${statusCheck.message}`, code: 'STATUS_NOT_ALLOWED' })
+            const writeData = { ...built.data, ...(statusCheck.status ? { status: statusCheck.status } : {}) }
             const recordCode = buildDeterministicRecordCode(testType, payload)
 
             const existing = await req.db.testRecord.findUnique({
@@ -369,10 +387,22 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
 
             for (const [recordCode, payload] of uniqueByCode.entries()) {
                 try {
-                    const writeData = buildRecordWriteData(testType, payload)
                     const existing = await req.db.testRecord.findUnique({
                         where: { record_code: recordCode }
                     })
+
+                    // 2026-09-16：统一归一 + 状态白名单；逐条失败进 failed[]，不中断整批
+                    const built = buildRecordWriteData(testType, payload)
+                    if (!built.ok) {
+                        failed.push({ record_code: recordCode, reason: built.message, code: built.code, skipped: true })
+                        continue
+                    }
+                    const statusCheck = resolveWritableStatus({ requested: payload?.status, role: req.user?.role, currentStatus: existing?.status })
+                    if (!statusCheck.ok) {
+                        failed.push({ record_code: recordCode, reason: statusCheck.message, code: 'STATUS_NOT_ALLOWED', skipped: true })
+                        continue
+                    }
+                    const writeData = { ...built.data, ...(statusCheck.status ? { status: statusCheck.status } : {}) }
 
                     if (existing) {
                         // DS3-C1（方案甲）: 批量导入命中已有记录时同样执行归属校验
@@ -487,7 +517,12 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
                 return res.status(400).json({ error: '❌ 字段验证失败', details: updateValidation.errors })
             }
 
-            const writeData = buildRecordWriteData(testType, req.body || {})
+            // 2026-09-16：统一归一 + 状态白名单（archived 属管理动作）
+            const built = buildRecordWriteData(testType, req.body || {})
+            if (!built.ok) return res.status(400).json({ error: `❌ ${built.message}`, code: built.code })
+            const statusCheck = resolveWritableStatus({ requested: req.body?.status, role: req.user?.role, currentStatus: existing.status })
+            if (!statusCheck.ok) return res.status(400).json({ error: `❌ ${statusCheck.message}`, code: 'STATUS_NOT_ALLOWED' })
+            const writeData = { ...built.data, ...(statusCheck.status ? { status: statusCheck.status } : {}) }
 
             // TD-Q1-Recheck-SelfHeal: 兜底自愈——以「最新一次复检结论」为准双向同步 result
             try {
@@ -710,29 +745,65 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
 
             const updateData = {}
             if (test_name) updateData.test_name = test_name
-            if (status) {
-                if (!VALID_TEST_RECORD_STATUSES.has(status)) {
-                    return res.status(400).json({
-                        error: `状态值无效（仅允许: ${[...VALID_TEST_RECORD_STATUSES].join('/')}）`
-                    })
-                }
-                updateData.status = status
-            }
-            if (result_data) {
-                updateData.result_data = sanitizeObjectKeys(result_data)
-            }
 
-            const record = await req.db.testRecord.update({
-                where: { id },
-                data: updateData
+            // 2026-09-16 审阅 M5：状态白名单（archived 属管理动作；editor 不可把记录推入归档态）
+            if (status && !VALID_TEST_RECORD_STATUSES.has(String(status))) {
+                return res.status(400).json({
+                    error: `状态值无效（仅允许: ${[...VALID_TEST_RECORD_STATUSES].join('/')}）`,
+                    code: 'INVALID_STATUS',
+                })
+            }
+            const statusCheck = resolveWritableStatus({ requested: status, role: req.user?.role, currentStatus: existing.status })
+            if (!statusCheck.ok) {
+                return res.status(400).json({ error: `❌ ${statusCheck.message}`, code: 'STATUS_NOT_ALLOWED' })
+            }
+            if (statusCheck.status) updateData.status = statusCheck.status
+
+            // 2026-09-16 审阅 H3：本路由原先只 sanitize 后**原样写入** result_data —— 副本可由此回流，
+            // 且不写 sample_info，导致同一记录在"前端/导出"与"开放接口/统计"下读数不同（口径分叉）。
+            // 现改走统一归一：上下文三键以 sample_info 为权威合并写回，result_data 剔控制字段与副本；
+            // 显式空对象 `{}` = 不改动（不再清空已有结果）。
+            const norm = normalizeWriteJson({
+                payload: sanitizeObjectKeys(req.body || {}),
+                resultData: result_data,
+                sampleInfo: req.body?.sample_info,
+                existingSampleInfo: safeParseJson(existing.sample_info, {}) || {},
+                mode: 'update',
             })
+            if (!norm.ok) {
+                return res.status(400).json({ error: `❌ ${norm.message}`, code: norm.code })
+            }
+            if (norm.resultData !== undefined) updateData.result_data = norm.resultData
+            if (norm.provided.length) updateData.sample_info = norm.sampleInfo
+
+            // 并发保护（审阅 H3）：客户端提供 version 时走原子条件更新；未提供时保留旧行为，
+            // 但在响应中回传服务端 version，并在日志中提示（本端点无仓库内调用方 —— 全仓 grep 仅集成测试用 DELETE）。
+            const clientVersion = req.body?.version
+            let record
+            if (clientVersion !== undefined && clientVersion !== null && clientVersion !== '') {
+                record = await req.db.testRecord.update({
+                    where: { id, version: Number(clientVersion) },
+                    data: updateData,
+                })
+            } else {
+                console.warn(`[PUT /api/test-records/:id] 未携带 version（无并发保护）：id=${id} userId=${req.userId}`)
+                record = await req.db.testRecord.update({ where: { id }, data: updateData })
+            }
 
             res.json({
                 success: true,
                 data: record,
+                version: record.version,
                 message: '更新成功'
             })
         } catch (error) {
+            // P2025：乐观锁条件不满足（version 不匹配）或记录被删除 → 明确的冲突语义
+            if (error.code === 'P2025') {
+                return res.status(409).json({
+                    error: '❌ 版本冲突：记录已被其他人修改或删除，请重新获取后重试',
+                    code: 'VERSION_CONFLICT',
+                })
+            }
             console.error('❌ Error updating test record:', error)
             res.status(500).json({ error: '更新失败' })
         }

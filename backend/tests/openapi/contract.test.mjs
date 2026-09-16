@@ -54,6 +54,21 @@ test('字段字典：包含公共字段与类型字段，且 inspector 标注为
   assert.equal(fields.find((f) => f.path === 'result.rluValue').type, 'string', 'RLU 实测为字符串类型')
 })
 
+test('字段字典：上下文同义副本标注正确（result.canteen/testDate 历史副本、result.inspector 恒不下发）', () => {
+  const fields = listFieldDescriptors('tableware')
+  const canteen = fields.find((f) => f.path === 'result.canteen')
+  const testDate = fields.find((f) => f.path === 'result.testDate')
+  const redundantInspector = fields.find((f) => f.path === 'result.inspector')
+  assert.ok(canteen && testDate && redundantInspector, '缺少上下文同义副本条目')
+  assert.ok(String(canteen.description).includes('以顶层为准'), 'canteen 副本必须写明以顶层为准')
+  assert.ok(String(canteen.description).includes('历史'), 'canteen 副本必须标注仅历史数据')
+  assert.ok(String(testDate.description).includes('以顶层为准'), 'testDate 副本必须写明以顶层为准')
+  assert.equal(redundantInspector.emitted, false, 'result.inspector 恒不下发，必须标注 emitted=false')
+  assert.equal(redundantInspector.conditional, undefined,
+    'result.inspector 不得标为条件字段：它任何时候都不下发，与顶层 inspector（受 include_inspector 控制）语义不同')
+  assert.ok(String(redundantInspector.description).includes('不会出现'), 'result.inspector 说明必须写明不会出现在响应中')
+})
+
 test('字段字典：每种开放类型都能给出字段清单，且类型不适用时不编造复检字段', () => {
   for (const t of ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen']) {
     assert.ok(listFieldDescriptors(t).length > 10, `${t} 字段过少`)
@@ -84,6 +99,9 @@ test('合成样例：形态与真实响应一致、带 SAMPLE 前缀、且不含
   assert.equal('inspector' in item, false, '关闭检测人后样例不得含姓名')
   assert.ok(!JSON.stringify(item).includes('示例姓名'), '样例中不得残留姓名（含嵌套）')
   assert.ok(Array.isArray(item.result.recheckRecords), '复检样例应保留复检明细')
+  assert.equal('canteen' in item.result, false, '样例 result 不应再带上下文同义副本（须与新记录形态一致）')
+  assert.equal('testDate' in item.result, false)
+  assert.equal(item.canteen, '示例食堂', '顶层 canteen 仍应由 sample_info 展开')
   assert.equal(item.final_conclusion, 'pass')
   assert.equal(item.final_conclusion_basis, 'recheck')
 })

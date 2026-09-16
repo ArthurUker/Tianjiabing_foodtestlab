@@ -70,7 +70,7 @@ const TYPE_FIELDS = {
     { path: 'result.correctiveAction', label: '整改措施', type: 'string', unit: null, nullable: true, required: true, source: 'platform' },
     { path: 'result.recheckResult', label: '复检结果备注', type: 'string', unit: null, nullable: true, required: true, source: 'platform' },
     { path: 'result.recheckRecords', label: '复检记录', type: 'array<object>', unit: null, nullable: true, required: false, description: '有复检时才出现（实测仅餐具/病原体有）。元素中 user（复检人姓名）**不下发**', item_fields: ['id(序号)', 'time(复检时间字符串)', 'isPassed(是否通过 boolean)', 'points(点位明细 array)'], source: 'platform' },
-    { path: 'result.finalStatus', label: '最终状态文本', type: 'string', unit: null, nullable: true, required: false, description: '如「整改后复检合格」，有复检时出现', source: 'platform' },
+    { path: 'result.finalStatus', label: '最终状态文本', type: 'string', unit: null, nullable: true, required: false, description: '如「整改后复检合格」，有复检时出现；**病原体实测不产出本字段（0/66）——病原体复检结论在 `result.recheckReports[].isPassed`**', source: 'platform' },
     { path: 'result.remark', label: '备注', type: 'string', unit: null, nullable: true, required: false, source: 'platform' },
   ],
   pesticide: [
@@ -86,28 +86,39 @@ const TYPE_FIELDS = {
     { path: 'result.remark', label: '备注', type: 'string', unit: null, nullable: true, required: true, source: 'platform' },
   ],
   oil: [
-    { path: 'result.colorLevel', label: '油品颜色等级', type: 'string', unit: null, nullable: true, required: true, description: '合格判定的首选依据（见 /stats 口径）', source: 'platform' },
-    { path: 'result.tpmValue', label: 'TPM 值', type: 'string', unit: '%（极性组分）', nullable: true, required: true, description: '⚠️ 字符串类型，需自行转数值', source: 'platform' },
-    { path: 'result.acidValue', label: '酸价值', type: 'string', unit: 'mg KOH/g', nullable: true, required: false, description: '⚠️ 字符串类型；实测仅部分记录存在', source: 'platform' },
-    { path: 'result.oilTemp', label: '油温', type: 'string', unit: '℃', nullable: true, required: true, description: '⚠️ 字符串类型', source: 'platform' },
+    { path: 'result.colorLevel', label: '综合品质等级', type: 'enum', unit: null, nullable: true, required: true, enum: ['合格', '警戒', '不合格'], description: '⚠️ **不是颜色**：由前端按「TPM 与酸价等级取最差」算出的综合等级（2026-09-16 实测 合格 38 / 警戒 1，无不合格）。结论口径：**仅「不合格」判不合格**，其余等级视为合格（与 `/stats` 同源）', source: 'platform' },
+    { path: 'result.tpmValue', label: 'TPM（极性组分）', type: 'string', unit: 'g/100g（数值等价于 %）', nullable: true, required: true, description: '⚠️ 字符串类型；**数值口径：`0.06` 表示 0.06 g/100g（即 0.06%），请勿再 ×100**。平台判定：≤0.13 合格 / ≤0.25 警戒 / >0.25 不合格；实测范围 0.06~0.20', source: 'platform' },
+    { path: 'result.acidValue', label: '酸价值', type: 'string', unit: 'mg KOH/g（前端展示简写 mg/g）', nullable: true, required: false, description: '⚠️ 字符串类型；实测取值 空字符串 21 / 0.3 13 / 0 5。平台判定：<2.5 合格 / <5 警戒 / ≥5 不合格', source: 'platform' },
+    { path: 'result.oilTemp', label: '油温', type: 'string', unit: '℃', nullable: true, required: true, description: '⚠️ 字符串类型；实测恒为 35', source: 'platform' },
+    { path: 'result.result', label: '结果文本（兜底字段）', type: 'string', unit: null, nullable: true, required: true, description: '**实测 39/39 均为空字符串**——油品结论看 `colorLevel`；本字段仅作历史/其它来源的兜底（`/stats` 在 colorLevel 为空时才回退读它）', source: 'platform' },
     { path: 'result.remark', label: '备注', type: 'string', unit: null, nullable: true, required: true, source: 'platform' },
   ],
   pathogen: [
-    { path: 'result.riskLevel', label: '风险等级', type: 'string', unit: null, nullable: true, required: true, description: '「无风险」为合格；其他非空值视为阳性/有风险', source: 'platform' },
-    { path: 'result.riskReason', label: '风险原因', type: 'string', unit: null, nullable: true, required: true, source: 'platform' },
-    { path: 'result.positiveItems', label: '阳性项目', type: 'string', unit: null, nullable: true, required: true, description: '阳性项目名称（可能为空字符串）', source: 'platform' },
-    { path: 'result.positiveDetails', label: '阳性明细', type: 'array<object>', unit: null, nullable: true, required: true, item_fields: ['pathogen(致病菌名)', 'ct(number)', 'ctRaw(string)'], source: 'platform' },
+    { path: 'result.riskLevel', label: '风险等级', type: 'enum', unit: null, nullable: true, required: true, enum: ['无风险', '低风险', '极低风险'], description: '「无风险」为合格；**其它任何非空值一律视为不合格/有风险**（与 `/stats` 同口径；实测取值仅 无风险 48 / 低风险 9 / 极低风险 9，**没有"高风险"**）。⚠️ 「有风险」**不等于确诊阳性**——是否检出看 `result.positiveDetails`', source: 'platform' },
+    { path: 'result.riskReason', label: '风险原因', type: 'string', unit: null, nullable: true, required: true, description: '风险说明文本（实测长度 9~72）', source: 'platform' },
+    { path: 'result.positiveItems', label: '检出项目文本', type: 'string', unit: null, nullable: true, required: true, description: '有检出时为致病菌名称（可能多个，含分隔符；实测长度 14~46）；**无风险时为 1 字符占位（非空）**。判断是否检出请用 `result.positiveDetails`', source: 'platform' },
+    { path: 'result.positiveDetails', label: '检出明细', type: 'array<object>', unit: null, nullable: true, required: true, description: '**是否检出的权威依据**：非空 ⟺ riskLevel ≠ 无风险（实测 18/18）', item_fields: ['pathogen(致病菌名)', 'ct(number)', 'ctRaw(string)'], source: 'platform' },
     { path: 'result.allTestItems', label: '全部检测项', type: 'array<object>', unit: null, nullable: true, required: true, item_fields: ['no(序号，实测存在 number 与 string 两种)', 'channel(通道)', 'pathogen(致病菌名)', 'result(结果文本)', 'ct(string)', 'isInternalControl(是否内控 boolean)'], source: 'platform' },
     { path: 'result.internalControlStatus', label: '内控状态', type: 'string', unit: null, nullable: true, required: true, source: 'platform' },
-    { path: 'result.recheckReports', label: '复检报告', type: 'array<object>', unit: null, nullable: true, required: false, description: '有复检时才出现；元素中的人名类字段不下发', source: 'platform' },
+    { path: 'result.recheckReports', label: '复检报告', type: 'array<object>', unit: null, nullable: true, required: false, description: '有复检时才出现；结论看 `isPassed`（true=复检合格）。元素中的 `user`（复检人姓名）**不下发**', item_fields: ['id(序号)', 'time(复检时间字符串)', 'isPassed(是否通过 boolean)', 'user(复检人姓名，不下发)'], source: 'platform' },
+    { path: 'result.sampleId', label: '样品编号', type: 'string', unit: null, nullable: true, required: true, description: '2026-09-16 只读实测：66/66 条病原体记录均存在（此前字典漏登记）', source: 'platform' },
+    { path: 'result.sampleType', label: '样品类型', type: 'string', unit: null, nullable: true, required: true, description: '2026-09-16 只读实测：66/66 条均存在（此前字典漏登记）', source: 'platform' },
+    { path: 'result.sampleInfo', label: '样品说明', type: 'string', unit: null, nullable: true, required: true, description: '⚠️ **普通字符串**（实测长度 5~16 字符，例如样品别名；非 JSON、非对象），按文本处理，勿解析为对象（此前字典漏登记且曾被误判为"双重编码"）', source: 'platform' },
   ],
 }
 
-/** 历史数据中可能出现在 result.* 内的冗余副本字段（与顶层同义，取值以顶层为准）。 */
+/**
+ * `result.*` 内的上下文同义副本（与顶层同义，取值一律以顶层为准）。
+ *
+ * 背景（2026-09-16 实测）：平台历史上把整份平铺载荷写进 result_data，导致 testDate/canteen/inspector
+ * 在 result_data 内各留一份副本 —— 4 个租户 1195 条记录 100% 命中、与 sample_info 冲突 0 条。
+ * 自 2026-09-16 起写入端已收口（`lib/recordNormalize.js` 的 stripContextCopies）：
+ * **新记录不再产生副本**，因此这两条仅历史数据可能出现，保留说明以兼容老数据。
+ */
 const REDUNDANT_IN_RESULT = [
-  { path: 'result.canteen', label: '食堂（历史冗余副本）', type: 'string', unit: null, nullable: true, required: false, description: '与顶层 canteen 同义；历史写入残留，建议忽略并以顶层为准', source: 'platform' },
-  { path: 'result.testDate', label: '检测日期（历史冗余副本）', type: 'string', unit: null, nullable: true, required: false, description: '与顶层 test_date 同义；建议忽略并以顶层为准', source: 'platform' },
-  { path: 'result.inspector', label: '检测人（历史冗余副本）', type: 'string', unit: null, nullable: true, required: false, conditional: true, conditional_on: 'include_inspector', description: '仅在开启「下发检测人姓名」时可能出现；关闭时与顶层 inspector 一起被剔除', source: 'platform' },
+  { path: 'result.canteen', label: '食堂（历史同义副本）', type: 'string', unit: null, nullable: true, required: false, description: '与顶层 canteen 同义（**以顶层为准**）；仅历史记录可能出现，新记录不再写入', source: 'platform' },
+  { path: 'result.testDate', label: '检测日期（历史同义副本）', type: 'string', unit: null, nullable: true, required: false, description: '与顶层 test_date 同义（**以顶层为准**）；仅历史记录可能出现，新记录不再写入', source: 'platform' },
+  { path: 'result.inspector', label: '检测人（历史同义副本，恒不下发）', type: 'string', unit: null, nullable: true, required: false, emitted: false, description: '属个人信息，为**平台内部存储字段：任何情况下都不会出现在响应中**（无论是否开启「下发检测人姓名」）。需要检测人请使用顶层 inspector（由 include_inspector 控制）', source: 'platform' },
 ]
 
 /**
@@ -150,7 +161,12 @@ const SAMPLE_INSPECTOR = '示例姓名（虚构）'
 const SAMPLE_CANTEEN = '示例食堂'
 const SAMPLE_DATE = '2026-01-15'
 
-function sampleBase(testType, testName, scenario, sampleInfo, resultData) {
+function sampleBase(testType, testName, scenario, sampleInfo, resultData, updatedAt = null) {
+  // 上下文三键只放 sample_info：样例必须代表**新记录形态**。否则对接方照着样例写
+  // result.canteen，而新记录已不再写该副本（2026-09-16 收口，见 lib/recordNormalize.js
+  // stripContextCopies），上线即踩空。副本本身仍在字段字典中作为"历史同义副本"列出。
+  const rd = { ...(resultData || {}) }
+  for (const k of ['testDate', 'canteen', 'inspector']) delete rd[k]
   return {
     scenario,
     record: {
@@ -159,10 +175,12 @@ function sampleBase(testType, testName, scenario, sampleInfo, resultData) {
       test_type: testType,
       test_name: testName,
       sample_info: { testDate: SAMPLE_DATE, canteen: SAMPLE_CANTEEN, inspector: SAMPLE_INSPECTOR, ...sampleInfo },
-      result_data: resultData,
+      result_data: rd,
       status: 'completed',
       created_at: new Date(`${SAMPLE_DATE}T00:00:00+08:00`),
-      updated_at: new Date(`${SAMPLE_DATE}T00:00:00+08:00`),
+      // 复检会刷新 updated_at（2026-09-16 只读实测：12 条含复检记录全部 updated_at ≥ created_at）；
+      // 故含复检的场景必须显式给出 updatedAt（复检时间），否则样例自相矛盾。
+      updated_at: new Date(updatedAt ? `${updatedAt}+08:00` : `${SAMPLE_DATE}T00:00:00+08:00`),
       data_version: 1,
     },
   }
@@ -187,7 +205,7 @@ const SAMPLE_SCENARIOS = {
       modificationLogs: [{ time: `${SAMPLE_DATE} 15:31`, user: SAMPLE_INSPECTOR, action: '复检', content: '复检合格' }],
       atpPoints: [{ loc: '砧板表面', rlu: '614', res: '不合格' }],
       correctiveAction: '已重新清洗消毒', recheckResult: '复检合格', canteen: SAMPLE_CANTEEN, testDate: SAMPLE_DATE, inspector: SAMPLE_INSPECTOR,
-    }),
+    }, `${SAMPLE_DATE} 15:31`),
     sampleBase('tableware', '餐具洁净度检测', 'sparse', {}, {
       result: '合格 (<200)', rluValue: '80', correctiveAction: '', recheckResult: '',
       canteen: SAMPLE_CANTEEN, testDate: SAMPLE_DATE, inspector: SAMPLE_INSPECTOR,
@@ -214,18 +232,25 @@ const SAMPLE_SCENARIOS = {
     }),
   ],
   oil: () => [
+    // 真实形态（2026-09-16 只读实测 school_tjb 39 条）：colorLevel ∈ {合格 38, 警戒 1}
+    // —— **不是颜色词**，而是前端按「TPM 与酸价等级取最差」算出的**综合品质等级**；
+    // tpmValue 0.06~0.20（g/100g 数值口径）；acidValue 常见 0.3；oilTemp 恒为 35；result 恒为空字符串。
     sampleBase('oil', '食用油品质检测', 'pass', {}, {
-      colorLevel: '浅黄色', tpmValue: '0.06', acidValue: '0.30', oilTemp: '180', remark: '',
-      canteen: SAMPLE_CANTEEN, testDate: SAMPLE_DATE, inspector: SAMPLE_INSPECTOR,
+      colorLevel: '合格', tpmValue: '0.06', acidValue: '0.3', oilTemp: '35', remark: '',
+      result: '', canteen: SAMPLE_CANTEEN, testDate: SAMPLE_DATE, inspector: SAMPLE_INSPECTOR,
     }),
+    // 不合格场景为**合成构造**（真实 39 条中未出现不合格）：必须自洽 ——
+    // colorLevel=不合格，且 TPM 0.31 > 0.25、酸价 5.2 ≥ 5.0（均按平台阈值判不合格）。
     sampleBase('oil', '食用油品质检测', 'fail', {}, {
-      colorLevel: '深绿色', tpmValue: '0.31', acidValue: '3.2', oilTemp: '195', remark: '建议更换食用油',
-      canteen: SAMPLE_CANTEEN, testDate: SAMPLE_DATE, inspector: SAMPLE_INSPECTOR,
+      colorLevel: '不合格', tpmValue: '0.31', acidValue: '5.2', oilTemp: '35', remark: '建议更换食用油',
+      result: '', canteen: SAMPLE_CANTEEN, testDate: SAMPLE_DATE, inspector: SAMPLE_INSPECTOR,
     }),
   ],
   pathogen: () => [
+    // 真实形态（2026-09-16 只读实测 school_tjb 66 条）：riskLevel ∈ {无风险 48, 低风险 9, 极低风险 9}
+    // —— **没有"高风险"**；positiveDetails 非空 ⟺ riskLevel ≠ 无风险（18/18）；无风险时 positiveItems 为 1 字符占位。
     sampleBase('pathogen', '病原体检测', 'pass', {}, {
-      riskLevel: '无风险', riskReason: '', positiveItems: '', positiveDetails: [],
+      riskLevel: '无风险', riskReason: '', positiveItems: '-', positiveDetails: [],
       internalControlStatus: '有效',
       allTestItems: [
         { no: 1, channel: 'A1', pathogen: '沙门氏菌（示例）', result: '未检出', ct: '', isInternalControl: false },
@@ -234,20 +259,26 @@ const SAMPLE_SCENARIOS = {
       canteen: SAMPLE_CANTEEN, testDate: SAMPLE_DATE, inspector: SAMPLE_INSPECTOR,
     }),
     sampleBase('pathogen', '病原体检测', 'positive', {}, {
-      riskLevel: '高风险', riskReason: '检出沙门氏菌（示例）', positiveItems: '沙门氏菌（示例）',
+      // riskLevel 取真实存在的「低风险」；检出证据 = positiveDetails 非空
+      riskLevel: '低风险', riskReason: '检出沙门氏菌（示例）', positiveItems: '沙门氏菌（示例）',
       positiveDetails: [{ pathogen: '沙门氏菌（示例）', ct: 21.5, ctRaw: '21.5' }],
       internalControlStatus: '有效',
       allTestItems: [{ no: 1, channel: 'A1', pathogen: '沙门氏菌（示例）', result: '检出', ct: '21.5', isInternalControl: false }],
       canteen: SAMPLE_CANTEEN, testDate: SAMPLE_DATE, inspector: SAMPLE_INSPECTOR,
     }),
     sampleBase('pathogen', '病原体检测', 'recheck_passed', {}, {
-      riskLevel: '高风险', riskReason: '检出沙门氏菌（示例）', positiveItems: '沙门氏菌（示例）',
-      finalStatus: '整改后复检合格',
+      // 复检合格场景的字段分工（避免"复检合格 + 当前阳性"的误读）：
+      //   riskLevel / riskReason / positiveItems / positiveDetails = **初检证据**（平台按录入时保存，复检不改写）
+      //   复检结论 = recheckReports[0].isPassed（对外映射为 final_conclusion / final_conclusion_basis='recheck'）
+      //   allTestItems = **当前（复检后）**明细 → 未检出
+      //   ⚠️ 病原体实测**没有 finalStatus 字段**（0/66），故样例不产出它（finalStatus 出现在餐具）
+      riskLevel: '低风险', riskReason: '初检检出沙门氏菌（示例）', positiveItems: '沙门氏菌（示例）',
+      positiveDetails: [{ pathogen: '沙门氏菌（示例）', ct: 21.5, ctRaw: '21.5' }],
       recheckReports: [{ id: 1, time: `${SAMPLE_DATE} 16:00`, user: SAMPLE_INSPECTOR, isPassed: true }],
-      positiveDetails: [], internalControlStatus: '有效',
+      internalControlStatus: '有效',
       allTestItems: [{ no: 1, channel: 'A1', pathogen: '沙门氏菌（示例）', result: '未检出', ct: '', isInternalControl: false }],
       canteen: SAMPLE_CANTEEN, testDate: SAMPLE_DATE, inspector: SAMPLE_INSPECTOR,
-    }),
+    }, `${SAMPLE_DATE} 16:00`),
   ],
 }
 
@@ -281,7 +312,42 @@ export function extractCustomFieldMeta(cust, testType) {
   // 学校级字段标签（field_labels）可覆盖自定义字段标签
   const globalLabels = cust?.field_labels && typeof cust.field_labels === 'object' ? cust.field_labels : {}
   for (const n of names) if (globalLabels[n]) labels[n] = String(globalLabels[n])
-  return { names, labels }
+  // 同时返回 listFieldDescriptors 的 ctx 形态（customFieldNames/fieldLabels）：
+  // 2026-09-16 审阅发现调用方直接把本函数返回值喂给 listFieldDescriptors，而键名不匹配
+  // （names/labels vs customFieldNames/fieldLabels）→ **字典路由里学校自定义字段实际未生效**。
+  return { names, labels, customFieldNames: names, fieldLabels: labels }
+}
+
+/**
+ * 允许对外下发的 `result.*` 顶层键集合（**白名单**）。
+ *
+ * 与字段字典**同源**：字典里登记过的 `result.*` 路径 = 允许下发；未登记 = 不下发（默认拒绝）。
+ * 学校自定义字段来自 SchoolCustomization（与字典同一来源），因此不会"一刀切"掉在用字段。
+ * 用途：`openApiScope.projectResultData` 的顶层白名单（2026-09-16 审阅 M2：原实现是纯黑名单，
+ * 未登记字段会无条件透传）。
+ *
+ * @param {string} testType
+ * @param {{customFieldNames?: string[], fieldLabels?: Record<string,string>}} [ctx]
+ * @returns {Set<string>}
+ */
+export function allowedResultKeys(testType, ctx = {}) {
+  const keys = new Set()
+  for (const f of listFieldDescriptors(testType, ctx)) {
+    if (!f.path.startsWith('result.')) continue
+    const k = f.path.slice('result.'.length)
+    if (k && !k.includes('.')) keys.add(k)
+  }
+  return keys
+}
+
+/** 一次构建多个类型的白名单（路由层用；ctxOf(type) 返回该类型的自定义字段 ctx）。 */
+export function buildAllowedResultKeyMap(types, ctxOf = () => ({})) {
+  const map = new Map()
+  for (const t of Array.isArray(types) ? types : []) {
+    const type = String(t)
+    map.set(type, allowedResultKeys(type, ctxOf(type)))
+  }
+  return map
 }
 
 /** 契约版本 + 字段清单的稳定指纹（供接入包/对账参考，不参与游标）。 */

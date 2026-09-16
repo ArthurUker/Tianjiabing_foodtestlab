@@ -56,30 +56,55 @@ function isPiiKey(key) {
   return PII_KEY_PATTERNS.some((re) => re.test(key))
 }
 
+/** 未登记字段被白名单丢弃时的告警（同一键只提示一次，避免刷日志）。 */
+const _droppedKeyWarned = new Set()
+function warnDroppedKey(key) {
+  if (_droppedKeyWarned.has(key)) return
+  _droppedKeyWarned.add(key)
+  console.warn(`[openApiScope] 未登记字段按白名单丢弃（不下发）：result.${key}（如需下发请在 lib/openApiFieldSchema.js 登记）`)
+}
+
 /**
  * 递归投影：剔除内部字段 + PII 字段。仅处理普通对象/数组，深度上限 8 层防御异常结构。
  * @param {*} value 任意 JSON 值
+ * @param {{allowedKeys?: Set<string>|null, onDropped?: (k:string)=>void}} options
  * @param {number} depth
  */
-function projectValue(value, depth = 0) {
+function projectValue(value, options = {}, depth = 0) {
   if (depth > 8) return null
-  if (Array.isArray(value)) return value.map((v) => projectValue(v, depth + 1))
+  if (Array.isArray(value)) return value.map((v) => projectValue(v, options, depth + 1))
   if (value && typeof value === 'object') {
     const out = {}
     for (const [k, v] of Object.entries(value)) {
       if (INTERNAL_RESULT_KEYS.has(k)) continue
       if (isPiiKey(k)) continue
-      out[k] = projectValue(v, depth + 1)
+      // 顶层白名单（2026-09-16 审阅 M2）：只放行「字段字典登记过的 result.* 键」；
+      // 容器内部（depth>0）仍走递归黑名单，为未来新增的人名类键兜底。
+      if (depth === 0 && options.allowedKeys instanceof Set && !options.allowedKeys.has(k)) {
+        if (typeof options.onDropped === 'function') options.onDropped(k)
+        else warnDroppedKey(k)
+        continue
+      }
+      out[k] = projectValue(v, options, depth + 1)
     }
     return out
   }
   return value
 }
 
-/** 对外下发的结果数据（已剔除内部字段与 PII）。 */
-export function projectResultData(resultData) {
-  if (!resultData || typeof resultData !== 'object') return {}
-  return projectValue(resultData)
+/**
+ * 对外下发的结果数据。双层策略：
+ *   ① **顶层白名单**：只允许字典登记过的 `result.*` 键（含学校自定义字段）——未登记不再无条件透传；
+ *   ② 容器内**递归黑名单**：剔除内部字段与 PII（人名类键正则兜底）。
+ *
+ * @param {*} resultData
+ * @param {{allowedKeys?: Set<string>|null, onDropped?: (k:string)=>void}} [options]
+ *        `allowedKeys` 未传 = 不做顶层白名单（仅供内部/兼容场景；**对外路由必须传**，
+ *        由 `openApiFieldSchema.buildAllowedResultKeyMap` 生成）
+ */
+export function projectResultData(resultData, options = {}) {
+  if (!resultData || typeof resultData !== 'object' || Array.isArray(resultData)) return {}
+  return projectValue(resultData, options, 0)
 }
 
 /** 解析某条 grant 实际开放的检测类型（与 RECORD_ROUTE_TYPES 求交，pathogen 需显式开关）。 */
@@ -99,14 +124,56 @@ export function grantAllowsType(grant, testType) {
 }
 
 /** 业务检测日期范围判定：grant.start_date / end_date（含边界）；日期非法/缺失视为不在范围内。 */
-export function grantDateRange(grant) {
-  const toDay = (d) => {
+export function grantDateRange(grant) {  const toDay = (d) => {
     if (!d) return null
     const dt = d instanceof Date ? d : new Date(d)
     if (Number.isNaN(dt.getTime())) return null
     return dt.toISOString().slice(0, 10)
   }
   return { start: toDay(grant?.start_date), end: toDay(grant?.end_date) }
+}
+
+/* ─────────────── 业务日期（sample_info.testDate）安全比较 ───────────────
+ *
+ * ⚠️ 2026-09-16 线上故障根因：业务日期在库内是**文本**（`sample_info->>'testDate'` 前 10 位），
+ * 而历史实现写成 `substring(...) >= $N::date`。PostgreSQL **没有 text → date 的隐式转换**，
+ * 该表达式直接报 `operator does not exist: text >= date`（HINT: You might need to add explicit type casts）
+ * → 只要请求带 `start`/`end`，或授权配置了业务日期范围（grant.start_date/end_date），接口必然 500。
+ *
+ * 正确做法：参数归一为 `YYYY-MM-DD` 文本，两侧都按**文本比较**（同长度 ISO 文本的字典序 = 时间序），
+ * 且比较前先过合法性正则，避免 `2026-1-1` 这类脏值被字典序误判入范围。
+ */
+export const BUSINESS_DATE_TEXT_EXPR = `substring("sample_info"->>'testDate' from 1 for 10)`
+
+/** 业务日期合法性（严格 YYYY-MM-DD）SQL 片段。 */
+export function businessDateValidSql() {
+  return `${BUSINESS_DATE_TEXT_EXPR} ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'`
+}
+
+/**
+ * 解析日期型查询参数（start / end）。
+ * 接受 `YYYY-MM-DD`，或 ISO8601 日期时间（取日期部分，如 `2026-01-15T10:00:00+08:00`）。
+ * @returns {{ok:true, day:string|null}|{ok:false, code:string, message:string}}
+ */
+export function parseDayParam(raw) {
+  if (raw === undefined || raw === null || String(raw).trim() === '') return { ok: true, day: null }
+  const s = String(raw).trim()
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ].*)?$/)
+  if (!m) return { ok: false, code: 'INVALID_DAY_FORMAT', message: '日期需为 YYYY-MM-DD（或 ISO8601 日期时间）' }
+  const day = `${m[1]}-${m[2]}-${m[3]}`
+  const dt = new Date(`${day}T00:00:00Z`)
+  if (Number.isNaN(dt.getTime()) || dt.toISOString().slice(0, 10) !== day) {
+    return { ok: false, code: 'INVALID_DAY_VALUE', message: `日期 ${day} 不存在（请检查月份/日期）` }
+  }
+  return { ok: true, day }
+}
+
+/** 取较晚 / 较早的日期（null 表示"不限"）。用于「授权范围 ∩ 请求范围」。 */
+export function maxDay(a, b) {
+  return !a ? b : (!b ? a : (a >= b ? a : b))
+}
+export function minDay(a, b) {
+  return !a ? b : (!b ? a : (a <= b ? a : b))
 }
 
 /* ─────────────── 结论口径（与前端 Dashboard.isQualified / stats SQL 同源）─────────────── */
@@ -203,7 +270,9 @@ export function pickTestDate(sampleInfo) {
  * 组装单条对外记录。
  * @param {object} record 租户库 TestRecord 行
  * @param {object} grant  命中的 OpenApiGrant
- * @param {{schoolCode:string, schoolName?:string|null}} ctx
+ * @param {{schoolCode:string, schoolName?:string|null, allowedResultKeys?:Set<string>}} ctx
+ *        `allowedResultKeys` = 该类型允许下发的 result.* 顶层键白名单（对外路由必须传，
+ *        由 `openApiFieldSchema.buildAllowedResultKeyMap` 生成，与字段字典同源）
  */
 export function buildOpenRecord(record, grant, ctx = {}) {
   const sampleInfo = record.sample_info && typeof record.sample_info === 'object' ? record.sample_info : {}
@@ -227,7 +296,10 @@ export function buildOpenRecord(record, grant, ctx = {}) {
     conclusion_source: 'stored',           // 录入/检测当时保存的值（非按当前规则实时重算）
     final_conclusion_basis: conclusion.basis, // 'initial'（无复检）| 'recheck'（由复检结论覆盖）
     is_positive: conclusion.isPositive,
-    result: projectResultData(resultData),
+    result: projectResultData(resultData, {
+      allowedKeys: ctx.allowedResultKeys instanceof Set ? ctx.allowedResultKeys : null,
+      onDropped: ctx.onDroppedResultKey,
+    }),
     created_at: toIsoShanghai(record.created_at),
     updated_at: toIsoShanghai(record.updated_at),
     data_version: record.data_version ?? 1,

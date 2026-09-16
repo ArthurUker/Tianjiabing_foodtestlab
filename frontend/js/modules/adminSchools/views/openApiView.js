@@ -609,17 +609,25 @@ export function initOpenApiView({ API_BASE, authHeaders, notify }) {
                 <table class="w-full text-sm">
                     <thead><tr class="text-left text-gray-500 border-b">
                         <th class="py-1.5 px-2">路径</th><th class="py-1.5 px-2">中文名</th><th class="py-1.5 px-2">类型</th>
-                        <th class="py-1.5 px-2">单位</th><th class="py-1.5 px-2">必现</th><th class="py-1.5 px-2">可空</th><th class="py-1.5 px-2">说明</th>
+                        <th class="py-1.5 px-2">单位</th><th class="py-1.5 px-2">必现</th><th class="py-1.5 px-2">可空</th><th class="py-1.5 px-2">下发</th><th class="py-1.5 px-2">说明</th>
                     </tr></thead>
-                    <tbody>${fields.map((f) => `<tr class="border-b last:border-0 ${f.source === 'school_custom' ? 'bg-amber-50/40' : ''}">
+                    <tbody>${fields.map((f) => {
+                        const enumHint = Array.isArray(f.enum) && f.enum.length ? `（取值：${f.enum.join(' / ')}）` : '';
+                        const itemHint = Array.isArray(f.item_fields) && f.item_fields.length ? `元素：${f.item_fields.join('、')}` : '';
+                        const condHint = f.conditional_on ? `条件字段：仅当 ${f.conditional_on} 开启时存在` : '';
+                        const desc = [f.description || '', itemHint, condHint].filter(Boolean).join('；');
+                        const notEmitted = f.emitted === false;
+                        return `<tr class="border-b last:border-0 ${notEmitted ? 'bg-gray-50 text-gray-400' : (f.source === 'school_custom' ? 'bg-amber-50/40' : '')}">
                         <td class="py-1.5 px-2 font-mono text-xs">${escapeHtml(f.path)}</td>
-                        <td class="py-1.5 px-2">${escapeHtml(f.label || '')}${f.source === 'school_custom' ? ' <span class="text-[10px] text-amber-700">自定义</span>' : ''}</td>
-                        <td class="py-1.5 px-2 text-xs">${escapeHtml(f.type || '')}</td>
+                        <td class="py-1.5 px-2">${escapeHtml(f.label || '')}${f.source === 'school_custom' ? ' <span class="text-[10px] text-amber-700">自定义</span>' : ''}${notEmitted ? ' <span class="text-[10px] text-gray-500">不下发</span>' : ''}</td>
+                        <td class="py-1.5 px-2 text-xs">${escapeHtml((f.type || '') + enumHint)}</td>
                         <td class="py-1.5 px-2 text-xs">${escapeHtml(f.unit || '—')}</td>
                         <td class="py-1.5 px-2 text-xs">${f.required ? '是' : '否'}</td>
                         <td class="py-1.5 px-2 text-xs">${f.nullable ? '是' : '否'}</td>
-                        <td class="py-1.5 px-2 text-xs text-gray-600">${escapeHtml(f.description || (f.item_fields ? '元素字段：' + f.item_fields.join('、') : ''))}</td>
-                    </tr>`).join('')}</tbody>
+                        <td class="py-1.5 px-2 text-xs">${notEmitted ? '<span class="text-red-600 font-medium">否</span>' : '是'}</td>
+                        <td class="py-1.5 px-2 text-xs text-gray-600">${escapeHtml(desc)}</td>
+                    </tr>`;
+                    }).join('')}</tbody>
                 </table></div>`;
             if (msg) msg.textContent = `已加载 ${fields.length} 个字段`;
         } catch (e) {

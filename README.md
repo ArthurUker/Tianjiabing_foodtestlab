@@ -536,9 +536,16 @@ erDiagram
 
 ### 4.3 检测记录存储约定
 
-- 前端提交的动态业务字段整体写入 `TestRecord.result_data`（jsonb 对象）；`testDate / canteen / inspector` 另外抽取写入 `sample_info`（jsonb 对象，由 `buildRecordWriteData` 组装）。`buildRecordWriteData` 会剥离 `id/version/record_code/test_type/test_name/created_at/updated_at/completed_at/_status` 等服务端管理字段，避免其落入 `result_data` 后经 `buildRecordPayload` 展开覆盖真实服务端值（曾导致乐观锁永远 409）。
+- 前端提交的动态业务字段整体写入 `TestRecord.result_data`（jsonb 对象）；`testDate / canteen / inspector`（下称**上下文三键**）**只写入 `sample_info`**（jsonb 对象）。**写入归一唯一实现 = `lib/recordNormalize.js` 的 `normalizeWriteJson()`**（`buildRecordWriteData()` 是它在"整对象替换"入口的包装），覆盖 `/api/records/{create,update,bulk-upsert}`、`/api/test-records`（legacy create/update）、`/api/sync/{records,batch}` 全部入口（2026-09-16 审阅 H1/H2/H3 统一修复）。口径（写入与读取共用，任何入口不得偏离）：
+  - **权威位置 = `sample_info`**；`result_data` 内的同名键 = 历史副本（2026-09-16 前实测 4 租户 1195 条 100% 带副本、与 `sample_info` 冲突 0 条）。
+  - **请求内优先级：顶层 > `sample_info` > `result_data`**（顶层是"读取后展开"的形态，Web 客户端与 App 都直接操作它；嵌套位置视为客户端携带的存储细节）。**本次请求任一处提交的值恒优先于数据库旧值**；局部更新时未提交的字段保留旧值。
+  - `null` / 空字符串 / 缺键 = "未提交"（三键**不允许清空**：看板按 canteen 分组，员工端统计与开放接口按 `sample_info.testDate` 过滤业务日期）。整对象替换入口由 `validateRecordPayload` 返回 400；局部更新入口保留旧值。
+  - `result_data` 落库前统一剔除**控制字段**（`CONTROL_KEYS`：`status`/`version`/`created_by`/`id`/`record_code`/`test_type`/`sample_info`/`result_data`/`action`/`store`/`syncId`/`timestamp` 及三键副本）——历史实现把整个请求体当结果对象，导致控制字段进入业务 JSON（审阅 A7/L2）。
+  - 非法结构（`result_data` 为字符串/数组）→ 400 `INVALID_RESULT_DATA`；`create` 且结果为空 → 400 `EMPTY_RESULT_DATA`；`update` 且 `result_data` 为 `{}` 或未提交 → **不改动**（不得清空既有结果）。
+  - 状态白名单：editor 可写 `pending/completed/failed`；`archived` 属管理动作（manager/admin），记录已是 `archived` 时允许保持；非法状态 → 400 `STATUS_NOT_ALLOWED`。
+  - `record_code` 冲突**不等于**合法幂等重试：仅当调用者本就有权覆盖该记录（本人 / manager+）时按幂等返回，否则 409 `RECORD_CODE_CONFLICT` 且不回显记录体（审阅 M5）。
 - `record_code` 为**内容确定性哈希**：`RC-{test_type}-{sha256(规范化 payload)}`，用于幂等去重（详见 §5.4、§9）。哈希前先 `stripVolatileFields` 剥离 `id/status/version/created_at/updated_at/recheckRecords/recheckReports/modificationLogs` 等易变字段，再做**数组顺序无关**的键排序规范化（`normalizeForHash`），确保「语义相同但字段顺序/时间戳不同」的重复提交命中同一 `record_code`。
-- 读取时 `buildRecordPayload()` 会把 `sample_info` 与 `result_data` 展开合并回平铺对象返回前端。
+- 读取时 `buildRecordPayload()` 把 `sample_info` 与 `result_data` 展开合并为平铺对象返回前端；**上下文三键以 `sample_info`（权威位置）为准**，仅当其缺失（`undefined`/`null`）时才回退 `result_data` 内的历史副本，且 `sample_info` 为**空字符串**时视为显式清空、**不得让副本复活**（2026-09-16 审阅 M1 修复；此前实现让副本覆盖权威值，会把 `sample_info`-only 的修复在前端隐藏）。
 - `version` 为乐观锁版本号（`/api/records/:tableName/:id` 更新时原子 `where { id, version }` 条件更新，冲突 409）；`data_version` 为业务数据版本，便于定制变更后的兼容性读取/回填。
 - `test_type` 取值域为五类 `{tableware, pathogen, leanMeat, oil, pesticide}`（`normalizeRecordType` 严格校验，否则 400/404）；`/api/test-records` 未传 `test_type` 时兜底存 `generic`。`test_name` 由服务端按 `TEST_TYPE_LABELS` 自动映射中文名（如 tableware → `餐具洁净度检测`），不信任前端传入。
 - **复检结论自愈**（TD-Q1-Recheck-SelfHeal）：更新记录时按「最新一次复检结论」双向同步 `result`（`recheckRecords[0].isPassed` / `recheckReports[0].isPassed` 为 true → 强制「合格」，false → 「不合格」）。
@@ -848,7 +855,7 @@ erDiagram
 **安全与口径边界**
 
 - 越权防护：`school_code` 必须命中该对接方的 `active` grant，否则 `403 SCHOOL_NOT_AUTHORIZED`；类型必须命中 `visible_types` 白名单（**病原体需显式开启**，自定义检测类型默认不开放）。
-- 字段投影：**绝不下发 `result_data` 原始 JSON**。服务端先剔内部字段（`modificationLogs`/`traceabilityRecords`/`created_by` 等），再**递归**剔除人名类 PII（`inspector` / `recheckRecords[].user` 等，含正则兜底，未来新增人名类字段自动不外泄）；`inspector` 是否下发由 grant 的 `include_inspector` 决定（默认 false）。
+- 字段投影：**绝不下发 `result_data` 原始 JSON**。服务端先剔内部字段（`modificationLogs`/`traceabilityRecords`/`created_by` 等），再**递归**剔除人名类 PII（`inspector` / `recheckRecords[].user` 等，含正则兜底，未来新增人名类字段自动不外泄）；`inspector` 是否下发由 grant 的 `include_inspector` 决定（默认 false）。字典中的 `result.canteen` / `result.testDate` 为**历史同义副本**（2026-09-16 起新记录不再写入，取值一律以顶层为准），`result.inspector` 属个人信息**恒不下发**（字典标注 `emitted:false`，仅说明存储结构）。
 - 结论口径：`initial_conclusion`（初检）+ `final_conclusion`（复检后）+ `final_conclusion_basis`（`initial`=沿用初检 / `recheck`=复检覆盖）+ `conclusion_source='stored'`——结论是**录入/检测当时保存的值**，不是按当前阈值重算的结果。各类判定：餐具/果蔬/肉蛋看 `result` 文本；**食用油按业务裁定**——`colorLevel` 仅含「不合格」判不合格，其余等级视为合格，无 `colorLevel` 回退 `result`（与前端看板、`/stats` 同源）；病原体看 `riskLevel='无风险'`。`test_date` 缺失与结论 `unknown` 是两件事，不联动。
 - 统计口径（`/stats`）：`scope_total`（授权范围内记录数与明细应一致）、`included_total`（参与计算）、`excluded[]`（未参与的原因与条数，现仅「检测日期缺失/非法」）、`pass_rate_detail`（分子/分母；分母为 0 返回 `null` 而非 0）。对账差异按 `excluded` 定位，不再使用"以某个接口为准"的含糊说法。
 - 限流与审计：按凭证滑动窗口限流（`rate_limit_per_min`，默认 60，超限 429 + `Retry-After`）；密钥/对接方拒绝事件节流写 `public.SystemLog`（`OPENAPI_DENIED <code>`，同 IP 同原因 60s 一条）。

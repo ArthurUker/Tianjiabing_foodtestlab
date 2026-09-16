@@ -35,9 +35,14 @@ import {
   computeProjectionFingerprint,
   CURRENT_CURSOR_VERSION,
   toIsoShanghai,
+  BUSINESS_DATE_TEXT_EXPR,
+  businessDateValidSql,
+  parseDayParam,
+  maxDay,
+  minDay,
 } from '../lib/openApiScope.js'
 import { DEFAULT_OPEN_TYPES } from '../lib/openApiScope.js'
-import { OPEN_API_CONTRACT_VERSION, listFieldDescriptors, buildSyntheticSamples, extractCustomFieldMeta } from '../lib/openApiFieldSchema.js'
+import { OPEN_API_CONTRACT_VERSION, listFieldDescriptors, buildSyntheticSamples, extractCustomFieldMeta, buildAllowedResultKeyMap } from '../lib/openApiFieldSchema.js'
 
 const TAG = '[openApiRoutes]'
 const MAX_PAGE_SIZE = 200
@@ -74,20 +79,52 @@ function fail(res, status, code, message) {
   return res.status(status).json({ code, error: message, server_time: toIsoShanghai(new Date()) })
 }
 
-/** 把 grant 的日期范围翻译成 SQL 条件（业务检测日期，取 sample_info.testDate 前 10 位）。 */
-function dateClause(grant, params) {
-  const { start, end } = grantDateRange(grant)
+/**
+ * 把日期范围翻译成 SQL 条件（业务检测日期，取 sample_info.testDate 前 10 位）。
+ *
+ * ⚠️ 只做**文本比较**，绝不与 `::date` 混用：业务日期在库内是文本，PostgreSQL 没有 text→date
+ * 隐式转换，`substring(...) >= $N::date` 会直接报 `operator does not exist: text >= date`（2026-09-16 线上 500 根因）。
+ * 比较前先过合法性正则，避免 `2026-1-1` 这类脏值被字典序误判入范围。
+ *
+ * @param {{start?:string|null, end?:string|null}} range 已归一的 YYYY-MM-DD（null = 不限）
+ * @param {Array} params 参数数组（原地追加）
+ * @returns {string} 以 ' AND ' 开头的 SQL 片段（无范围时为空串）
+ */
+function dateRangeClause(range, params) {
   const parts = []
-  // testDate 缺失/非法 → 无法判定业务日期；带范围授权时排除（会在对接文档中说明）
-  if (start) {
-    params.push(start)
-    parts.push(`(substring("sample_info"->>'testDate' from 1 for 10) IS NOT NULL AND substring("sample_info"->>'testDate' from 1 for 10) >= $${params.length}::date)`)
+  const valid = businessDateValidSql()
+  if (range?.start) {
+    params.push(range.start)
+    parts.push(`(${valid} AND ${BUSINESS_DATE_TEXT_EXPR} >= $${params.length})`)
   }
-  if (end) {
-    params.push(end)
-    parts.push(`(substring("sample_info"->>'testDate' from 1 for 10) IS NOT NULL AND substring("sample_info"->>'testDate' from 1 for 10) <= $${params.length}::date)`)
+  if (range?.end) {
+    params.push(range.end)
+    parts.push(`(${valid} AND ${BUSINESS_DATE_TEXT_EXPR} <= $${params.length})`)
   }
   return parts.length ? ` AND ${parts.join(' AND ')}` : ''
+}
+
+/** 授权范围（grant.start_date/end_date）对应的 SQL 条件。 */
+function dateClause(grant, params) {
+  return dateRangeClause(grantDateRange(grant), params)
+}
+
+/** 授权范围 ∩ 请求范围（两者都可为 null = 不限）。 */
+function effectiveDateRange(grant, query = {}) {
+  const g = grantDateRange(grant)
+  const s = parseDayParam(query.start)
+  const e = parseDayParam(query.end)
+  if (!s.ok) return { ok: false, code: 'INVALID_START', message: `start 参数非法：${s.message}` }
+  if (!e.ok) return { ok: false, code: 'INVALID_END', message: `end 参数非法：${e.message}` }
+  if (s.day && e.day && s.day > e.day) {
+    return { ok: false, code: 'INVALID_RANGE', message: `start(${s.day}) 不能晚于 end(${e.day})` }
+  }
+  return {
+    ok: true,
+    requested: { start: s.day, end: e.day },
+    grantRange: g,
+    effective: { start: maxDay(s.day, g.start), end: minDay(e.day, g.end) },
+  }
 }
 
 export function createOpenApiRoutes({ prisma }) {
@@ -129,6 +166,16 @@ export function createOpenApiRoutes({ prisma }) {
     const schema = schemaNameOf(code)
     assertSafeSchemaName(schema)
     return { grant, schema, school }
+  }
+
+  /**
+   * 与字段字典**同源**的下发白名单（按类型）：未登记的 `result.*` 键不下发。
+   * 学校自定义字段取自 SchoolCustomization，因此不会一刀切掉在用字段。
+   * （2026-09-16 审阅 M2：原实现为纯黑名单，未登记字段会无条件外发。）
+   */
+  async function allowedKeysForSchool(schoolCode, types) {
+    const cust = await prisma.schoolCustomization.findUnique({ where: { school_code: schoolCode } })
+    return buildAllowedResultKeyMap(types, (t) => extractCustomFieldMeta(cust, t))
   }
 
   // ─────────────── GET /v1/ping ───────────────
@@ -235,9 +282,17 @@ export function createOpenApiRoutes({ prisma }) {
         field_schema,
         field_schema_notes: [
           '字段路径按对外响应书写：顶层字段直接给出；检测业务字段统一在 result.* 下。',
-          'required=true 表示该类型当前全部记录均出现该字段；required=false 表示可能缺失（历史数据/学校配置差异）。',
+          'required 是**当前数据分布观察**（true = 该类型现有全部记录都出现该字段），**不是接口输出保证**：'
+            + '不要据此在本地建 NOT NULL / 必填模型；容错解析请以 nullable 与「下发」列为准。',
+          '三态区分：**字段省略** = 该字段不存在（未登记或未启用）；**null** = 字段存在但无值；**空字符串/空数组** = 有值但为空（如 result.remark 可为 ""、result.positiveDetails 可为 []）。',
           'type=unknown 表示平台不保证其类型（通常来自学校自定义字段），需按实际值处理。',
-          'result 内可能出现与顶层同义的冗余副本（canteen/testDate/inspector），取值以顶层为准。',
+          'emitted=false 表示该字段「不会出现在响应中」——列出仅为说明原始存储结构，请勿据此开发（如 result.inspector，属个人信息恒不下发）。',
+          '结论字段（initial_conclusion / final_conclusion / conclusion）由平台按**录入时保存的判定文本**映射为枚举（result / colorLevel / riskLevel / finalStatus / 复检结论），'
+            + '不是按当前阈值实时重算，因此不会因阈值调整而改变；conclusion_source=stored 即指这一点。',
+          '数值类字段一律为**字符串且为原始录入口径**（例：result.tpmValue 的 "0.06" 表示 0.06 g/100g，等价 0.06%，**请勿再 ×100**）；'
+            + '各类型的判定阈值写在对应字段说明里，数组元素的子键见 item_fields。',
+          '病原体：riskLevel 非「无风险」即视为不合格/有风险（与统计口径一致），但**不等于确诊阳性**；是否检出以 result.positiveDetails 是否非空为准。',
+          'result 内的 canteen / testDate 是历史记录的**同义副本**（新记录不再写入），取值一律以顶层为准。',
           '平台承诺：v1 契约内不删除字段、不改变既有字段语义；新增字段以向后兼容方式追加。',
         ],
       })
@@ -258,6 +313,9 @@ export function createOpenApiRoutes({ prisma }) {
       const types = resolveGrantTypes(grant)
       if (!types.length) return fail(res, 403, 'NO_VISIBLE_TYPE', '该学校当前未开放任何检测类型')
 
+      // 字段白名单（与字典同源；2026-09-16 审阅 M2）
+      const resultKeyMap = await allowedKeysForSchool(school.code, types)
+
       let target = types
       if (req.query.test_type) {
         const t = String(req.query.test_type)
@@ -269,7 +327,7 @@ export function createOpenApiRoutes({ prisma }) {
       for (const t of target) {
         for (const s of buildSyntheticSamples(t)) {
           // 走与真实记录完全相同的投影 → 样例形态 = 真实响应形态（含 PII 与内部字段剔除）
-          const item = buildOpenRecord(s.record, grant, { schoolCode: school.code, schoolName: school.name })
+          const item = buildOpenRecord(s.record, grant, { schoolCode: school.code, schoolName: school.name, allowedResultKeys: resultKeyMap.get(t) })
           samples.push({
             test_type: t,
             scenario: s.scenario,
@@ -305,6 +363,8 @@ export function createOpenApiRoutes({ prisma }) {
 
       const limit = Math.min(Math.max(Number(req.query.limit) || DEFAULT_PAGE_SIZE, 1), MAX_PAGE_SIZE)
       const allowedTypes = resolveGrantTypes(grant)
+      // 字段白名单（与字典同源；2026-09-16 审阅 M2）
+      const resultKeyMap = await allowedKeysForSchool(school.code, allowedTypes)
 
       // 类型过滤：未指定 = 全部开放类型；指定则必须命中白名单
       let types = allowedTypes
@@ -408,7 +468,11 @@ export function createOpenApiRoutes({ prisma }) {
         count: page.length,
         has_more: hasMore,
         next_cursor: nextCursor,
-        items: page.map((r) => buildOpenRecord(r, grant, { schoolCode: school.code, schoolName: school.name })),
+        items: page.map((r) => buildOpenRecord(r, grant, {
+          schoolCode: school.code,
+          schoolName: school.name,
+          allowedResultKeys: resultKeyMap.get(r.test_type),
+        })),
       })
     } catch (e) {
       console.error(`${TAG} test-records 失败:`, e)
@@ -480,23 +544,22 @@ export function createOpenApiRoutes({ prisma }) {
       const types = resolveGrantTypes(grant)
       if (!types.length) return fail(res, 403, 'NO_VISIBLE_TYPE', '该学校当前未开放任何检测类型')
 
-      const { start: gStart, end: gEnd } = grantDateRange(grant)
-      const start = req.query.start ? String(req.query.start) : gStart
-      const end = req.query.end ? String(req.query.end) : gEnd
+      // 参数校验 + 授权范围 ∩ 请求范围（2026-09-16：此前用 `substring(...) >= $N::date`，
+      // 因 text→date 无隐式转换，带 start/end 必 500；且请求范围会**覆盖**而非交叠授权范围）
+      const rng = effectiveDateRange(grant, req.query)
+      if (!rng.ok) return fail(res, 400, rng.code, rng.message)
+      const eff = rng.effective
 
-      // 口径拆解（可解释，不再用"以 stats 为准"这类含糊说法）：
-      //   scope_total    = 授权范围内记录数（类型 + 授权业务日期范围）
-      //   included_total = 参与合格率计算的记录数（= scope_total，因为范围内记录必有合法日期）
-      //   excluded[]     = 未参与计算的原因与条数（当前仅「业务日期缺失/非法」一类）
-      //   pass_rate      = numerator / denominator，分母为 0 时返回 null（不返回 0 以免被误读为"全部不合格"）
+      // 口径拆解（可解释）：
+      //   scope_total        = 授权范围 ∩ 请求范围 内的有效业务日期记录数（进合格率分母）
+      //   included_total     = 同上（= scope_total）
+      //   out_of_range_total = 有效业务日期但在范围外的记录数（新增，使口径可自洽）
+      //   excluded[]         = 无法定位业务日期的记录（缺失/格式非法），与范围无关
+      //   恒等式：scope_total + out_of_range_total + excluded_total = 授权类型内全部记录数（无范围时 out_of_range=0）
+      //   pass_rate          = numerator / denominator，分母为 0 时返回 null（不返回 0，避免被误读为"全部不合格"）
       const params = [types]
-      const dateExpr = `substring("sample_info"->>'testDate' from 1 for 10)`
-      const validDate = `${dateExpr} ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'`
-      const inRangeParts = [validDate]
-      if (start) { params.push(start); inRangeParts.push(`${dateExpr} >= $${params.length}::date`) }
-      if (end) { params.push(end); inRangeParts.push(`${dateExpr} <= $${params.length}::date`) }
-      const inRangeExpr = inRangeParts.join(' AND ')
-
+      const validDate = businessDateValidSql()
+      const inRangeExpr = dateRangeClause(eff, params).replace(/^ AND /, '')
       const passExpr = `CASE
           WHEN "test_type" = 'pathogen' THEN (COALESCE("result_data"->>'riskLevel','') = '无风险')
           WHEN "test_type" = 'oil' THEN (
@@ -506,6 +569,7 @@ export function createOpenApiRoutes({ prisma }) {
             END)
           ELSE (COALESCE("result_data"->>'result','') LIKE '%合格%' AND COALESCE("result_data"->>'result','') NOT LIKE '%不合格%')
         END`
+      const inRangeSql = inRangeExpr || 'TRUE'
 
       const db = createTenantClient(prisma, school.code)
       // ⚠️ excluded 必须用 COALESCE 包一层：testDate 缺失时 `substring(NULL) ~ 'regex'` 为 NULL，
@@ -513,8 +577,9 @@ export function createOpenApiRoutes({ prisma }) {
       //    实际 1 条被漏报为 0）。COALESCE(..., false) 后 NULL 与"格式非法"统一计为排除。
       const rows = await db.$queryRawUnsafe(
         `SELECT "test_type",
-                count(*) FILTER (WHERE ${inRangeExpr})::int AS scope_total,
-                count(*) FILTER (WHERE ${inRangeExpr} AND ${passExpr})::int AS pass_count,
+                count(*) FILTER (WHERE ${inRangeSql})::int AS scope_total,
+                count(*) FILTER (WHERE ${inRangeSql} AND ${passExpr})::int AS pass_count,
+                count(*) FILTER (WHERE COALESCE(${validDate}, false) AND NOT COALESCE(${inRangeSql}, false))::int AS out_of_range,
                 count(*) FILTER (WHERE NOT COALESCE(${validDate}, false))::int AS excluded_invalid_date
          FROM "${schema}"."TestRecord"
          WHERE "test_type" = ANY($1::text[])
@@ -526,6 +591,7 @@ export function createOpenApiRoutes({ prisma }) {
       const scopeTotal = rows.reduce((s, r) => s + Number(r.scope_total), 0)
       const passCount = rows.reduce((s, r) => s + Number(r.pass_count), 0)
       const excludedInvalid = rows.reduce((s, r) => s + Number(r.excluded_invalid_date), 0)
+      const outOfRange = rows.reduce((s, r) => s + Number(r.out_of_range), 0)
       const toExcluded = (n) => (n > 0
         ? [{ reason: 'missing_or_invalid_test_date', label: '检测日期缺失或格式非法（无法定位业务日期）', count: n }]
         : [])
@@ -533,8 +599,8 @@ export function createOpenApiRoutes({ prisma }) {
       ok(res, {
         contract_version: OPEN_API_CONTRACT_VERSION,
         school_code: school.code,
-        start: start || null,
-        end: end || null,
+        start: eff.start || null,   // 实际生效范围（授权 ∩ 请求），兼容旧字段
+        end: eff.end || null,
         // ── 以下 3 个字段为 v1 既有字段，含义保持不变（兼容旧调用方） ──
         total: scopeTotal,
         pass_count: passCount,
@@ -544,18 +610,35 @@ export function createOpenApiRoutes({ prisma }) {
         included_total: scopeTotal,
         excluded_total: excludedInvalid,
         excluded: toExcluded(excludedInvalid),
+        out_of_range_total: outOfRange,
+        range: {
+          requested: { start: rng.requested.start, end: rng.requested.end },
+          grant: { start: rng.grantRange.start, end: rng.grantRange.end },
+          effective: { start: eff.start, end: eff.end },
+          inclusivity: '两端含当天（闭区间）',
+          empty: Boolean(eff.start && eff.end && eff.start > eff.end),
+          empty_reason: (eff.start && eff.end && eff.start > eff.end)
+            ? '请求范围与授权业务日期范围无交集（合法请求，按 0 条返回）'
+            : null,
+        },
         pass_rate_detail: {
           numerator: passCount,
           denominator: scopeTotal,
           value: rateOf(passCount, scopeTotal),
           when_denominator_zero: 'null（不返回 0，避免被误读为全部不合格）',
         },
-        exclusion_policy: '合格率只统计能定位业务日期的记录；「日期缺失/非法」的记录条数与原因在 excluded 中列明，'
-          + '不会静默丢弃。若授权本身带业务日期范围，则范围外记录不属于本次统计范围（不计入 excluded）。',
+        unknown_policy: '未判定（conclusion=unknown）的记录**计入分母**（保留 v1 口径，本轮不改变）；'
+          + '因此 pass_rate 低于 1 **不等于**其余记录都不合格——请用 conclusion 分布解释差值。'
+          + '改变分母口径（例如仅统计已判定记录）属于指标语义变更，需双方另行约定后以新字段/新版本提供。',
+        exclusion_policy: '合格率只统计能定位业务日期、且落在「授权范围 ∩ 请求范围」内的记录；'
+          + '「日期缺失/非法」的记录条数与原因在 excluded 中列明（与日期范围无关，因为无法定位业务日期）；'
+          + '有有效日期但落在范围外的记录计入 out_of_range_total。'
+          + '恒等式：scope_total + out_of_range_total + excluded_total = 该对接方授权检测类型内的全部记录数。',
         by_type: rows.map((r) => {
           const t = Number(r.scope_total)
           const p = Number(r.pass_count)
           const ex = Number(r.excluded_invalid_date)
+          const oor = Number(r.out_of_range)
           return {
             test_type: r.test_type,
             total: t,                    // 兼容旧字段
@@ -565,6 +648,7 @@ export function createOpenApiRoutes({ prisma }) {
             included_total: t,
             excluded_total: ex,
             excluded: toExcluded(ex),
+            out_of_range_total: oor,
             pass_rate_detail: { numerator: p, denominator: t, value: rateOf(p, t) },
           }
         }),
