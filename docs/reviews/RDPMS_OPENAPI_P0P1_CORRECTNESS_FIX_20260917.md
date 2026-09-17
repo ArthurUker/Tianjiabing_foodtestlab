@@ -205,3 +205,68 @@ M docs/OPEN_API_INTEGRATION.md / M docs/examples/openapi-sync-client.mjs
 **最终门禁**：`node --test tests/` = **95 项（92 pass / 0 fail / 3 skipped）**；隔离库顺序集成 = **35/35**（partial-update 12、records 10、stats 13）。
 
 **仍未解决 / 需决策**：F9 的指标口径（初检 vs 最终结论）属业务决策，本轮只做**声明**；其余 F1–F8 均有反例锁定。此外 §F 的 TPM 外部规格、App 兼容性、生产发布一致性仍未验证（原因同 §F）。
+
+---
+
+## J. 提交记录、发布前置验证与冒烟清单
+
+### J.1 提交（仅本地，未推送）
+
+```
+a877901 fix(open-api): 局部更新不丢数据、同步原子性、统计授权边界与投影指纹（含独立审阅 F1-F9 处置）
+18 files changed, 1875 insertions(+), 375 deletions(-)
+分支 Product_tencent_CVM（远端在推送前仍为 d090b77）
+```
+
+### J.2 发布前置验证（本轮已做，只读）
+
+| 验证 | 结果 |
+|---|---|
+| 隔离目录构建（`/tmp/buildcheck`，不写仓库 `dist/`） | ✅ 构建成功；产物含本轮 UI 能力（字典「下发」列 ×4、`取值：` ×1、`条件字段：仅当` ×1） |
+| 线上 `dist` 未被触碰 | ✅ 构建前后指纹一致：整树 `3934fcb6…`、`openApiView.js 7301e66b…`（**未发布**） |
+| 线上前端落后于源码（发布时必须重建 dist） | ✅ dist `7301e66b…` ≠ 源码 `2e5e24d7…` |
+| 迁移 | ✅ 无 schema 变更、无新增迁移（`backend/prisma/migrations` 最新仍为 `20260915120000_open_api_tables`） |
+| 生产后端落后两个批次（服务启动 2026-09-16 10:44，早于全部本轮文件 mtime） | ⚠️ 见 §H/任务1 报告：发布前必须"重建 dist + 重启" |
+
+### J.3 发布步骤（需显式授权；**不要用 `npm run build`**）
+
+```bash
+# ① 发布前：记录基线 + 只读确认迁移已应用（上次该只读命令被取消，需补做）
+git log -1 --oneline && find dist -type f | sort | xargs sha256sum | sha256sum
+sudo -u foodsentinel bash -c 'cd /opt/foodsentinel/backend; set -a; . ./.env; set +a; npx prisma migrate status'
+# ② 重建前端（build-static.js 会原子替换线上 dist/）
+npm run build:prod
+# ③ 重启后端
+sudo systemctl restart foodsentinel-api && systemctl show foodsentinel-api -p ActiveEnterTimestamp --value
+```
+
+### J.4 冒烟清单（发布后）
+
+**A. 只读、无需凭证**
+1. `curl -o /dev/null -w '%{http_code}' https://<域名>/api/open/v1/ping` → `401`（已挂载，非 404）。
+2. 公网前端产物指纹 == 本地 `dist/`（逐字节一致）。
+3. 超管页 `admin-schools.html` 可达；「接入说明」字典表出现**「下发」列**、枚举取值、条件字段；不下发行灰显。
+
+**B. 需要临时对接方（会产生生产数据 → 需授权，验完删除）**
+
+| # | 检查 | 期望（发布前行为） |
+|---|---|---|
+| 4 | `/stats?start=2099-01-01&end=2099-01-02` | **200 且 0 条**（发布前 500） |
+| 5 | `/stats?start=abc` / `start>end` | `400 INVALID_START` / `400 INVALID_RANGE` |
+| 6 | 临时给某校配业务日期范围 → `/stats`、`/test-records`、`/sync/manifest` | 均 **200**（发布前 500）；验完恢复 |
+| 7 | `/samples?test_type=oil` 的 `fail` 场景 | `final_conclusion = fail` |
+| 8 | `/test-records` 响应 | 含 `projection_fingerprint`；**首次与发布前不同**（F6 预期：一次全量重投影） |
+| 9 | `/stats` 响应 | 含 `universe_total`、`request_out_of_range_total`、`set_definition`、`metric_basis` |
+| 10 | 临时记录：仅提交 `result_data:{canteen:'B'}` | 200 且**原有检测结果与复检数组保留**（P0-1） |
+| 11 | 临时记录：提交扁平 `{result:'不合格'}` | 落库生效（F1），非"成功但无变更" |
+
+**C. 清理**：删除临时对接方/授权/密钥与临时记录 → 复核只剩余量对接方；`/tmp` 无残留。
+
+### J.5 回滚
+
+`git revert a877901`（或 checkout 旧提交）→ `npm run build:prod` → 重启。**无数据迁移 → 数据侧无需回滚**；
+注意：回滚后 `projection_fingerprint` 会再次变化，对接方会再做一次重投影（幂等，无数据风险）。
+
+### J.6 发布前仍待办的只读确认
+
+`prisma migrate status`（§J.3 ①，上一轮被取消）——确认 `20260915120000_open_api_tables` 已应用，否则开放接口在重启后会整体报错。
