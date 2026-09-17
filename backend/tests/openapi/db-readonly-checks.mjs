@@ -188,32 +188,42 @@ async function main() {
   check('排序严格单调（无回退/漏页）', monotonic === true, `monotonic=${monotonic}`)
 
   // ── 7. 清单摘要与统计口径可解释性 ──
-  section('7. 清单与统计口径')
+  section('7. 清单与统计口径（与 /stats 同源谓词）')
+  // 2026-09-17：本脚本原先在内部**复刻**了一份 /stats 的 SQL，后续口径改成"互斥桶 + 日历校验"后它就过期了。
+  // 现在直接引用实现里的单一事实源（lib/openApiScope.businessDateValidSql），避免第二套定义再次漂移。
+  const { businessDateValidSql } = await import('../../lib/openApiScope.js')
+  const validDate = businessDateValidSql()
   const manifestRows = await prisma.$queryRawUnsafe(
     `SELECT "record_code", "updated_at" FROM ${T} WHERE "test_type" = ANY($1::text[]) ORDER BY "record_code" ASC`, types)
   check('清单条数 == 记录条数（同类型集合）', manifestRows.length === expected, `${manifestRows.length}/${expected}`)
-  const invalid = dateQuality.reduce((s, r) => s + (Number(r.total) - Number(r.valid_date)), 0)
-  console.log('testDate 无效/缺失（被统计口径排除）合计:', invalid)
-  check('统计排除量可解释（= 日期无效条数）', invalid >= 0, `excluded=${invalid}`)
 
-  // 7b. 直接执行 /stats 的**同一段 SQL**（只读），验证口径自洽与语法有效
-  section('7b. /stats 同款 SQL 执行与自洽性')
-  const dateExpr = `substring("sample_info"->>'testDate' from 1 for 10)`
-  const validDate = `${dateExpr} ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'`
-  const inRangeExpr = validDate // 该校授权无日期范围，故与 validDate 等价
+  // 无效日期：分别用「新日历口径」与「旧正则口径」计数，差值即"格式像日期但日历不存在"的脏值数
+  const invalidRow = await prisma.$queryRawUnsafe(
+    `SELECT count(*)::int AS n FROM ${T}
+      WHERE "test_type" = ANY($1::text[]) AND NOT COALESCE(${validDate}, false)`, types)
+  const invalid = Number(invalidRow[0].n)
+  const invalidByRegex = dateQuality.reduce((s, r) => s + (Number(r.total) - Number(r.valid_date)), 0)
+  console.log(`日期无效/缺失：日历口径=${invalid}，旧正则口径=${invalidByRegex}（差值 ${invalidByRegex - invalid} = 日历脏值数）`)
+  check('日历口径较正则口径更严（invalid ≥ 正则口径）', invalid >= invalidByRegex, `${invalid} vs ${invalidByRegex}`)
+
+  // 7b. 执行与 /stats **同源谓词**的只读 SQL，验证互斥桶与恒等式
+  //     （该校授权无日期范围、脚本不传 start/end → 请求范围不限 ⇒ 请求范围外恒为 0）
+  section('7b. /stats 同源 SQL 执行与自洽性（互斥桶）')
+  const inScopeExpr = validDate
   const passExpr = `CASE
           WHEN "test_type" = 'pathogen' THEN (COALESCE("result_data"->>'riskLevel','') = '无风险')
           WHEN "test_type" = 'oil' THEN (
-            CASE WHEN COALESCE("result_data"->>'colorLevel','') <> ''
-                 THEN (COALESCE("result_data"->>'colorLevel','') NOT LIKE '%不合格%')
-                 ELSE (COALESCE("result_data"->>'result','') LIKE '%合格%' AND COALESCE("result_data"->>'result','') NOT LIKE '%不合格%')
+            CASE
+              WHEN COALESCE("result_data"->>'colorLevel','') IN ('合格','警戒') THEN TRUE
+              WHEN COALESCE("result_data"->>'colorLevel','') = '不合格' THEN FALSE
+              ELSE (COALESCE("result_data"->>'result','') LIKE '%合格%' AND COALESCE("result_data"->>'result','') NOT LIKE '%不合格%')
             END)
           ELSE (COALESCE("result_data"->>'result','') LIKE '%合格%' AND COALESCE("result_data"->>'result','') NOT LIKE '%不合格%')
         END`
   const statsRows = await prisma.$queryRawUnsafe(
     `SELECT "test_type",
-            count(*) FILTER (WHERE ${inRangeExpr})::int AS scope_total,
-            count(*) FILTER (WHERE ${inRangeExpr} AND ${passExpr})::int AS pass_count,
+            count(*) FILTER (WHERE ${inScopeExpr})::int AS scope_total,
+            count(*) FILTER (WHERE ${inScopeExpr} AND ${passExpr})::int AS pass_count,
             count(*) FILTER (WHERE NOT COALESCE(${validDate}, false))::int AS excluded_invalid_date
        FROM ${T} WHERE "test_type" = ANY($1::text[]) GROUP BY "test_type" ORDER BY "test_type"`,
     types,
@@ -225,7 +235,8 @@ async function main() {
   check('stats SQL 可执行（语法/绑定有效）', Array.isArray(statsRows) && statsRows.length > 0, `rows=${statsRows.length}`)
   check('scope_total 合计 == 有效日期记录数', sumIn === (expected - invalid), `${sumIn} vs ${expected - invalid}`)
   check('excluded 合计 == 日期无效记录数', sumEx === invalid, `${sumEx} vs ${invalid}`)
-  check('pass_count ≤ scope_total', sumPass <= sumIn, `${sumPass}/${sumIn}`)
+  check('scope_total + excluded == 记录总数（每行恰好落一个桶，无双计）', sumIn + sumEx === expected, `${sumIn}+${sumEx} vs ${expected}`)
+  check('pass_count ≤ scope_total（分母不含无效日期）', sumPass <= sumIn, `${sumPass}/${sumIn}`)
 
   // ── 汇总 ──
   section('汇总')
