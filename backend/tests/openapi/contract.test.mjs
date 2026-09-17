@@ -12,6 +12,7 @@ import {
   OPEN_API_CONTRACT_VERSION,
   listFieldDescriptors,
   buildSyntheticSamples,
+  allowedResultKeys,
 } from '../../lib/openApiFieldSchema.js'
 
 import {
@@ -69,11 +70,17 @@ test('字段字典：上下文同义副本标注正确（result.canteen/testDate
   assert.ok(String(redundantInspector.description).includes('不会出现'), 'result.inspector 说明必须写明不会出现在响应中')
 })
 
-test('字段字典：每种开放类型都能给出字段清单，且类型不适用时不编造复检字段', () => {
+test('字段字典：每种开放类型都能给出字段清单；复检结构按**写入路径**登记（F7 修正旧断言）', () => {
   for (const t of ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen']) {
     assert.ok(listFieldDescriptors(t).length > 10, `${t} 字段过少`)
   }
-  assert.ok(!listFieldDescriptors('pesticide').some((f) => f.path === 'result.recheckRecords'), '果蔬不应有复检字段')
+  // ⚠️ 2026-09-17 审阅 F7：旧断言要求"果蔬不得有 result.recheckRecords"，依据是"实测样本里没有"。
+  // 但写入路径（frontend/js/modules/GenericTest.js:549-550）对油/果蔬/肉蛋**都会写** record.recheckRecords
+  // —— 数据观察不能证明字段不存在；白名单按旧字典剔除该键，会造成"复检证据丢失、结论却来自复检"的自相矛盾。
+  for (const t of ['tableware', 'pesticide', 'oil', 'leanMeat']) {
+    assert.ok(listFieldDescriptors(t).some((f) => f.path === 'result.recheckRecords'),
+      `${t} 必须登记 result.recheckRecords（GenericTest/餐具写入路径均支持）`)
+  }
   assert.ok(listFieldDescriptors('pathogen').some((f) => f.path === 'result.recheckReports'), '病原体应有复检报告字段')
 })
 
@@ -140,10 +147,19 @@ test('结论口径：初检/最终与 basis 区分正确', () => {
   assert.equal(byFlag.basis, 'recheck')
 })
 
-test('结论口径：食用油按 colorLevel 业务裁定判定；病原体阳性判定；无判定文本为 unknown 而非 fail', () => {
-  // 业务口径（Dashboard.isOilQualified 同款）：colorLevel 仅含“不合格”才不合格，其余等级均视为合格
-  assert.equal(deriveConclusion('oil', { colorLevel: '深绿色' }).initial, 'pass', '非“不合格”的颜色等级视为合格')
+test('结论口径：食用油 colorLevel 走显式枚举（未识别值不得默认合格）；病原体阳性判定；无判定文本为 unknown 而非 fail', () => {
+  // 业务裁定（Dashboard.isOilQualified 同款）：仅「不合格」判不合格；**已知**合格类 {合格, 警戒} 判合格。
+  assert.equal(deriveConclusion('oil', { colorLevel: '合格' }).initial, 'pass')
+  assert.equal(deriveConclusion('oil', { colorLevel: '警戒' }).initial, 'pass', '警戒属已知等级，按裁定仍算合格')
   assert.equal(deriveConclusion('oil', { colorLevel: '不合格' }).initial, 'fail')
+  // ⚠️ 2026-09-17 P1 修复：原实现是 fail-open（任何非空 colorLevel 都判 pass）。
+  // 现改为显式枚举：未识别等级 → 回退 result 文本；两者都无可判文本 → unknown。
+  assert.equal(deriveConclusion('oil', { colorLevel: '深绿色' }).initial, 'unknown', '未识别等级不得默认合格')
+  assert.equal(deriveConclusion('oil', { colorLevel: 'foo' }).initial, 'unknown', '脏值不得默认合格')
+  assert.equal(deriveConclusion('oil', { colorLevel: '深绿色', result: '合格' }).initial, 'pass', '未识别等级回退 result 文本')
+  assert.equal(deriveConclusion('oil', { colorLevel: 'foo', result: '不合格 (>0.25)' }).initial, 'fail')
+  assert.equal(deriveConclusion('oil', { colorLevel: '' }).initial, 'unknown', '空字符串 = 未提交等级')
+  assert.equal(deriveConclusion('oil', { colorLevel: null }).initial, 'unknown', 'null 不得默认合格')
   assert.equal(deriveConclusion('oil', { result: '合格' }).initial, 'pass', 'colorLevel 缺失时回退 result')
   assert.equal(deriveConclusion('oil', {}).initial, 'unknown', '两者都缺失才是 unknown')
   const p = deriveConclusion('pathogen', { riskLevel: '高风险' })
@@ -234,4 +250,45 @@ test('清单摘要：记录/授权版本/投影策略任一变化都会改变 di
 
 test('契约版本常量存在且稳定', () => {
   assert.equal(OPEN_API_CONTRACT_VERSION, 'v1')
+})
+
+/* ───────────── 审阅 F6/F7 回归（2026-09-17）───────────── */
+
+test('F7：复检结构对 GenericTest 三类型（油/果蔬/肉蛋）同样登记并下发，且不下发复检人姓名', () => {
+  // 依据写入路径（frontend/js/modules/GenericTest.js:549-550 会写 record.recheckRecords），
+  // 而非"当前数据里观察到什么"。旧字典只给餐具登记 → 白名单剔除 → 复检证据丢失但结论仍来自复检（自相矛盾）。
+  for (const t of ['oil', 'pesticide', 'leanMeat']) {
+    const fields = listFieldDescriptors(t)
+    const f = fields.find((x) => x.path === 'result.recheckRecords')
+    assert.ok(f, `${t} 必须登记 result.recheckRecords`)
+    assert.ok(String(f.description).includes('user'), '必须说明 user 不下发')
+    assert.ok(allowedResultKeys(t).has('recheckRecords'), `${t} 的白名单必须允许 recheckRecords`)
+  }
+  const grant = { visible_types: ['oil'], include_inspector: true, scope_version: 1 }
+  const out = buildOpenRecord({
+    id: 'x', record_code: 'x', test_type: 'oil', status: 'completed', version: 1,
+    sample_info: { testDate: '2026-01-15', canteen: '示例食堂', inspector: '示例姓名' },
+    result_data: {
+      colorLevel: '不合格',
+      recheckRecords: [{ id: 1, time: '2026-01-15 15:30', user: '复检人示例', isPassed: true, points: [{ loc: 'A', rlu: '10', res: '合格' }] }],
+    },
+  }, grant, CTX)
+  assert.ok(Array.isArray(out.result.recheckRecords), '复检证据必须下发（曾因白名单遗漏被剔除）')
+  assert.equal(out.result.recheckRecords[0].user, undefined, '复检人姓名必须被 PII 剔除')
+  assert.equal(out.result.recheckRecords[0].isPassed, true)
+})
+
+test('F6：学校配置指纹参与 projection_fingerprint，并传导到 manifest digest（仅策略变化也必须可感知）', () => {
+  const a = computeProjectionFingerprint(GRANT)
+  const b = computeProjectionFingerprint(GRANT, 'school-config-A')
+  const c = computeProjectionFingerprint(GRANT, 'school-config-B')
+  assert.notEqual(a, b, '学校自定义字段指纹必须影响 projection_fingerprint')
+  assert.notEqual(b, c, '不同配置必须得到不同指纹')
+  assert.equal(b, computeProjectionFingerprint(GRANT, 'school-config-A'), '同一配置必须稳定（否则同步震荡）')
+  const rows = [{ record_code: 'RC-x', updated_at: '2026-01-15T00:00:00+08:00' }]
+  assert.notEqual(
+    computeManifestDigest(rows, { scopeVersion: 1, projectionFingerprint: b }),
+    computeManifestDigest(rows, { scopeVersion: 1, projectionFingerprint: c }),
+    '记录行不变、仅投影变化 → digest 必须变化',
+  )
 })

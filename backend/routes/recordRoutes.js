@@ -414,13 +414,30 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
                             })
                             continue
                         }
-                        // NB-25: bulk-upsert 默认"最后写入胜出"；客户端可传 expected_updated_at
-                        if (payload?.expected_updated_at) {
-                            const expected = String(payload.expected_updated_at).trim()
-                            const current = existing.updated_at instanceof Date
-                                ? existing.updated_at.toISOString()
-                                : String(existing.updated_at || '')
-                            if (expected && current && expected !== current) {
+                        // NB-25: bulk-upsert 命中已有记录时默认"最后写入胜出"（导入/恢复为完整记录，replace 口径）；
+                        // 客户端可传 expected_updated_at 升级为**原子 CAS**（P1-3：原实现是"先读后比再写"的 TOCTOU）。
+                        // 2026-09-17 P0-1：仅提交控制/上下文字段时不再写回 `{}` 清空结果（result_data 保持原值）。
+                        const builtUpdate = buildRecordWriteData(testType, payload, {
+                            existingSampleInfo: safeParseJson(existing.sample_info, {}) || {},
+                            existingResultData: safeParseJson(existing.result_data, {}) || {},
+                            resultDataMode: 'replace',
+                        })
+                        if (!builtUpdate.ok) {
+                            failed.push({ record_code: recordCode, reason: builtUpdate.message, code: builtUpdate.code, skipped: true })
+                            continue
+                        }
+                        const updateData = { ...builtUpdate.data, version: { increment: 1 } }
+                        if (!builtUpdate.resultDataProvided) delete updateData.result_data
+                        const expectedUpdatedAt = payload?.expected_updated_at ? String(payload.expected_updated_at).trim() : ''
+                        try {
+                            await req.db.testRecord.update({
+                                where: expectedUpdatedAt
+                                    ? { id: existing.id, updated_at: new Date(expectedUpdatedAt) }
+                                    : { id: existing.id },
+                                data: updateData,
+                            })
+                        } catch (e) {
+                            if (e?.code === 'P2025') {
                                 failed.push({
                                     record_code: recordCode,
                                     reason: '乐观锁冲突：该记录已被其他人修改',
@@ -428,14 +445,8 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
                                 })
                                 continue
                             }
+                            throw e
                         }
-                        await req.db.testRecord.update({
-                            where: { id: existing.id },
-                            data: {
-                                ...writeData,
-                                version: (existing.version || 0) + 1,
-                            }
-                        })
                         updated++
                     } else {
                         await req.db.testRecord.create({
@@ -518,26 +529,21 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
             }
 
             // 2026-09-16：统一归一 + 状态白名单（archived 属管理动作）
-            const built = buildRecordWriteData(testType, req.body || {})
+            // 2026-09-17 P0-1：本端点契约 = **整对象替换**（validateRecordPayload 已要求三键齐全、客户端送完整记录），
+            //   故 result_data 默认 replace；显式 `result_data_mode: 'merge'` 时改为键级合并。
+            //   两种语义下，result_data 内仅含上下文/控制字段时都返回 undefined（不改动），不再写回 `{}` 清空结果。
+            const built = buildRecordWriteData(testType, req.body || {}, {
+                existingSampleInfo: safeParseJson(existing.sample_info, {}) || {},
+                existingResultData: safeParseJson(existing.result_data, {}) || {},
+                resultDataMode: req.body?.result_data_mode === 'merge' ? 'merge' : 'replace',
+            })
             if (!built.ok) return res.status(400).json({ error: `❌ ${built.message}`, code: built.code })
             const statusCheck = resolveWritableStatus({ requested: req.body?.status, role: req.user?.role, currentStatus: existing.status })
             if (!statusCheck.ok) return res.status(400).json({ error: `❌ ${statusCheck.message}`, code: 'STATUS_NOT_ALLOWED' })
             const writeData = { ...built.data, ...(statusCheck.status ? { status: statusCheck.status } : {}) }
 
-            // TD-Q1-Recheck-SelfHeal: 兜底自愈——以「最新一次复检结论」为准双向同步 result
-            try {
-                const incoming = safeParseJson(writeData.result_data, {}) || {}
-                const passed = getLatestRecheckPassed(incoming)
-                if (passed === true && incoming.result !== '合格') {
-                    incoming.result = '合格'
-                    writeData.result_data = incoming
-                } else if (passed === false && incoming.result !== '不合格') {
-                    incoming.result = '不合格'
-                    writeData.result_data = incoming
-                }
-            } catch (_) { /* 自愈失败不影响主流程 */ }
-
-            // TD-Q1-Recheck-FieldGuard: 复检/编辑时保护原始业务字段。
+            // ⚠️ 以下两个「字段保护/自愈」块只在本次**确实提交了 result_data** 时执行：
+            //   否则 safeParseJson(undefined) → `{}` 会把 undefined 变成 `{}` 写回，等于清空结果（P0-1 的一部分）。
             const PROTECTED_FIELDS_COMMON = ['remarks', 'remark', 'result_unit', 'unit']
             const PROTECTED_FIELDS_BY_TYPE = {
                 pesticide: [...PROTECTED_FIELDS_COMMON, 'vegetableType', 'batchNo', 'sampleNo', 'limitValue', 'detectionLimit', 'sampleSource'],
@@ -547,17 +553,35 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
                 pathogen: [...PROTECTED_FIELDS_COMMON, 'sampleId', 'sampleType', 'positiveItems', 'positiveDetails', 'riskLevel', 'riskReason', 'allTestItems']
             }
             const PROTECTED_FIELDS = PROTECTED_FIELDS_BY_TYPE[testType] || PROTECTED_FIELDS_BY_TYPE.pesticide
-            try {
-                const incoming = safeParseJson(writeData.result_data, {}) || {}
-                const existingData = safeParseJson(existing?.result_data, {}) || {}
-                for (const k of PROTECTED_FIELDS) {
-                    if ((incoming[k] === undefined || incoming[k] === null || incoming[k] === '') &&
-                        existingData[k] !== undefined && existingData[k] !== null && existingData[k] !== '') {
-                        incoming[k] = existingData[k]
+            if (built.resultDataProvided) {
+                // TD-Q1-Recheck-SelfHeal: 兜底自愈——以「最新一次复检结论」为准双向同步 result
+                try {
+                    const incoming = safeParseJson(writeData.result_data, {}) || {}
+                    const passed = getLatestRecheckPassed(incoming)
+                    if (passed === true && incoming.result !== '合格') {
+                        incoming.result = '合格'
+                        writeData.result_data = incoming
+                    } else if (passed === false && incoming.result !== '不合格') {
+                        incoming.result = '不合格'
+                        writeData.result_data = incoming
                     }
-                }
-                writeData.result_data = incoming
-            } catch (_) { /* 字段保护失败不影响主流程 */ }
+                } catch (_) { /* 自愈失败不影响主流程 */ }
+
+                // TD-Q1-Recheck-FieldGuard: 复检/编辑时保护原始业务字段。
+                try {
+                    const incoming = safeParseJson(writeData.result_data, {}) || {}
+                    const existingData = safeParseJson(existing?.result_data, {}) || {}
+                    for (const k of PROTECTED_FIELDS) {
+                        if ((incoming[k] === undefined || incoming[k] === null || incoming[k] === '') &&
+                            existingData[k] !== undefined && existingData[k] !== null && existingData[k] !== '') {
+                            incoming[k] = existingData[k]
+                        }
+                    }
+                    writeData.result_data = incoming
+                } catch (_) { /* 字段保护失败不影响主流程 */ }
+            } else {
+                delete writeData.result_data   // 交给 Prisma 忽略（undefined），避免写成 {}
+            }
 
             // 版本号乐观锁（如果客户端传了 version 字段）
             if (req.body && typeof req.body.version !== 'undefined' && req.body.version !== existing.version) {
@@ -768,6 +792,10 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
                 resultData: result_data,
                 sampleInfo: req.body?.sample_info,
                 existingSampleInfo: safeParseJson(existing.sample_info, {}) || {},
+                // 2026-09-17 P0-1：本端点是**局部编辑**入口 → 默认 merge（未提交的业务键保留旧值），
+                // 要整对象替换需显式 `result_data_mode: 'replace'`；只提交上下文键时不再写回 {}。
+                existingResultData: safeParseJson(existing.result_data, {}) || {},
+                resultDataMode: req.body?.result_data_mode === 'replace' ? 'replace' : 'merge',
                 mode: 'update',
             })
             if (!norm.ok) {
@@ -779,15 +807,18 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
             // 并发保护（审阅 H3）：客户端提供 version 时走原子条件更新；未提供时保留旧行为，
             // 但在响应中回传服务端 version，并在日志中提示（本端点无仓库内调用方 —— 全仓 grep 仅集成测试用 DELETE）。
             const clientVersion = req.body?.version
+            // 2026-09-17 P1-3：本端点此前**不推进 version**，导致"改过了但版本号不变"——其它入口的乐观锁
+            // 与客户端缓存判断全部失真。统一改为原子 `version: { increment: 1 }`（CAS 用客户端版本做条件）。
+            const versionedData = { ...updateData, version: { increment: 1 } }
             let record
             if (clientVersion !== undefined && clientVersion !== null && clientVersion !== '') {
                 record = await req.db.testRecord.update({
                     where: { id, version: Number(clientVersion) },
-                    data: updateData,
+                    data: versionedData,
                 })
             } else {
-                console.warn(`[PUT /api/test-records/:id] 未携带 version（无并发保护）：id=${id} userId=${req.userId}`)
-                record = await req.db.testRecord.update({ where: { id }, data: updateData })
+                console.warn(`[PUT /api/test-records/:id] 未携带 version（按最后写入胜出，仍原子递增 version）：id=${id} userId=${req.userId}`)
+                record = await req.db.testRecord.update({ where: { id }, data: versionedData })
             }
 
             res.json({

@@ -8,19 +8,19 @@
 // 覆盖审阅要求的完整回归链路 1~10（真实 DB：JSON 写入/读取、唯一约束、版本冲突、租户隔离）。
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createRequire } from 'node:module'
-const require = createRequire('/opt/foodsentinel/backend/package.json')
+import { require, isConfigured, assertIsolationConfig, assertIsolated, cleanupScoped } from '../_isolation.mjs'
 
 const URL = process.env.REVIEW_TEST_DATABASE_URL || ''
-const TEST_SCHEMA = process.env.REVIEW_TEST_SCHEMA || 'school_reviewtest'
-const enabled = Boolean(URL)
+const TEST_SCHEMA = 'school_reviewtest'   // 固定：不再允许 REVIEW_TEST_SCHEMA 任意指定（F8）
+const enabled = isConfigured()
 
 if (!enabled) {
-  test('DB 集成测试（未设置 REVIEW_TEST_DATABASE_URL，跳过）', { skip: '需要隔离测试库' }, () => {})
+  test('DB 集成测试（未设置 REVIEW_TEST_DATABASE_URL，跳过）', { skip: 'SKIP: TEST_DATABASE_URL not configured' }, () => {})
 }
 
 if (enabled) {
-  if (!/review[_-]?test/i.test(URL)) throw new Error('REVIEW_TEST_DATABASE_URL 必须指向隔离测试库（库名含 review_test / reviewtest），拒绝运行')
+  // 配置级门禁：解析连接串 + 校验库名/schema（在创建任何客户端之前）
+  const iso = assertIsolationConfig({ schema: TEST_SCHEMA })
 
   const { PrismaClient } = require('@prisma/client')
   const { buildRecordPayload, buildDeterministicRecordCode } = await import('../../lib/recordNormalize.js')
@@ -66,14 +66,18 @@ if (enabled) {
   const GRANT = { visible_types: ['tableName' === 'x' ? 'oil' : 'oil'], include_pathogen: true, include_inspector: false }
 
   test.before(async () => {
+    // 运行时双确认：真实库名必须等于配置中的隔离库（写操作之前）
+    await assertIsolated(db, iso.db, '租户客户端')
+    await assertIsolated(publicDb, iso.db, 'public 客户端')
     for (const [id, name] of [[USER_ID, 'review-owner'], [OTHER_ID, 'review-other']]) {
       await db.user.upsert({ where: { id }, update: {}, create: { id, username: name, password_hash: 'x', role: 'manager', full_name: name } })
     }
-    await db.testRecord.deleteMany({})
+    // 范围清理：只删本套件两个测试用户创建的记录（旧实现是无条件 deleteMany({})，F8）
+    await cleanupScoped(db, { created_by: { in: [USER_ID, OTHER_ID] } }, 'before')
   })
 
   test.after(async () => {
-    await db.testRecord.deleteMany({})
+    await cleanupScoped(db, { created_by: { in: [USER_ID, OTHER_ID] } }, 'after')
     await db.$disconnect()
     await publicDb.$disconnect()
   })

@@ -25,6 +25,41 @@ export function createSyncRoutes(userManager, prisma) {
     // ====== Authentication Middleware（统一从 authMiddleware.js 导入）======
     const { authenticateUser, authorizeAdmin, requireEditorOrAbove } = createAuthMiddleware(userManager, prisma)
 
+    /**
+     * 同步端的并发语义（2026-09-17 P1-3 定稿）—— **App 离线优先 = 最后写入胜出（LWW）**：
+     *   · 客户端携带 `expected_version`（或 `version`）→ 走**原子 CAS**：`where { id, version }`，
+     *     条件不满足抛 P2025 → 映射为 409 VERSION_CONFLICT（不覆盖别人的新数据）。
+     *   · 未携带 → 保留 LWW（离线队列无法保证版本新鲜度），但 version **原子 +1** 并回传，
+     *     使其它入口/客户端的版本判断仍然有效；同时打日志提示。
+     *   ⚠️ 不要把这个端点的 version 当锁：默认语义是 LWW，已在 docs/OPEN_API_INTEGRATION.md 与
+     *      客户端示例中写明；要强一致请传 expected_version。
+     */
+    async function updateRecordLwwOrCas(db, id, updateFields, data) {
+        const expectedRaw = data?.expected_version ?? data?.version
+        const hasExpected = expectedRaw !== undefined && expectedRaw !== null && expectedRaw !== ''
+        const expected = hasExpected ? Number(expectedRaw) : null
+        if (hasExpected && !Number.isFinite(expected)) {
+            const e = new Error('expected_version 必须是数字')
+            e.code = 'INVALID_EXPECTED_VERSION'
+            throw e
+        }
+        const payload = { ...updateFields, version: { increment: 1 } }
+        try {
+            if (hasExpected) {
+                return await db.testRecord.update({ where: { id, version: expected }, data: payload })
+            }
+            console.warn(`[SYNC LWW] 未携带 expected_version，按最后写入胜出处理：id=${id}`)
+            return await db.testRecord.update({ where: { id }, data: payload })
+        } catch (err) {
+            if (err?.code === 'P2025') {
+                const e = new Error('版本冲突：记录已被其他人修改，请重新获取后重试')
+                e.code = 'VERSION_CONFLICT'
+                throw e
+            }
+            throw err
+        }
+    }
+
     // ====== POST /sync/records — 同步单条检测记录 ======
     // NB-10: 仅 editor 及以上角色可写入，防止 viewer 只读角色通过 sync 端点写数据
     router.post('/records', authenticateUser, requireEditorOrAbove, async (req, res) => {
@@ -93,6 +128,10 @@ export function createSyncRoutes(userManager, prisma) {
                         resultData: data.result_data,
                         sampleInfo: data.sample_info,
                         existingSampleInfo: safeParseJson(existingUpdate.sample_info, {}),
+                        // 2026-09-17 P0-1：本端点是**局部更新**（离线队列只送变更字段）→ 默认 merge；
+                        // 未提交的业务键保留旧值；只提交上下文键时不再写回 {} 清空结果。
+                        existingResultData: safeParseJson(existingUpdate.result_data, {}) || {},
+                        resultDataMode: data.result_data_mode === 'replace' ? 'replace' : 'merge',
                         mode: 'update',
                     })
                     if (!normUpdate.ok) {
@@ -106,7 +145,7 @@ export function createSyncRoutes(userManager, prisma) {
                     if (statusCheckUpdate.status) updateFields.status = statusCheckUpdate.status
                     if (normUpdate.resultData !== undefined) updateFields.result_data = normUpdate.resultData
                     if (normUpdate.provided.length) updateFields.sample_info = normUpdate.sampleInfo
-                    result = await req.db.testRecord.update({ where: { id: data.id }, data: updateFields })
+                    result = await updateRecordLwwOrCas(req.db, data.id, updateFields, data)
                     break
                 }
                 case 'delete': {
@@ -138,6 +177,13 @@ export function createSyncRoutes(userManager, prisma) {
                 syncedAt: new Date()
             })
         } catch (error) {
+            // 2026-09-17 P1-3：并发语义显式化 —— 条件 CAS 失败 → 409；参数非法 → 400（原先一律 500 或静默覆盖）
+            if (error.code === 'VERSION_CONFLICT') {
+                return res.status(409).json({ success: false, error: `❌ ${error.message}`, code: 'VERSION_CONFLICT' })
+            }
+            if (error.code === 'INVALID_EXPECTED_VERSION') {
+                return res.status(400).json({ success: false, error: `❌ ${error.message}`, code: 'INVALID_EXPECTED_VERSION' })
+            }
             if (error.code === 'P2002' && action === 'add' && data.record_code) {
                 const existing = await req.db.testRecord.findUnique({ where: { record_code: data.record_code } })
                 if (existing) {
@@ -219,6 +265,8 @@ export function createSyncRoutes(userManager, prisma) {
                                 resultData: data.result_data,
                                 sampleInfo: data.sample_info,
                                 existingSampleInfo: safeParseJson(existing.sample_info, {}),
+                                existingResultData: safeParseJson(existing.result_data, {}) || {},
+                                resultDataMode: data.result_data_mode === 'replace' ? 'replace' : 'merge',
                                 mode: 'update',
                             })
                             if (!normU.ok) { const e = new Error(normU.message); e.code = normU.code; throw e }
@@ -228,7 +276,7 @@ export function createSyncRoutes(userManager, prisma) {
                             if (statusCheckU.status) updateFields.status = statusCheckU.status
                             if (normU.resultData !== undefined) updateFields.result_data = normU.resultData
                             if (normU.provided.length) updateFields.sample_info = normU.sampleInfo
-                            result = await req.db.testRecord.update({ where: { id: data.id }, data: updateFields })
+                            result = await updateRecordLwwOrCas(req.db, data.id, updateFields, data)
                             break
                         }
                         case 'delete': {

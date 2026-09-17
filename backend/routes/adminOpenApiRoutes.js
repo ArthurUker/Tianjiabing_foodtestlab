@@ -446,7 +446,8 @@ export function createAdminOpenApiRoutes({ prisma, authenticateUser, requirePlat
           school_code: schoolCode,
           school_name: school?.name || null,
           scope_version: grant.scope_version,
-          projection_fingerprint: computeProjectionFingerprint(grant),
+          // 与对外 /test-records、/samples、/sync/manifest 同源（含投影修订号 + 该校配置指纹，见 F6）
+          projection_fingerprint: computeProjectionFingerprint(grant, allowedKeysFingerprint(types, (t) => extractCustomFieldMeta(cust, t))),
           include_inspector: grant.include_inspector === true,
           visible_types: visibleTypes,
           field_schema,

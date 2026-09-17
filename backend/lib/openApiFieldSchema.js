@@ -6,6 +6,8 @@
 //   ③ 超管「接入说明」          → 接入包内容
 // 真实响应仍由 openApiScope.buildOpenRecord 生成（同一套投影规则），
 // 样例先构造「合成原始记录」再走同一投影，保证样例与真实响应形态一致。
+
+import crypto from 'node:crypto'
 //
 // 字段清单依据（2026-09-15 只读元数据核验，见 backend/tests/openapi/db-readonly-checks.mjs）：
 //   leanMeat  : batchNo/canteen/inspector/meatType/remark/result/testDate
@@ -59,7 +61,21 @@ const COMMON_FIELDS = [
   { path: 'data_version', label: '数据版本', type: 'integer', unit: null, nullable: false, required: true, source: 'platform' },
 ]
 
-/** 各类型 result.* 字段（依据实测元数据；required 表示该类型全部记录均出现）。 */
+/**
+ * 复检记录（通用）—— 2026-09-17 审阅 F7 修复。
+ *
+ * 依据**写入路径**（而非"当前数据里观察到什么"）：前端 `frontend/js/modules/GenericTest.js:549-550`
+ * 对**油品 / 果蔬农残 / 肉蛋**（GenericTest 三类型）同样会写 `record.recheckRecords`；
+ * 旧字典只按实测样本给餐具登记了该结构 → 白名单把它们剔除，导致"复检证据被丢掉、
+ * 但 final_conclusion 仍按复检结论输出"的自相矛盾响应。元素中的 `user`（复检人姓名）由 PII 递归剔除。
+ */
+const RECHECK_RECORD_FIELD = {
+  path: 'result.recheckRecords', label: '复检记录', type: 'array<object>', unit: null, nullable: true, required: false,
+  description: '有复检时才出现；结论看元素 `isPassed`（true=复检合格）与顶层 `final_conclusion`。元素中的 `user`（复检人姓名）**不下发**',
+  item_fields: ['id(序号)', 'time(复检时间字符串)', 'isPassed(是否通过 boolean)', 'points(点位明细 array)'], source: 'platform',
+}
+
+/** 各类型 result.* 字段（依据实测元数据 + 写入路径；required 表示该类型全部记录均出现）。 */
 const TYPE_FIELDS = {
   tableware: [
     { path: 'result.testType', label: '检测项目', type: 'string', unit: null, nullable: true, required: false, description: '如 表面清洁度 / 洗涤剂残留；历史记录中仅部分存在，取值以学校配置为准', source: 'platform' },
@@ -78,12 +94,14 @@ const TYPE_FIELDS = {
     { path: 'result.batchNo', label: '检测项目（检测卡/试剂）', type: 'string', unit: null, nullable: true, required: true, description: '如「克百威-胶体金检测卡」；取值以学校配置为准', source: 'platform' },
     { path: 'result.result', label: '结果文本', type: 'string', unit: null, nullable: true, required: true, source: 'platform' },
     { path: 'result.remark', label: '备注', type: 'string', unit: null, nullable: true, required: true, source: 'platform' },
+    RECHECK_RECORD_FIELD,
   ],
   leanMeat: [
     { path: 'result.meatType', label: '肉类品种', type: 'string', unit: null, nullable: true, required: true, source: 'platform' },
     { path: 'result.batchNo', label: '检测项目（检测卡）', type: 'string', unit: null, nullable: true, required: true, description: '如「恩诺沙星-胶体金检测卡」；取值以学校配置为准', source: 'platform' },
     { path: 'result.result', label: '结果文本', type: 'string', unit: null, nullable: true, required: true, source: 'platform' },
     { path: 'result.remark', label: '备注', type: 'string', unit: null, nullable: true, required: true, source: 'platform' },
+    RECHECK_RECORD_FIELD,
   ],
   oil: [
     { path: 'result.colorLevel', label: '综合品质等级', type: 'enum', unit: null, nullable: true, required: true, enum: ['合格', '警戒', '不合格'], description: '⚠️ **不是颜色**：由前端按「TPM 与酸价等级取最差」算出的综合等级（2026-09-16 实测 合格 38 / 警戒 1，无不合格）。结论口径：**仅「不合格」判不合格**，其余等级视为合格（与 `/stats` 同源）', source: 'platform' },
@@ -92,6 +110,7 @@ const TYPE_FIELDS = {
     { path: 'result.oilTemp', label: '油温', type: 'string', unit: '℃', nullable: true, required: true, description: '⚠️ 字符串类型；实测恒为 35', source: 'platform' },
     { path: 'result.result', label: '结果文本（兜底字段）', type: 'string', unit: null, nullable: true, required: true, description: '**实测 39/39 均为空字符串**——油品结论看 `colorLevel`；本字段仅作历史/其它来源的兜底（`/stats` 在 colorLevel 为空时才回退读它）', source: 'platform' },
     { path: 'result.remark', label: '备注', type: 'string', unit: null, nullable: true, required: true, source: 'platform' },
+    RECHECK_RECORD_FIELD,
   ],
   pathogen: [
     { path: 'result.riskLevel', label: '风险等级', type: 'enum', unit: null, nullable: true, required: true, enum: ['无风险', '低风险', '极低风险'], description: '「无风险」为合格；**其它任何非空值一律视为不合格/有风险**（与 `/stats` 同口径；实测取值仅 无风险 48 / 低风险 9 / 极低风险 9，**没有"高风险"**）。⚠️ 「有风险」**不等于确诊阳性**——是否检出看 `result.positiveDetails`', source: 'platform' },
@@ -338,6 +357,21 @@ export function allowedResultKeys(testType, ctx = {}) {
     if (k && !k.includes('.')) keys.add(k)
   }
   return keys
+}
+
+/**
+ * 学校"影响输出的配置"指纹（2026-09-17 审阅 F6）：把该校**实际会下发的** result 键集合
+ * （已按白名单过滤、排序）哈希成 16 位。用于在 projection_fingerprint 中纳入自定义字段的影响，
+ * 使"字段可见性因学校配置变化"时也能被同步客户端感知。
+ */
+export function allowedKeysFingerprint(types, ctxOf = () => ({})) {
+  const parts = []
+  for (const t of Array.isArray(types) ? types : []) {
+    const type = String(t)
+    const keys = [...allowedResultKeys(type, ctxOf(type))].sort()
+    parts.push(`${type}:${keys.join(',')}`)
+  }
+  return crypto.createHash('sha256').update(parts.sort().join('|')).digest('hex').slice(0, 16)
 }
 
 /** 一次构建多个类型的白名单（路由层用；ctxOf(type) 返回该类型的自定义字段 ctx）。 */

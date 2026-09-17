@@ -166,6 +166,19 @@ curl -s -H "X-API-Key: $KEY" "$BASE/samples?school_code=<学校>"    # ← 合�
 - 反之，**不要**用"接口没返回该字段"解释为"该字段值为空/未变"：本接口只会返回**完整对象**（不存在部分响应语义）；契约内不返回 = 该字段不应存在于你方本地；
 - 授权变化（`scope_version`/`projection_fingerprint`）与普通记录字段变化，都按同一条"整体覆盖"规则处理即可。
 
+### 4.3.1 本地 checkpoint 的原子性（**必须遵守**）
+
+参考实现见 `docs/examples/openapi-sync-client.mjs`（mock 模式可直接跑）。规则：
+
+1. 读 `head` 清单 → **克隆当前本地状态为 candidate**；
+2. 本轮所有改动（records / cursor / watermark）**只写 candidate**；
+3. 本轮结束再读 `tail` 清单，**先校验** `tail.digest === head.digest`（且 `scope_version` / `projection_fingerprint` 未变）；
+4. 校验通过才把 candidate **一次性提交**为正式状态；不一致则**丢弃 candidate 并重跑**（有界重试 + 退避）。
+
+⚠️ 常见错误：在 tail 校验之前就写 `state.digest = tail.digest`。若同步中途源端新增了数据（head=D1、tail=D2），
+下一轮会把 D2 误判为"已同步"，**新增记录永久漏拉**。同理，任何失败（第 N 页超时 / JSON 解析失败 /
+tail 请求失败 / digest 不一致）都不得留下 records / cursor / watermark / digest 的半更新。
+
 ### 4.4 失败与重试约定
 
 - `401/403`：不要重试，检查密钥/授权/白名单；
@@ -251,15 +264,23 @@ curl -s -H "X-API-Key: $KEY" "$BASE/samples?school_code=<学校>"    # ← 合�
 
 ```json
 { "code": 0, "data": {
-  "school_code": "tjb", "start": null, "end": null,
+  "school_code": "tjb", "start": "2026-01-01", "end": "2026-01-31",
   "total": 1062, "pass_count": 1046, "pass_rate": 0.9849,
-  "scope_total": 1062, "included_total": 1062, "excluded_total": 1,
-  "excluded": [ { "reason": "missing_or_invalid_test_date",
-                  "label": "检测日期缺失或格式非法（无法定位业务日期）", "count": 1 } ],
+  "scope_total": 1062, "included_total": 1062, "universe_total": 1063,
+  "excluded_total": 0,
+  "excluded": [],
+  "request_out_of_range_total": 0,
+  "range": { "requested": { "start": null, "end": null },
+             "grant": { "start": "2026-01-01", "end": "2026-01-31" },
+             "effective": { "start": "2026-01-01", "end": "2026-01-31" },
+             "inclusivity": "两端含当天（闭区间）",
+             "authorization_boundary": "统计只在「授权可见全集」内进行：授权业务日期范围外的记录不出现在任何字段中（连数量也不可推断）。" },
+  "set_definition": { "authorized_universe": "…", "scope_total": "…", "identity": "universe_total = scope_total + request_out_of_range_total + excluded_total" },
   "pass_rate_detail": { "numerator": 1046, "denominator": 1062, "value": 0.9849,
                         "when_denominator_zero": "null（不返回 0，避免被误读为全部不合格）" },
   "by_type": [ { "test_type": "tableware", "total": 233, "pass_count": 217, "pass_rate": 0.9313,
-                 "scope_total": 233, "included_total": 233, "excluded_total": 1, "excluded": [ … ] } ],
+                 "scope_total": 233, "universe_total": 233, "request_out_of_range_total": 0,
+                 "included_total": 233, "excluded_total": 0, "excluded": [] } ],
   "exclusion_policy": "…" } }
 ```
 
@@ -268,17 +289,29 @@ curl -s -H "X-API-Key: $KEY" "$BASE/samples?school_code=<学校>"    # ← 合�
 | 类型 | 合格判定 |
 |---|---|
 | 餐具 / 果蔬 / 肉蛋 | `result` 含「合格」且不含「不合格」 |
-| 食用油 | 优先 `colorLevel`（综合品质等级）：**仅「不合格」判不合格，其余等级均视为合格**；无 `colorLevel` 时回退 `result`（实测油记录 `result` 恒为空串） |
+| 食用油 | 优先 `colorLevel`（综合品质等级）走**显式枚举**：`合格`/`警戒` → 合格；`不合格` → 不合格；**其它未识别值不再默认合格**，而是回退 `result` 文本判定（`colorLevel` 缺失时同样回退 `result`，实测油记录 `result` 恒为空串 → `unknown`） |
 | 病原体 | `riskLevel = 无风险` 为合格；**任何其它非空值视为不合格/有风险**（`is_positive` 同一口径：非空且 ≠ 无风险 → `true`）。⚠️ 「有风险」≠ 确诊阳性：确诊看 `positiveDetails` 是否非空 |
 
-- `scope_total`：授权范围内（类型 + 授权业务日期范围）的记录数；
-- `included_total`：参与合格率计算的记录数；
-- `excluded[]`：未参与计算的条数与**原因**（当前仅「检测日期缺失/非法」一类）；
-- 分母为 0 时 `pass_rate` 返回 `null`（不是 0）；
-- 若授权本身带业务日期范围，范围外记录不属于本次统计范围（不计入 `excluded`）。
+**集合定义（互斥，可人工验算）**：
 
-> 对账建议：`/test-records` 拉到的明细条数（授权范围内全部记录）与 `/stats.scope_total` 应一致；
-> 若不一致，请用 `manifest.total` 与 `stats.excluded` 定位到具体原因，而不是简单"以某个数为准"。
+| 集合 | 含义 |
+|---|---|
+| AuthorizedUniverse（`universe_total`） | 授权类型内、且落在**授权业务日期范围**内的记录 |
+| `scope_total` = `included_total` | 日期合法 **且** 落在「授权 ∩ 请求」范围内 → 合格率分母 |
+| `request_out_of_range_total` | 日期合法、在授权范围内，但超出**本次请求**范围 |
+| `excluded_total` / `excluded[]` | 日期缺失 / 格式非法 / **日历不存在**（如 `2026-02-30`）。⚠️ 授权带业务日期范围时恒为 0：这类记录无法归属窗口，不计入任何返回值 |
+
+- 恒等式：`universe_total = scope_total + request_out_of_range_total + excluded_total`；
+- **授权范围外的记录不出现在任何字段里**（含数量）——统计不做授权外数量的侧信道；
+- 分母为 0 时 `pass_rate` 返回 `null`（不是 0）；
+- `start`/`end` 的实际生效范围 = **授权范围 ∩ 请求范围**（请求不得超过授权）；交集为空是合法请求 → `200` 且 0 条（`range.empty = true`）。
+- ⚠️ **指标口径声明 `metric_basis = 'initial_conclusion'`**：合格率统计的是**初检**判定（与员工端看板同口径）。
+  明细的 `final_conclusion` / `conclusion` 在存在复检时取复检结论，因此「明细 `conclusion=pass` 却未计入 `pass_count`」
+  是**预期差异**（例：初检不合格 → 复检合格），不是数据错误。如需按最终结论统计，平台将以**新字段**（如 `pass_rate_final`）
+  提供，不会改动既有指标含义。
+
+> 对账建议：`/test-records` 在**同一日期范围**下拉到的明细条数应与 `/stats.scope_total` 一致；
+> 若不一致，请用 `manifest.total`、`stats.excluded`、`stats.request_out_of_range_total` 定位到具体桶，而不是简单"以某个数为准"。
 
 ---
 

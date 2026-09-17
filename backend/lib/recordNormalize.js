@@ -81,7 +81,7 @@ const CONTEXT_FIELDS = ['testDate', 'canteen', 'inspector']
 const CONTROL_KEYS = new Set([
     'id', '_status', 'status', 'version', 'record_code', 'test_type', 'test_name',
     'created_at', 'updated_at', 'createdAt', 'updatedAt', 'completed_at',
-    'created_by', 'createdBy', 'expected_updated_at', 'sync_time', 'last_sync_at',
+    'created_by', 'createdBy', 'expected_updated_at', 'expected_version', 'result_data_mode', 'sync_time', 'last_sync_at',
     'sample_info', 'result_data',
     'action', 'store', 'syncId', 'timestamp',
     ...CONTEXT_FIELDS,
@@ -116,6 +116,42 @@ function resolveContextValues({ payload = {}, sampleInfo, resultData } = {}) {
     return { values, missing: CONTEXT_FIELDS.filter((f) => values[f] === undefined) }
 }
 
+/**
+ * 业务日期合法性：**格式 + 真实公历**（2026-02-30 / 2026-13-01 / 2026-00-10 均非法）。
+ * 与 `openApiScope.parseDayParam`（请求参数）同一语义，避免"请求端一套、库内一套"。
+ */
+const BUSINESS_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/
+function isValidBusinessDate(value) {
+    if (value === null || value === undefined) return false
+    const s = String(value).trim().slice(0, 10)
+    const m = s.match(BUSINESS_DATE_RE)
+    if (!m) return false
+    const dt = new Date(`${s}T00:00:00Z`)
+    return !Number.isNaN(dt.getTime()) && dt.toISOString().slice(0, 10) === s
+}
+
+/**
+ * 局布更新（PATCH 语义）下 result_data 的合并规则 —— 顶层键级浅合并：
+ *   · 未提交的键 → 保留库内旧值（不得因"本次没带"而丢失）；
+ *   · 提交的键 → 用新值覆盖，**包括嵌套对象整体替换**（不递归深合并，避免语义歧义）；
+ *   · 显式 `null` → 删除该键（唯一、明确的"清空单个字段"手段）。
+ *
+ * @param {*} existing 库内旧 result_data
+ * @param {*} incoming 本次提交（已剔除控制字段/上下文副本）
+ * @returns {object}
+ */
+function mergeResultDataForPatch(existing, incoming) {
+    const base = isPlainObject(existing) ? { ...existing } : {}
+    const inc = isPlainObject(incoming) ? incoming : {}
+    for (const [k, v] of Object.entries(inc)) {
+        if (v === null) { delete base[k]; continue }
+        base[k] = v
+    }
+    return base
+}
+
+const RESULT_DATA_MODES = new Set(['merge', 'replace'])
+
 /** result_data 落库前剔除控制字段与上下文副本（仅顶层，不递归）。 */
 function stripControlKeys(source) {
     const out = {}
@@ -135,16 +171,24 @@ function stripControlKeys(source) {
  *   - resultData         请求中显式提交的 result_data
  *   - sampleInfo         请求中显式提交的 sample_info
  *   - existingSampleInfo 数据库旧 sample_info；**null = 整对象替换（create）**；对象 = 局部更新的合并基座
+ *   - existingResultData 数据库旧 result_data（局部更新合并基座；null/省略 = 不合并）
+ *   - resultDataMode     'merge'（默认，PATCH 语义）| 'replace'（整对象替换语义）
  *   - mode               'create' | 'update'
  * @returns {{ok:true, sampleInfo:object, resultData:object|undefined, provided:string[], sourceKind:string}
  *          |{ok:false, code:string, message:string}}
  */
-function normalizeWriteJson({ payload = {}, resultData, sampleInfo, existingSampleInfo = null, mode = 'update' } = {}) {
+function normalizeWriteJson({
+    payload = {}, resultData, sampleInfo, existingSampleInfo = null, existingResultData = null,
+    resultDataMode = 'merge', mode = 'update',
+} = {}) {
     if (resultData !== undefined && resultData !== null && !isPlainObject(resultData)) {
         return { ok: false, code: 'INVALID_RESULT_DATA', message: 'result_data 必须是 JSON 对象（不接受字符串/数组）' }
     }
     if (sampleInfo !== undefined && sampleInfo !== null && !isPlainObject(sampleInfo)) {
         return { ok: false, code: 'INVALID_SAMPLE_INFO', message: 'sample_info 必须是 JSON 对象' }
+    }
+    if (!RESULT_DATA_MODES.has(resultDataMode)) {
+        return { ok: false, code: 'INVALID_RESULT_DATA_MODE', message: `result_data_mode 只能是 merge 或 replace（收到 ${resultDataMode}）` }
     }
 
     const { values, missing } = resolveContextValues({ payload, sampleInfo, resultData })
@@ -161,16 +205,37 @@ function normalizeWriteJson({ payload = {}, resultData, sampleInfo, existingSamp
         ? { testDate: values.testDate ?? null, canteen: values.canteen ?? null, inspector: values.inspector ?? null }
         : { ...(isPlainObject(existingSampleInfo) ? existingSampleInfo : {}), ...values }
 
-    // result_data：
-    //   显式提交的非空对象 → 用它（nested）；
-    //   create 且显式为空/未提交 → 用扁平 payload 兜底（flat，剔控制字段）；
-    //   update 且显式为空/未提交 → **不改动**（历史实现会写入整条请求体、或在 `{}` 时清空已有结果）
+    // result_data（2026-09-17 P0-1 修复）：
+    //   · **只提交控制字段/上下文副本**（如仅 `{ canteen: 'B' }`）→ **不改动** result_data。
+    //     旧实现在 strip 之后剩 `{}`，仍被判为"显式提交"写回 → **清空已有检测结果**（局部更新语义被破坏）。
+    //   · create：显式业务对象直接用；否则用扁平 payload 兜底；无任何业务字段 → 400 EMPTY_RESULT_DATA。
+    //   · update：显式业务对象按 resultDataMode 处理 —— merge（默认）保留未提交键，replace 为整对象替换。
+    //   · update 且显式 `{}` / 未提交 → 不改动（历史实现会写入整条请求体或清空）。
     let resultDataOut
     let sourceKind = 'none'
     const explicitProvided = resultData !== undefined && resultData !== null
-    if (explicitProvided && Object.keys(resultData).length > 0) {
-        resultDataOut = stripControlKeys(resultData)
-        sourceKind = 'nested'
+    const explicitKeys = explicitProvided ? Object.keys(resultData).length : 0
+    const stripped = explicitKeys > 0 ? stripControlKeys(resultData) : {}
+    const strippedKeys = Object.keys(stripped).length
+
+    if (strippedKeys > 0) {
+        if (mode === 'create') {
+            resultDataOut = stripped
+            sourceKind = 'nested'
+        } else if (resultDataMode === 'replace') {
+            resultDataOut = stripped
+            sourceKind = 'nested-replace'
+        } else {
+            resultDataOut = mergeResultDataForPatch(existingResultData, stripped)
+            sourceKind = 'nested-merge'
+        }
+    } else if (explicitKeys > 0) {
+        // 只提交了控制/上下文字段：这些值已由 resolveContextValues 并入 sample_info，结果体不动
+        if (mode === 'create') {
+            return { ok: false, code: 'EMPTY_RESULT_DATA', message: '结果数据为空：请至少提交一个检测业务字段' }
+        }
+        resultDataOut = undefined
+        sourceKind = 'context-only-noop'
     } else if (mode === 'create') {
         resultDataOut = stripControlKeys(payload)
         sourceKind = 'flat'
@@ -178,8 +243,18 @@ function normalizeWriteJson({ payload = {}, resultData, sampleInfo, existingSamp
             return { ok: false, code: 'EMPTY_RESULT_DATA', message: '结果数据为空：请至少提交一个检测业务字段' }
         }
     } else {
-        resultDataOut = undefined
-        if (explicitProvided) sourceKind = 'empty-object-noop'
+        // 2026-09-17 审阅 F1 修复：兼容历史**扁平业务更新**形态。
+        // 旧 sync 路径是 `result_data || data`，因此 `{ id, result: '合格' }` 这类"业务字段平铺在 data 顶层"
+        // 的载荷原本能生效；上一轮改为只认 `result_data` 后，这种载荷会**静默成功但什么都没改**（不可接受的假成功）。
+        // 现在：payload 去掉控制字段后仍有业务键 → 按 merge（或显式 replace）并入 result_data；否则不改动。
+        const flat = stripControlKeys(payload)
+        if (mode === 'update' && Object.keys(flat).length > 0) {
+            resultDataOut = resultDataMode === 'replace' ? flat : mergeResultDataForPatch(existingResultData, flat)
+            sourceKind = 'flat-merge'
+        } else {
+            resultDataOut = undefined
+            if (explicitProvided) sourceKind = 'empty-object-noop'
+        }
     }
 
     return {
@@ -207,23 +282,33 @@ function resolveWritableStatus({ requested, role, currentStatus } = {}) {
 }
 
 /**
- * 整对象替换入口的写库数据（POST /api/records/:tableName、PUT /api/records/:tableName/:id、
- * bulk-upsert）：上下文三键只落 sample_info，result_data 剔除控制字段与历史副本。
+ * 写库数据（POST /api/records/:tableName、PUT /api/records/:tableName/:id、bulk-upsert）：
+ * 上下文三键只落 sample_info，result_data 剔除控制字段与历史副本。
  *
  * 幂等键不受影响：record_code 由**入参 payload** 计算（`buildDeterministicRecordCode`），
  * 与写库形态无关。
  *
- * @returns {{ok:true, data:object}|{ok:false, code:string, message:string}}
+ * @param {object} [opts]
+ *   - existingSampleInfo 传对象 = 走 **update** 语义（局部更新合并基座）；默认 null = create
+ *   - existingResultData update 语义下的 result_data 合并基座
+ *   - resultDataMode     'replace'（默认，PUT/bulk-upsert 的整对象替换契约）| 'merge'（PATCH 语义）
+ *   ⚠️ 无论哪种语义：`result_data` 内**仅含控制字段/上下文副本**时一律返回 `undefined`（不改动），
+ *      绝不再写回 `{}` 清空已有检测结果（P0-1）。
+ * @returns {{ok:true, data:object, resultDataProvided:boolean}|{ok:false, code:string, message:string}}
  */
-function buildRecordWriteData(tableName, payload = {}) {
+function buildRecordWriteData(tableName, payload = {}, opts = {}) {
+    const { existingSampleInfo = null, existingResultData = null, resultDataMode = 'replace' } = opts
+    const mode = existingSampleInfo === null ? 'create' : 'update'
     // D-06: 写库前净化用户可控 JSON 键（防 __proto__ 等原型链污染）
     const clean = sanitizeObjectKeys({ ...(isPlainObject(payload) ? payload : {}) })
     const norm = normalizeWriteJson({
         payload: clean,
         resultData: clean.result_data,
         sampleInfo: clean.sample_info,
-        existingSampleInfo: null,
-        mode: 'create',
+        existingSampleInfo,
+        existingResultData,
+        resultDataMode,
+        mode,
     })
     if (!norm.ok) return norm
     return {
@@ -236,6 +321,7 @@ function buildRecordWriteData(tableName, payload = {}) {
             result_data: norm.resultData,
             status: typeof clean.status === 'string' && clean.status ? clean.status : 'completed',
         },
+        resultDataProvided: norm.resultData !== undefined,
     }
 }
 
@@ -320,6 +406,11 @@ function stripVolatileFields(value) {
         'updatedAt',
         'sync_time',
         'last_sync_at',
+        // 乐观锁提示属于传输控制字段（与 CONTROL_KEYS 一致）：**不得参与内容哈希**。
+        // 2026-09-17 修复（由 bulk-upsert CAS 回归用例暴露）：原实现把它算进哈希 → 带
+        // expected_updated_at 提交会得到不同的 record_code → 命中不了已有记录 →
+        // 本该"条件更新"的请求反而**新增一条重复记录**，乐观锁形同不可用。
+        'expected_updated_at',
         'modificationLogs',
         'recheckRecords',
         'recheckReports',
@@ -361,6 +452,10 @@ export {
     TEST_TYPE_LABELS,
     CONTEXT_FIELDS,
     CONTROL_KEYS,
+    BUSINESS_DATE_RE,
+    isValidBusinessDate,
+    mergeResultDataForPatch,
+    RESULT_DATA_MODES,
     normalizeWriteJson,
     resolveContextValues,
     resolveWritableStatus,

@@ -855,6 +855,33 @@ erDiagram
 **安全与口径边界**
 
 - 越权防护：`school_code` 必须命中该对接方的 `active` grant，否则 `403 SCHOOL_NOT_AUTHORIZED`；类型必须命中 `visible_types` 白名单（**病原体需显式开启**，自定义检测类型默认不开放）。
+### 4.4 写入语义（2026-09-17 P0/P1 定稿；所有入口共用 `lib/recordNormalize.js`）
+
+**局部更新（PATCH）与整对象替换（PUT）必须区分，且用同一套归一实现：**
+
+| 请求形态 | 语义 | 结果 |
+|---|---|---|
+| `result_data` 缺省 / `undefined` / `null` | 未提交 | **不改动** result_data |
+| `result_data: {}` | 显式空对象 | **不改动**（兼容既有 Web/App 行为） |
+| `result_data: { canteen: 'B' }`（仅控制/上下文字段） | 只改上下文 | 三键合并进 `sample_info`；**result_data 保持原值**（旧实现会 strip 成 `{}` 并清空结果 —— P0-1） |
+| `result_data: { tpmValue: '0.2' }` | 局部业务字段 | **merge**：未提交的兄弟键保留（默认 `result_data_mode: 'merge'`） |
+| `result_data: { atp: null }` | 显式删除单键 | 该键被删除（唯一的清空手段） |
+| `result_data_mode: 'replace'` | 整对象替换 | 用提交内容整体覆盖（`PUT /api/records/:tableName/:id` 的默认契约） |
+
+**版本与并发（P1-3）——各入口语义已统一并写明，不再"换个路由就悄悄失效"：**
+
+| 入口 | 并发语义 | 版本 |
+|---|---|---|
+| `PUT /api/records/:tableName/:id` | 客户端带 `version` → 原子 CAS（`where { id, version }`），冲突 409 | 原子 `+1` |
+| `PUT /api/test-records/:id` | 带 `version` → CAS；不带 → LWW（打日志） | **原子 `+1`**（旧实现根本不递增 → 版本号失真） |
+| `POST /api/sync/records`、`/api/sync/batch` | 带 `expected_version` → CAS（冲突 409 / 批量为 `errors[]` 中 `VERSION_CONFLICT`）；不带 → **LWW**（离线队列特性，已在代码与文档写明） | **原子 `+1`** |
+| `bulk-upsert` | 带 `expected_updated_at` → 原子 CAS（条件含 `updated_at`）；不带 → LWW（导入/恢复为完整记录） | **原子 `+1`** |
+| `POST /api/records/:tableName`（create） | 无并发问题 | 初始 `version = 1` |
+
+- ⚠️ **`expected_updated_at` / `expected_version` 属于传输控制字段，不参与 `record_code` 内容哈希**（2026-09-17 修复：此前带该字段提交会算出不同哈希 → 本应"条件更新"的请求反而**新增重复记录**）。
+- 上下文三键（`testDate`/`canteen`/`inspector`）**不允许清空**：`null`/空串/缺省一律视为"未提交"，整对象替换入口由 `validateRecordPayload` 返回 400。
+- `result_data` 落库前剔除控制字段（`status`/`version`/`created_by`/`sync_time`/…）与历史同义副本。
+
 - 字段投影：**绝不下发 `result_data` 原始 JSON**。服务端先剔内部字段（`modificationLogs`/`traceabilityRecords`/`created_by` 等），再**递归**剔除人名类 PII（`inspector` / `recheckRecords[].user` 等，含正则兜底，未来新增人名类字段自动不外泄）；`inspector` 是否下发由 grant 的 `include_inspector` 决定（默认 false）。字典中的 `result.canteen` / `result.testDate` 为**历史同义副本**（2026-09-16 起新记录不再写入，取值一律以顶层为准），`result.inspector` 属个人信息**恒不下发**（字典标注 `emitted:false`，仅说明存储结构）。
 - 结论口径：`initial_conclusion`（初检）+ `final_conclusion`（复检后）+ `final_conclusion_basis`（`initial`=沿用初检 / `recheck`=复检覆盖）+ `conclusion_source='stored'`——结论是**录入/检测当时保存的值**，不是按当前阈值重算的结果。各类判定：餐具/果蔬/肉蛋看 `result` 文本；**食用油按业务裁定**——`colorLevel` 仅含「不合格」判不合格，其余等级视为合格，无 `colorLevel` 回退 `result`（与前端看板、`/stats` 同源）；病原体看 `riskLevel='无风险'`。`test_date` 缺失与结论 `unknown` 是两件事，不联动。
 - 统计口径（`/stats`）：`scope_total`（授权范围内记录数与明细应一致）、`included_total`（参与计算）、`excluded[]`（未参与的原因与条数，现仅「检测日期缺失/非法」）、`pass_rate_detail`（分子/分母；分母为 0 返回 `null` 而非 0）。对账差异按 `excluded` 定位，不再使用"以某个接口为准"的含糊说法。

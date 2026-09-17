@@ -11,7 +11,7 @@
 //      统计口径另有一套 SQL LIKE 判定（见 routes/openApiRoutes.js 的 /stats），仅供对账。
 
 import crypto from 'node:crypto'
-import { RECORD_ROUTE_TYPES, TEST_TYPE_LABELS, getLatestRecheckPassed } from './recordNormalize.js'
+import { RECORD_ROUTE_TYPES, TEST_TYPE_LABELS, getLatestRecheckPassed, isValidBusinessDate } from './recordNormalize.js'
 
 /** 未配置 visible_types 时的默认开放范围（与访客白名单同口径，病原体恒不含）。 */
 export const DEFAULT_OPEN_TYPES = ['tableware', 'pesticide', 'oil', 'leanMeat']
@@ -143,11 +143,30 @@ export function grantDateRange(grant) {  const toDay = (d) => {
  * 正确做法：参数归一为 `YYYY-MM-DD` 文本，两侧都按**文本比较**（同长度 ISO 文本的字典序 = 时间序），
  * 且比较前先过合法性正则，避免 `2026-1-1` 这类脏值被字典序误判入范围。
  */
-export const BUSINESS_DATE_TEXT_EXPR = `substring("sample_info"->>'testDate' from 1 for 10)`
+export const BUSINESS_DATE_TEXT_EXPR = `substring(COALESCE("sample_info"->>'testDate','') from 1 for 10)`
 
-/** 业务日期合法性（严格 YYYY-MM-DD）SQL 片段。 */
+/**
+ * 业务日期合法性 SQL 片段：**格式 + 真实公历**（与 `parseDayParam` 的 JS 校验同语义）。
+ *
+ * 纯文本/数值判定，**不对原始值做 `::date`**：脏历史数据（`2026-02-30` / `2026-13-01` / 空值）
+ * 只会被判为 false，绝不触发 `date/time field value out of range` 500。
+ * `::int` 强转全部放在 CASE 分支内（PostgreSQL 保证 CASE 只求值命中的分支），因此只有
+ * 先通过 `${...} ~ '^[0-9]{4}-...$'` 的值才会被强转。
+ */
 export function businessDateValidSql() {
-  return `${BUSINESS_DATE_TEXT_EXPR} ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'`
+  const t = BUSINESS_DATE_TEXT_EXPR
+  const y = `substring(${t} from 1 for 4)`
+  const mo = `substring(${t} from 6 for 2)`
+  const d = `substring(${t} from 9 for 2)`
+  const leap = `((${y}::int % 4 = 0 AND ${y}::int % 100 <> 0) OR ${y}::int % 400 = 0)`
+  return `(CASE
+      WHEN ${t} !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN false
+      WHEN ${mo} NOT BETWEEN '01' AND '12' THEN false
+      WHEN ${d} NOT BETWEEN '01' AND '31' THEN false
+      WHEN ${mo} = '02' THEN (${d}::int <= CASE WHEN ${leap} THEN 29 ELSE 28 END)
+      WHEN ${mo} IN ('04','06','09','11') THEN (${d}::int <= 30)
+      ELSE true
+    END)`
 }
 
 /**
@@ -208,14 +227,20 @@ export function deriveConclusion(testType, resultData) {
     initial = risk ? (risk === '无风险' ? PASS : FAIL) : UNKNOWN
     text = risk
   } else if (testType === 'oil') {
-    // 食用油口径（业务方 2026-07-23 裁定，与前端 Dashboard.isOilQualified 及 /api/test-records/stats 一致）：
-    //   按「品质等级」colorLevel 判定，**仅含“不合格”才判不合格**；其余等级（合格/警戒/其它颜色）均视为合格；
+    // 食用油口径（业务方 2026-07-23 裁定，与前端 Dashboard.isOilQualified 及 /api/test-records/stats 同源）：
+    //   按「品质等级」colorLevel 判定，**仅“不合格”判不合格**；已知等级 合格/警戒 视为合格；
     //   无 colorLevel 时以 result 兜底。
-    // ⚠️ 2026-09-15 修正：早期实现用通用文本解析，导致 colorLevel=「深绿色」被判为 unknown，
-    //    与 /stats 的合格率口径分叉（同一批数据两种结论）。
+    // ⚠️ 2026-09-17 P1 修复：原实现 `color.includes('不合格') ? FAIL : PASS` 是 **fail-open** ——
+    //   任何非空脏值（“深绿色”“foo”“录入错误”）都会被判成“合格”。现改为**显式枚举**：
+    //     已知合格类 → pass；已知不合格 → fail；**未识别值回退 result 文本判定**（与 /stats 的 SQL 分支一致）。
+    //   实测生产 colorLevel 仅 合格/警戒，本修复对现有数据零影响；若业务方确认“其它等级也算合格”，
+    //   需提供权威枚举后再登记到 OIL_COLOR_PASS。
     const color = String(data.colorLevel ?? '').trim()
-    if (color) {
-      initial = color.includes('不合格') ? FAIL : PASS
+    if (OIL_COLOR_PASS.has(color)) {
+      initial = PASS
+      text = color
+    } else if (OIL_COLOR_FAIL.has(color)) {
+      initial = FAIL
       text = color
     } else {
       text = String(data.result ?? '').trim()
@@ -257,14 +282,22 @@ export function toIsoShanghai(value) {
   return shifted.toISOString().replace(/\.\d{3}Z$/, '+08:00')
 }
 
-/** 业务检测日期：只接受 YYYY-MM-DD（或带时间的字符串取前 10 位）；非法返回 null。 */
+/**
+ * 业务检测日期：只接受 `YYYY-MM-DD`（或带时间的字符串取前 10 位），且必须是**真实公历日期**；
+ * 否则返回 null（2026-09-17：`2026-02-30`/`2026-13-01` 这类"格式像日期"的脏值不再被当正常日期下发）。
+ */
 export function pickTestDate(sampleInfo) {
   const raw = sampleInfo?.testDate
   if (raw == null) return null
   const s = String(raw).trim()
   const m = s.match(/^(\d{4}-\d{2}-\d{2})/)
-  return m ? m[1] : null
+  if (!m) return null
+  return isValidBusinessDate(m[1]) ? m[1] : null
 }
+
+/** 食用油 colorLevel 权威枚举：仅「不合格」判不合格（业务裁定）；未识别值不得默认合格。 */
+export const OIL_COLOR_PASS = new Set(['合格', '警戒'])
+export const OIL_COLOR_FAIL = new Set(['不合格'])
 
 /**
  * 组装单条对外记录。
@@ -350,10 +383,24 @@ export function computeFiltersFingerprint({ schoolCode, types, start, end }) {
  * 用途：① 让清单 digest 能反映"字段可见性变化"（否则关闭检测人姓名时 digest 不变，
  * 客户端会误判为无变化而跳过重投影）；② 校验游标策略一致性。
  */
-export function computeProjectionFingerprint(grant) {
+/**
+ * 字段投影实现的修订号 —— **任何改变对外输出内容的改动都必须 bump 本值**：
+ *   · result_data 白名单/剔除规则（新增或移除某字段的下发）
+ *   · 结论推导口径（例：oil colorLevel 枚举化）
+ *   · 影响输出的字段字典结构变化
+ *
+ * 背景（2026-09-17 审阅 F6）：指纹原先只含授权开关与恒定契约版本 →
+ * "记录行与授权都没变、但投影实现变了"时指纹与 manifest digest 都不变，
+ * 已完成同步的客户端会一直认为数据未变，长期保留旧字段（例如已被撤回但本地未清除的证据字段）。
+ */
+export const PROJECTION_REVISION = 'proj-r2-2026-09-17'
+
+export function computeProjectionFingerprint(grant, extra = null) {
   const { start, end } = grantDateRange(grant)
   const payload = JSON.stringify({
     c: CONTRACT_VERSION_FOR_FINGERPRINT,
+    r: PROJECTION_REVISION,     // 投影实现修订号（F6）
+    k: extra || '',             // 学校"影响输出的配置"指纹（自定义字段经白名单过滤；见 allowedKeysFingerprint）
     t: resolveGrantTypes(grant),
     p: grant?.include_pathogen === true,
     i: grant?.include_inspector === true,
