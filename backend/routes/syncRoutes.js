@@ -117,7 +117,7 @@ export function createSyncRoutes(userManager, prisma) {
                     if (!existingUpdate) {
                         return res.status(404).json({ success: false, error: '记录不存在' })
                     }
-                    if (!canModifyRecord({ role: req.user?.role, userId: req.userId }, existingUpdate)) {
+                    if (!canModifyRecord({ role: req.user?.role, userId: req.user?.userId }, existingUpdate)) {
                         return res.status(403).json({ success: false, error: '无权限修改该记录' })
                     }
                     // 2026-09-16 审阅修复（H1）：统一归一。**只提交 result_data（内含食堂/日期/检测人）时，
@@ -156,7 +156,7 @@ export function createSyncRoutes(userManager, prisma) {
                     if (!existingDelete) {
                         return res.status(404).json({ success: false, error: '记录不存在' })
                     }
-                    if (!canModifyRecord({ role: req.user?.role, userId: req.userId }, existingDelete)) {
+                    if (!canModifyRecord({ role: req.user?.role, userId: req.user?.userId }, existingDelete)) {
                         return res.status(403).json({ success: false, error: '无权限删除该记录' })
                     }
                     result = await req.db.testRecord.delete({
@@ -190,7 +190,7 @@ export function createSyncRoutes(userManager, prisma) {
                     // 2026-09-16 审阅 M5：record_code 冲突**不等于**合法幂等重试。仅当本次调用者本就
                     // 有权修改该记录（自己的记录 / manager+）时才按幂等返回；否则视为记录码冲突，
                     // 不回显他人记录（原实现无条件回显，且静默丢弃本次提交的数据）。
-                    if (!canModifyRecord({ role: req.user?.role, userId: req.userId }, existing)) {
+                    if (!canModifyRecord({ role: req.user?.role, userId: req.user?.userId }, existing)) {
                         return res.status(409).json({
                             success: false,
                             error: '❌ record_code 冲突：该记录码已被其他用户的记录占用，请更换记录码或改用 update',
@@ -256,7 +256,7 @@ export function createSyncRoutes(userManager, prisma) {
                         case 'update': {
                             const existing = await req.db.testRecord.findUnique({ where: { id: data.id } })
                             if (!existing) throw new Error('记录不存在')
-                            if (!canModifyRecord({ role: req.user?.role, userId: req.userId }, existing)) {
+                            if (!canModifyRecord({ role: req.user?.role, userId: req.user?.userId }, existing)) {
                                 throw new Error('无权限修改该记录')
                             }
                             // 同 /records：统一归一（H1：result_data 内的上下文三键合并写回 sample_info）
@@ -282,7 +282,7 @@ export function createSyncRoutes(userManager, prisma) {
                         case 'delete': {
                             const existing = await req.db.testRecord.findUnique({ where: { id: data.id } })
                             if (!existing) throw new Error('记录不存在')
-                            if (!canModifyRecord({ role: req.user?.role, userId: req.userId }, existing)) {
+                            if (!canModifyRecord({ role: req.user?.role, userId: req.user?.userId }, existing)) {
                                 throw new Error('无权限删除该记录')
                             }
                             result = await req.db.testRecord.delete({ where: { id: data.id } })
@@ -299,7 +299,7 @@ export function createSyncRoutes(userManager, prisma) {
                             const existing = await req.db.testRecord.findUnique({ where: { record_code: data.record_code } })
                             if (existing) {
                                 // 审阅 M5：冲突不等于合法幂等重试 —— 无权限覆盖时按冲突上报（不回显他人记录）
-                                if (!canModifyRecord({ role: req.user?.role, userId: req.userId }, existing)) {
+                                if (!canModifyRecord({ role: req.user?.role, userId: req.user?.userId }, existing)) {
                                     errors.push({ syncId, store, error: 'record_code 冲突：该记录码已被其他用户的记录占用', code: 'RECORD_CODE_CONFLICT' })
                                     continue
                                 }
