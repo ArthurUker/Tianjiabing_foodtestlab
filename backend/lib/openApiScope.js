@@ -297,7 +297,16 @@ export function toIsoShanghai(value) {
   const d = value instanceof Date ? value : new Date(value)
   if (Number.isNaN(d.getTime())) return null
   const shifted = new Date(d.getTime() + 8 * 3600 * 1000)
-  return shifted.toISOString().replace(/\.\d{3}Z$/, '+08:00')
+  return shifted.toISOString().replace(/Z$/, '+08:00')
+}
+
+/** 毫秒时间与记录版本共同构成单条记录的变化标识。 */
+export function recordChangeToken(record) {
+  if (!record?.updated_at) return null
+  const date = record.updated_at instanceof Date ? record.updated_at : new Date(record.updated_at)
+  if (Number.isNaN(date.getTime())) return null
+  const at = date.toISOString()
+  return `${at}|v${Number(record?.version ?? 0)}`
 }
 
 /**
@@ -353,6 +362,7 @@ export function buildOpenRecord(record, grant, ctx = {}) {
     }),
     created_at: toIsoShanghai(record.created_at),
     updated_at: toIsoShanghai(record.updated_at),
+    change_token: recordChangeToken(record),
     data_version: record.data_version ?? 1,
   }
   if (grant?.include_inspector === true) {
@@ -411,7 +421,7 @@ export function computeFiltersFingerprint({ schoolCode, types, start, end }) {
  * "记录行与授权都没变、但投影实现变了"时指纹与 manifest digest 都不变，
  * 已完成同步的客户端会一直认为数据未变，长期保留旧字段（例如已被撤回但本地未清除的证据字段）。
  */
-export const PROJECTION_REVISION = 'proj-r2-2026-09-17'
+export const PROJECTION_REVISION = 'proj-r3-2026-09-23'
 
 export function computeProjectionFingerprint(grant, extra = null) {
   const { start, end } = grantDateRange(grant)
@@ -466,7 +476,9 @@ export function computeManifestDigest(rows, meta = {}) {
     `projection=${meta.projectionFingerprint ?? ''}`,
   ].join('|')
   const lines = rows
-    .map((r) => `${r.record_code}@${r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at)}`)
+    .map((r) => `${r.record_code}@${r.version === undefined
+      ? (r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at))
+      : recordChangeToken(r)}`)
     .sort()
   return crypto.createHash('sha256').update(`${header}\n${lines.join('\n')}`).digest('hex')
 }

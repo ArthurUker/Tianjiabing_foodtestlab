@@ -202,6 +202,7 @@ function sampleBase(testType, testName, scenario, sampleInfo, resultData, update
       // 复检会刷新 updated_at（2026-09-16 只读实测：12 条含复检记录全部 updated_at ≥ created_at）；
       // 故含复检的场景必须显式给出 updatedAt（复检时间），否则样例自相矛盾。
       updated_at: new Date(updatedAt ? `${updatedAt}+08:00` : `${SAMPLE_DATE}T00:00:00+08:00`),
+      version: 1,
       data_version: 1,
     },
   }

@@ -185,9 +185,12 @@ export function createOpenApiRoutes({ prisma }) {
    * 但抽取为稳定哈希，供 projection_fingerprint 使用 —— 使**自定义字段导致的可见性变化**
    * 也能改变指纹与 manifest digest，触发客户端重投影。
    */
-  async function projectionExtra(schoolCode, types) {
+  async function projectionExtra(schoolCode, types, schoolName) {
     const cust = await prisma.schoolCustomization.findUnique({ where: { school_code: schoolCode } })
-    return allowedKeysFingerprint(types, (t) => extractCustomFieldMeta(cust, t))
+    return JSON.stringify({
+      keys: allowedKeysFingerprint(types, (t) => extractCustomFieldMeta(cust, t)),
+      school_name: schoolName,
+    })
   }
 
   // ─────────────── GET /v1/ping ───────────────
@@ -358,7 +361,7 @@ export function createOpenApiRoutes({ prisma }) {
         contract_version: OPEN_API_CONTRACT_VERSION,
         school_code: school.code,
         scope_version: grant.scope_version,
-        projection_fingerprint: computeProjectionFingerprint(grant, await projectionExtra(school.code, types)),
+        projection_fingerprint: computeProjectionFingerprint(grant, await projectionExtra(school.code, types, school.name)),
         visible_types: types,
         include_inspector: grant.include_inspector === true,
         count: samples.length,
@@ -398,7 +401,7 @@ export function createOpenApiRoutes({ prisma }) {
       const filtersFingerprint = computeFiltersFingerprint({ schoolCode: school.code, types, start: null, end: untilIso })
       // 投影/可见性策略指纹：类型白名单、病原体/检测人/附件开关、业务日期范围、
       // **投影实现修订号 + 学校自定义字段指纹**（F6：仅改投影实现也必须改变指纹）
-      const projection = computeProjectionFingerprint(grant, await projectionExtra(school.code, types))
+      const projection = computeProjectionFingerprint(grant, await projectionExtra(school.code, types, school.name))
 
       // 游标：校验版本、学校、筛选条件、授权版本与投影策略
       let watermark = null
@@ -453,7 +456,7 @@ export function createOpenApiRoutes({ prisma }) {
       const whereSql = (conds.length ? `WHERE ${conds.join(' AND ')}` : 'WHERE TRUE') + dateCond
 
       params.push(limit + 1)
-      const sql = `SELECT "id", "record_code", "test_type", "test_name", "sample_info", "result_data", "status", "created_at", "updated_at", "data_version"
+      const sql = `SELECT "id", "record_code", "test_type", "test_name", "sample_info", "result_data", "status", "created_at", "updated_at", "version", "data_version"
                    FROM "${schema}"."TestRecord"
                    ${whereSql}
                    ORDER BY "updated_at" ASC, "id" ASC
@@ -511,7 +514,7 @@ export function createOpenApiRoutes({ prisma }) {
       const dateCond = dateClause(grant, params)
       const db = createTenantClient(prisma, school.code)
       const rows = await db.$queryRawUnsafe(
-        `SELECT "record_code", "updated_at" FROM "${schema}"."TestRecord"
+        `SELECT "record_code", "updated_at", "version" FROM "${schema}"."TestRecord"
          WHERE "test_type" = ANY($1::text[])${dateCond}
          ORDER BY "record_code" ASC`,
         ...params,
@@ -519,7 +522,7 @@ export function createOpenApiRoutes({ prisma }) {
 
       const detail = String(req.query.detail || '') === '1'
       const total = rows.length
-      const projection = computeProjectionFingerprint(grant, await projectionExtra(school.code, types))
+      const projection = computeProjectionFingerprint(grant, await projectionExtra(school.code, types, school.name))
       // digest 纳入授权版本与投影策略：范围/字段可见性变化也会改变 digest（客户端据此重投影）
       const digest = computeManifestDigest(rows, { scopeVersion: grant.scope_version, projectionFingerprint: projection })
       // ⚠️ 超上限时**明确报错**（413），绝不静默截断成"看似完整"的清单
@@ -540,9 +543,9 @@ export function createOpenApiRoutes({ prisma }) {
         total,
         complete: true,          // 该响应是完整清单（未截断）；为 false 的场景一律以错误码返回
         digest,
-        digest_covers: 'cursor_version+scope_version+projection_fingerprint+record_code@updated_at',
+        digest_covers: 'cursor_version+scope_version+projection_fingerprint+record_code@change_token',
         items: detail
-          ? rows.map((r) => ({ record_code: r.record_code, updated_at: toIsoShanghai(r.updated_at) }))
+          ? rows.map((r) => ({ record_code: r.record_code, updated_at: toIsoShanghai(r.updated_at), change_token: recordChangeToken(r) }))
           : undefined,
       })
     } catch (e) {
