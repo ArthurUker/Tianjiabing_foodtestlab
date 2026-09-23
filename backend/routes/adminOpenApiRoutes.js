@@ -618,6 +618,8 @@ export function createAdminOpenApiRoutes({ prisma, authenticateUser, requirePlat
         '> - **可空**：字段存在但值可能为 `null`。**三态区分**：字段**省略**（不存在）≠ `null`（存在无值）≠ 空串/空数组（有值为空）。',
         '> - **下发=否** 的字段**不会出现在响应中**，列出仅为说明原始存储结构（如 `result.inspector` 属个人信息恒不下发），请勿据此开发。',
         '> - **公共字段只列一次**（该学校所有开放类型一致）；各类型的专属字段分列在其后。数组元素结构见说明中的「元素：…」。',
+        '> - ⚠️ **单位标注 ≠ 已核实单位**：字段表「单位」列带 `⚠️未核实` 的（如 `result.tpmValue`）表示该单位仅为**平台界面标注**'
+          + '（字段上 `unit_source=platform_label`、`unit_verified=false`），**设备协议/计量文件尚未核实** —— 请勿自行换算（×100 / ÷100），也不要据该字段重新判定历史结论。',
         '',
       )
       const descKey = (f) => `${f.path}|${f.type}|${f.unit || ''}|${f.label || ''}|${f.required ? 1 : 0}|${f.nullable ? 1 : 0}|${f.emitted === false ? 0 : 1}|${f.conditional_on || ''}`
@@ -636,7 +638,10 @@ export function createAdminOpenApiRoutes({ prisma, authenticateUser, requirePlat
           const itemHint = Array.isArray(f.item_fields) && f.item_fields.length ? `；元素：${f.item_fields.join('、')}` : ''
           const cond = f.conditional_on ? `（条件字段：仅当 ${f.conditional_on} 开启时存在）` : ''
           const desc = String(f.description || '').replace(/\|/g, '/').replace(/\n/g, ' ') + itemHint + cond
-          push(`| \`${f.path}\` | ${f.label || ''} | ${typeCell} | ${f.unit || '—'} | ${f.required ? '是' : '否'} | ${f.nullable ? '是' : '否'} | ${f.emitted === false ? '**否**' : '是'} | ${desc} |`)
+          // ⚠️ 单位核实状态必须可见（2026-09-23）：unit_verified=false 的字段在接入包里显式标注，
+          //    避免读者把"平台界面标注"当成"经设备协议核实的单位"。
+          const unitCellRaw = f.unit ? `${f.unit}${f.unit_verified === false ? ' **⚠️未核实**' : ''}` : '—'
+          push(`| \`${f.path}\` | ${f.label || ''} | ${typeCell} | ${unitCellRaw} | ${f.required ? '是' : '否'} | ${f.nullable ? '是' : '否'} | ${f.emitted === false ? '**否**' : '是'} | ${desc} |`)
         }
         push('')
       }

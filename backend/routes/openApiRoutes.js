@@ -299,7 +299,10 @@ export function createOpenApiRoutes({ prisma }) {
           'emitted=false 表示该字段「不会出现在响应中」——列出仅为说明原始存储结构，请勿据此开发（如 result.inspector，属个人信息恒不下发）。',
           '结论字段（initial_conclusion / final_conclusion / conclusion）由平台按**录入时保存的判定文本**映射为枚举（result / colorLevel / riskLevel / finalStatus / 复检结论），'
             + '不是按当前阈值实时重算，因此不会因阈值调整而改变；conclusion_source=stored 即指这一点。',
-          '数值类字段一律为**字符串且为原始录入口径**（例：result.tpmValue 的 "0.06" 表示 0.06 g/100g，等价 0.06%，**请勿再 ×100**）；'
+          '数值类字段一律为**字符串且为原始录入口径**（平台不做换算、不做缩放）；'
+            + '⚠️ 例：result.tpmValue 的 "0.06" 是**原始保存值**：其 `unit`（g/100g）是**平台界面标注**，'
+            + '`unit_verified:false` 表示**尚未获得设备协议/计量文件核实** —— 请勿自行换算（不要 ×100 或 ÷100），'
+            + '也不要据该字段重新判定历史结论；阈值（≤0.13 / ≤0.25）同属当前实现口径，待核验；'
             + '各类型的判定阈值写在对应字段说明里，数组元素的子键见 item_fields。',
           '病原体：riskLevel 非「无风险」即视为不合格/有风险（与统计口径一致），但**不等于确诊阳性**；是否检出以 result.positiveDetails 是否非空为准。',
           'result 内的 canteen / testDate 是历史记录的**同义副本**（新记录不再写入），取值一律以顶层为准。',

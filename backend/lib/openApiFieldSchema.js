@@ -105,7 +105,9 @@ const TYPE_FIELDS = {
   ],
   oil: [
     { path: 'result.colorLevel', label: '综合品质等级', type: 'enum', unit: null, nullable: true, required: true, enum: ['合格', '警戒', '不合格'], description: '⚠️ **不是颜色**：由前端按「TPM 与酸价等级取最差」算出的综合等级（2026-09-16 实测 合格 38 / 警戒 1，无不合格）。结论口径：**仅「不合格」判不合格**，其余等级视为合格（与 `/stats` 同源）', source: 'platform' },
-    { path: 'result.tpmValue', label: 'TPM（极性组分）', type: 'string', unit: 'g/100g（数值等价于 %）', nullable: true, required: true, description: '⚠️ 字符串类型；**数值口径：`0.06` 表示 0.06 g/100g（即 0.06%），请勿再 ×100**。平台判定：≤0.13 合格 / ≤0.25 警戒 / >0.25 不合格；实测范围 0.06~0.20', source: 'platform' },
+    // ⚠️ 2026-09-17 复核对：**不得**把"前端展示单位"当作"已核实的设备单位"。`unit` 语义保持为**平台标注**（不改），
+    //    另加 unit_source/unit_verified 两个机器可读字段表达核实状态，避免下游把它当计量结论使用。
+    { path: 'result.tpmValue', label: 'TPM（极性组分）', type: 'string', unit: 'g/100g（平台标注，未经设备协议核实）', unit_source: 'platform_label', unit_verified: false, nullable: true, required: true, description: '字符串类型，平台按**原始录入值**保存（实测范围 0.06~0.20）。⚠️ `g/100g` 标注与阈值（≤0.13 合格 / ≤0.25 警戒 / >0.25 不合格）均为**当前实现/界面口径**，**未经设备协议或计量文件核实**：请勿自行换算，也不要据此字段重新判定历史结论。待补资料：设备型号/固件与协议版本、原始报文、设备显示值与平台保存值对照、阈值出处与批准记录', source: 'platform' },
     { path: 'result.acidValue', label: '酸价值', type: 'string', unit: 'mg KOH/g（前端展示简写 mg/g）', nullable: true, required: false, description: '⚠️ 字符串类型；实测取值 空字符串 21 / 0.3 13 / 0 5。平台判定：<2.5 合格 / <5 警戒 / ≥5 不合格', source: 'platform' },
     { path: 'result.oilTemp', label: '油温', type: 'string', unit: '℃', nullable: true, required: true, description: '⚠️ 字符串类型；实测恒为 35', source: 'platform' },
     { path: 'result.result', label: '结果文本（兜底字段）', type: 'string', unit: null, nullable: true, required: true, description: '**实测 39/39 均为空字符串**——油品结论看 `colorLevel`；本字段仅作历史/其它来源的兜底（`/stats` 在 colorLevel 为空时才回退读它）', source: 'platform' },

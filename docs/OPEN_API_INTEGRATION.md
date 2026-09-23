@@ -292,6 +292,11 @@ tail 请求失败 / digest 不一致）都不得留下 records / cursor / waterm
 | 食用油 | 优先 `colorLevel`（综合品质等级）走**显式枚举**：`合格`/`警戒` → 合格；`不合格` → 不合格；**其它未识别值不再默认合格**，而是回退 `result` 文本判定（`colorLevel` 缺失时同样回退 `result`，实测油记录 `result` 恒为空串 → `unknown`） |
 | 病原体 | `riskLevel = 无风险` 为合格；**任何其它非空值视为不合格/有风险**（`is_positive` 同一口径：非空且 ≠ 无风险 → `true`）。⚠️ 「有风险」≠ 确诊阳性：确诊看 `positiveDetails` 是否非空 |
 
+> ⚠️ **TPM（`result.tpmValue`）的单位尚未获得设备协议核实**：平台保存的是**原始字符串值**（不做换算），
+> 字段字典中的 `unit`（`g/100g`）与阈值（≤0.13 / ≤0.25）属**平台界面标注与当前实现口径**，
+> 字段上的 `unit_verified: false` 即表示"未经设备协议/计量文件确认"。**请勿自行换算（不要 ×100 或 ÷100），
+> 也不要据该字段重新判定历史结论**；待核验资料清单见 `docs/reviews/TPM_UNIT_VERIFICATION_CHECKLIST_20260917.md`。
+
 **集合定义（互斥，可人工验算）**：
 
 | 集合 | 含义 |
@@ -310,8 +315,13 @@ tail 请求失败 / digest 不一致）都不得留下 records / cursor / waterm
   是**预期差异**（例：初检不合格 → 复检合格），不是数据错误。如需按最终结论统计，平台将以**新字段**（如 `pass_rate_final`）
   提供，不会改动既有指标含义。
 
-> 对账建议：`/test-records` 在**同一日期范围**下拉到的明细条数应与 `/stats.scope_total` 一致；
-> 若不一致，请用 `manifest.total`、`stats.excluded`、`stats.request_out_of_range_total` 定位到具体桶，而不是简单"以某个数为准"。
+> 对账建议（2026-09-17 澄清，避免误判）：
+> · `/test-records` 的**日期过滤只来自授权范围**（该端点不接受业务日期参数，`until` 过滤的是 `updated_at`）。
+> · 授权**带**业务日期范围时：`/test-records` 与 `/manifest` 只含范围内、日期合法的记录 ⇒ 与其条数一致的是 `stats.scope_total`。
+> · 授权**不带**业务日期范围时：`/test-records` 会返回授权类型内**全部**记录（**包含日期缺失/非法**的记录，供排查），
+>   而 `stats.scope_total` 只含日期合法的记录 ⇒ 对账恒等式为 **`manifest.total = scope_total + excluded_total`**；
+>   请求范围与授权范围的差异另由 `request_out_of_range_total` 解释。
+> 若仍不一致，请按上述三个桶定位，而不是简单"以某个数为准"。
 
 ---
 
