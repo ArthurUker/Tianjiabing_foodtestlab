@@ -25,6 +25,57 @@ function fmtTime(v) {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+/* 极简 Markdown → HTML（仅服务「接入说明」：后端返回的同意文字，避免两处手写维护）
+ * 支持：``` 代码块 / | 表格 | / > 引用 / - 列表 / 数字列表 / **加粗** / `行内代码` */
+function mdInline(s) {
+    return escapeHtml(s)
+        .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+        .replace(/`([^`]+)`/g, '<code class="font-mono text-[11px] bg-gray-100 px-1 rounded">$1</code>');
+}
+
+function renderMdBlocks(lines) {
+    const out = [];
+    let i = 0;
+    const src = Array.isArray(lines) ? lines : [];
+    while (i < src.length) {
+        const line = src[i];
+        if (String(line).startsWith('```')) {
+            const buf = [];
+            i++;
+            while (i < src.length && !String(src[i]).startsWith('```')) buf.push(src[i++]);
+            i++;
+            out.push(`<pre class="bg-gray-900 text-gray-100 text-[11px] rounded-lg p-3 overflow-auto max-h-[300px] mb-2">${escapeHtml(buf.join('\n'))}</pre>`);
+            continue;
+        }
+        if (String(line).startsWith('|')) {
+            const rows = [];
+            while (i < src.length && String(src[i]).startsWith('|')) rows.push(src[i++]);
+            const head = rows[0] || '';
+            const body = rows.slice(2);
+            const cells = (r) => String(r).split('|').slice(1, -1).map((x) => x.trim());
+            out.push(`<div class="overflow-auto mb-2"><table class="w-full text-xs">
+                <thead><tr class="text-left text-gray-500 border-b">${cells(head).map((h) => `<th class="py-1 px-2">${mdInline(h)}</th>`).join('')}</tr></thead>
+                <tbody>${body.map((r) => `<tr class="border-b last:border-0">${cells(r).map((x) => `<td class="py-1 px-2 align-top">${mdInline(x)}</td>`).join('')}</tr>`).join('')}</tbody>
+            </table></div>`);
+            continue;
+        }
+        if (String(line).startsWith('> ')) {
+            out.push(`<p class="text-xs text-gray-600 border-l-2 border-gray-300 pl-2 mb-1">${mdInline(String(line).slice(2))}</p>`);
+            i++;
+            continue;
+        }
+        if (/^- /.test(String(line))) {
+            out.push(`<p class="text-xs text-gray-600 mb-1 pl-2">• ${mdInline(String(line).slice(2))}</p>`);
+            i++;
+            continue;
+        }
+        if (String(line).trim() === '') { i++; continue; }
+        out.push(`<p class="text-xs text-gray-600 mb-1">${mdInline(String(line))}</p>`);
+        i++;
+    }
+    return out.join('');
+}
+
 const TYPE_LABELS = {
     tableware: '餐具洁净度',
     pesticide: '果蔬农残',
@@ -484,48 +535,99 @@ export function initOpenApiView({ API_BASE, authHeaders, notify }) {
         sel.innerHTML = (grant?.effective_types || []).map((t) => `<option value="${t}">${TYPE_LABELS[t] || t}</option>`).join('');
     }
 
-    function renderGuideTab(host, c) {
+    async function renderGuideTab(host, c) {
         const base = `${location.origin}/api/open/v1`;
         const activeGrants = c.grants.filter((g) => g.status === 'active');
-        const activeKey = c.credentials.find((k) => k.status === 'active');
+        const activeKeys = c.credentials.filter((k) => k.status === 'active');
         const hasDraft = !!state.draft;
 
-        const grantRows = activeGrants.map((g) => `<tr class="border-b last:border-0">
-            <td class="py-1.5 px-2">${escapeHtml(g.school_name || g.school_code)} <span class="font-mono text-xs text-gray-400">${escapeHtml(g.school_code)}</span></td>
-            <td class="py-1.5 px-2 text-xs">${g.effective_types.map((t) => TYPE_LABELS[t] || t).join('、') || '无（零权限）'}</td>
-            <td class="py-1.5 px-2 text-xs text-gray-500">${escapeHtml(g.start_date || '不限')} ~ ${escapeHtml(g.end_date || '不限')}</td>
-            <td class="py-1.5 px-2 text-xs">${g.include_inspector ? '下发' : '不下发'}</td>
-            <td class="py-1.5 px-2 text-xs text-gray-500">v${g.scope_version}</td>
+        host.innerHTML = '<div class="text-sm text-gray-500 p-4">加载接入说明…</div>';
+        // 长文内容与「下载接入包」同源（后端 lib/openApiGuide.js），避免界面/文档两套说法
+        let g = null;
+        try { g = await api(`/clients/${c.id}/guide`); } catch (e) { /* 网络或旧版本后端：退回本页的静态要点 */ }
+        const gd = g || {};
+
+        const grantRows = activeGrants.map((gr) => `<tr class="border-b last:border-0">
+            <td class="py-1.5 px-2">${escapeHtml(gr.school_name || gr.school_code)} <span class="font-mono text-xs text-gray-400">${escapeHtml(gr.school_code)}</span></td>
+            <td class="py-1.5 px-2 text-xs">${gr.effective_types.map((t) => TYPE_LABELS[t] || t).join('、') || '无（零权限）'}</td>
+            <td class="py-1.5 px-2 text-xs text-gray-500">${escapeHtml(gr.start_date || '不限')} ~ ${escapeHtml(gr.end_date || '不限')}</td>
+            <td class="py-1.5 px-2 text-xs">${gr.include_inspector ? '下发' : '不下发'}</td>
+            <td class="py-1.5 px-2 text-xs">${gr.include_pathogen ? '开放' : '不开放'}</td>
+            <td class="py-1.5 px-2 text-xs">${gr.include_attachments ? '可读' : '不开放'}</td>
+            <td class="py-1.5 px-2 text-xs text-gray-500">v${gr.scope_version}</td>
         </tr>`).join('');
 
         const schoolOptions = activeGrants
-            .map((g) => `<option value="${escapeHtml(g.school_code)}">${escapeHtml(g.school_name || g.school_code)}</option>`)
+            .map((gr) => `<option value="${escapeHtml(gr.school_code)}">${escapeHtml(gr.school_name || gr.school_code)}</option>`)
             .join('');
+
+        const keyLine = activeKeys.length
+            ? `${activeKeys.map((k) => `${k.key_prefix}…${k.key_last4}`).join('、')} <span class="text-gray-500">（展示用片段；明文只在生成时显示一次）</span>`
+            : '<span class="text-red-600">无有效密钥 —— 请先到「凭证管理」生成</span>';
+
+        const endpointRows = (gd.endpoints || []).map((e) => `<tr class="border-b last:border-0">
+            <td class="py-1 px-2 font-mono text-xs whitespace-nowrap">${escapeHtml(e.method)} ${escapeHtml(e.path)}</td>
+            <td class="py-1 px-2 text-xs text-gray-500">${escapeHtml(e.params)}</td>
+            <td class="py-1 px-2 text-xs">${mdInline(e.desc)}</td>
+        </tr>`).join('');
+
+        const errorRows = (gd.error_rows || []).map((r) => `<tr class="border-b last:border-0">
+            <td class="py-1 px-2 text-xs">${escapeHtml(String(r.status))}</td>
+            <td class="py-1 px-2 font-mono text-[11px]">${escapeHtml(r.code)}</td>
+            <td class="py-1 px-2 text-xs text-gray-500">${escapeHtml(r.meaning)}</td>
+            <td class="py-1 px-2 text-xs">${mdInline(r.action)}</td>
+        </tr>`).join('');
+
+        const scenarioRows = (gd.sample_scenarios || []).map((x) => `<tr class="border-b last:border-0">
+            <td class="py-1 px-2 text-xs">${escapeHtml(TYPE_LABELS[x.type] || x.type)}</td>
+            <td class="py-1 px-2 font-mono text-xs">${escapeHtml(x.scenario)}</td>
+            <td class="py-1 px-2 text-xs text-gray-600">${mdInline(x.meaning)}</td>
+        </tr>`).join('');
+
+        const faqHtml = (gd.faq || []).map((f) => `<div class="mb-2">
+            <p class="text-xs font-medium text-gray-700">Q：${mdInline(f.q)}</p>
+            <p class="text-xs text-gray-600 pl-3">A：${mdInline(f.a)}</p>
+        </div>`).join('');
+
+        const selfCheckHtml = (gd.self_check || []).map((x) => `<p class="text-xs text-gray-600 mb-1">☐ ${mdInline(x.item)} <span class="text-gray-400">—— 期望：</span>${mdInline(x.expect)}</p>`).join('');
+
+        const missingGuide = !g
+            ? '<p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 mb-3">⚠️ 详细说明（调用要点 / 业务口径 / FAQ / 自检清单）读取失败，请刷新重试；下方「下载接入包」仍可用。</p>'
+            : '';
 
         host.innerHTML = `
             <div class="text-sm text-gray-700 space-y-4">
                 <div class="admin-card">
                     <h4 class="font-medium text-gray-800 mb-2"><i class="fas fa-list-check text-blue-500 mr-2"></i>1. 当前开放范围（已保存的授权）</h4>
                     <div class="rounded-lg bg-blue-50 border border-blue-100 p-3 text-xs mb-3">
-                        <b>接口地址</b>：<code class="font-mono">${escapeHtml(base)}</code><br>
-                        认证：<code class="font-mono">X-API-Key: &lt;密钥&gt;</code> 或 <code class="font-mono">Authorization: Bearer &lt;密钥&gt;</code><br>
-                        有效密钥：<code class="font-mono">${escapeHtml(activeKey ? `${activeKey.key_prefix}…${activeKey.key_last4}` : '（无有效密钥）')}</code>
-                        <span class="text-gray-500">${activeKey ? '（完整密钥只在生成时显示一次）' : '——请先在「凭证管理」中生成'}</span>
+                        <b>接口地址</b>：<code class="font-mono">${escapeHtml(base)}</code>
+                        <span class="text-gray-500">（基址已含 <code class="font-mono">/api/open/v1</code>，路径不要再拼一次 <code class="font-mono">/v1</code>，否则会得到 401「缺少授权令牌」）</span><br>
+                        认证（同一个密钥，二选一）：<code class="font-mono">X-API-Key: &lt;密钥&gt;</code> 或 <code class="font-mono">Authorization: Bearer &lt;密钥&gt;</code><br>
+                        有效密钥：<code class="font-mono">${keyLine}</code><br>
+                        限流：<b>${escapeHtml(String(c.rate_limit_per_min || 60))}</b> 次/分钟（超限 429 + <code class="font-mono">Retry-After</code>）·
+                        IP 白名单：${c.ip_whitelist.length ? escapeHtml(c.ip_whitelist.join('、')) : '<span class="text-amber-700">未配置（不限制来源 IP）</span>'}
                     </div>
+                    <p class="text-xs text-gray-500 mb-3">
+                        本页与接入包均为<b>已保存</b>授权快照${gd.generated_at ? `（读取时间 ${escapeHtml(fmtTime(gd.generated_at))}）` : ''}；
+                        <b>实际生效权限一律以 <code class="font-mono">GET /profile</code> 为准</b>（平台可能在此之后调整授权）。
+                    </p>
                     ${hasDraft ? '<p class="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2 mb-3"><i class="fas fa-exclamation-triangle mr-1"></i>「学校授权」中存在<b>未保存</b>的修改：本页与接入包一律按<b>已保存</b>的授权生成，请先保存后再交付对方。</p>' : ''}
                     ${activeGrants.length
                         ? `<table class="w-full text-sm">
                              <thead><tr class="text-left text-gray-500 border-b">
                                <th class="py-1.5 px-2">学校</th><th class="py-1.5 px-2">开放类型</th>
-                               <th class="py-1.5 px-2">业务日期</th><th class="py-1.5 px-2">检测人</th><th class="py-1.5 px-2">授权版本</th>
+                               <th class="py-1.5 px-2">业务日期</th><th class="py-1.5 px-2">检测人</th>
+                               <th class="py-1.5 px-2">病原体</th><th class="py-1.5 px-2">附件</th><th class="py-1.5 px-2">授权版本</th>
                              </tr></thead><tbody>${grantRows}</tbody></table>`
                         : '<p class="text-xs text-gray-600">⚠️ 当前<b>没有任何生效授权</b>：对方即使拿到密钥也读不到任何数据。请到「学校授权」勾选学校并保存。</p>'}
                 </div>
 
                 <div class="admin-card">
                     <h4 class="font-medium text-gray-800 mb-2"><i class="fas fa-table-columns text-emerald-600 mr-2"></i>2. 字段字典</h4>
-                    <p class="text-xs text-gray-500 mb-2">对方写字段映射的依据：路径 / 中文名 / 类型 / 单位 / 是否必现 / 是否可空 / 说明。与真实下发的 JSON 同源。</p>
-                    <p class="text-xs text-gray-500 mb-2">「必现」= <span class="font-medium">服务端保证一定出现</span>（目前仅顶层字段）；<code>result.*</code> 字段来自保存的检测数据，恒为「否」——说明里的「实测出现」只是数据观察，不能当必填契约。</p>
+                    <p class="text-xs text-gray-500 mb-2">对方写字段映射的依据：路径 / 中文名 / 类型 / 单位 / 是否必现 / 是否可空 / 是否下发 / 说明。与真实下发的 JSON 同源（同一份 descriptors）。</p>
+                    <div class="rounded-lg bg-gray-50 border border-gray-200 p-2 mb-3">
+                        ${gd.dict_notes ? renderMdBlocks(gd.dict_notes) : '<p class="text-xs text-gray-500">读表须知见字段字典接口 <code>/v1/dict</code> 的 <code>field_schema_notes</code>。</p>'}
+                    </div>
                     <div class="flex items-center flex-wrap gap-2 mb-3">
                         <select id="oapiDictSchool" class="px-2 py-1.5 text-sm border border-gray-300 rounded-lg">${schoolOptions}</select>
                         <select id="oapiDictType" class="px-2 py-1.5 text-sm border border-gray-300 rounded-lg"></select>
@@ -537,7 +639,10 @@ export function initOpenApiView({ API_BASE, authHeaders, notify }) {
 
                 <div class="admin-card">
                     <h4 class="font-medium text-gray-800 mb-2"><i class="fas fa-flask text-amber-500 mr-2"></i>3. 合成样例</h4>
-                    <p class="text-xs text-gray-500 mb-2">构造数据（<b>非真实检测记录</b>，<code class="font-mono">record_code</code> 以 <code class="font-mono">SAMPLE-</code> 开头）：对方在没有任何真实数据时也能完成开发。</p>
+                    <p class="text-xs text-gray-500 mb-2">构造数据（<b>非真实检测记录</b>，<code class="font-mono">record_code</code> 以 <code class="font-mono">SAMPLE-</code> 开头、<code class="font-mono">synthetic:true</code>）：对方在没有任何真实数据时也能完成开发，<b>请勿写入正式数据集</b>。</p>
+                    ${scenarioRows ? `<div class="overflow-auto mb-3"><table class="w-full text-xs">
+                        <thead><tr class="text-left text-gray-500 border-b"><th class="py-1 px-2">类型</th><th class="py-1 px-2">场景</th><th class="py-1 px-2">含义</th></tr></thead>
+                        <tbody>${scenarioRows}</tbody></table></div>` : ''}
                     <div class="flex items-center flex-wrap gap-2 mb-3">
                         <select id="oapiSampleSchool" class="px-2 py-1.5 text-sm border border-gray-300 rounded-lg">${schoolOptions}</select>
                         <select id="oapiSampleType" class="px-2 py-1.5 text-sm border border-gray-300 rounded-lg"></select>
@@ -550,10 +655,49 @@ export function initOpenApiView({ API_BASE, authHeaders, notify }) {
                 </div>
 
                 <div class="admin-card">
-                    <h4 class="font-medium text-gray-800 mb-2"><i class="fas fa-file-arrow-down text-indigo-500 mr-2"></i>4. 下载接入包</h4>
+                    <h4 class="font-medium text-gray-800 mb-2"><i class="fas fa-code text-blue-600 mr-2"></i>4. 调用要点（交给对方开发者可直接照抄）</h4>
+                    ${missingGuide}
+                    <p class="text-xs text-gray-500 mb-2"><b>快速开始</b>：五步跑通「连通 → 授权 → 字典 → 分页 → 清单对账」。</p>
+                    <div class="mb-3">${renderMdBlocks(gd.quick_start || [])}</div>
+                    <p class="text-xs text-gray-500 mb-2"><b>端点清单</b>：</p>
+                    ${endpointRows ? `<div class="overflow-auto mb-3"><table class="w-full text-xs">
+                        <thead><tr class="text-left text-gray-500 border-b"><th class="py-1 px-2">端点</th><th class="py-1 px-2">参数</th><th class="py-1 px-2">说明</th></tr></thead>
+                        <tbody>${endpointRows}</tbody></table></div>` : ''}
+                    <p class="text-xs text-gray-500 mb-2"><b>参数与通用规则</b>：</p>
+                    <div class="mb-3">${renderMdBlocks(gd.param_rules || [])}</div>
+                    <p class="text-xs text-gray-500 mb-2"><b>错误码与处理动作</b>（401/403 一律<b>不要重试</b>）：</p>
+                    ${errorRows ? `<div class="overflow-auto"><table class="w-full text-xs">
+                        <thead><tr class="text-left text-gray-500 border-b"><th class="py-1 px-2">HTTP</th><th class="py-1 px-2">code</th><th class="py-1 px-2">含义</th><th class="py-1 px-2">应做什么</th></tr></thead>
+                        <tbody>${errorRows}</tbody></table></div>` : ''}
+                </div>
+
+                <div class="admin-card">
+                    <h4 class="font-medium text-gray-800 mb-2"><i class="fas fa-rotate text-cyan-600 mr-2"></i>5. 同步与对账规则（必读）</h4>
                     <p class="text-xs text-gray-500 mb-2">
-                        一次交付对方开发者所需内容：接口说明、<b>已保存</b>的开放范围、字段字典、合成样例、错误码与同步规则、接入检查清单。<br>
-                        <b>不含任何密钥</b>（明文密钥请通过安全渠道单独发送）。
+                        每轮的取数顺序、游标语义（末页 <code class="font-mono">next_cursor=null</code> 要清空本地游标）、
+                        「清单里没有 ≠ 被删除」以及失败时的重试上限 —— 这几条决定对方会不会**误删数据或漏拉记录**。
+                    </p>
+                    <details class="rounded-lg bg-gray-50 border border-gray-200 p-2">
+                        <summary class="text-xs text-gray-600 cursor-pointer select-none">展开完整规则（与接入包同源）</summary>
+                        <div class="mt-2">${renderMdBlocks(gd.sync_rules || [])}</div>
+                    </details>
+                </div>
+
+                <div class="admin-card">
+                    <h4 class="font-medium text-gray-800 mb-2"><i class="fas fa-scale-balanced text-purple-600 mr-2"></i>6. 业务口径与联调自检</h4>
+                    <p class="text-xs text-gray-500 mb-2"><b>判定与统计口径</b>（对方最容易误读的地方，务必先对齐）：</p>
+                    <div class="rounded-lg bg-gray-50 border border-gray-200 p-2 mb-3">${renderMdBlocks(gd.business_rules || [])}</div>
+                    <p class="text-xs text-gray-500 mb-2"><b>常见错误与排查（FAQ）</b>：</p>
+                    <div class="rounded-lg bg-gray-50 border border-gray-200 p-2 mb-3">${faqHtml || '<p class="text-xs text-gray-500">（读取失败）</p>'}</div>
+                    <p class="text-xs text-gray-500 mb-2"><b>联调自检清单</b>（每项都有可判定的期望值，建议联调开始与每次发布后各跑一遍）：</p>
+                    <div class="rounded-lg bg-gray-50 border border-gray-200 p-2">${selfCheckHtml || '<p class="text-xs text-gray-500">（读取失败）</p>'}</div>
+                </div>
+
+                <div class="admin-card">
+                    <h4 class="font-medium text-gray-800 mb-2"><i class="fas fa-file-arrow-down text-indigo-500 mr-2"></i>7. 下载接入包</h4>
+                    <p class="text-xs text-gray-500 mb-2">
+                        一次交付对方开发者所需内容：快速开始、<b>已保存</b>的开放范围（含限流/IP 白名单/密钥片段）、字段字典、合成样例、业务口径、同步规则、错误码、FAQ、自检清单。<br>
+                        <b>不含任何密钥明文</b>（密钥请通过安全渠道单独发送）。
                     </p>
                     <div class="flex items-center gap-3">
                         <button id="oapiPackageDl" type="button" class="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"><i class="fas fa-download mr-1"></i>下载接入包（Markdown）</button>
