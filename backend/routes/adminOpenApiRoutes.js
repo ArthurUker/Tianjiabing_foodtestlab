@@ -23,6 +23,19 @@ import { createTenantClient, schemaNameOf, isValidSchoolCode, assertSafeSchemaNa
 import { RECORD_ROUTE_TYPES, isValidBusinessDate } from '../lib/recordNormalize.js'
 import { resolveGrantTypes, grantDateRange, grantDateSqlClause, buildOpenRecord, computeProjectionFingerprint } from '../lib/openApiScope.js'
 import { OPEN_API_CONTRACT_VERSION, listFieldDescriptors, buildSyntheticSamples, extractCustomFieldMeta, buildAllowedResultKeyMap, allowedKeysFingerprint } from '../lib/openApiFieldSchema.js'
+// 「接入说明」长文与接入包共用同一份内容（单一事实源）：改文案只改 lib/openApiGuide.js
+import {
+  buildQuickStartLines,
+  buildSyncRuleLines,
+  GUIDE_ENDPOINTS,
+  GUIDE_PARAM_RULES,
+  GUIDE_DICT_NOTES,
+  GUIDE_BUSINESS_RULES,
+  GUIDE_ERROR_ROWS,
+  GUIDE_FAQ,
+  GUIDE_SELF_CHECK,
+  GUIDE_SAMPLE_SCENARIOS,
+} from '../lib/openApiGuide.js'
 
 const TAG = '[adminOpenApiRoutes]'
 const OPS_ACTION = {
@@ -524,13 +537,72 @@ export function createAdminOpenApiRoutes({ prisma, authenticateUser, requirePlat
   })
 
   /**
+   * 接入说明（结构化 JSON）：超管界面「接入说明」直接渲染本接口。
+   *
+   * 与「下载接入包」共用 `lib/openApiGuide.js` 的同一份内容 —— 避免"界面一套说法、导出文档另一套"。
+   * 安全：不含密钥明文、不含 key_hash、不含任何真实检测记录。
+   */
+  router.get('/clients/:id/guide', async (req, res) => {
+    try {
+      const client = await prisma.openApiClient.findUnique({ where: { id: req.params.id }, include: { grants: true, credentials: true } })
+      if (!client) return res.status(404).json({ success: false, error: '对接方不存在' })
+      const activeGrants = client.grants.filter((g) => g.status === 'active').sort((a, b) => (a.school_code < b.school_code ? -1 : 1))
+      const activeCreds = (client.credentials || []).filter((k) => k.status === 'active')
+      const base = `https://${req.get('host') || '<平台域名>'}/api/open/v1`
+      res.json({
+        success: true,
+        data: {
+          contract_version: OPEN_API_CONTRACT_VERSION,
+          base_url: base,
+          generated_at: new Date().toISOString(),
+          quick_start: buildQuickStartLines(base),
+          endpoints: GUIDE_ENDPOINTS,
+          param_rules: GUIDE_PARAM_RULES,
+          dict_notes: GUIDE_DICT_NOTES,
+          business_rules: GUIDE_BUSINESS_RULES,
+          sync_rules: buildSyncRuleLines(),
+          error_rows: GUIDE_ERROR_ROWS,
+          faq: GUIDE_FAQ,
+          self_check: GUIDE_SELF_CHECK,
+          sample_scenarios: GUIDE_SAMPLE_SCENARIOS,
+          credential_summary: {
+            active_count: activeCreds.length,
+            // 展示用片段（与超管界面一致）；明文只在生成时显示一次，服务端无法找回
+            display_list: activeCreds.map((k) => `${k.key_prefix}…${k.key_last4}`),
+          },
+          client_summary: {
+            rate_limit_per_min: Number(client.rate_limit_per_min) > 0 ? Number(client.rate_limit_per_min) : 60,
+            ip_whitelist: Array.isArray(client.ip_whitelist) ? client.ip_whitelist : [],
+          },
+          active_grants: activeGrants.map((g) => {
+            const { start, end } = grantDateRange(g)
+            return {
+              school_code: g.school_code,
+              types: resolveGrantTypes(g),
+              start_date: start,
+              end_date: end,
+              include_inspector: g.include_inspector === true,
+              include_pathogen: g.include_pathogen === true,
+              include_attachments: g.include_attachments === true,
+              scope_version: g.scope_version,
+            }
+          }),
+        },
+      })
+    } catch (e) {
+      console.error(`${TAG} 接入说明读取失败:`, e)
+      res.status(500).json({ success: false, error: e.message || '读取接入说明失败' })
+    }
+  })
+
+  /**
    * 接入包（Markdown）：一次性把对方开发者需要的东西打包下载。
-   * 内容 = 接口说明 + **已保存**的开放范围 + 字段字典 + 合成样例 + 错误码 + 同步规则 + 检查清单。
+   * 内容 = 接口说明 + **已保存**的开放范围 + 字段字典 + 合成样例 + 业务口径 + 错误码 + FAQ + 同步规则 + 自检清单。
    * 安全：不含完整密钥、不含 key_hash、不含生产记录、不含内部配置原文。
    */
   router.get('/clients/:id/package', async (req, res) => {
     try {
-      const client = await prisma.openApiClient.findUnique({ where: { id: req.params.id }, include: { grants: true } })
+      const client = await prisma.openApiClient.findUnique({ where: { id: req.params.id }, include: { grants: true, credentials: true } })
       if (!client) return res.status(404).json({ success: false, error: '对接方不存在' })
       const activeGrants = client.grants.filter((g) => g.status === 'active').sort((a, b) => (a.school_code < b.school_code ? -1 : 1))
       const codes = activeGrants.map((g) => g.school_code)
@@ -558,87 +630,50 @@ export function createAdminOpenApiRoutes({ prisma, authenticateUser, requirePlat
         '',
         '## 0. 快速开始（可直接复制运行）',
         '',
-        '```bash',
-        '# ① 连通性 + 服务器时间（对账时钟）',
-        `curl -s -H "X-API-Key: $KEY" ${base}/ping`,
-        '',
-        '# ② 确认当前授权范围（学校 / 类型 / 字段开关 / scope_version / projection_fingerprint）',
-        `curl -s -H "X-API-Key: $KEY" ${base}/profile`,
-        '',
-        '# ③ 取字段字典（据此写映射：是否下发、单位、结论枚举、自定义字段）',
-        `curl -s -H "X-API-Key: $KEY" "${base}/dict?school_code=<校>"`,
-        '',
-        '# ④ 拉第一页记录（limit ≤ 200；看 has_more / next_cursor）',
-        `curl -s -H "X-API-Key: $KEY" "${base}/test-records?school_code=<校>&limit=200"`,
-        '',
-        '# ⑤ 对账清单（total + digest；detail=1 附全量 {record_code, updated_at, change_token}）',
-        `curl -s -H "X-API-Key: $KEY" "${base}/sync/manifest?school_code=<校>"`,
-        '```',
-        '',
-        '> `$KEY` 即平台提供的密钥明文（形如 `oap_…`）。**认证只有一种密钥**，可用下面两种方式之一携带；两者同时出现时以 `X-API-Key` 为准。',
-        '',
-        '**分页响应外层结构**（`GET /test-records`，注意外层是 `data`，单条记录在 `data.items[]`）：',
-        '```json',
-        '{ "code": 0, "data": { "school_code": "<校>", "scope_version": 1, "projection_fingerprint": "…",',
-        '    "count": 200, "has_more": true, "next_cursor": "<最后一页为 null>",',
-        '    "server_time": "2026-09-16T12:00:00+08:00", "items": [ { "…": "单条记录对象（见 §4 样例）" } ] } }',
-        '```',
-        '**清单响应外层结构**（`GET /sync/manifest`，`detail=1` 时才有 `items`）：',
-        '```json',
-        '{ "code": 0, "data": { "total": 1129, "complete": true, "digest": "…",',
-        '    "digest_covers": "cursor_version+scope_version+projection_fingerprint+record_code@change_token",',
-        '    "generated_at": "2026-09-16T12:00:00+08:00",',
-        '    "items": [ { "record_code": "RC-…", "updated_at": "2026-09-16T11:05:00.900+08:00", "change_token": "2026-09-16T03:05:00.900Z|v2" } ] } }',
-        '```',
+        ...buildQuickStartLines(base),
         '',
         '## 1. 接口地址与认证',
         '',
         `- 基址：\`${base}\``,
-        '- 认证（**同一个密钥**，二选一携带方式）：`X-API-Key: <密钥>` 或 `Authorization: Bearer <密钥>`；必须 HTTPS。',
-        '- 限流：默认 60 次/分钟（超限返回 429，请按 `Retry-After` 退避）。',
-        '- 分页参数：`limit` 默认 **100**、上限 **200**；`limit` 缺失 / 非数字 / `0` 一律**回退默认值**（不报错，兼容既有调用行为）。',
-        '- 日期参数（`start` / `end`）：接受 `YYYY-MM-DD` 或 ISO8601 日期时间（取日期部分），**两端含当天**；'
-          + '非法日期返回 `400 INVALID_START` / `INVALID_END`，`start > end` 返回 `400 INVALID_RANGE`；'
-          + '请求范围与授权业务日期范围**求交集**（请求不能越过授权范围）。',
-        '- `projection_fingerprint`（字段可见性指纹）在 `/test-records`、`/samples`、`/sync/manifest` 响应中返回，**`/profile` 不含**该字段。',
-        '- 所有成功响应为 `{ "code": 0, "data": {...} }`；失败为 `{ "code": "<错误码>", "error": "..." }`。',
+        ...GUIDE_PARAM_RULES,
         '',
-        '| 端点 | 说明 |',
-        '|---|---|',
-        '| `GET /ping` | 连通性 + 服务器时间 |',
-        '| `GET /profile` | 当前密钥的授权范围（每校 scope_version / 类型 / 日期范围 / 字段开关；**不含** projection_fingerprint） |',
-        '| `GET /schools` | 授权学校清单 |',
-        '| `GET /dict?school_code=` | 字典：类型、食堂、结论枚举、**字段字典** |',
-        '| `GET /samples?school_code=&test_type=` | **合成样例**（非真实数据，可在无数据时开发） |',
-        '| `GET /sync/manifest?school_code=[&detail=1]` | 全量清单（total + digest）；`detail=1` 附明细用于对账 |',
-        '| `GET /test-records?school_code=&cursor=&limit=` | 检测记录增量拉取（游标分页） |',
-        '| `GET /stats?school_code=&start=&end=` | 合格率统计（含排除原因，可对账） |',
+        '| 端点 | 参数 | 说明 |',
+        '|---|---|---|',
+        ...GUIDE_ENDPOINTS.map((e) => `| \`${e.method} ${e.path}\` | ${e.params} | ${e.desc} |`),
         '',
-        '## 2. 当前已保存的开放范围',
+        '## 2. 当前已保存的开放范围（授权快照）',
+        '',
+      )
+      const activeCreds = (client.credentials || []).filter((k) => k.status === 'active')
+      push(
+        `- 快照生成时间：${new Date().toISOString()}（此后平台仍可调整授权；交付前如已改动请**重新下载**本文件）`,
+        `- 有效密钥：${activeCreds.length
+          ? `${activeCreds.length} 把（展示用片段：${activeCreds.map((k) => `\`${k.key_prefix}…${k.key_last4}\``).join('、')}；仅供辨认，**明文只在生成时显示一次**）`
+          : '**当前无有效密钥** —— 请在控制台「凭证管理」生成后再交付（否则对方无法调用）'}`,
+        `- 限流：${Number(client.rate_limit_per_min) > 0 ? Number(client.rate_limit_per_min) : 60} 次/分钟（按凭证独立计数；超限 429 + \`Retry-After\`）`,
+        `- IP 白名单：${Array.isArray(client.ip_whitelist) && client.ip_whitelist.length
+          ? client.ip_whitelist.map((x) => `\`${x}\``).join('、')
+          : '**未配置（不限制来源 IP）** —— 正式启用建议填入对方固定出口 IP'}`
+          + '（若出现 `403 IP_DENIED`，先核对出口 IP 是否与白名单一致）',
         '',
       )
       if (!activeGrants.length) {
         push('> ⚠️ 当前**没有任何生效授权**（未勾选学校或已全部停用）。请先在控制台「开放接口 → 学校授权」中配置。', '')
       } else {
-        push('| 学校 | 学校代码 | 开放类型 | 业务日期范围 | 检测人姓名 | 病原体 | scope_version |', '|---|---|---|---|---|---|---|')
+        push('| 学校 | 学校代码 | 开放类型 | 业务日期范围 | 检测人姓名 | 病原体 | 附件 | scope_version |', '|---|---|---|---|---|---|---|---|')
         for (const g of activeGrants) {
           const { start, end } = grantDateRange(g)
-          push(`| ${nameOf.get(g.school_code) || '-'} | \`${g.school_code}\` | ${resolveGrantTypes(g).join('、') || '无（零权限）'} | ${start || '不限'} ~ ${end || '不限'} | ${g.include_inspector ? '下发' : '不下发'} | ${g.include_pathogen ? '开放' : '不开放'} | ${g.scope_version} |`)
+          push(`| ${nameOf.get(g.school_code) || '-'} | \`${g.school_code}\` | ${resolveGrantTypes(g).join('、') || '无（零权限）'} | ${start || '不限'} ~ ${end || '不限'} | ${g.include_inspector ? '下发' : '不下发'} | ${g.include_pathogen ? '开放' : '不开放'} | ${g.include_attachments ? '可读' : '不开放'} | ${g.scope_version} |`)
         }
         push('')
+        push('> 上表是**生成时的快照**；`scope_version` 会随授权变更递增。请以 `GET /profile` 的实时结果为准（两者不一致时以服务端实时值为准并告知平台）。', '')
       }
 
       push(
         '## 3. 字段字典',
         '',
         '> 读表须知：',
-        '> - **必现 = 服务端保证**（是 = 该字段一定出现在响应中，目前仅顶层字段）。`result.*` 字段来自保存的检测数据，**恒为否**：'
-          + '若观察到「现有记录均出现」，会写在说明里的 `实测出现：…` —— 那是**数据观察，不是输出保证**，请勿据此建必填模型；容错解析以「可空」「下发」为准。',
-        '> - **可空**：字段存在但值可能为 `null`。**三态区分**：字段**省略**（不存在）≠ `null`（存在无值）≠ 空串/空数组（有值为空）。',
-        '> - **下发=否** 的字段**不会出现在响应中**，列出仅为说明原始存储结构（如 `result.inspector` 属个人信息恒不下发），请勿据此开发。',
-        '> - **公共字段只列一次**（该学校所有开放类型一致）；各类型的专属字段分列在其后。数组元素结构见说明中的「元素：…」。',
-        '> - ⚠️ **单位标注 ≠ 已核实单位**：字段表「单位」列带 `⚠️未核实` 的（如 `result.tpmValue`）表示该单位仅为**平台界面标注**'
-          + '（字段上 `unit_source=platform_label`、`unit_verified=false`），**设备协议/计量文件尚未核实** —— 请勿自行换算（×100 / ÷100），也不要据该字段重新判定历史结论。',
+        ...GUIDE_DICT_NOTES,
         '',
       )
       const descKey = (f) => `${f.path}|${f.type}|${f.unit || ''}|${f.label || ''}|${f.required ? 1 : 0}|${f.nullable ? 1 : 0}|${f.emitted === false ? 0 : 1}|${f.conditional_on || ''}`
@@ -693,7 +728,18 @@ export function createAdminOpenApiRoutes({ prisma, authenticateUser, requirePlat
         }
       }
 
-      push('## 4. 合成样例（非真实数据）', '', '> 以下为**构造样例**，`record_code` 以 `SAMPLE-` 前缀标记，请勿写入正式数据集；字段形态与真实响应一致。', '')
+      push(
+        '## 4. 合成样例（非真实数据）',
+        '',
+        '> 以下为**构造样例**，`record_code` 以 `SAMPLE-` 前缀标记，请勿写入正式数据集；字段形态与真实响应一致（走与真实记录相同的投影）。',
+        '',
+        '**场景含义（怎么用这些样例写测试）**：',
+        '',
+        '| 类型 | 场景 | 含义 |',
+        '|---|---|---|',
+        ...GUIDE_SAMPLE_SCENARIOS.map((x) => `| ${x.type} | \`${x.scenario}\` | ${x.meaning} |`),
+        '',
+      )
       for (const g of activeGrants) {
         // 字段白名单（与字典同源；2026-09-16 审阅 M2）：样例必须与真实下发一致
         const keyMap = buildAllowedResultKeyMap(
@@ -709,7 +755,11 @@ export function createAdminOpenApiRoutes({ prisma, authenticateUser, requirePlat
       }
 
       push(
-        '## 5. 同步规则（必读）',
+        '## 5. 业务口径与判定规则（务必按此实现）',
+        '',
+        ...GUIDE_BUSINESS_RULES,
+        '',
+        '## 6. 同步规则（必读）',
         '',
         '**每轮顺序（请不要颠倒，尤其是"删除判定"必须在一致性校验通过之后）**：',
         '',
@@ -746,30 +796,23 @@ export function createAdminOpenApiRoutes({ prisma, authenticateUser, requirePlat
         '收到 `409 SCOPE_CHANGED`（授权或字段可见性变化 / 游标过旧）→ 回到第 1 步重新对账，并重新拉取全部明细以重新投影。',
         '旧客户端升级：丢弃跨轮旧游标，保留旧数据与旧摘要作回滚点，使用新客户端完整拉取并替换本校记录；两次摘要一致后才原子提交新版摘要、记录和水位。学校改名也会改变投影指纹并触发重投影。',
         '',
-        '## 6. 错误码与处理动作',
+        '## 7. 错误码与处理动作',
         '',
         '| HTTP | code | 含义 | 你方应做什么 |',
         '|---|---|---|---|',
-        '| 401 | `MISSING_KEY` / `INVALID_KEY` / `CREDENTIAL_REVOKED` / `CREDENTIAL_EXPIRED` | 未携带 / 无效 / 已吊销 / 已过期 | **不要重试**：检查密钥配置与是否已轮换；必要时联系平台换新密钥 |',
-        '| 403 | `CLIENT_DISABLED` / `IP_DENIED` / `SCHOOL_NOT_AUTHORIZED` / `TYPE_NOT_AUTHORIZED` | 对接方停用 / IP 不在白名单 / 未授权学校 / 未授权类型 | **不要重试**：核对授权范围与出口 IP；需要变更请联系平台 |',
-        '| 400 | `INVALID_CURSOR` / `CURSOR_SCHOOL_MISMATCH` / `CURSOR_FILTER_MISMATCH` / `INVALID_SINCE` / `INVALID_UNTIL` | 游标非法 / 换学校 / 换筛选条件复用游标 / 时间参数非法 | 丢弃本地游标，改从 `manifest` 重新对账后重拉 |',
-        '| 409 | `SCOPE_CHANGED` | 授权或字段可见性变化、游标协议过旧 | 重新对账 + **全量重拖并替换式重投影**（不要指望增量覆盖被撤回字段） |',
-        '| 413 | `MANIFEST_TOO_LARGE` | 清单超单次上限（**明确拒绝，不返回截断清单**） | **不得当作空清单**：停止对账并联系平台改为分页清单方案 |',
-        '| 429 | `RATE_LIMITED` | 触发限流 | 按 `Retry-After` 退避（配合指数退避），降低并发与频率 |',
+        ...GUIDE_ERROR_ROWS.map((r) => `| ${r.status} | \`${r.code}\` | ${r.meaning} | ${r.action} |`),
         '| 5xx / 超时 | — | 平台侧异常 | 有界重试（指数退避 + 上限）；期间**保留旧水位**；持续失败联系平台 |',
         '',
-        '## 7. 接入检查清单',
+        '## 8. 常见错误与排查（FAQ）',
         '',
-        '- [ ] `GET /ping` 通，且服务器时间与本机偏差可接受',
-        '- [ ] `GET /profile` 的学校与类型范围与本文件 §2 快照一致；**不一致时以 `/profile` 为准**',
-        '- [ ] `GET /dict` 能取到字段字典（据此完成字段映射，含"是否下发"与单位口径）',
-        '- [ ] `GET /samples` 能取到合成样例（覆盖合格/不合格/复检等场景，且场景与结论一致）',
-        '- [ ] 全量拉取一次：条数与 `manifest.total` 一致，`record_code` 无重复',
-        '- [ ] 增量拉取：翻页不重不漏；**最后一页 `next_cursor=null` 时已清空本地游标**',
-        '- [ ] 本地记录按"**整体替换**"落地（含记录级字段减少：新响应没有的字段会被清除）',
-        '- [ ] 未授权学校/类型被 403 拒绝；错误码按 §6 的"应做什么"分流（401/403 不重试）',
-        '- [ ] 已实现：`digest` 二读一致后才提交/删除、失败不当空清单、`413` 有处理、重试有上限',
-        '- [ ] 抽样 3~5 条与平台方人工核对字段与结论（含不合格与复检各至少 1 条）',
+        ...GUIDE_FAQ.flatMap((f) => [`**Q：${f.q}**`, '', f.a, '']),
+        '## 9. 接入自检清单（可逐项勾选）',
+        '',
+        '> 建议在联调开始、以及每次平台侧发布后各跑一遍；每项都给出可判定的期望值。',
+        '',
+        ...GUIDE_SELF_CHECK.map((c) => `- [ ] ${c.item} —— 期望：${c.expect}`),
+        '',
+        '> ⚠️ 停用对接方、吊销密钥、收紧授权都只能阻止**后续读取**：对方已下载到其数据库的数据不会自动消失，需按双方约定另行通知清理 —— 本系统无法代其删除。',
         '',
       )
 
