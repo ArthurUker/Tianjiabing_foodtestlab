@@ -18,7 +18,7 @@ import crypto from 'node:crypto'
 //   复检      : 仅 tableware(recheckRecords) 与 pathogen(recheckReports) 真实存在，故只有这两类产出复检样例
 //
 // ⚠️ 契约约定：字段一律按**对外响应中的路径**描述（顶层字段直接写名，业务字段统一在 result.* 下）。
-//    平台保证 v1 内「不删除、不改语义」，新增字段为向后兼容的新增。
+//    v1 内的历史行为修正与客户端升级要求见 docs/OPEN_API_INTEGRATION.md。
 
 export const OPEN_API_CONTRACT_VERSION = 'v1'
 
@@ -48,16 +48,18 @@ const COMMON_FIELDS = [
   { path: 'test_date', label: '检测业务日期', type: 'date', unit: null, nullable: true, required: false, format: 'YYYY-MM-DD', description: '业务日期；极少数历史记录为空（与结论无关，不得据此判定为未完成）', source: 'platform' },
   { path: 'canteen', label: '食堂', type: 'string', unit: null, nullable: true, required: false, source: 'platform' },
   { path: 'status', label: '记录状态', type: 'enum', unit: null, nullable: false, required: true, enum: ['pending', 'completed', 'failed', 'archived'], source: 'platform' },
-  { path: 'initial_conclusion', label: '初检结论', type: 'enum', unit: null, nullable: false, required: true, enum: CONCLUSION_VALUES.map((c) => c.value), description: '记录内保存的初检判定', source: 'platform' },
+  { path: 'initial_conclusion', label: '初检结论', type: 'enum', unit: null, nullable: false, required: true, enum: CONCLUSION_VALUES.map((c) => c.value), description: '无复检时按当前保存值映射；有复检且未保存独立初检快照时为 unknown，不逆推', source: 'platform' },
   { path: 'final_conclusion', label: '最终结论', type: 'enum', unit: null, nullable: false, required: true, enum: CONCLUSION_VALUES.map((c) => c.value), description: '有复检时取复检结论，否则与初检一致', source: 'platform' },
   { path: 'conclusion', label: '结论（对外统一口径）', type: 'enum', unit: null, nullable: false, required: true, enum: CONCLUSION_VALUES.map((c) => c.value), description: '等于 final_conclusion，推荐直接使用此字段', source: 'platform' },
   { path: 'final_conclusion_basis', label: '最终结论来源', type: 'enum', unit: null, nullable: false, required: true, enum: ['initial', 'recheck'], description: 'initial=无复检、沿用初检；recheck=由复检结论覆盖', source: 'platform' },
+  { path: 'conclusion_conflict', label: '复检结论冲突', type: 'boolean', unit: null, nullable: false, required: true, description: '复检 isPassed 与可识别的 finalStatus 相反时为 true；结构化 isPassed 优先', source: 'platform' },
+  { path: 'change_token', label: '逐记录变化标识', type: 'string', unit: null, nullable: false, required: true, description: '毫秒级更新时间与内部记录版本的组合；用于清单和明细对账', source: 'platform' },
   { path: 'conclusion_text', label: '结论原文', type: 'string', unit: null, nullable: true, required: false, description: '记录内保存的判定文本原样返回（如「整改后复检合格」「不合格 (>500)」）', source: 'platform' },
   { path: 'conclusion_source', label: '结论来源', type: 'string', unit: null, nullable: false, required: true, description: "固定为 'stored'：结论是**录入/检测当时保存**的值，不是按当前阈值重新计算的结果", source: 'platform' },
   { path: 'is_positive', label: '是否阳性', type: 'boolean', unit: null, nullable: true, required: false, description: '仅病原体有意义（true=阳性、false=阴性）；非病原体为 null', source: 'platform' },
   { path: 'result', label: '检测业务数据', type: 'object', unit: null, nullable: false, required: true, description: '该类型的业务字段集合（见同类型 result.* 条目）；字段随类型与学校自定义配置不同', source: 'platform' },
   { path: 'created_at', label: '记录创建时间', type: 'datetime', unit: null, nullable: false, required: true, format: 'ISO8601 +08:00', description: '⚠️ 历史导入数据的创建时间可能等于业务日期零点，不要用它做增量同步', source: 'platform' },
-  { path: 'updated_at', label: '数据变更时间', type: 'datetime', unit: null, nullable: false, required: true, format: 'ISO8601 +08:00', description: '**增量同步唯一依据**；记录内容发生任何对外可见变更（含复检）都会刷新', source: 'platform' },
+  { path: 'updated_at', label: '数据变更时间', type: 'datetime', unit: null, nullable: false, required: true, format: 'ISO8601 +08:00（毫秒）', description: '记录变更排序时间；逐条比较请用 change_token，并以 manifest.digest 做最终对账', source: 'platform' },
   { path: 'data_version', label: '数据版本', type: 'integer', unit: null, nullable: false, required: true, source: 'platform' },
 ]
 
@@ -85,8 +87,8 @@ const TYPE_FIELDS = {
     { path: 'result.atpPoints', label: 'ATP 点位明细', type: 'array<object>', unit: null, nullable: true, required: false, item_fields: ['loc(点位)', 'rlu(RLU 字符串)', 'res(结论文本)', 'testType(检测项目，部分记录存在)'], source: 'platform' },
     { path: 'result.correctiveAction', label: '整改措施', type: 'string', unit: null, nullable: true, required: true, source: 'platform' },
     { path: 'result.recheckResult', label: '复检结果备注', type: 'string', unit: null, nullable: true, required: true, source: 'platform' },
-    { path: 'result.recheckRecords', label: '复检记录', type: 'array<object>', unit: null, nullable: true, required: false, description: '有复检时才出现（实测仅餐具/病原体有）。元素中 user（复检人姓名）**不下发**', item_fields: ['id(序号)', 'time(复检时间字符串)', 'isPassed(是否通过 boolean)', 'points(点位明细 array)'], source: 'platform' },
-    { path: 'result.finalStatus', label: '最终状态文本', type: 'string', unit: null, nullable: true, required: false, description: '如「整改后复检合格」，有复检时出现；**病原体实测不产出本字段（0/66）——病原体复检结论在 `result.recheckReports[].isPassed`**', source: 'platform' },
+    { path: 'result.recheckRecords', label: '复检记录', type: 'array<object>', unit: null, nullable: true, required: false, description: '有复检时才出现；元素中 user（复检人姓名）不下发', item_fields: ['id(序号)', 'time(复检时间字符串)', 'isPassed(是否通过 boolean)', 'points(点位明细 array)'], source: 'platform' },
+    { path: 'result.finalStatus', label: '最终状态文本', type: 'string', unit: null, nullable: true, required: false, description: '如「整改后复检合格」；最终枚举优先取最新复检 isPassed', source: 'platform' },
     { path: 'result.remark', label: '备注', type: 'string', unit: null, nullable: true, required: false, source: 'platform' },
   ],
   pesticide: [
@@ -122,6 +124,7 @@ const TYPE_FIELDS = {
     { path: 'result.allTestItems', label: '全部检测项', type: 'array<object>', unit: null, nullable: true, required: true, item_fields: ['no(序号，实测存在 number 与 string 两种)', 'channel(通道)', 'pathogen(致病菌名)', 'result(结果文本)', 'ct(string)', 'isInternalControl(是否内控 boolean)'], source: 'platform' },
     { path: 'result.internalControlStatus', label: '内控状态', type: 'string', unit: null, nullable: true, required: true, source: 'platform' },
     { path: 'result.recheckReports', label: '复检报告', type: 'array<object>', unit: null, nullable: true, required: false, description: '有复检时才出现；结论看 `isPassed`（true=复检合格）。元素中的 `user`（复检人姓名）**不下发**', item_fields: ['id(序号)', 'time(复检时间字符串)', 'isPassed(是否通过 boolean)', 'user(复检人姓名，不下发)'], source: 'platform' },
+    { path: 'result.finalStatus', label: '复检状态文本', type: 'string', unit: null, nullable: true, required: false, description: '当前 Web 复检可写「复检通过」或「复检低风险」；与 isPassed 冲突时以 isPassed 为准', source: 'platform' },
     { path: 'result.sampleId', label: '样品编号', type: 'string', unit: null, nullable: true, required: true, description: '2026-09-16 只读实测：66/66 条病原体记录均存在（此前字典漏登记）', source: 'platform' },
     { path: 'result.sampleType', label: '样品类型', type: 'string', unit: null, nullable: true, required: true, description: '2026-09-16 只读实测：66/66 条均存在（此前字典漏登记）', source: 'platform' },
     { path: 'result.sampleInfo', label: '样品说明', type: 'string', unit: null, nullable: true, required: true, description: '⚠️ **普通字符串**（实测长度 5~16 字符，例如样品别名；非 JSON、非对象），按文本处理，勿解析为对象（此前字典漏登记且曾被误判为"双重编码"）', source: 'platform' },
@@ -221,11 +224,11 @@ const SAMPLE_SCENARIOS = {
       correctiveAction: '已重新清洗消毒', recheckResult: '', canteen: SAMPLE_CANTEEN, testDate: SAMPLE_DATE, inspector: SAMPLE_INSPECTOR,
     }),
     sampleBase('tableware', '餐具洁净度检测', 'recheck_passed', {}, {
-      testType: 'atp', location: '砧板表面', rluValue: '614', result: '不合格 (>500)',
+      testType: 'atp', location: '砧板表面', rluValue: '96', result: '合格',
       finalStatus: '整改后复检合格',
       recheckRecords: [{ id: 1, time: `${SAMPLE_DATE} 15:30`, user: SAMPLE_INSPECTOR, isPassed: true, points: [{ loc: '砧板表面', rlu: '96', res: '合格' }] }],
       modificationLogs: [{ time: `${SAMPLE_DATE} 15:31`, user: SAMPLE_INSPECTOR, action: '复检', content: '复检合格' }],
-      atpPoints: [{ loc: '砧板表面', rlu: '614', res: '不合格' }],
+      atpPoints: [{ loc: '砧板表面', rlu: '96', res: '合格' }],
       correctiveAction: '已重新清洗消毒', recheckResult: '复检合格', canteen: SAMPLE_CANTEEN, testDate: SAMPLE_DATE, inspector: SAMPLE_INSPECTOR,
     }, `${SAMPLE_DATE} 15:31`),
     sampleBase('tableware', '餐具洁净度检测', 'sparse', {}, {
@@ -290,11 +293,11 @@ const SAMPLE_SCENARIOS = {
     }),
     sampleBase('pathogen', '病原体检测', 'recheck_passed', {}, {
       // 复检合格场景的字段分工（避免"复检合格 + 当前阳性"的误读）：
-      //   riskLevel / riskReason / positiveItems / positiveDetails = **初检证据**（平台按录入时保存，复检不改写）
+      //   当前 Web 会覆盖 riskLevel/result；positiveDetails 仍是初检留下的检出明细，不能据此恢复完整初检结论。
       //   复检结论 = recheckReports[0].isPassed（对外映射为 final_conclusion / final_conclusion_basis='recheck'）
       //   allTestItems = **当前（复检后）**明细 → 未检出
-      //   ⚠️ 病原体实测**没有 finalStatus 字段**（0/66），故样例不产出它（finalStatus 出现在餐具）
-      riskLevel: '低风险', riskReason: '初检检出沙门氏菌（示例）', positiveItems: '沙门氏菌（示例）',
+      //   当前 Web 复检写 finalStatus；旧实测样本未出现，不代表写入路径不支持。
+      riskLevel: '无风险', result: '合格', finalStatus: '复检通过', riskReason: '初检检出沙门氏菌（示例）', positiveItems: '沙门氏菌（示例）',
       positiveDetails: [{ pathogen: '沙门氏菌（示例）', ct: 21.5, ctRaw: '21.5' }],
       recheckReports: [{ id: 1, time: `${SAMPLE_DATE} 16:00`, user: SAMPLE_INSPECTOR, isPassed: true }],
       internalControlStatus: '有效',

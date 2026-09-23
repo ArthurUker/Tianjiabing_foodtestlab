@@ -223,6 +223,8 @@ const UNKNOWN = 'unknown'
 function textToConclusion(text) {
   const s = String(text ?? '').trim()
   if (!s) return UNKNOWN
+  if (s === '复检通过') return PASS
+  if (s === '复检未通过') return FAIL
   if (s.includes('不合格')) return FAIL
   if (s.includes('警戒')) return WARN
   if (s.includes('合格')) return PASS
@@ -231,9 +233,10 @@ function textToConclusion(text) {
 
 /**
  * 由记录数据推导初检/最终结论。
- * - 初检：tableware/pesticide/leanMeat 看 result 文本；oil 优先 colorLevel；pathogen 看 riskLevel；
- * - 最终：finalStatus（整改后复检合格 / 复检不合格）优先，无则等于初检；
- * - is_positive：仅病原体有意义（riskLevel 非空且 ≠ 无风险）。
+ * - 无复检：按当前保存的 result/colorLevel/riskLevel 推导；
+ * - 有复检：初检快照通常已被 Web 覆盖，初检标 unknown；最终优先取最新结构化 isPassed，
+ *   缺失时回退可识别的 finalStatus，并标出冲突；
+ * - is_positive：病原体优先按保存的 positiveDetails 判断检出。
  */
 export function deriveConclusion(testType, resultData) {
   const data = resultData && typeof resultData === 'object' ? resultData : {}
@@ -271,22 +274,29 @@ export function deriveConclusion(testType, resultData) {
 
   const finalStatus = String(data.finalStatus ?? '').trim()
   const recheckPassed = getLatestRecheckPassed(data)
+  const hasRecheck = finalStatus !== ''
+    || (Array.isArray(data.recheckRecords) && data.recheckRecords.length > 0)
+    || (Array.isArray(data.recheckReports) && data.recheckReports.length > 0)
   let final = initial
   let basis = 'initial'
-  if (finalStatus) {
-    final = textToConclusion(finalStatus)
-    text = finalStatus
-    basis = 'recheck'
-  } else if (typeof recheckPassed === 'boolean') {
-    final = recheckPassed ? PASS : FAIL
+  const statusConclusion = textToConclusion(finalStatus)
+  const conflict = hasRecheck && typeof recheckPassed === 'boolean'
+    && statusConclusion !== UNKNOWN && statusConclusion !== (recheckPassed ? PASS : FAIL)
+  if (hasRecheck) {
+    // 现有 Web 写入会覆盖 result/riskLevel。没有单独保存的初检快照时不可逆推。
+    initial = UNKNOWN
+    final = typeof recheckPassed === 'boolean' ? (recheckPassed ? PASS : FAIL) : statusConclusion
+    text = finalStatus || (typeof recheckPassed === 'boolean' ? (recheckPassed ? '复检通过' : '复检不通过') : '')
     basis = 'recheck'
   }
 
   const isPositive = testType === 'pathogen'
-    ? (String(data.riskLevel ?? '').trim() ? String(data.riskLevel).trim() !== '无风险' : null)
+    ? (Array.isArray(data.positiveDetails)
+      ? data.positiveDetails.length > 0
+      : (String(data.riskLevel ?? '').trim() ? String(data.riskLevel).trim() !== '无风险' : null))
     : null
 
-  return { initial, final, text: text || null, isPositive, basis }
+  return { initial, final, text: text || null, isPositive, basis, conflict }
 }
 
 /* ─────────────── 对外记录序列化 ─────────────── */
@@ -355,6 +365,7 @@ export function buildOpenRecord(record, grant, ctx = {}) {
     conclusion_text: conclusion.text,
     conclusion_source: 'stored',           // 录入/检测当时保存的值（非按当前规则实时重算）
     final_conclusion_basis: conclusion.basis, // 'initial'（无复检）| 'recheck'（由复检结论覆盖）
+    conclusion_conflict: conclusion.conflict,
     is_positive: conclusion.isPositive,
     result: projectResultData(resultData, {
       allowedKeys: ctx.allowedResultKeys instanceof Set ? ctx.allowedResultKeys : null,

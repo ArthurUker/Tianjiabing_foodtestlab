@@ -303,8 +303,8 @@ export function createOpenApiRoutes({ prisma }) {
           '三态区分：**字段省略** = 该字段不存在（未登记或未启用）；**null** = 字段存在但无值；**空字符串/空数组** = 有值但为空（如 result.remark 可为 ""、result.positiveDetails 可为 []）。',
           'type=unknown 表示平台不保证其类型（通常来自学校自定义字段），需按实际值处理。',
           'emitted=false 表示该字段「不会出现在响应中」——列出仅为说明原始存储结构，请勿据此开发（如 result.inspector，属个人信息恒不下发）。',
-          '结论字段（initial_conclusion / final_conclusion / conclusion）由平台按**录入时保存的判定文本**映射为枚举（result / colorLevel / riskLevel / finalStatus / 复检结论），'
-            + '不是按当前阈值实时重算，因此不会因阈值调整而改变；conclusion_source=stored 即指这一点。',
+          '结论字段按保存的判定值映射，不按当前阈值重判；现有 Web 复检可能覆盖当前结果。无独立初检快照时 initial_conclusion=unknown，'
+            + '最新结构化复检 isPassed 优先于 finalStatus；矛盾时 conclusion_conflict=true。',
           '数值类字段一律为**字符串且为原始录入口径**（平台不做换算、不做缩放）；'
             + '⚠️ 例：result.tpmValue 的 "0.06" 是**原始保存值**：其 `unit`（g/100g）是**平台界面标注**，'
             + '`unit_verified:false` 表示**尚未获得设备协议/计量文件核实** —— 请勿自行换算（不要 ×100 或 ÷100），'
@@ -312,7 +312,7 @@ export function createOpenApiRoutes({ prisma }) {
             + '各类型的判定阈值写在对应字段说明里，数组元素的子键见 item_fields。',
           '病原体：riskLevel 非「无风险」即视为不合格/有风险（与统计口径一致），但**不等于确诊阳性**；是否检出以 result.positiveDetails 是否非空为准。',
           'result 内的 canteen / testDate 是历史记录的**同义副本**（新记录不再写入），取值一律以顶层为准。',
-          '平台承诺：v1 契约内不删除字段、不改变既有字段语义；新增字段以向后兼容方式追加。',
+          'v1 历史行为纠错与旧客户端升级方式见接入文档：请用 change_token 和完整清单对账，旧摘要需重新基线化。',
         ],
       })
     } catch (e) {
@@ -662,11 +662,11 @@ export function createOpenApiRoutes({ prisma }) {
             : '日期缺失、格式非法或日历不存在（无法定位业务日期）',
           identity: 'universe_total = scope_total + request_out_of_range_total + excluded_total',
         },
-        // ── 指标口径声明（2026-09-17 审阅 F9：统计按**初检**判定，与明细的 final_conclusion 可能不同）──
-        metric_basis: 'initial_conclusion',
-        metric_basis_note: '本合格率统计的是**初检**判定（与员工端看板同口径）；明细的 final_conclusion/conclusion '
-          + '在存在复检时取复检结论，因此"某条明细 conclusion=pass 但未计入 pass_count"是**预期差异**，不是数据错误。'
-          + '如需按最终结论统计，请提出需求，平台将以**新字段**（如 pass_rate_final）提供，不改动既有指标含义。',
+        // 数值计算不变；当前 Web 复检会覆盖 result/riskLevel，旧声明“初检口径”并不成立。
+        metric_basis: 'stored_current_result',
+        metric_basis_note: 'pass_rate 的既有 SQL 数值算法未改变：按当前保存的 result/colorLevel/riskLevel 判定。'
+          + '部分 Web 复检会覆盖这些字段，因此它不能承诺为初检指标，也不能在所有类型上等同最终结论。'
+          + '真实初检快照及独立初检/最终统计指标需业务方确定存储和兼容方案。',
         pass_rate_detail: {
           numerator: passCount,
           denominator: scopeTotal,
