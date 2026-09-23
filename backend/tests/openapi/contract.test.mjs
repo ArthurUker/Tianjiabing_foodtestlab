@@ -24,7 +24,10 @@ import {
   computeFiltersFingerprint,
   computeProjectionFingerprint,
   computeManifestDigest,
+  recordChangeToken,
+  toIsoShanghai,
   resolveGrantTypes,
+  grantDateRange,
 } from '../../lib/openApiScope.js'
 
 const GRANT = {
@@ -134,17 +137,40 @@ test('合成样例：开启检测人时使用明显的虚构姓名', () => {
 
 test('结论口径：初检/最终与 basis 区分正确', () => {
   assert.deepEqual(deriveConclusion('tableware', { result: '合格 (<200)' }), {
-    initial: 'pass', final: 'pass', text: '合格 (<200)', isPositive: null, basis: 'initial',
+    initial: 'pass', final: 'pass', text: '合格 (<200)', isPositive: null, basis: 'initial', conflict: false,
   })
   const recheck = deriveConclusion('tableware', {
     result: '不合格 (>500)', finalStatus: '整改后复检合格', recheckRecords: [{ isPassed: true }],
   })
-  assert.equal(recheck.initial, 'fail')
+  assert.equal(recheck.initial, 'unknown', '旧记录没有独立初检快照，不得从可能已覆盖的 result 猜测')
   assert.equal(recheck.final, 'pass')
   assert.equal(recheck.basis, 'recheck')
   const byFlag = deriveConclusion('tableware', { result: '合格', recheckRecords: [{ isPassed: false }] })
   assert.equal(byFlag.final, 'fail')
   assert.equal(byFlag.basis, 'recheck')
+})
+
+test('真实 Web 复检载荷：结构化结论优先，初检不可恢复，冲突可识别', () => {
+  const cases = [
+    ['tableware', { result: '合格', finalStatus: '整改后复检合格', recheckRecords: [{ isPassed: true }] }, 'pass'],
+    ['tableware', { result: '不合格', finalStatus: '复检不合格', recheckRecords: [{ isPassed: false }] }, 'fail'],
+    ['pesticide', { result: '合格', recheckRecords: [{ isPassed: true }] }, 'pass'],
+    ['leanMeat', { result: '不合格', recheckRecords: [{ isPassed: false }] }, 'fail'],
+    ['oil', { colorLevel: '不合格', result: '合格', recheckRecords: [{ isPassed: true }] }, 'pass'],
+    ['pathogen', { riskLevel: '无风险', finalStatus: '复检通过', recheckReports: [{ isPassed: true }] }, 'pass'],
+    ['pathogen', { riskLevel: '低风险', finalStatus: '复检低风险', recheckReports: [{ isPassed: false }] }, 'fail'],
+  ]
+  for (const [type, payload, final] of cases) {
+    const value = deriveConclusion(type, payload)
+    assert.equal(value.initial, 'unknown', type)
+    assert.equal(value.final, final, type)
+    assert.equal(value.basis, 'recheck', type)
+  }
+  const conflict = deriveConclusion('pathogen', { finalStatus: '复检通过', recheckReports: [{ isPassed: false }] })
+  assert.equal(conflict.final, 'fail')
+  assert.equal(conflict.conflict, true)
+  assert.equal(deriveConclusion('pathogen', { finalStatus: '未知状态', recheckReports: [{}] }).final, 'unknown')
+  assert.equal(deriveConclusion('pathogen', { riskLevel: '无风险' }).initial, 'pass')
 })
 
 test('结论口径：食用油 colorLevel 走显式枚举（未识别值不得默认合格）；病原体阳性判定；无判定文本为 unknown 而非 fail', () => {
@@ -235,6 +261,14 @@ test('授权范围解析：病原体需显式开启；默认四类；自定义�
   assert.deepEqual(resolveGrantTypes({ visible_types: ['myCustom'] }), [])
 })
 
+test('授权日期按上海业务日还原，显式空类型仍为零权限', () => {
+  assert.deepEqual(resolveGrantTypes({ ...GRANT, visible_types: [] }), [])
+  assert.deepEqual(grantDateRange({
+    start_date: new Date('2026-02-28T00:00:00+08:00'),
+    end_date: new Date('2026-03-01T00:00:00+08:00'),
+  }), { start: '2026-02-28', end: '2026-03-01' })
+})
+
 /* ───────────── 6. 清单摘要 ───────────── */
 
 test('清单摘要：记录/授权版本/投影策略任一变化都会改变 digest，且同输入稳定', () => {
@@ -291,4 +325,18 @@ test('F6：学校配置指纹参与 projection_fingerprint，并传导到 manife
     computeManifestDigest(rows, { scopeVersion: 1, projectionFingerprint: c }),
     '记录行不变、仅投影变化 → digest 必须变化',
   )
+})
+
+test('毫秒与记录版本均参与变化标识；学校改名会改变投影指纹', () => {
+  const a = { record_code: 'R', updated_at: new Date('2026-09-23T04:00:00.100Z'), version: 1 }
+  const b = { ...a, updated_at: new Date('2026-09-23T04:00:00.900Z') }
+  const c = { ...a, version: 2 }
+  assert.equal(toIsoShanghai(a.updated_at), '2026-09-23T12:00:00.100+08:00')
+  assert.notEqual(recordChangeToken(a), recordChangeToken(b))
+  assert.notEqual(recordChangeToken(a), recordChangeToken(c))
+  assert.notEqual(computeManifestDigest([a]), computeManifestDigest([b]))
+  assert.notEqual(computeManifestDigest([a]), computeManifestDigest([c]))
+  const oldName = computeProjectionFingerprint(GRANT, JSON.stringify({ keys: 'same', school_name: '旧校名' }))
+  const newName = computeProjectionFingerprint(GRANT, JSON.stringify({ keys: 'same', school_name: '新校名' }))
+  assert.notEqual(oldName, newName)
 })

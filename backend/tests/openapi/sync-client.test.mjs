@@ -208,3 +208,71 @@ test('替换式重投影：字段撤回后本地不得残留 inspector（且失�
   assert.equal(res.reason, 'MANIFEST_INCOMPLETE')
   assert.deepEqual(snapshotOf(store), before, '清单不完整时本地必须原封不动（尤其不得据此判删除）')
 })
+
+test('同秒 .100→.900：旧秒级清单逐项相同但摘要不同，必须完整重拉后提交', async () => {
+  const store = createStore()
+  const mock = createMockServer()
+  const row = mock.db.records.get('RC-demo-001')
+  row.updated_at = '2026-09-23T12:00:00.100+08:00'
+  row.result.result = '不合格'
+  let pageCalls = 0
+  const oldPrecision = async (path) => {
+    const data = await mock.fetchJson(path)
+    if (path.startsWith('/sync/manifest') && data.items) {
+      data.items = data.items.map((i) => ({ ...i, updated_at: i.updated_at.replace(/\.\d{3}(?=\+08:00)/, '') }))
+    }
+    if (path.startsWith('/test-records')) {
+      pageCalls++
+      data.items = data.items.map((i) => ({ ...i, updated_at: i.updated_at.replace(/\.\d{3}(?=\+08:00)/, '') }))
+    }
+    return data
+  }
+  assert.equal((await syncSchool({ schoolCode: SCHOOL, fetchJson: oldPrecision, store, sleep: noSleep })).committed, true)
+  const oldDigest = store.get(SCHOOL).digest
+  row.updated_at = '2026-09-23T12:00:00.900+08:00'
+  row.result.result = '合格'
+  const beforePages = pageCalls
+  const result = await syncSchool({ schoolCode: SCHOOL, fetchJson: oldPrecision, store, sleep: noSleep })
+  assert.equal(result.committed, true)
+  assert.ok(pageCalls > beforePages, '摘要变化但秒级清单无逐项差异，仍须拉明细')
+  assert.equal(store.get(SCHOOL).records.get('RC-demo-001').doc.result.result, '合格')
+  assert.notEqual(store.get(SCHOOL).digest, oldDigest)
+})
+
+test('旧客户端已有完成摘要但缺协议版本：强制重拉并清除撤回字段', async () => {
+  const mock = createMockServer()
+  const store = createStore()
+  const stale = { ...mock.db.records.get('RC-demo-001'), inspector: '旧姓名' }
+  store.set(SCHOOL, {
+    scopeVersion: mock.db.scopeVersion, projectionFingerprint: mock.db.projectionFingerprint,
+    digest: mock.digestOf(), cursor: null, watermark: stale.updated_at,
+    records: new Map([['RC-demo-001', { updated_at: stale.updated_at, doc: stale }]]),
+  })
+  const result = await syncSchool({ schoolCode: SCHOOL, fetchJson: mock.fetchJson, store, sleep: noSleep })
+  assert.equal(result.committed, true)
+  assert.equal(store.get(SCHOOL).records.get('RC-demo-001').doc.inspector, undefined)
+  assert.equal(store.get(SCHOOL).syncProtocolVersion, 2)
+  assert.ok(store.get(SCHOOL).records.has('RC-demo-002'))
+})
+
+test('不同记录同一更新时间仍全部进入本地状态', async () => {
+  const mock = createMockServer()
+  mock.db.records.get('RC-demo-002').updated_at = mock.db.records.get('RC-demo-001').updated_at
+  const store = createStore()
+  const result = await syncSchool({ schoolCode: SCHOOL, fetchJson: mock.fetchJson, store, sleep: noSleep })
+  assert.equal(result.committed, true)
+  assert.deepEqual([...store.get(SCHOOL).records.keys()].sort(), ['RC-demo-001', 'RC-demo-002'])
+})
+
+test('学校改名但记录时间未变：投影变化后客户端刷新学校名称', async () => {
+  const mock = createMockServer()
+  const store = createStore()
+  assert.equal((await syncSchool({ schoolCode: SCHOOL, fetchJson: mock.fetchJson, store, sleep: noSleep })).committed, true)
+  const before = store.get(SCHOOL).digest
+  for (const row of mock.db.records.values()) row.school_name = '更名后的示例学校'
+  mock.db.projectionFingerprint = 'P2-school-renamed'
+  const result = await syncSchool({ schoolCode: SCHOOL, fetchJson: mock.fetchJson, store, sleep: noSleep })
+  assert.equal(result.committed, true)
+  assert.notEqual(store.get(SCHOOL).digest, before)
+  assert.ok([...store.get(SCHOOL).records.values()].every((r) => r.doc.school_name === '更名后的示例学校'))
+})

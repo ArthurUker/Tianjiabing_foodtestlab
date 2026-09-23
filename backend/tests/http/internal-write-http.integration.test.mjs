@@ -21,6 +21,7 @@ const SCHOOL = 'reviewtest'
 const PASSWORD = 'Review-Test-Passw0rd!'
 const EDITOR = 'http-editor'
 const VIEWER = 'http-viewer'
+const OPERATOR = 'http-operator'
 const enabled = isConfigured()
 
 if (!enabled) {
@@ -50,6 +51,7 @@ if (enabled) {
   let base
   let editorToken = null
   let viewerToken = null
+  let operatorToken = null
   let editorUserId = null      // 认证身份（用于断言 created_by）
   let ctxId = null             // 用例间传递的记录 id（创建响应回传的真实 id）
 
@@ -76,7 +78,7 @@ if (enabled) {
     assert.equal(sc.s, TEST_SCHEMA)
 
     const hash = await bcrypt.hash(PASSWORD, 10)
-    for (const [username, role] of [[EDITOR, 'manager'], [VIEWER, 'viewer']]) {
+    for (const [username, role] of [[EDITOR, 'manager'], [VIEWER, 'viewer'], [OPERATOR, 'operator']]) {
       const existing = await tenant.user.findUnique({ where: { username } })
       if (existing) await tenant.user.delete({ where: { username } })
       await tenant.user.create({
@@ -126,13 +128,16 @@ if (enabled) {
     const v = await login(VIEWER)
     assert.equal(v.status, 200, `只读用户登录失败：${JSON.stringify(v.body)}`)
     viewerToken = v.body.token || v.body.accessToken
+    const o = await login(OPERATOR)
+    assert.equal(o.status, 200, JSON.stringify(o.body))
+    operatorToken = o.body.token || o.body.accessToken
   })
 
   test.after(async () => {
     if (server) await new Promise((r) => server.close(r))
     if (editorUserId) await cleanupScoped(tenant, { created_by: editorUserId }, 'after')
     await cleanupScoped(tenant, { record_code: { startsWith: 'RC-ihttp-' } }, 'after')
-    await tenant.user.deleteMany({ where: { username: { in: [EDITOR, VIEWER] } } })
+    await tenant.user.deleteMany({ where: { username: { in: [EDITOR, VIEWER, OPERATOR] } } })
     await prisma.$disconnect()
     await tenant.$disconnect()
   })
@@ -292,5 +297,44 @@ if (enabled) {
     assert.equal(second.status, 200)
     const rows = await tenant.testRecord.findMany({ where: { record_code: 'RC-ihttp-2' } })
     assert.equal(rows.length, 1, '同一 record_code 必须只有一条（幂等）')
+  })
+
+  test('HTTP：真实 operator 在 sync 单条和批量中仅能修改、删除自己的记录；manager 保持监督权限', async () => {
+    const add = async (token, code) => {
+      const response = await http('/api/sync/records', { method: 'POST', token, body: {
+        action: 'add', store: 'oil', data: {
+          record_code: code, testDate: '2026-04-05', canteen: 'HTTP 食堂', inspector: '测试员',
+          result_data: { tpmValue: '0.10' },
+        },
+      } })
+      assert.equal(response.status, 200, JSON.stringify(response.body))
+      return response.body.data.id
+    }
+    const ownOne = await add(operatorToken, 'RC-ihttp-op-1')
+    const ownTwo = await add(operatorToken, 'RC-ihttp-op-2')
+    const other = await add(editorToken, 'RC-ihttp-manager-1')
+    const singleUpdate = (id, token) => http('/api/sync/records', { method: 'POST', token,
+      body: { action: 'update', store: 'oil', data: { id, result_data: { tpmValue: '0.11' } } } })
+    assert.equal((await singleUpdate(ownOne, operatorToken)).status, 200)
+    assert.equal((await singleUpdate(other, operatorToken)).status, 403)
+    const batch = await http('/api/sync/batch', { method: 'POST', token: operatorToken, body: { operations: [
+      { syncId: 'own', action: 'update', store: 'oil', data: { id: ownTwo, result_data: { tpmValue: '0.12' } } },
+      { syncId: 'other', action: 'update', store: 'oil', data: { id: other, result_data: { tpmValue: '0.99' } } },
+    ] } })
+    assert.equal(batch.status, 200)
+    assert.deepEqual(batch.body.results.map((r) => r.syncId), ['own'])
+    assert.deepEqual(batch.body.errors.map((e) => e.syncId), ['other'])
+    const singleDelete = (id) => http('/api/sync/records', { method: 'POST', token: operatorToken,
+      body: { action: 'delete', store: 'oil', data: { id } } })
+    assert.equal((await singleDelete(other)).status, 403)
+    assert.equal((await singleDelete(ownOne)).status, 200)
+    const deleteBatch = await http('/api/sync/batch', { method: 'POST', token: operatorToken, body: { operations: [
+      { syncId: 'own-delete', action: 'delete', store: 'oil', data: { id: ownTwo } },
+      { syncId: 'other-delete', action: 'delete', store: 'oil', data: { id: other } },
+    ] } })
+    assert.equal(deleteBatch.status, 200)
+    assert.deepEqual(deleteBatch.body.results.map((r) => r.syncId), ['own-delete'])
+    assert.deepEqual(deleteBatch.body.errors.map((e) => e.syncId), ['other-delete'])
+    assert.equal((await singleUpdate(other, editorToken)).status, 200)
   })
 }

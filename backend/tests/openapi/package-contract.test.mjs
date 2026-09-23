@@ -15,7 +15,7 @@ import {
   allowedResultKeys,
   buildSyntheticSamples,
 } from '../../lib/openApiFieldSchema.js'
-import { buildOpenRecord } from '../../lib/openApiScope.js'
+import { buildOpenRecord, resolveGrantTypes } from '../../lib/openApiScope.js'
 import { createAdminOpenApiRoutes } from '../../routes/adminOpenApiRoutes.js'
 
 const GRANT = { visible_types: ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'], include_pathogen: true, include_inspector: false }
@@ -46,10 +46,10 @@ test('样例：fail 场景必须真的推导出 fail（评审发现：食用油 
   }
 })
 
-test('样例：recheck_passed 场景 initial=fail、final=pass、basis=recheck', () => {
+test('样例：复检通过时未保存初检快照，初检 unknown、最终 pass', () => {
   for (const t of ['tableware', 'pathogen']) {
     const it = projected(t, 'recheck_passed')
-    assert.equal(it.initial_conclusion, 'fail', `${t}/recheck_passed 初检应为不合格`)
+    assert.equal(it.initial_conclusion, 'unknown', `${t}/recheck_passed 不得逆推初检`)
     assert.equal(it.final_conclusion, 'pass', `${t}/recheck_passed 最终应为合格`)
     assert.equal(it.final_conclusion_basis, 'recheck')
   }
@@ -112,12 +112,11 @@ test('字典：TPM 写明数值口径与缩放（不得含糊），colorLevel �
   assert.deepEqual(color.enum, ['合格', '警戒', '不合格'])
 })
 
-test('字典：病原体 riskLevel 枚举完整、positiveDetails 声明为检出权威依据、finalStatus 标明病原体不产出', () => {
+test('字典：病原体 riskLevel 枚举完整、positiveDetails 声明为检出依据、finalStatus 与当前写入兼容', () => {
   const p = listFieldDescriptors('pathogen')
   assert.deepEqual(p.find((f) => f.path === 'result.riskLevel').enum, ['无风险', '低风险', '极低风险'])
   assert.match(p.find((f) => f.path === 'result.positiveDetails').description, /权威依据|非空/)
-  const tablewareFinal = listFieldDescriptors('tableware').find((f) => f.path === 'result.finalStatus')
-  assert.match(tablewareFinal.description, /病原体/, '应说明病原体不产出 finalStatus')
+  assert.ok(listFieldDescriptors('pathogen').some((f) => f.path === 'result.finalStatus'))
 })
 
 /* ───────────── ⑤ 接入包文本关键声明 ───────────── */
@@ -238,5 +237,122 @@ test('接入包：合成样例段落中，fail 场景的结论与场景名一致
     if (scenario === 'fail') assert.equal(finalMatch[1], 'fail', `${head} 结论必须为 fail`)
     if (scenario === 'pass') assert.equal(finalMatch[1], 'pass', `${head} 结论必须为 pass`)
     if (scenario === 'recheck_passed') assert.equal(finalMatch[1], 'pass', `${head} 复检后应合格`)
+  }
+})
+
+function adminHandler(router, path, method) {
+  for (const layer of router.stack) {
+    if (layer.route?.path === path && layer.route.methods[method]) return layer.route.stack.at(-1).handle
+  }
+  throw new Error(`管理路由缺失：${method} ${path}`)
+}
+
+test('管理端 dict：有效授权返回字典与投影指纹', async () => {
+  const grant = { school_code: 'demo', status: 'active', scope_version: 1, visible_types: ['oil'], include_pathogen: false }
+  const prisma = {
+    openApiClient: { findUnique: async () => ({ id: 'client', grants: [grant] }) },
+    school: { findUnique: async () => ({ code: 'demo', name: '示例学校' }) },
+    schoolCustomization: { findUnique: async () => ({ custom_fields: {}, field_labels: {} }) },
+  }
+  const router = createAdminOpenApiRoutes({ prisma, authenticateUser: () => {}, requirePlatformSuperAdmin: () => {} })
+  const res = makeRes()
+  await adminHandler(router, '/clients/:id/dict', 'get')({ params: { id: 'client' }, query: { schoolCode: 'demo' } }, res)
+  assert.equal(res.statusCode, 200, JSON.stringify(res.md))
+  assert.ok(res.md.data.field_schema.oil.fields.length > 0)
+  assert.equal(typeof res.md.data.projection_fingerprint, 'string')
+})
+
+test('管理端授权：空类型为零权限；第二学校失败回滚；非法日历日期写前拒绝', async () => {
+  let saved = []
+  let transactionCalls = 0
+  let failSecond = false
+  const prisma = {
+    openApiClient: { findUnique: async () => ({ id: 'client', name: '示例对接方', grants: saved }) },
+    school: { findUnique: async ({ where }) => ({ code: where.code, status: 'active' }) },
+    $transaction: async (fn) => {
+      transactionCalls++
+      const draft = [...saved]
+      const tx = {
+        openApiGrant: {
+          findMany: async () => draft,
+          create: async ({ data }) => {
+            if (failSecond && draft.length === 1) throw new Error('第二学校模拟失败')
+            const row = { id: `g${draft.length}`, ...data }
+            draft.push(row)
+            return row
+          },
+          update: async ({ where, data }) => {
+            const i = draft.findIndex((g) => g.id === where.id)
+            draft[i] = { ...draft[i], ...data }
+            return draft[i]
+          },
+        },
+        systemLog: { create: async () => ({}) },
+      }
+      const out = await fn(tx)
+      saved = draft
+      return out
+    },
+  }
+  const router = createAdminOpenApiRoutes({ prisma, authenticateUser: () => {}, requirePlatformSuperAdmin: () => {} })
+  const put = adminHandler(router, '/clients/:id/grants', 'put')
+  const req = (grants) => ({ params: { id: 'client' }, body: { grants }, user: { userId: 'admin', username: 'admin', role: 'admin' }, ip: '127.0.0.1' })
+  const g = (schoolCode, visibleTypes, startDate = null) => ({ schoolCode, visibleTypes, startDate, status: 'active' })
+  let res = makeRes()
+  await put(req([g('one', [])]), res)
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(saved[0].visible_types, [])
+  assert.deepEqual(resolveGrantTypes(saved[0]), [])
+  const baseline = structuredClone(saved)
+  failSecond = true
+  res = makeRes()
+  await put(req([g('one', ['oil']), g('two', ['oil'])]), res)
+  assert.equal(res.statusCode, 500)
+  assert.deepEqual(saved, baseline, '事务失败不能留下第一学校改动')
+  const before = transactionCalls
+  res = makeRes()
+  await put(req([g('one', ['oil'], '2026-02-30')]), res)
+  assert.equal(res.statusCode, 400)
+  assert.equal(transactionCalls, before, '非法日期不得进入写事务')
+  assert.deepEqual(saved, baseline)
+  for (const invalid of [
+    g('one', ['oil'], '2025-02-29'),
+    { ...g('one', ['oil'], '2026-03-02'), endDate: '2026-03-01' },
+    g('one', ['unknown-type']),
+    g('one', ['pathogen']),
+    { schoolCode: 'one', status: 'active' },
+  ]) {
+    res = makeRes()
+    await put(req([invalid]), res)
+    assert.equal(res.statusCode, 400, JSON.stringify(invalid))
+    assert.equal(transactionCalls, before, '无效配置不得进入写事务')
+    assert.deepEqual(saved, baseline)
+  }
+  failSecond = false
+  res = makeRes()
+  await put(req([{ ...g('one', ['pathogen']), includePathogen: true }]), res)
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(resolveGrantTypes(saved[0]), ['pathogen'])
+})
+
+test('配置导入：非法日期或类型在任何写入前返回 400，历史 null 与显式空数组可区分', async () => {
+  let writes = 0
+  const prisma = {
+    openApiClient: { upsert: async ({ create }) => { writes++; return { id: create.id } } },
+    openApiGrant: { upsert: async () => { writes++ } },
+    openApiCredential: { findUnique: async () => null },
+    systemLog: { create: async () => ({}) },
+  }
+  const router = createAdminOpenApiRoutes({ prisma, authenticateUser: () => {}, requirePlatformSuperAdmin: () => {} })
+  const handler = adminHandler(router, '/import', 'post')
+  for (const grant of [
+    { school_code: 'one', visible_types: [], start_date: '2026-02-30' },
+    { school_code: 'one', visible_types: ['invalid'] },
+    { school_code: 'one', visible_types: null, start_date: '2025-02-29' },
+  ]) {
+    const res = makeRes()
+    await handler({ body: { clients: [{ id: 'one', grants: [grant] }] }, user: { username: 'admin' } }, res)
+    assert.equal(res.statusCode, 400, JSON.stringify(grant))
+    assert.equal(writes, 0)
   }
 })

@@ -50,6 +50,23 @@ test('投影：容器内部仍走递归黑名单（白名单只作用于顶层�
   assert.deepEqual(out.recheckRecords[0].points, [{ loc: 'A', rlu: '96' }])
 })
 
+test('自定义身份字段及数组内复检人不下发，普通业务字段保留', () => {
+  const ctx = { customFieldNames: ['contactPhone', 'staffIdentity', 'batchMark', 'field1'], fieldLabels: { field1: '联系电话' } }
+  const allowed = allowedResultKeys('tableware', ctx)
+  assert.equal(allowed.has('contactPhone'), false)
+  assert.equal(allowed.has('staffIdentity'), false)
+  assert.equal(allowed.has('field1'), false, '敏感中文标签不能通过中性键名绕过')
+  assert.equal(allowed.has('batchMark'), true)
+  const out = projectResultData({
+    contactPhone: '13800000000', batchMark: '批次 A',
+    recheckRecords: [{ isPassed: true, recheckInspector: '张三', points: [{ loc: '餐盘', rlu: '10' }] }],
+  }, { allowedKeys: allowed, onDropped: () => {} })
+  assert.equal(out.contactPhone, undefined)
+  assert.equal(out.batchMark, '批次 A')
+  assert.equal(out.recheckRecords[0].recheckInspector, undefined)
+  assert.deepEqual(out.recheckRecords[0].points, [{ loc: '餐盘', rlu: '10' }])
+})
+
 /* ───────────── 2. 字典补齐（此前漏登记的实测字段） ───────────── */
 
 test('字典：oil.result 已登记（/stats 口径会回退读它）', () => {

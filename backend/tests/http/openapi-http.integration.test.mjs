@@ -37,6 +37,7 @@ if (enabled) {
   const { PrismaClient } = require('@prisma/client')
   const express = require('express')
   const { createOpenApiRoutes } = await import('../../routes/openApiRoutes.js')
+  const { createAdminOpenApiRoutes } = await import('../../routes/adminOpenApiRoutes.js')
 
   const prisma = new PrismaClient({ datasources: { db: { url: iso.url } } })
   const tenant = new PrismaClient({ datasources: { db: { url: `${iso.url}${iso.url.includes('?') ? '&' : '?'}schema=${TEST_SCHEMA}` } } })
@@ -105,6 +106,9 @@ if (enabled) {
     const app = express()
     app.use(express.json())
     app.use('/api/open', createOpenApiRoutes({ prisma }))
+    // 本套件只验证超管路由的数据范围；认证与平台超管守卫由真实服务负责。
+    const pass = (req, res, next) => { req.user = { userId: USER_ID, username: 'http-test', role: 'admin' }; next() }
+    app.use('/api/admin/open-api', createAdminOpenApiRoutes({ prisma, authenticateUser: pass, requirePlatformSuperAdmin: pass }))
     server = await new Promise((resolve) => {
       const s = app.listen(0, '127.0.0.1', () => resolve(s))
     })
@@ -261,6 +265,55 @@ if (enabled) {
     assert.equal(empty.data.total, 0)
     assert.equal(empty.data.pass_rate, null, '零分母 → null')
     assert.equal(empty.data.request_out_of_range_total, 3, '合法日期记录都落在请求范围外')
+  })
+
+  test('HTTP：管理端 dict 成功；真实预览与对外明细使用同一授权日期范围', async () => {
+    const adminBase = base.replace('/api/open', '/api/admin/open-api')
+    const getAdmin = async (path) => {
+      const response = await fetch(adminBase + path)
+      return { status: response.status, body: await response.json() }
+    }
+    const setGrant = (start, end) => prisma.openApiGrant.updateMany({
+      where: { client_id: CLIENT_ID, school_code: SCHOOL },
+      data: { start_date: start ? new Date(`${start}T00:00:00+08:00`) : null,
+        end_date: end ? new Date(`${end}T00:00:00+08:00`) : null },
+    })
+    try {
+      await setGrant('2026-03-02', '2026-03-02')
+      const dict = await getAdmin(`/clients/${CLIENT_ID}/dict?schoolCode=${SCHOOL}`)
+      assert.equal(dict.status, 200, JSON.stringify(dict.body))
+      assert.ok(dict.body.data.field_schema.oil.fields.length)
+      const preview = await getAdmin(`/clients/${CLIENT_ID}/preview?schoolCode=${SCHOOL}&limit=20`)
+      const external = await api(`/v1/test-records?school_code=${SCHOOL}&limit=200`)
+      assert.equal(preview.status, 200, JSON.stringify(preview.body))
+      assert.equal(external.status, 200)
+      assert.deepEqual(preview.body.data.items.map((r) => r.record_code).sort(), external.data.items.map((r) => r.record_code).sort())
+      assert.deepEqual(preview.body.data.items.map((r) => r.record_code), ['RC-http-2'])
+    } finally {
+      await setGrant(null, null)
+    }
+  })
+
+  test('HTTP：学校改名但记录未更新，manifest 与明细均反映新名称', async () => {
+    const beforeManifest = await api(`/v1/sync/manifest?school_code=${SCHOOL}`)
+    const beforeDetail = await api(`/v1/test-records?school_code=${SCHOOL}&limit=200`)
+    assert.equal(beforeManifest.status, 200)
+    assert.equal(beforeDetail.status, 200)
+    const oldName = beforeDetail.data.school_name
+    const recordTimes = beforeDetail.data.items.map((r) => [r.record_code, r.updated_at])
+    try {
+      await prisma.school.update({ where: { code: SCHOOL }, data: { name: 'HTTP 更名学校' } })
+      const afterManifest = await api(`/v1/sync/manifest?school_code=${SCHOOL}`)
+      const afterDetail = await api(`/v1/test-records?school_code=${SCHOOL}&limit=200`)
+      assert.equal(afterManifest.status, 200)
+      assert.equal(afterDetail.status, 200)
+      assert.notEqual(afterManifest.data.digest, beforeManifest.data.digest)
+      assert.notEqual(afterManifest.data.projection_fingerprint, beforeManifest.data.projection_fingerprint)
+      assert.ok(afterDetail.data.items.every((r) => r.school_name === 'HTTP 更名学校'))
+      assert.deepEqual(afterDetail.data.items.map((r) => [r.record_code, r.updated_at]), recordTimes)
+    } finally {
+      await prisma.school.update({ where: { code: SCHOOL }, data: { name: oldName } })
+    }
   })
 
   test('HTTP：授权范围外记录数变化不影响任何返回值（无数量侧信道）', async () => {
