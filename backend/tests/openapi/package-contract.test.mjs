@@ -233,6 +233,75 @@ test('接入包：参数行为与 profile 字段说明与实现一致', async ()
   assert.ok(md.includes('**不含** projection_fingerprint'), '必须纠正 profile 含 projection_fingerprint 的错误说法')
 })
 
+test('接入包：业务口径 / FAQ / 自检清单三节齐备，且错误码覆盖实现里的全部 code', async () => {
+  const md = await renderPackage()
+  for (const kw of ['## 5. 业务口径与判定规则', '## 8. 常见错误与排查（FAQ）', '## 9. 接入自检清单', '复检记录的阶段语义', 'universe_total = scope_total + request_out_of_range_total + excluded_total', '不是复检结论']) {
+    assert.ok(md.includes(kw), `接入包应包含「${kw}」`)
+  }
+  // 错误码必须覆盖实现实际返回的 code（漏一个就会让对接方无从判断）
+  for (const code of ['NO_VISIBLE_TYPE', 'SCHOOL_NOT_FOUND', 'INVALID_SCHOOL_CODE', 'CURSOR_SCHOOL_MISMATCH', 'INVALID_START', 'INVALID_END', 'INVALID_RANGE', 'SCOPE_CHANGED', 'MANIFEST_TOO_LARGE', 'RATE_LIMITED', 'AUTH_ERROR']) {
+    assert.ok(md.includes(code), `错误码表缺少 ${code}`)
+  }
+  // 自检清单必须给出可判定期望值（不能只有条目名）
+  assert.ok(/期望：.{4,}/.test(md), '自检清单每项都要有「期望：…」')
+})
+
+test('接入包：授权快照段含限流 / IP 白名单 / 密钥展示片段 / 附件列', async () => {
+  const md = await renderPackage()
+  assert.ok(md.includes('限流：60 次/分钟'), '必须写明当前限流值')
+  assert.ok(md.includes('IP 白名单：'), '必须写明 IP 白名单状态')
+  assert.ok(md.includes('明文只在生成时显示一次'), '密钥只给展示片段并说明明文不可找回')
+  assert.ok(md.includes('| 附件 |'), '授权表必须有附件列（include_attachments）')
+  // 绝不出现明文密钥或哈希
+  assert.equal(/key_hash/.test(md), false, '接入包不得出现 key_hash')
+  assert.equal(/oap_[A-Za-z0-9_-]{20,}/.test(md), false, '接入包不得出现完整密钥')
+})
+
+test('管理端 guide：与接入包同源、结构化返回、且不含密钥明文或哈希', async () => {
+  const prisma = {
+    openApiClient: {
+      findUnique: async () => ({
+        id: 'client-demo-1', name: '示例对接方', rate_limit_per_min: 120, ip_whitelist: ['203.0.113.7'],
+        credentials: [{ status: 'active', key_prefix: 'oap_demo1234', key_last4: 'abcd', key_hash: 'DEADBEEF'.repeat(8) }],
+        grants: [{ id: 'g1', client_id: 'client-demo-1', school_code: 'demo', status: 'active', scope_version: 3, visible_types: ['oil'], include_pathogen: false, include_inspector: true, include_attachments: false, start_date: null, end_date: null }],
+      }),
+    },
+  }
+  const router = createAdminOpenApiRoutes({ prisma, authenticateUser: () => {}, requirePlatformSuperAdmin: () => {} })
+  const res = makeRes()
+  await adminHandler(router, '/clients/:id/guide', 'get')({ params: { id: 'client-demo-1' }, get: () => 'foodsentinel.digifluidic.com' }, res)
+  assert.equal(res.statusCode, 200, JSON.stringify(res.md))
+  const d = res.md.data
+  for (const k of ['quick_start', 'endpoints', 'param_rules', 'dict_notes', 'business_rules', 'sync_rules', 'error_rows', 'faq', 'self_check', 'sample_scenarios', 'credential_summary', 'client_summary', 'active_grants']) {
+    assert.ok(d[k] !== undefined, `guide 缺少 ${k}`)
+  }
+  // 同步规则（分页/对账/撤回）必须与接入包逐字同源
+  assert.ok(d.sync_rules.some((l) => l.includes('当前有效范围内已不可见')), 'guide 必须带撤回语义说明')
+  assert.ok(d.sync_rules.some((l) => l.includes('next_cursor')), 'guide 必须带游标语义说明')
+  assert.equal(d.client_summary.rate_limit_per_min, 120)
+  assert.deepEqual(d.client_summary.ip_whitelist, ['203.0.113.7'])
+  assert.deepEqual(d.credential_summary.display_list, ['oap_demo1234…abcd'])
+  assert.equal(d.active_grants[0].scope_version, 3)
+  assert.equal(d.active_grants[0].include_attachments, false)
+  assert.ok(d.base_url.endsWith('/api/open/v1'))
+  // 安全：不得带出哈希/明文
+  const raw = JSON.stringify(res.md)
+  assert.equal(raw.includes('key_hash'), false, 'guide 不得返回 key_hash')
+  assert.equal(raw.includes('DEADBEEF'), false, 'guide 不得返回哈希值')
+})
+
+test('管理端接入说明 UI 与 guide 接口同源（界面不重复手写长文）', async () => {
+  const { readFileSync } = await import('node:fs')
+  const src = readFileSync(new URL('../../../frontend/js/modules/adminSchools/views/openApiView.js', import.meta.url), 'utf8')
+  assert.ok(src.includes('/clients/${c.id}/guide'), '界面必须从 guide 接口取长文（避免与导出文档两套说法）')
+  for (const key of ['gd.quick_start', 'gd.param_rules', 'gd.sync_rules', 'gd.error_rows', 'gd.business_rules', 'gd.faq', 'gd.self_check', 'gd.dict_notes', 'gd.sample_scenarios']) {
+    assert.ok(src.includes(key), `界面应渲染 ${key}`)
+  }
+  // 界面只允许展示"前缀…后四位"，不得回显哈希或明文（导入页的说明文字提及 key_hash 属正常）
+  assert.ok(src.includes('key_prefix') && src.includes('key_last4'), '密钥只展示前缀与后四位')
+  assert.equal(/\.key_hash\b/.test(src), false, '界面不得读取 key_hash 字段值')
+})
+
 test('接入包：合成样例段落中，fail 场景的结论与场景名一致', async () => {
   const md = await renderPackage()
   const blocks = md.split('### ')
