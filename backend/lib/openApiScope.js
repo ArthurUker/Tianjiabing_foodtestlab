@@ -50,9 +50,13 @@ const PII_KEY_PATTERNS = [
   /^phone$/i,
   /^mobile$/i,
   /^tel$/i,
+  /^(?:contact|emergency|guardian)(?:_?(?:person|name|phone|mobile|email|tel|idcard))$/i,
+  /^(?:staff|employee)(?:_?(?:id|identity|name|phone|mobile|email))$/i,
+  /^(?:recheckInspector|submitter|reporter|handler|importUser|identity|id_?card|passport|wechat|weixin|email)$/i,
+  /(?:姓名|电话|手机|联系人|身份证|证件|微信|邮箱)/,
 ]
 
-function isPiiKey(key) {
+export function isPiiKey(key) {
   return PII_KEY_PATTERNS.some((re) => re.test(key))
 }
 

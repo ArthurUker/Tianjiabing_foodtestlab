@@ -8,6 +8,7 @@
 // 样例先构造「合成原始记录」再走同一投影，保证样例与真实响应形态一致。
 
 import crypto from 'node:crypto'
+import { isPiiKey } from './openApiScope.js'
 //
 // 字段清单依据（2026-09-15 只读元数据核验，见 backend/tests/openapi/db-readonly-checks.mjs）：
 //   leanMeat  : batchNo/canteen/inspector/meatType/remark/result/testDate
@@ -161,6 +162,7 @@ export function listFieldDescriptors(testType, ctx = {}) {
   const labels = ctx.fieldLabels && typeof ctx.fieldLabels === 'object' ? ctx.fieldLabels : {}
   const customDescriptors = custom
     .filter((n) => typeof n === 'string' && n)
+    .filter((n) => !isPiiKey(n) && !isPiiKey(labels[n] || ''))
     .filter((n) => !base.some((f) => f.path === `result.${n}`))
     .map((n) => ({
       path: `result.${n}`,
