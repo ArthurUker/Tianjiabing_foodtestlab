@@ -88,7 +88,8 @@ curl -s -H "X-API-Key: $KEY" "$BASE/samples?school_code=<学校>"    # ← 合�
 | `label` | 中文名 |
 | `type` | `string` / `number` / `boolean` / `date` / `datetime` / `enum` / `array<object>` / `object` / `unknown` |
 | `unit` | 单位；无单位或未知时为 `null`（字典表里显示 `—`） |
-| `required` | `true` = 该类型**当前全部记录**都出现该字段；`false` = 可能缺失（历史数据或学校配置差异） |
+| `required` | `true` = **服务端投影保证**该字段一定出现在响应中（目前仅顶层字段）；`result.*` 字段来自保存的检测数据，**恒为 `false`**（是否出现取决于录入路径与历史数据） |
+| `observed_present` | 数据观察（可选）：例如「该类型现有记录均出现」。⚠️ **不是输出保证**，不得据此建必填模型 |
 | `nullable` | 是否允许 `null` |
 | `enum` | 枚举取值（如有） |
 | `conditional` / `conditional_on` | 条件字段：例如顶层 `inspector` 仅当授权开启 `include_inspector` 时才存在 |
@@ -306,7 +307,20 @@ tail 请求失败 / digest 不一致）都不得留下 records / cursor / waterm
 |---|---|
 | 餐具 / 果蔬 / 肉蛋 | `result` 含「合格」且不含「不合格」 |
 | 食用油 | 优先 `colorLevel`（综合品质等级）走**显式枚举**：`合格`/`警戒` → 合格；`不合格` → 不合格；**其它未识别值不再默认合格**，而是回退 `result` 文本判定（`colorLevel` 缺失时同样回退 `result`，实测油记录 `result` 恒为空串 → `unknown`） |
-| 病原体 | `riskLevel = 无风险` 为合格；**任何其它非空值视为不合格/有风险**（`is_positive` 同一口径：非空且 ≠ 无风险 → `true`）。⚠️ 「有风险」≠ 确诊阳性：确诊看 `positiveDetails` 是否非空 |
+| 病原体 | `riskLevel = 无风险` 为合格；**任何其它非空值视为不合格/有风险**。⚠️ 「有风险」≠ 确诊阳性：是否检出看 `result.positiveDetails` 是否非空 |
+
+### 复检记录的阶段语义（病原体，2026-09-23 补充）
+
+同一条有复检的病原体记录里，各字段属于**不同阶段**，并存不矛盾：
+
+| 字段 | 阶段 | 说明 |
+|---|---|---|
+| `result.riskLevel` / `result.positiveDetails` / `result.positiveItems` | **初检证据** | 初检留下的风险等级与检出明细；复检只改当前结果，不会重写这些证据 |
+| `is_positive` | **初检检出证据**（顶层） | `positiveDetails` 非空 ⟺ `true`；该键缺失时按 `riskLevel ≠ 无风险` 兜底。**不是复检结论，也不等于确诊** |
+| `initial_conclusion` | 初检结论 | 无独立初检快照时（复检已覆盖原值）为 `unknown`，**不逆推** |
+| `final_conclusion` / `conclusion` / `final_conclusion_basis` | **最终结论** | 复检存在时取最新复检的 `isPassed`（`basis=recheck`）；判断"当前是否合格"只看这里 |
+
+因此 `initial_conclusion=unknown` + `final_conclusion=pass` + `is_positive=true` 是**正常组合**（初检快照被复检覆盖 / 初检检出证据仍在 / 复检通过），不是同一时点的自相矛盾。
 
 > ⚠️ **TPM（`result.tpmValue`）的单位尚未获得设备协议核实**：平台保存的是**原始字符串值**（不做换算），
 > 字段字典中的 `unit`（`g/100g`）与阈值（≤0.13 / ≤0.25）属**平台界面标注与当前实现口径**，
