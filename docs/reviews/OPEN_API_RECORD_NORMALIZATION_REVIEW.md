@@ -1,5 +1,7 @@
 # 审阅报告：记录写入规范化（stripContextCopies / buildRecordWriteData）与开放接口一致性
 
+> ⚠️ 后续文档指针（2026-09-17 追加，历史原文保留）：本报告的整改项已由 docs/reviews/RDPMS_OPENAPI_P0P1_CORRECTNESS_FIX_20260917.md（实施与验证）与 docs/reviews/OPENAPI_F1_F8_RECHECK_AND_HTTP_TESTS_20260917.md（独立复核 + HTTP 层补测）覆盖；TPM 单位表述已降级为「待设备协议核实」，统计字段已由 out_of_range_total 改为 universe_total + request_out_of_range_total。
+
 > 审阅对象：`result_data` 上下文三键（`testDate`/`canteen`/`inspector`）同义副本收口 + 开放接口字段契约（2026-09-16 未提交工作区改动）
 > 审阅方式：只读源码/差异审阅 + 无数据库路由级复现 + 只读库取证（**不修改任何文件、不写库、不重启、不提交**）
 > 报告落点：`docs/reviews/`（本次新建目录；仓库既有约定见 `docs/PROJECT_CONVENTIONS.md:6`：近期变更→`docs/CHANGELOG.md`，待修问题→`docs/fix/`）

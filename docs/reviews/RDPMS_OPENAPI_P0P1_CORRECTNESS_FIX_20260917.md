@@ -265,7 +265,9 @@ sudo systemctl restart foodsentinel-api && systemctl show foodsentinel-api -p Ac
 ### J.5 回滚
 
 `git revert a877901`（或 checkout 旧提交）→ `npm run build:prod` → 重启。**无数据迁移 → 数据侧无需回滚**；
-注意：回滚后 `projection_fingerprint` 会再次变化，对接方会再做一次重投影（幂等，无数据风险）。
+注意：回滚后 `projection_fingerprint` 会再次变化，对接方会再做一次重投影（替换式写入，**幂等**）。
+⚠️ 表述修正（2026-09-17 复核轮）：此前写作"无数据风险"属**过度确定** —— 平台只能保证"信号可被感知 + 写入幂等"，
+**不能保证第三方一定完成重同步**（其本地行为需对方侧验收，见 `THIRD_PARTY_RESYNC_ACCEPTANCE_20260917.md`）。
 
 ### J.6 发布前仍待办的只读确认
 
