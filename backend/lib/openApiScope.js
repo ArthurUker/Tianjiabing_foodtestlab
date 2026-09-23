@@ -125,13 +125,30 @@ export function grantAllowsType(grant, testType) {
 }
 
 /** 业务检测日期范围判定：grant.start_date / end_date（含边界）；日期非法/缺失视为不在范围内。 */
-export function grantDateRange(grant) {  const toDay = (d) => {
+export function grantDateRange(grant) {
+  const toDay = (d) => {
     if (!d) return null
     const dt = d instanceof Date ? d : new Date(d)
     if (Number.isNaN(dt.getTime())) return null
-    return dt.toISOString().slice(0, 10)
+    // 授权页按上海时区当日零点保存，UTC 日期会是前一天；按业务时区还原。
+    return new Date(dt.getTime() + 8 * 3600 * 1000).toISOString().slice(0, 10)
   }
   return { start: toDay(grant?.start_date), end: toDay(grant?.end_date) }
+}
+
+/** 对外明细、清单与超管真实预览共用的授权业务日期条件。 */
+export function grantDateSqlClause(grant, params) {
+  const { start, end } = grantDateRange(grant)
+  const parts = []
+  if (start) {
+    params.push(start)
+    parts.push(`(${businessDateValidSql()} AND ${BUSINESS_DATE_TEXT_EXPR} >= $${params.length})`)
+  }
+  if (end) {
+    params.push(end)
+    parts.push(`(${businessDateValidSql()} AND ${BUSINESS_DATE_TEXT_EXPR} <= $${params.length})`)
+  }
+  return parts.length ? ` AND ${parts.join(' AND ')}` : ''
 }
 
 /* ─────────────── 业务日期（sample_info.testDate）安全比较 ───────────────

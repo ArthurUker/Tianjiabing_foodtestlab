@@ -46,6 +46,7 @@ function parseDay(value) {
   if (value == null || value === '') return null
   const s = String(value).trim()
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return undefined // undefined = 非法（与 null 区分）
+  if (!isValidBusinessDate(s)) return undefined
   const d = new Date(`${s}T00:00:00+08:00`)
   return Number.isNaN(d.getTime()) ? undefined : d
 }

@@ -27,12 +27,14 @@ import {
   resolveGrantTypes,
   grantAllowsType,
   grantDateRange,
+  grantDateSqlClause,
   buildOpenRecord,
   encodeCursor,
   decodeCursor,
   computeManifestDigest,
   computeFiltersFingerprint,
   computeProjectionFingerprint,
+  recordChangeToken,
   CURRENT_CURSOR_VERSION,
   toIsoShanghai,
   BUSINESS_DATE_TEXT_EXPR,
@@ -106,7 +108,7 @@ function dateRangeClause(range, params) {
 
 /** 授权范围（grant.start_date/end_date）对应的 SQL 条件。 */
 function dateClause(grant, params) {
-  return dateRangeClause(grantDateRange(grant), params)
+  return grantDateSqlClause(grant, params)
 }
 
 /** 授权范围 ∩ 请求范围（两者都可为 null = 不限）。 */
