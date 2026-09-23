@@ -208,6 +208,16 @@ test('接入包：字段表可见枚举取值、数组子结构与"不下发"标
   assert.ok(md.includes('**必现**只是**当前数据分布观察**'), '必须说明 required 是数据观察而非输出保证')
 })
 
+test('接入包：TPM 单位核实状态必须可见（平台标注 / 设备单位未核实）', async () => {
+  const md = await renderPackage()
+  const row = md.split('\n').find((l) => l.startsWith('| `result.tpmValue` |'))
+  assert.ok(row, '接入包应包含 result.tpmValue 行')
+  assert.ok(row.includes('未核实'), `单位列必须标注未核实：${row}`)
+  assert.ok(/平台标注|platform_label/.test(md), '读表须知必须说明"单位仅为平台标注"')
+  assert.ok(md.includes('请勿自行换算'), '必须禁止读者自行换算')
+  assert.ok(!/0\.06`.{0,20}表示 0\.06 g\/100g，等价/.test(md), '不得再出现"等价于 %"式的断言表述')
+})
+
 test('接入包：参数行为与 profile 字段说明与实现一致', async () => {
   const md = await renderPackage()
   assert.ok(md.includes('`limit` 默认 **100**、上限 **200**'), 'limit 行为必须写明')

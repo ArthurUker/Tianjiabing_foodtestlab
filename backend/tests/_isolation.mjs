@@ -60,6 +60,21 @@ export function assertIsolationConfig({ schema } = {}) {
       throw new Error(`拒绝运行：schema "${schema}" 不是专用测试 schema（要求 school_review…），禁止 public / 真实学校 schema`)
     }
   }
+  // ⚠️ 关键：`lib/tenantClient.js` 的 baseDatabaseUrl() 读 process.env.DATABASE_URL。
+  // 运行器可能从 backend/.env 带入了生产连接串；这里**统一重定向**到隔离库，
+  // 避免"某个用例忘了覆盖"就直连生产（2026-09-17 加固：不再依赖各用例自觉）。
+  if (process.env.DATABASE_URL && process.env.DATABASE_URL !== url) {
+    const prev = parseDbUrl(process.env.DATABASE_URL).db
+    if (ALLOWED_DB_RE.test(prev) === false) {
+      // 仅覆盖"非测试库"的值；若调用方本就把 DATABASE_URL 指向测试库，同样统一为本次 URL
+      process.env.DATABASE_URL = url
+      console.log(`[isolation] 已将 DATABASE_URL 由 "${prev}" 重定向为隔离库 "${db}"`)
+    } else {
+      process.env.DATABASE_URL = url
+    }
+  } else {
+    process.env.DATABASE_URL = url
+  }
   return { url, db, user, host }
 }
 
