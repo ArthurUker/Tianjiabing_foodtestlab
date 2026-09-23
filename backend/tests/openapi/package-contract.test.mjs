@@ -204,7 +204,15 @@ test('接入包：字段表可见枚举取值、数组子结构与"不下发"标
   const inspectorRow = md.split('\n').find((l) => l.startsWith('| `result.inspector` |'))
   assert.ok(inspectorRow, 'result.inspector 应出现在字典表中（说明其不下发）')
   assert.ok(inspectorRow.includes('**否**'), 'result.inspector 的「下发」列必须为否')
-  assert.ok(md.includes('**必现**只是**当前数据分布观察**'), '必须说明 required 是数据观察而非输出保证')
+  // 2026-09-23 验收 C6 修复：required 语义改为「服务端保证」（仅顶层字段），
+  // result.* 恒为否，观察信息单独用 observed_present 表达并在表里渲染为「实测出现：…」。
+  assert.ok(md.includes('**必现 = 服务端保证**'), '必须说明 required 是服务端保证（目前仅顶层字段）')
+  assert.ok(md.includes('数据观察，不是输出保证'), '必须说明 observed_present 只是数据观察')
+  assert.ok(md.includes('实测出现：'), '接入包必须渲染 observed_present')
+  const sampleIdRow = md.split('\n').find((l) => l.startsWith('| `result.sampleId` |'))
+  assert.ok(sampleIdRow, 'result.sampleId 应出现在字典表中')
+  assert.ok(sampleIdRow.includes('| 否 |'), 'result.sampleId 的「必现」列必须为否（来自保存数据，非输出保证）')
+  assert.ok(sampleIdRow.includes('实测出现：'), 'result.sampleId 必须保留数据观察说明')
 })
 
 test('接入包：TPM 单位核实状态必须可见（平台标注 / 设备单位未核实）', async () => {

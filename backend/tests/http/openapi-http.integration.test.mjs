@@ -159,6 +159,45 @@ if (enabled) {
     assert.ok(recheck, '油品必须登记 result.recheckRecords（F7）')
   })
 
+  // 2026-09-23 对外验收 C6 回归：字典声明的必现字段必须在合成样例里真的出现，
+  // 且 `result.*` 不得再声明必现（它来自保存的检测数据，服务端不保证出现）。
+  test('HTTP：字典 required ↔ 样例逐字段一致（C6：样例必须能自证字典）', async () => {
+    const dict = await api(`/v1/dict?school_code=${SCHOOL}`)
+    assert.equal(dict.status, 200)
+    const samplesAll = await api(`/v1/samples?school_code=${SCHOOL}`)
+    assert.equal(samplesAll.status, 200)
+    for (const t of ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen']) {
+      const entry = dict.data.field_schema[t]
+      const fields = Array.isArray(entry) ? entry : entry.fields
+      const paths = new Set(fields.map((f) => f.path))
+      for (const f of fields.filter((x) => x.path.startsWith('result.'))) {
+        assert.equal(f.required, false, `${t}：${f.path} 来自保存数据，不得声明必现（required=true）`)
+      }
+      const items = samplesAll.data.samples.filter((s) => s.test_type === t).map((s) => s.item)
+      assert.ok(items.length > 0, `${t} 应有合成样例`)
+      for (const item of items) {
+        for (const f of fields) {
+          if (!f.required || f.emitted === false || f.conditional_on) continue
+          const v = f.path.startsWith('result.') ? item.result?.[f.path.slice('result.'.length)] : item[f.path]
+          assert.notEqual(v, undefined, `${t}：required=true 的 ${f.path} 在样例中缺失（字典与样例必须一致）`)
+        }
+        for (const k of Object.keys(item.result || {})) {
+          assert.ok(paths.has(`result.${k}`), `${t}：样例出现未登记字段 result.${k}`)
+        }
+      }
+    }
+    // C6 专项：病原体样例必须给出样品标识（此前字典声明必现但样例全缺）
+    const pathogen = samplesAll.data.samples.filter((s) => s.test_type === 'pathogen')
+    assert.equal(pathogen.length, 3, '病原体应有 pass / positive / recheck_passed 三个样例')
+    for (const s of pathogen) {
+      for (const k of ['sampleId', 'sampleType', 'sampleInfo']) {
+        const v = s.item.result[k]
+        assert.ok(typeof v === 'string' && v.length > 0, `病原体样例 ${s.scenario} 缺 result.${k}`)
+        assert.match(v, /示例|SAMPLE/i, `病原体样例 ${s.scenario} 的 result.${k} 必须带示例标识`)
+      }
+    }
+  })
+
   test('HTTP：records 分页 ↔ manifest ↔ stats 在同一范围内可对账', async () => {
     const recs = await api(`/v1/test-records?school_code=${SCHOOL}&limit=200`)
     assert.equal(recs.status, 200)
