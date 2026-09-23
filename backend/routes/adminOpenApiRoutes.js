@@ -341,43 +341,36 @@ export function createAdminOpenApiRoutes({ prisma, authenticateUser, requirePlat
           status: raw?.status === 'disabled' ? 'disabled' : 'active',
         })
       }
-      const desiredCodes = new Set(desired.map((d) => d.school_code))
-      const existing = new Map(client.grants.map((g) => [g.school_code, g]))
-      const applied = []
-
-      for (const want of desired) {
-        const prev = existing.get(want.school_code)
-        if (!prev) {
-          const created = await prisma.openApiGrant.create({
-            data: { client_id: client.id, ...want, scope_version: 1, created_by: req.user?.username || null },
-          })
-          applied.push({ school_code: want.school_code, action: 'created', scope_version: created.scope_version })
-          continue
+      const { applied, disabled } = await prisma.$transaction(async (tx) => {
+        const desiredCodes = new Set(desired.map((d) => d.school_code))
+        const current = await tx.openApiGrant.findMany({ where: { client_id: client.id } })
+        const existing = new Map(current.map((g) => [g.school_code, g]))
+        const applied = []
+        for (const want of desired) {
+          const prev = existing.get(want.school_code)
+          if (!prev) {
+            const created = await tx.openApiGrant.create({
+              data: { client_id: client.id, ...want, scope_version: 1, created_by: req.user?.username || null },
+            })
+            applied.push({ school_code: want.school_code, action: 'created', scope_version: created.scope_version })
+            continue
+          }
+          const changed = scopeSignature(prev) !== scopeSignature(want)
+          const nextVersion = changed ? Number(prev.scope_version) + 1 : Number(prev.scope_version)
+          await tx.openApiGrant.update({ where: { id: prev.id }, data: { ...want, scope_version: nextVersion } })
+          applied.push({ school_code: want.school_code, action: changed ? 'updated' : 'unchanged', scope_version: nextVersion })
         }
-        const changed = scopeSignature(prev) !== scopeSignature(want)
-        const nextVersion = changed ? Number(prev.scope_version) + 1 : Number(prev.scope_version)
-        await prisma.openApiGrant.update({
-          where: { id: prev.id },
-          data: { ...want, scope_version: nextVersion },
+        const disabled = []
+        for (const g of current) {
+          if (desiredCodes.has(g.school_code) || g.status === 'disabled') continue
+          await tx.openApiGrant.update({ where: { id: g.id }, data: { status: 'disabled', scope_version: Number(g.scope_version) + 1 } })
+          disabled.push(g.school_code)
+        }
+        await writeAdminOpsLog(tx, {
+          action: OPS_ACTION.grantsUpdate, actor: actorOf(req), targetId: client.id, targetSchoolCode: null,
+          details: { client: client.name, applied, disabled }, level: 'warn',
         })
-        applied.push({ school_code: want.school_code, action: changed ? 'updated' : 'unchanged', scope_version: nextVersion })
-      }
-
-      // 请求中未出现的学校 → 停用（不物理删除，保留历史与 scope_version）
-      const disabled = []
-      for (const g of client.grants) {
-        if (desiredCodes.has(g.school_code)) continue
-        if (g.status === 'disabled') continue
-        await prisma.openApiGrant.update({
-          where: { id: g.id },
-          data: { status: 'disabled', scope_version: Number(g.scope_version) + 1 },
-        })
-        disabled.push(g.school_code)
-      }
-
-      await writeAdminOpsLog(prisma, {
-        action: OPS_ACTION.grantsUpdate, actor: actorOf(req), targetId: client.id, targetSchoolCode: null,
-        details: { client: client.name, applied, disabled }, level: 'warn',
+        return { applied, disabled }
       })
       res.json({ success: true, data: { applied, disabled } })
     } catch (e) {
@@ -399,7 +392,8 @@ export function createAdminOpenApiRoutes({ prisma, authenticateUser, requirePlat
         return badRequest(res, grant ? '该校授权已停用，如需预览请先恢复授权' : '该校未授权给此对接方')
       }
 
-      const school = await prisma.school.findUnique({ where: { code: schoolCode }, select: { code: true, name: true } })
+      const school = await prisma.school.findUnique({ where: { code: schoolCode }, select: { code: true, name: true, status: true } })
+      if (!school || school.status !== 'active') return badRequest(res, '学校不存在或已停用')
       const schema = schemaNameOf(schoolCode)
       assertSafeSchemaName(schema)
       const types = resolveGrantTypes(grant)
@@ -408,12 +402,15 @@ export function createAdminOpenApiRoutes({ prisma, authenticateUser, requirePlat
       const resultKeyMap = buildAllowedResultKeyMap(types, (t) => extractCustomFieldMeta(cust, t))
       const limit = Math.min(Math.max(Number(req.query.limit) || 3, 1), 20)
       const db = createTenantClient(prisma, schoolCode)
+      const params = [types]
+      const dateCond = grantDateSqlClause(grant, params)
+      params.push(limit)
       const rows = types.length
         ? await db.$queryRawUnsafe(
-            `SELECT "id","record_code","test_type","test_name","sample_info","result_data","status","created_at","updated_at","data_version"
-             FROM "${schema}"."TestRecord" WHERE "test_type" = ANY($1::text[])
-             ORDER BY "updated_at" DESC LIMIT $2`,
-            types, limit,
+            `SELECT "id","record_code","test_type","test_name","sample_info","result_data","status","created_at","updated_at","version","data_version"
+             FROM "${schema}"."TestRecord" WHERE "test_type" = ANY($1::text[])${dateCond}
+             ORDER BY "updated_at" DESC, "id" DESC LIMIT $${params.length}`,
+            ...params,
           )
         : []
       res.json({
@@ -465,7 +462,10 @@ export function createAdminOpenApiRoutes({ prisma, authenticateUser, requirePlat
           school_name: school?.name || null,
           scope_version: grant.scope_version,
           // 与对外 /test-records、/samples、/sync/manifest 同源（含投影修订号 + 该校配置指纹，见 F6）
-          projection_fingerprint: computeProjectionFingerprint(grant, allowedKeysFingerprint(types, (t) => extractCustomFieldMeta(cust, t))),
+          projection_fingerprint: computeProjectionFingerprint(grant, JSON.stringify({
+            keys: allowedKeysFingerprint(visibleTypes, (t) => extractCustomFieldMeta(cust, t)),
+            school_name: school?.name || null,
+          })),
           include_inspector: grant.include_inspector === true,
           visible_types: visibleTypes,
           field_schema,
