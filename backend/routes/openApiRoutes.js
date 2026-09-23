@@ -270,6 +270,7 @@ export function createOpenApiRoutes({ prisma }) {
 
       // 字段字典：仅对**当前凭证据此学校已开放的类型**下发；字段定义与实际响应同源（openApiFieldSchema）
       const visibleTypes = resolveGrantTypes(grant)
+      if (!visibleTypes.length) return fail(res, 403, 'NO_VISIBLE_TYPE', '该学校当前未开放任何检测类型')
       const field_schema = {}
       for (const t of visibleTypes) {
         const meta = extractCustomFieldMeta(cust, t)

@@ -20,9 +20,9 @@ import express from 'express'
 import { writeAdminOpsLog } from '../lib/auditLog.js'
 import { generateApiKey } from '../lib/openApiKeys.js'
 import { createTenantClient, schemaNameOf, isValidSchoolCode, assertSafeSchemaName } from '../lib/tenantClient.js'
-import { RECORD_ROUTE_TYPES } from '../lib/recordNormalize.js'
-import { resolveGrantTypes, grantDateRange, buildOpenRecord, computeProjectionFingerprint } from '../lib/openApiScope.js'
-import { OPEN_API_CONTRACT_VERSION, listFieldDescriptors, buildSyntheticSamples, extractCustomFieldMeta, buildAllowedResultKeyMap } from '../lib/openApiFieldSchema.js'
+import { RECORD_ROUTE_TYPES, isValidBusinessDate } from '../lib/recordNormalize.js'
+import { resolveGrantTypes, grantDateRange, grantDateSqlClause, buildOpenRecord, computeProjectionFingerprint } from '../lib/openApiScope.js'
+import { OPEN_API_CONTRACT_VERSION, listFieldDescriptors, buildSyntheticSamples, extractCustomFieldMeta, buildAllowedResultKeyMap, allowedKeysFingerprint } from '../lib/openApiFieldSchema.js'
 
 const TAG = '[adminOpenApiRoutes]'
 const OPS_ACTION = {
@@ -57,12 +57,25 @@ function dayStr(value) {
   return new Date(d.getTime() + 8 * 3600 * 1000).toISOString().slice(0, 10)
 }
 
+/** 导入包兼容历史 ISO 时间和 YYYY-MM-DD，同时拒绝会被 JS Date 自动滚动的非法日历日。 */
+function parseImportedDay(value) {
+  if (value == null || value === '') return null
+  if (typeof value !== 'string') return undefined
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return parseDay(value)
+  const m = value.match(/^(\d{4}-\d{2}-\d{2})T/)
+  if (!m || !isValidBusinessDate(m[1])) return undefined
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return undefined
+  return parseDay(dayStr(parsed))
+}
+
 /** visible_types 归一：只保留系统内置类型；pathogen 必须经 includePathogen 显式开启。 */
 function normalizeVisibleTypes(raw, includePathogen) {
-  if (!Array.isArray(raw)) return null
-  const list = [...new Set(raw.map((t) => String(t)).filter((t) => RECORD_ROUTE_TYPES.has(t)))]
-    .filter((t) => (t === 'pathogen' ? includePathogen === true : true))
-  return list.length ? list : null
+  if (!Array.isArray(raw)) return { ok: false, message: 'visibleTypes 必须显式提供数组；历史 null 授权仅用于兼容读取' }
+  const list = [...new Set(raw.map(String))]
+  if (list.some((t) => !RECORD_ROUTE_TYPES.has(t))) return { ok: false, message: 'visibleTypes 含未知检测类型' }
+  if (list.includes('pathogen') && !includePathogen) return { ok: false, message: '开放病原体类型时必须开启 includePathogen' }
+  return { ok: true, types: list }
 }
 
 /**
@@ -301,20 +314,24 @@ export function createAdminOpenApiRoutes({ prisma, authenticateUser, requirePlat
 
       // 归一 + 校验
       const desired = []
+      const seenCodes = new Set()
       for (const raw of input) {
         const schoolCode = String(raw?.schoolCode || '').trim()
         if (!isValidSchoolCode(schoolCode)) return badRequest(res, `学校代码非法: ${schoolCode}`)
+        if (seenCodes.has(schoolCode)) return badRequest(res, `学校重复: ${schoolCode}`)
+        seenCodes.add(schoolCode)
         const school = await prisma.school.findUnique({ where: { code: schoolCode }, select: { code: true, status: true } })
         if (!school) return badRequest(res, `学校不存在: ${schoolCode}`)
         const includePathogen = raw?.includePathogen === true
-        const visibleTypes = normalizeVisibleTypes(raw?.visibleTypes, includePathogen)
+        const normalizedTypes = normalizeVisibleTypes(raw?.visibleTypes, includePathogen)
+        if (!normalizedTypes.ok) return badRequest(res, `${schoolCode}: ${normalizedTypes.message}`)
         const start = parseDay(raw?.startDate)
         const end = parseDay(raw?.endDate)
-        if (start === undefined || end === undefined) return badRequest(res, `${schoolCode}: 日期需为 YYYY-MM-DD`)
+        if (start === undefined || end === undefined) return badRequest(res, `${schoolCode}: 日期需为真实公历 YYYY-MM-DD`)
         if (start && end && start > end) return badRequest(res, `${schoolCode}: 起始日期不能晚于结束日期`)
         desired.push({
           school_code: schoolCode,
-          visible_types: visibleTypes,
+          visible_types: normalizedTypes.types,
           include_pathogen: includePathogen,
           include_inspector: raw?.includeInspector === true,
           include_attachments: raw?.includeAttachments === true,
@@ -605,7 +622,7 @@ export function createAdminOpenApiRoutes({ prisma, authenticateUser, requirePlat
         push('| 学校 | 学校代码 | 开放类型 | 业务日期范围 | 检测人姓名 | 病原体 | scope_version |', '|---|---|---|---|---|---|---|')
         for (const g of activeGrants) {
           const { start, end } = grantDateRange(g)
-          push(`| ${nameOf.get(g.school_code) || '-'} | \`${g.school_code}\` | ${resolveGrantTypes(g).join('、')} | ${start || '不限'} ~ ${end || '不限'} | ${g.include_inspector ? '下发' : '不下发'} | ${g.include_pathogen ? '开放' : '不开放'} | ${g.scope_version} |`)
+          push(`| ${nameOf.get(g.school_code) || '-'} | \`${g.school_code}\` | ${resolveGrantTypes(g).join('、') || '无（零权限）'} | ${start || '不限'} ~ ${end || '不限'} | ${g.include_inspector ? '下发' : '不下发'} | ${g.include_pathogen ? '开放' : '不开放'} | ${g.scope_version} |`)
         }
         push('')
       }
@@ -788,6 +805,22 @@ export function createAdminOpenApiRoutes({ prisma, authenticateUser, requirePlat
       if (!clients) return badRequest(res, 'payload.clients 必须为数组')
       if (clients.length > 200) return badRequest(res, '单次最多导入 200 个对接方')
 
+      // 在写入任何对接方前检查全部授权，避免后项无效日期被静默转成无限范围。
+      for (const c of clients) {
+        for (const g of Array.isArray(c?.grants) ? c.grants : []) {
+          const code = String(g?.school_code || '')
+          if (!isValidSchoolCode(code)) return badRequest(res, `导入学校代码非法: ${code}`)
+          if (g.visible_types != null) {
+            const normalized = normalizeVisibleTypes(g.visible_types, g.include_pathogen === true)
+            if (!normalized.ok) return badRequest(res, `${code}: ${normalized.message}`)
+          }
+          const start = parseImportedDay(g.start_date)
+          const end = parseImportedDay(g.end_date)
+          if (start === undefined || end === undefined) return badRequest(res, `${code}: 导入授权日期非法`)
+          if (start && end && start > end) return badRequest(res, `${code}: 起始日期不能晚于结束日期`)
+        }
+      }
+
       let clientCount = 0, grantCount = 0, credentialCount = 0
       for (const c of clients) {
         const data = {
@@ -806,9 +839,8 @@ export function createAdminOpenApiRoutes({ prisma, authenticateUser, requirePlat
         clientCount++
 
         for (const g of Array.isArray(c.grants) ? c.grants : []) {
-          if (!isValidSchoolCode(String(g.school_code || ''))) continue
-          const start = parseDay(dayStr(g.start_date))
-          const end = parseDay(dayStr(g.end_date))
+          const start = parseImportedDay(g.start_date)
+          const end = parseImportedDay(g.end_date)
           const value = {
             visible_types: Array.isArray(g.visible_types) ? g.visible_types : null,
             include_pathogen: g.include_pathogen === true,

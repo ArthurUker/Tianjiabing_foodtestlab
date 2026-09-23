@@ -122,7 +122,7 @@ export function initOpenApiView({ API_BASE, authHeaders, notify }) {
                 </td>
                 <td class="py-2 px-2 text-xs text-gray-600">
                     ${activeGrants.length
-                        ? activeGrants.map((g) => `${escapeHtml(g.school_name || g.school_code)}<span class="text-gray-400">（${g.effective_types.map((t) => TYPE_LABELS[t] || t).join('、')}）</span>`).join('<br>')
+                        ? activeGrants.map((g) => `${escapeHtml(g.school_name || g.school_code)}<span class="text-gray-400">（${g.effective_types.map((t) => TYPE_LABELS[t] || t).join('、') || '无检测类型（零权限）'}）</span>`).join('<br>')
                         : '<span class="text-gray-400">未授权任何学校</span>'}
                 </td>
                 <td class="py-2 px-2 text-xs text-gray-600">
@@ -253,7 +253,7 @@ export function initOpenApiView({ API_BASE, authHeaders, notify }) {
         const on = [...map.values()].filter((g) => g.enabled);
         if (!on.length) return '当前未授权任何学校（保存后对第三方不可见任何数据）';
         return on.map((g) => {
-            const types = g.visibleTypes.filter((t) => t !== 'pathogen' || g.includePathogen).map((t) => TYPE_LABELS[t] || t).join('、');
+            const types = g.visibleTypes.filter((t) => t !== 'pathogen' || g.includePathogen).map((t) => TYPE_LABELS[t] || t).join('、') || '无检测类型（零权限）';
             const range = g.startDate ? `自 ${g.startDate} 起${g.endDate ? ` 至 ${g.endDate}` : ''}` : '全部时间';
             const pii = g.includeInspector ? '含检测人姓名' : '不含检测人姓名';
             return `${g.schoolCode}（${types}｜${range}｜${pii}）`;
@@ -300,7 +300,7 @@ export function initOpenApiView({ API_BASE, authHeaders, notify }) {
         host.innerHTML = `
             <p class="text-xs text-gray-500 mb-3">
                 勾选学校即授权该校数据；检测类型按白名单下发（<b>病原体默认不开放</b>，勾选即视为开放，需业务确认）。
-                保存时会自动比对范围差异并递增该授权的 scope_version —— <b>范围变更后第三方会收到 409，需要重新对账同步</b>。
+                全部类型取消后保存为<b>零权限</b>，不会恢复默认四类。保存时会自动比对范围差异并递增该授权的 scope_version —— <b>范围变更后第三方会收到 409，需要重新对账同步</b>。
             </p>
             <div class="mb-3">${rowHtml}</div>
             <div class="rounded-lg bg-gray-50 border border-gray-100 p-3 text-xs text-gray-600 mb-3">
@@ -492,7 +492,7 @@ export function initOpenApiView({ API_BASE, authHeaders, notify }) {
 
         const grantRows = activeGrants.map((g) => `<tr class="border-b last:border-0">
             <td class="py-1.5 px-2">${escapeHtml(g.school_name || g.school_code)} <span class="font-mono text-xs text-gray-400">${escapeHtml(g.school_code)}</span></td>
-            <td class="py-1.5 px-2 text-xs">${g.effective_types.map((t) => TYPE_LABELS[t] || t).join('、')}</td>
+            <td class="py-1.5 px-2 text-xs">${g.effective_types.map((t) => TYPE_LABELS[t] || t).join('、') || '无（零权限）'}</td>
             <td class="py-1.5 px-2 text-xs text-gray-500">${escapeHtml(g.start_date || '不限')} ~ ${escapeHtml(g.end_date || '不限')}</td>
             <td class="py-1.5 px-2 text-xs">${g.include_inspector ? '下发' : '不下发'}</td>
             <td class="py-1.5 px-2 text-xs text-gray-500">v${g.scope_version}</td>

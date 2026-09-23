@@ -413,7 +413,7 @@ model OpenApiGrant {
   id                 String    @id @default(cuid())
   client_id          String
   school_code        String
-  // 开放的检测类型白名单（JSON 数组，如 ["tableware","oil"]）；null/空 = 用系统默认（不含病原体）
+  // 开放的检测类型白名单；历史 null = 默认四类，显式 [] = 零权限
   visible_types      Json?
   include_pathogen   Boolean   @default(false) // 病原体需显式开启（默认不开放）
   include_inspector  Boolean   @default(false) // 检测人姓名（false = 字段不下发）

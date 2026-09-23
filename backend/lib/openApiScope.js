@@ -110,7 +110,8 @@ export function projectResultData(resultData, options = {}) {
 /** 解析某条 grant 实际开放的检测类型（与 RECORD_ROUTE_TYPES 求交，pathogen 需显式开关）。 */
 export function resolveGrantTypes(grant) {
   const raw = Array.isArray(grant?.visible_types) ? grant.visible_types : null
-  const base = raw && raw.length > 0 ? raw : DEFAULT_OPEN_TYPES
+  // 历史 null/缺省沿用默认四类；显式 [] 表示零权限。
+  const base = raw === null ? DEFAULT_OPEN_TYPES : raw
   const allowed = base
     .map((t) => String(t))
     .filter((t) => RECORD_ROUTE_TYPES.has(t))
