@@ -39,6 +39,7 @@ export const defaultStore = createStore()
 function emptyState() {
   return {
     scopeVersion: null, projectionFingerprint: null, digest: null, cursor: null,
+    syncProtocolVersion: null,
     watermark: null,          // 最近一次成功同步到的数据变更时间（增量扫描起点）
     records: new Map(),
   }
@@ -53,7 +54,7 @@ function stateOf(store, schoolCode) {
 function cloneState(st) {
   return {
     ...st,
-    records: new Map([...st.records].map(([k, v]) => [k, { updated_at: v.updated_at, doc: { ...v.doc } }])),
+    records: new Map([...st.records].map(([k, v]) => [k, { updated_at: v.updated_at, change_token: v.change_token, doc: { ...v.doc } }])),
   }
 }
 
@@ -123,7 +124,8 @@ export async function syncSchool({
       const head = await fetchWithRetry(fetchJson, `/sync/manifest?school_code=${encodeURIComponent(schoolCode)}`, reqOpts)
       const policyChanged = st.projectionFingerprint !== null && st.projectionFingerprint !== head.projection_fingerprint
       const scopeChanged = st.scopeVersion !== null && st.scopeVersion !== head.scope_version
-      const digestSame = st.digest !== null && st.digest === head.digest && !policyChanged && !scopeChanged
+      const upgrading = st.syncProtocolVersion !== 2
+      const digestSame = st.digest !== null && st.digest === head.digest && !policyChanged && !scopeChanged && !upgrading
       if (digestSame) {
         log(`[${schoolCode}] 第 ${round + 1} 轮：digest 未变，无需同步`)
         return { ...stat, rounds: round + 1 }
@@ -141,17 +143,24 @@ export async function syncSchool({
         log(`[${schoolCode}] 清单不完整（complete=${manifest.complete}）→ 丢弃候选，保留本地数据`)
         return { ...stat, rounds: round + 1, reason: 'MANIFEST_INCOMPLETE' }
       }
-      const remote = new Map(manifest.items.map((i) => [i.record_code, i.updated_at]))
+      if (manifest.digest !== head.digest || manifest.scope_version !== head.scope_version
+          || manifest.projection_fingerprint !== head.projection_fingerprint) {
+        log(`[${schoolCode}] 详细清单与轮首摘要不一致 → 丢弃候选，重试本轮`)
+        continue
+      }
+      const remote = new Map(manifest.items.map((i) => [i.record_code, i]))
 
       /* ④ 拉取明细（写 candidate） */
-      const changed = [...remote.entries()].filter(([code, updatedAt]) => {
+      const changed = [...remote.entries()].filter(([code, item]) => {
         const local = cand.records.get(code)
-        return !local || local.updated_at !== updatedAt
+        return !local || (local.change_token ?? local.updated_at) !== (item.change_token ?? item.updated_at)
       })
-      const needFullPull = policyChanged || scopeChanged || cand.records.size === 0
+      // 老客户端升级、投影变更及“摘要变化但逐项无差异”都必须完整重拉。
+      // 最后一种情况可由旧秒级时间、记录版本或服务端元数据变更触发，绝不直接提交新摘要。
+      const needFullPull = upgrading || policyChanged || scopeChanged || cand.records.size === 0 || changed.length === 0
       const since = needFullPull || !changed.length
         ? null
-        : withOverlap(changed.map(([, u]) => u).sort()[0])
+        : withOverlap(changed.map(([, i]) => i.updated_at).sort()[0])
 
       let cursor = null
       let pages = 0
@@ -165,7 +174,7 @@ export async function syncSchool({
           for (const item of page.items) {
             // 替换式写入：整条覆盖。若只做字段 merge，授权撤回的 inspector 会永久残留。
             const existed = cand.records.has(item.record_code)
-            cand.records.set(item.record_code, { updated_at: item.updated_at, doc: item })
+            cand.records.set(item.record_code, { updated_at: item.updated_at, change_token: item.change_token, doc: item })
             if (existed) stat.updated++
             else stat.added++
             if (needFullPull) stat.reprojected++
@@ -199,6 +208,7 @@ export async function syncSchool({
       /* ⑦ 一致 → 一次性提交候选状态 */
       cand.scopeVersion = tail.scope_version
       cand.projectionFingerprint = tail.projection_fingerprint
+      cand.syncProtocolVersion = 2
       cand.digest = tail.digest
       cand.cursor = null
       commitState(store, schoolCode, cand)
@@ -219,7 +229,7 @@ export async function syncSchool({
       return { ...stat, rounds: round + 1, reason: err.code || (err.status ? `HTTP_${err.status}` : 'NETWORK') }
     }
   }
-  return stat
+  return { ...stat, reason: 'UNSTABLE_SOURCE' }
 }
 
 /* ─────────────────────────── HTTP 客户端（真实模式）─────────────────────────── */

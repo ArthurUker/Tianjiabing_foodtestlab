@@ -1,7 +1,7 @@
 # 开放接口对接文档（第三方只读数据拉取）
 
 > 契约版本：**v1**（`contract_version: "v1"`，所有响应都会带上）
-> 最后更新：2026-09-15
+> 最后更新：2026-09-23
 > 平台侧实现：`backend/routes/openApiRoutes.js`（对外）、`backend/routes/adminOpenApiRoutes.js`（超管配置）
 > 字段契约单一事实源：`backend/lib/openApiFieldSchema.js`；超管控制台「开放接口」页可在线查看字段字典与样例、并下载**接入包**
 
@@ -9,8 +9,8 @@
 
 ## 0. 契约承诺与兼容性
 
-- **v1 内不删除字段、不改变既有字段语义**；新增字段一律以向后兼容方式追加。
-- 需要破坏性变更时，会先发布新版本路径（如 `/v2`），并提前通知；旧版本在过渡期内继续可用。
+- 本次 v1 纠错增加 `change_token`，修正复检结论与 `initial_conclusion` 的解释，并改变清单摘要；已有客户端必须按下文升级，不能仅沿用旧摘要与旧秒级时间比较。
+- 今后若需改变已有字段语义，应另行规划版本路径和迁移窗口；本文不承诺旧客户端可无修改继续同步。
 - 本文件与平台实际行为不一致时，**以平台在线响应（`/dict`、`/samples`、`/profile`）为准**，并请通知平台方修正文档。
 
 ### v1 内的行为修正（2026-09-15，均在 v1 内完成，已通知影响面）
@@ -22,6 +22,13 @@
 | 清单摘要 `digest` | 组成改为「游标协议版本 + `scope_version` + `projection_fingerprint` + 各记录 `record_code@updated_at`」 | 同样的数据 digest 值会与旧版不同；语义更强（字段可见性变化也能被感知） |
 | 清单超限 | 超过单次上限时返回 `413 MANIFEST_TOO_LARGE`，**不再可能返回被截断的清单** | 之前不存在静默截断，此处仅把行为显式化 |
 | 统计 | 新增 `scope_total / included_total / excluded / pass_rate_detail`；移除含糊的差异说明 | 既有字段 `total / pass_count / pass_rate` 含义不变 |
+
+### 本轮纠错与已有客户端升级（2026-09-23）
+
+- `updated_at` 按数据库 `TIMESTAMP(3)` 输出毫秒；明细与清单新增相同的 `change_token`（UTC 毫秒时间与记录 `version` 组合）。`digest` 现在覆盖逐记录 `change_token` 和投影指纹，旧摘要不能与新摘要直接比较。
+- 丢弃旧的跨轮游标，保留旧本地状态作回滚点；先完整获取清单和明细，按 `record_code` 整条替换（清掉已撤回字段），再读尾部清单。只有首尾摘要一致且所有分页成功时，才一次性提交新数据、摘要和水位。失败时保留旧完成状态。参考客户端用 `syncProtocolVersion: 2` 强制旧状态完成这次重拉。
+- 历史复检可能覆盖当前检测值，旧 `initial_conclusion` 不能视为可信初检。新解析在无初检快照的复检记录中返回 `unknown`，结构化最新复检 `isPassed` 优先；`conclusion_conflict` 表示它与可识别的 `finalStatus` 矛盾。原 `pass_rate` 数值算法未改，`metric_basis` 更正为 `stored_current_result`。
+- `school_name` 是当前学校主数据；学校改名会改变投影指纹。即使记录未更新，也应重拉该校记录以刷新名称。
 
 ---
 
@@ -92,11 +99,11 @@ curl -s -H "X-API-Key: $KEY" "$BASE/samples?school_code=<学校>"    # ← 合�
 注意事项：
 
 - 字典描述的是**实际对外契约**，不是数据库原始结构。`result` 内的 `canteen` / `testDate` 是**历史记录的同义副本**（2026-09-16 起写入端已收口，新记录不再产生这两个副本），**取值一律以顶层为准**；`result.inspector` 属个人信息，**任何情况下都不会下发**（字典中标注 `emitted:false`，列出仅为说明原始存储结构，请勿据此开发）。
-- **输出字段采用白名单**（2026-09-16 起）：`result` 内**只下发字典登记过的键**（含你方学校配置的 `source: school_custom` 自定义字段）。平台新增但未登记的字段不会外发——若你方发现某个需要的字段缺失，请联系平台登记，而不要依赖"未登记也会透传"。容器内部（如 `atpPoints[]`、`recheckRecords[]`）仍按递归规则剔除内部字段与个人信息。
+- **输出字段采用白名单**：`result` 内只下发字典登记过的键。学校已配置的普通自定义字段仍自动登记；明显身份字段名或标签会被排除，数组内相同规则递归执行。自由文本（备注、样本描述等）仍可能包含手工录入的个人信息，键名过滤无法保证消除它。新增自定义字段的显式对外审批机制尚待业务确定；如需限制既有字段，须逐对接方评估与通知，不可把自动登记误读为逐字段审批。
 - `result.sampleInfo`（病原体）是**普通字符串**（样品说明，实测 5~16 字符），不是 JSON，请勿解析为对象。
 - 实测类型提醒：`result.rluValue`、`result.tpmValue`、`result.acidValue`、`result.oilTemp` 在源数据中为**字符串**，需自行转数值；`result.allTestItems[].no` 存在 number 与 string 两种形态。
 - **单位与缩放（务必按此实现）**：
-  - `result.tpmValue`：**原始数值口径**，`"0.06"` = **0.06 g/100g（等价 0.06%）**，**不要再 ×100**；平台判定：≤0.13 合格 / ≤0.25 警戒 / >0.25 不合格（实测 0.06~0.20）。
+  - `result.tpmValue`：平台保存原始字符串，界面标注为 g/100g 并使用当前代码阈值；设备协议尚未核实，不能据界面标注确认物理单位或自行换算、重判历史记录。
   - `result.acidValue`：单位 `mg KOH/g`（前端展示简写 `mg/g`）；判定 <2.5 合格 / <5 警戒 / ≥5 不合格；空值出现过（实测 空 21 / 0.3 13 / 0 5）。
   - `result.oilTemp`：`℃`（实测恒为 35）。
   - `result.colorLevel`：**不是颜色**，是「综合品质等级」枚举 `合格 / 警戒 / 不合格`（由 TPM 与酸价等级取最差得出）。
@@ -104,13 +111,17 @@ curl -s -H "X-API-Key: $KEY" "$BASE/samples?school_code=<学校>"    # ← 合�
   - `riskLevel` ∈ {`无风险`, `低风险`, `极低风险`}；**非「无风险」一律视为不合格/有风险**（与 `/stats` 同口径），但**这不等于确诊阳性**；
   - `positiveDetails` 数组是否非空 = **是否检出的权威依据**（实测：非空 ⟺ `riskLevel` ≠ 无风险）；
   - `positiveItems` 为文本：有检出时为致病菌名称（可能多个），无风险时是 **1 字符占位（非空）**——不要用"是否为空"判断检出；
-  - 复检结论在 `recheckReports[].isPassed`（病原体实测**没有** `finalStatus` 字段）。
-- 学校自定义字段会出现在字典中（`source: school_custom`），其类型与单位由学校配置决定，平台不做保证。
+  - 复检结论优先取最新 `recheckReports[].isPassed`；当前 Web 也会写入 `finalStatus`，两者冲突时以结构化 `isPassed` 为准。
+- 学校现有普通自定义字段会出现在字典中（`source: school_custom`），其类型与单位由学校配置决定，平台不做保证。新增字段的对外审批规则尚未完成，接入方应按当前 `/dict` 逐校核对。
+
+### 自定义字段的待决策方案
+
+建议在每所学校的对接方授权中增加「已批准自定义字段路径」清单，精确到检测类型与 `result.*` 路径，默认空；学校内部新增字段只供内部使用，超管显式批准后才进入 `/dict`、样例和真实投影。批准或撤回须递增授权版本并改变投影指纹。现有授权已自动开放的普通自定义字段需要先导出影响清单，由业务方逐对接方决定保留或撤回并通知重同步；不能静默套用新默认值。现阶段仅已确定的身份字段名/标签会被过滤，自由文本仍需数据治理和人工约束。
 
 ### 3.2 合成样例（`/samples`）
 
 - 全部为**构造数据**，`record_code` 以 `SAMPLE-` 开头，且带 `synthetic: true`——**请勿写入正式数据集**。
-- 覆盖各类型的合格、不合格、复检、字段缺失场景；复检样例**仅对真实存在复检结构的类型产生**（餐具 `recheckRecords`、病原体 `recheckReports`），不会为果蔬/肉蛋/食用油编造复检结构。
+- 覆盖各类型的合格、不合格、复检、字段缺失场景；餐具、果蔬、肉蛋和食用油可有 `recheckRecords`，病原体使用 `recheckReports`。
 - 样例经过与真实记录**完全相同的授权检查与字段投影**，因此形态即真实响应形态（检测人姓名默认不下发）。
 
 ---
@@ -121,11 +132,11 @@ curl -s -H "X-API-Key: $KEY" "$BASE/samples?school_code=<学校>"    # ← 合�
 
 ```
 ① GET /sync/manifest?school_code=<校>            → total + digest
-   ├─ digest 与本地一致 → 本轮结束（无需拉明细）
+   ├─ 新版客户端已完整同步且 digest 与本地一致 → 本轮结束
    └─ digest 变化 → 进入第 ② 步
-② GET /sync/manifest?school_code=<校>&detail=1   → [{record_code, updated_at}]
+② GET /sync/manifest?school_code=<校>&detail=1   → [{record_code, updated_at, change_token}]
    ├─ 清单有、本地无         → 新增
-   ├─ updated_at 比本地新     → 变更
+   ├─ change_token 与本地不同 → 变更
    └─ 本地有、清单无         → **仅当本轮清单"完整获取"时**才可判定为"源端已不存在"（见 §5 三态）
 ③ 明细用 GET /test-records?school_code=<校>&cursor=<游标>&limit=200 逐页拉取
    ├─ 每页成功处理完成后，才保存 next_cursor；重试允许重复，按 record_code 幂等 upsert
@@ -133,13 +144,15 @@ curl -s -H "X-API-Key: $KEY" "$BASE/samples?school_code=<学校>"    # ← 合�
 ④ 本轮结束时再取一次 manifest.digest：与开始时不一致 → 数据在本轮期间又发生变化，重跑一轮
 ```
 
+旧客户端升级、授权或投影变化，以及「摘要变化但清单逐条比较无变化」时，执行有界的完整重拉。失败或超过轮次上限必须返回未完成，保留旧完成摘要；不要把仅有摘要变化登记为已同步。
+
 ### 4.1 游标规则（`next_cursor`）
 
 - 游标由服务端生成，绑定：学校 + 筛选条件（类型集合、`until`）+ 授权版本 `scope_version` + 投影策略 `projection_fingerprint` + 水位 `(updated_at, id)`。
 - **不可跨学校、不可更换 `test_type`/`until` 复用**（会返回 `400 CURSOR_FILTER_MISMATCH`）；
 - 授权或字段可见性变化 → `409 SCOPE_CHANGED`；
 - 旧协议游标 → `409 SCOPE_CHANGED`（提示重新对账）；
-- 排序键为 `(updated_at ASC, id ASC)`：同一时间戳的记录靠 `id` 决胜，不会漏。
+- 排序键为 `(updated_at ASC, id ASC)`；`updated_at` 为毫秒精度。同一时间戳的记录靠 `id` 决胜。客户端须用清单摘要和逐条 `change_token` 复核，不得自行截断到秒。
 - `since` 参数仅用于**重叠回拉**（粗筛，边界记录可能重复），常规增量请使用 `cursor`。
 
 ### 4.2 三种"记录不见了"的情况必须区分
@@ -184,7 +197,7 @@ tail 请求失败 / digest 不一致）都不得留下 records / cursor / waterm
 - `401/403`：不要重试，检查密钥/授权/白名单；
 - `429`：按 `Retry-After` 退避；
 - `5xx`/超时：指数退避重试，**保留旧水位**；
-- 分页中途失败：从**最后一次成功处理**的 `cursor` 继续；
+- 分页中途失败：保留上一轮正式 checkpoint；在当前候选轮内可从成功处理的 `cursor` 继续，跨轮从 manifest 重新对账；
 - 任何情况下都不可用"空结果"覆盖本地已有数据。
 
 ---
@@ -222,12 +235,13 @@ tail 请求失败 / digest 不一致）都不得留下 records / cursor / waterm
   "visible_types": ["tableware", "pesticide", "oil", "leanMeat"],
   "generated_at": "2026-09-15T14:30:00+08:00",
   "detail": true, "total": 1063, "complete": true,
-  "digest": "…", "digest_covers": "cursor_version+scope_version+projection_fingerprint+record_code@updated_at",
-  "items": [ { "record_code": "RC-tableware-…", "updated_at": "2026-09-14T11:05:00+08:00" } ] } }
+  "digest": "…", "digest_covers": "cursor_version+scope_version+projection_fingerprint+record_code@change_token",
+  "items": [ { "record_code": "RC-tableware-…", "updated_at": "2026-09-14T11:05:00.900+08:00", "change_token": "2026-09-14T03:05:00.900Z|v2" } ] } }
 ```
 
 - `complete: true` 表示这是完整清单；**超上限时不会返回 `complete: false`，而是 `413` 错误**。
 - `digest` 覆盖授权版本与投影策略：因此"关闭检测人姓名"这类变化也会改变 digest（避免客户端误判"无变化"而跳过重投影）。
+- 学校名称按当前主数据下发；改名会改变投影指纹，即使记录行未更新也需重投影。
 
 ### 5.6 `GET /test-records`
 
@@ -245,20 +259,22 @@ tail 请求失败 / digest 不一致）都不得留下 records / cursor / waterm
       "test_type": "tableware", "test_name": "餐具洁净度检测",
       "test_date": "2026-01-16", "canteen": "三食堂",
       "status": "completed",
-      "initial_conclusion": "fail", "final_conclusion": "pass", "conclusion": "pass",
+      "initial_conclusion": "unknown", "final_conclusion": "pass", "conclusion": "pass",
       "final_conclusion_basis": "recheck",
       "conclusion_text": "整改后复检合格", "conclusion_source": "stored",
-      "is_positive": null,
-      "result": { "result": "不合格 (>500)", "rluValue": "614", "recheckRecords": [ … ] },
-      "created_at": "2026-01-16T00:00:00+08:00", "updated_at": "2026-09-14T11:05:00+08:00",
+      "conclusion_conflict": false, "is_positive": null,
+      "result": { "result": "合格", "rluValue": "96", "recheckRecords": [ … ] },
+      "created_at": "2026-01-16T00:00:00.000+08:00", "updated_at": "2026-09-14T11:05:00.900+08:00",
+      "change_token": "2026-09-14T03:05:00.900Z|v2",
       "data_version": 1 } ] } }
 ```
 
 字段含义见 `/dict` 的字段字典；这里强调三点：
 
 - `conclusion` = `final_conclusion`（有复检取复检结论），`final_conclusion_basis` 说明它来自初检还是复检；
+- 当前 Web 复检会覆盖部分当前检测值；若没有独立初检快照，`initial_conclusion=unknown`，不能由当前值倒推初检。最新结构化 `isPassed` 与文本矛盾时优先前者，`conclusion_conflict=true`。
 - `conclusion_source` 固定为 `stored`：平台在**录入时按当时规则保存判定文本**（`result` / `colorLevel` / `riskLevel` / `finalStatus` / 复检结论），接口据此**映射**为结论枚举——因此结论反映的是"录入当时的判定"，**不会因平台阈值调整而改变**；
-- 增量同步：`updated_at` 用于**记录变更排序**（`(updated_at ASC, id ASC)`，同一时间戳靠 `id` 决胜），**不是"唯一依据"**——完整的同步必须结合服务端游标、`scope_version` 与清单 `digest` 对账，且**不得仅凭 `updated_at` 判定同步完成**（`created_at` 对历史导入数据可能等于业务日期零点，不可用于增量）。
+- 增量同步：`updated_at` 用于毫秒级排序，逐记录比较 `change_token`，完成条件还需首尾 `digest` 一致。旧秒级时间字符串应触发一次完整重拉。
 
 ### 5.7 `GET /stats`
 
@@ -310,10 +326,7 @@ tail 请求失败 / digest 不一致）都不得留下 records / cursor / waterm
 - **授权范围外的记录不出现在任何字段里**（含数量）——统计不做授权外数量的侧信道；
 - 分母为 0 时 `pass_rate` 返回 `null`（不是 0）；
 - `start`/`end` 的实际生效范围 = **授权范围 ∩ 请求范围**（请求不得超过授权）；交集为空是合法请求 → `200` 且 0 条（`range.empty = true`）。
-- ⚠️ **指标口径声明 `metric_basis = 'initial_conclusion'`**：合格率统计的是**初检**判定（与员工端看板同口径）。
-  明细的 `final_conclusion` / `conclusion` 在存在复检时取复检结论，因此「明细 `conclusion=pass` 却未计入 `pass_count`」
-  是**预期差异**（例：初检不合格 → 复检合格），不是数据错误。如需按最终结论统计，平台将以**新字段**（如 `pass_rate_final`）
-  提供，不会改动既有指标含义。
+- `metric_basis = 'stored_current_result'`：既有 `pass_rate` 数值算法未改，按当前保存的 `result`/`colorLevel`/`riskLevel` 计算。部分 Web 复检会覆盖这些字段，所以它不能保证是初检率，也不保证所有类型都等于最终结论率。独立初检与最终结论统计指标须待业务确定快照保存和兼容方案。
 
 > 对账建议（2026-09-17 澄清，避免误判）：
 > · `/test-records` 的**日期过滤只来自授权范围**（该端点不接受业务日期参数，`until` 过滤的是 `updated_at`）。
