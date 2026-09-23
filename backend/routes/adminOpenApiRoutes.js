@@ -632,7 +632,8 @@ export function createAdminOpenApiRoutes({ prisma, authenticateUser, requirePlat
         '## 3. 字段字典',
         '',
         '> 读表须知：',
-        '> - **必现**只是**当前数据分布观察**（是 = 该类型现有记录都出现），**不是接口输出保证**——请勿据此建必填模型，容错解析以「可空」「下发」为准。',
+        '> - **必现 = 服务端保证**（是 = 该字段一定出现在响应中，目前仅顶层字段）。`result.*` 字段来自保存的检测数据，**恒为否**：'
+          + '若观察到「现有记录均出现」，会写在说明里的 `实测出现：…` —— 那是**数据观察，不是输出保证**，请勿据此建必填模型；容错解析以「可空」「下发」为准。',
         '> - **可空**：字段存在但值可能为 `null`。**三态区分**：字段**省略**（不存在）≠ `null`（存在无值）≠ 空串/空数组（有值为空）。',
         '> - **下发=否** 的字段**不会出现在响应中**，列出仅为说明原始存储结构（如 `result.inspector` 属个人信息恒不下发），请勿据此开发。',
         '> - **公共字段只列一次**（该学校所有开放类型一致）；各类型的专属字段分列在其后。数组元素结构见说明中的「元素：…」。',
@@ -655,7 +656,8 @@ export function createAdminOpenApiRoutes({ prisma, authenticateUser, requirePlat
           const typeCell = f.type + (Array.isArray(f.enum) && f.enum.length ? `（取值：${f.enum.join(' / ')}）` : '')
           const itemHint = Array.isArray(f.item_fields) && f.item_fields.length ? `；元素：${f.item_fields.join('、')}` : ''
           const cond = f.conditional_on ? `（条件字段：仅当 ${f.conditional_on} 开启时存在）` : ''
-          const desc = String(f.description || '').replace(/\|/g, '/').replace(/\n/g, ' ') + itemHint + cond
+          const observed = f.observed_present ? `实测出现：${f.observed_present}` : ''
+          const desc = [String(f.description || '').replace(/\|/g, '/').replace(/\n/g, ' '), itemHint, cond, observed].filter(Boolean).join('；')
           // ⚠️ 单位核实状态必须可见（2026-09-23）：unit_verified=false 的字段在接入包里显式标注，
           //    避免读者把"平台界面标注"当成"经设备协议核实的单位"。
           const unitCellRaw = f.unit ? `${f.unit}${f.unit_verified === false ? ' **⚠️未核实**' : ''}` : '—'

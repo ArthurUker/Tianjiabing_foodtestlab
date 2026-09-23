@@ -525,6 +525,7 @@ export function initOpenApiView({ API_BASE, authHeaders, notify }) {
                 <div class="admin-card">
                     <h4 class="font-medium text-gray-800 mb-2"><i class="fas fa-table-columns text-emerald-600 mr-2"></i>2. 字段字典</h4>
                     <p class="text-xs text-gray-500 mb-2">对方写字段映射的依据：路径 / 中文名 / 类型 / 单位 / 是否必现 / 是否可空 / 说明。与真实下发的 JSON 同源。</p>
+                    <p class="text-xs text-gray-500 mb-2">「必现」= <span class="font-medium">服务端保证一定出现</span>（目前仅顶层字段）；<code>result.*</code> 字段来自保存的检测数据，恒为「否」——说明里的「实测出现」只是数据观察，不能当必填契约。</p>
                     <div class="flex items-center flex-wrap gap-2 mb-3">
                         <select id="oapiDictSchool" class="px-2 py-1.5 text-sm border border-gray-300 rounded-lg">${schoolOptions}</select>
                         <select id="oapiDictType" class="px-2 py-1.5 text-sm border border-gray-300 rounded-lg"></select>
@@ -615,7 +616,8 @@ export function initOpenApiView({ API_BASE, authHeaders, notify }) {
                         const enumHint = Array.isArray(f.enum) && f.enum.length ? `（取值：${f.enum.join(' / ')}）` : '';
                         const itemHint = Array.isArray(f.item_fields) && f.item_fields.length ? `元素：${f.item_fields.join('、')}` : '';
                         const condHint = f.conditional_on ? `条件字段：仅当 ${f.conditional_on} 开启时存在` : '';
-                        const desc = [f.description || '', itemHint, condHint].filter(Boolean).join('；');
+                        const observedHint = f.observed_present ? `实测出现：${f.observed_present}` : '';
+                        const desc = [f.description || '', itemHint, condHint, observedHint].filter(Boolean).join('；');
                         const notEmitted = f.emitted === false;
                         return `<tr class="border-b last:border-0 ${notEmitted ? 'bg-gray-50 text-gray-400' : (f.source === 'school_custom' ? 'bg-amber-50/40' : '')}">
                         <td class="py-1.5 px-2 font-mono text-xs">${escapeHtml(f.path)}</td>

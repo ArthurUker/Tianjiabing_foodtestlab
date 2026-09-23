@@ -298,8 +298,11 @@ export function createOpenApiRoutes({ prisma }) {
         field_schema,
         field_schema_notes: [
           '字段路径按对外响应书写：顶层字段直接给出；检测业务字段统一在 result.* 下。',
-          'required 是**当前数据分布观察**（true = 该类型现有全部记录都出现该字段），**不是接口输出保证**：'
-            + '不要据此在本地建 NOT NULL / 必填模型；容错解析请以 nullable 与「下发」列为准。',
+          'required=true 表示**服务端投影保证**该字段一定出现在响应中（当前仅顶层字段，如 record_code / status / 结论类 / change_token）；'
+            + '因此 required=true 的字段可以按必填解析。',
+          'result.* 字段的 required 恒为 false：它们来自**保存的检测数据**，是否出现取决于录入路径与历史数据，'
+            + '服务端不保证存在。若我们观察到「该类型现有记录均出现」，会写在同一条目的 `observed_present` 里 ——'
+            + '那是**数据观察，不是输出保证**，请勿据此建 NOT NULL / 必填模型；容错解析请以 nullable 与「下发」列为准。',
           '三态区分：**字段省略** = 该字段不存在（未登记或未启用）；**null** = 字段存在但无值；**空字符串/空数组** = 有值但为空（如 result.remark 可为 ""、result.positiveDetails 可为 []）。',
           'type=unknown 表示平台不保证其类型（通常来自学校自定义字段），需按实际值处理。',
           'emitted=false 表示该字段「不会出现在响应中」——列出仅为说明原始存储结构，请勿据此开发（如 result.inspector，属个人信息恒不下发）。',
@@ -311,6 +314,9 @@ export function createOpenApiRoutes({ prisma }) {
             + '也不要据该字段重新判定历史结论；阈值（≤0.13 / ≤0.25）同属当前实现口径，待核验；'
             + '各类型的判定阈值写在对应字段说明里，数组元素的子键见 item_fields。',
           '病原体：riskLevel 非「无风险」即视为不合格/有风险（与统计口径一致），但**不等于确诊阳性**；是否检出以 result.positiveDetails 是否非空为准。',
+          '病原体的阶段语义（避免误读为"同一时点自相矛盾"）：`is_positive` / `riskLevel` / `positiveDetails` 属**初检证据**；'
+            + '复检结论只看 `final_conclusion` 与 `final_conclusion_basis`（=recheck 时由最新复检 isPassed 决定）。'
+            + '因此「initial_conclusion=unknown + final_conclusion=pass + is_positive=true」是**正常的阶段组合**（初检快照被复检覆盖 → unknown；初检检出证据仍在 → true；复检通过 → pass）。',
           'result 内的 canteen / testDate 是历史记录的**同义副本**（新记录不再写入），取值一律以顶层为准。',
           'v1 历史行为纠错与旧客户端升级方式见接入文档：请用 change_token 和完整清单对账，旧摘要需重新基线化。',
         ],

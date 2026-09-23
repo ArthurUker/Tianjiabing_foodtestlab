@@ -57,7 +57,15 @@ const COMMON_FIELDS = [
   { path: 'change_token', label: '逐记录变化标识', type: 'string', unit: null, nullable: false, required: true, description: '毫秒级更新时间与内部记录版本的组合；用于清单和明细对账', source: 'platform' },
   { path: 'conclusion_text', label: '结论原文', type: 'string', unit: null, nullable: true, required: false, description: '记录内保存的判定文本原样返回（如「整改后复检合格」「不合格 (>500)」）', source: 'platform' },
   { path: 'conclusion_source', label: '结论来源', type: 'string', unit: null, nullable: false, required: true, description: "固定为 'stored'：结论是**录入/检测当时保存**的值，不是按当前阈值重新计算的结果", source: 'platform' },
-  { path: 'is_positive', label: '是否阳性', type: 'boolean', unit: null, nullable: true, required: false, description: '仅病原体有意义（true=阳性、false=阴性）；非病原体为 null', source: 'platform' },
+  {
+    path: 'is_positive', label: '是否阳性', type: 'boolean', unit: null, nullable: true, required: false,
+    // 阶段语义（2026-09-23 验收后补）：该字段是**初检阶段的检出证据**，不是复检结论、也不是"确诊"。
+    description: '仅病原体有意义（非病原体恒为 null）。语义 = **当前保存的检出证据**：`result.positiveDetails` 非空 ⟺ true；'
+      + '该键缺失时按 `riskLevel ≠ 无风险` 兜底。**注意阶段**：它反映初检留下的检出证据，**不是复检结论、也不等于确诊** —— '
+      + '复检合格后若 `positiveDetails` 仍是初检遗留值，本字段会保持 true，与 `final_conclusion=pass` / `final_conclusion_basis=recheck` '
+      + '**并存不矛盾**（初检检出 → 复检通过）。判断"当前是否合格"请用 final_conclusion，不要用本字段。',
+    source: 'platform',
+  },
   { path: 'result', label: '检测业务数据', type: 'object', unit: null, nullable: false, required: true, description: '该类型的业务字段集合（见同类型 result.* 条目）；字段随类型与学校自定义配置不同', source: 'platform' },
   { path: 'created_at', label: '记录创建时间', type: 'datetime', unit: null, nullable: false, required: true, format: 'ISO8601 +08:00', description: '⚠️ 历史导入数据的创建时间可能等于业务日期零点，不要用它做增量同步', source: 'platform' },
   { path: 'updated_at', label: '数据变更时间', type: 'datetime', unit: null, nullable: false, required: true, format: 'ISO8601 +08:00（毫秒）', description: '记录变更排序时间；逐条比较请用 change_token，并以 manifest.digest 做最终对账', source: 'platform' },
@@ -153,6 +161,30 @@ const REDUNDANT_IN_RESULT = [
  *        学校自定义字段（来自已核验的 SchoolCustomization.custom_fields 元数据），
  *        仅作为「school_custom」来源追加说明，不参与投影（投影对自定义字段默认放行）。
  */
+/**
+ * 出现性语义规范化（2026-09-23，对外验收 C6 修复）。
+ *
+ * 背景：此前 `required: true` 被用来表达「实测该类型全部记录都出现」（**数据观察**），
+ * 于是字典声明 `result.sampleId/sampleType/sampleInfo` 必现，而合成样例并不包含这三个键 ——
+ * 字典与样例/真实数据自相矛盾：对接方按字典建严格模型后，官方样例反而校验失败。
+ *
+ * 现约定（必须与 `field_schema_notes`、接入包「读表须知」、`docs/OPEN_API_INTEGRATION.md` 保持一致）：
+ *   · `required: true`  = **服务端投影保证**该字段一定出现在响应中（仅顶层字段，如 record_code/status/结论类/change_token）；
+ *   · `result.*` 字段来自**保存的检测数据**，是否出现取决于录入路径与历史数据 → 一律 `required: false`；
+ *   · 若观察到「该类型现有记录均出现」，改记 `observed_present`（**数据观察，非输出保证**），
+ *     仅供容错解析参考，**不得**据此建必填模型。
+ */
+const OBSERVED_PRESENT_ALL = '该类型现有记录均出现（数据观察，非输出保证）'
+
+function normalizePresenceSemantics(f) {
+  const isBusinessResultField = typeof f.path === 'string' && f.path.startsWith('result.')
+  if (!isBusinessResultField) return f
+  const observed = f.observed_present || (f.required ? OBSERVED_PRESENT_ALL : null)
+  const next = { ...f, required: false }
+  if (observed) next.observed_present = observed
+  return next
+}
+
 export function listFieldDescriptors(testType, ctx = {}) {
   const type = String(testType)
   // INSPECTOR_FIELD 必须显式并入：它不在 COMMON_FIELDS 中（因为带 conditional 语义），
@@ -174,7 +206,7 @@ export function listFieldDescriptors(testType, ctx = {}) {
       description: '学校自定义字段：类型与单位由学校配置决定，平台不做保证',
       source: 'school_custom',
     }))
-  return [...base, ...customDescriptors]
+  return [...base, ...customDescriptors].map(normalizePresenceSemantics)
 }
 
 /* ─────────────────────── 合成样例 ───────────────────────
@@ -277,6 +309,9 @@ const SAMPLE_SCENARIOS = {
     // 真实形态（2026-09-16 只读实测 school_tjb 66 条）：riskLevel ∈ {无风险 48, 低风险 9, 极低风险 9}
     // —— **没有"高风险"**；positiveDetails 非空 ⟺ riskLevel ≠ 无风险（18/18）；无风险时 positiveItems 为 1 字符占位。
     sampleBase('pathogen', '病原体检测', 'pass', {}, {
+      // 样品标识三件套（2026-09-23 验收 C6）：此前字典登记但样例缺失 → 样例与字典矛盾。
+      // 实测 66/66 条真实记录均存在，故样例按真实形态给出**虚构**值（示例标记，勿当真实样品）。
+      sampleId: 'SAMPLE-PATH-001', sampleType: '表面涂抹样（示例）', sampleInfo: '留样复检（示例）',
       riskLevel: '无风险', riskReason: '', positiveItems: '-', positiveDetails: [],
       internalControlStatus: '有效',
       allTestItems: [
@@ -287,6 +322,7 @@ const SAMPLE_SCENARIOS = {
     }),
     sampleBase('pathogen', '病原体检测', 'positive', {}, {
       // riskLevel 取真实存在的「低风险」；检出证据 = positiveDetails 非空
+      sampleId: 'SAMPLE-PATH-002', sampleType: '表面涂抹样（示例）', sampleInfo: '疑似阳性复核（示例）',
       riskLevel: '低风险', riskReason: '检出沙门氏菌（示例）', positiveItems: '沙门氏菌（示例）',
       positiveDetails: [{ pathogen: '沙门氏菌（示例）', ct: 21.5, ctRaw: '21.5' }],
       internalControlStatus: '有效',
@@ -299,7 +335,11 @@ const SAMPLE_SCENARIOS = {
       //   复检结论 = recheckReports[0].isPassed（对外映射为 final_conclusion / final_conclusion_basis='recheck'）
       //   allTestItems = **当前（复检后）**明细 → 未检出
       //   当前 Web 复检写 finalStatus；旧实测样本未出现，不代表写入路径不支持。
-      riskLevel: '无风险', result: '合格', finalStatus: '复检通过', riskReason: '初检检出沙门氏菌（示例）', positiveItems: '沙门氏菌（示例）',
+      //   ⚠️ 不再在样例里放 `result`：病原体的 `result` **未登记**进对外字段字典 → 投影会按白名单
+      //   静默丢弃（2026-09-23 实测有告警）。要让样例与真实响应形态一致，就不能带会被丢掉的键；
+      //   复检结论由顶层 final_conclusion / final_conclusion_basis='recheck' 表达。
+      sampleId: 'SAMPLE-PATH-003', sampleType: '表面涂抹样（示例）', sampleInfo: '整改后复检（示例）',
+      riskLevel: '无风险', finalStatus: '复检通过', riskReason: '初检检出沙门氏菌（示例）', positiveItems: '沙门氏菌（示例）',
       positiveDetails: [{ pathogen: '沙门氏菌（示例）', ct: 21.5, ctRaw: '21.5' }],
       recheckReports: [{ id: 1, time: `${SAMPLE_DATE} 16:00`, user: SAMPLE_INSPECTOR, isPassed: true }],
       internalControlStatus: '有效',
