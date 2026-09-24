@@ -35,6 +35,11 @@ if (enabled) {
     if (l.route && l.route.path === '/api/test-records/stats' && l.route.methods.get) STATS = l.route.stack[l.route.stack.length - 1].handle
   }
   const USER_ID = 'u-stats-verdict'
+  let CREATE = null
+  for (const l of router.stack) {
+    if (l.route && l.route.path === '/api/records/:tableName' && l.route.methods.post) CREATE = l.route.stack[l.route.stack.length - 1].handle
+  }
+  const createdIds = []   // 创建路径的 record_code 由内容哈希生成，清理按 id 精确删除
   const makeRes = () => ({
     statusCode: 200, body: null,
     status(c) { this.statusCode = c; return this }, json(b) { this.body = b; return this },
@@ -44,6 +49,13 @@ if (enabled) {
     const req = { db, query, user: { role: 'manager', userId: USER_ID }, userId: USER_ID, ip: '127.0.0.1', get: () => 'test.local' }
     const res = makeRes()
     await STATS(req, res)
+    return res
+  }
+  const callCreate = async (body, params = {}) => {
+    const req = { db, body, params, query: {}, user: { role: 'manager', userId: USER_ID }, userId: USER_ID, ip: '127.0.0.1', get: () => 'test.local' }
+    const res = makeRes()
+    await CREATE(req, res)
+    if (res.body?.data?.id) createdIds.push(res.body.data.id)
     return res
   }
 
@@ -81,6 +93,7 @@ if (enabled) {
   })
 
   test.after(async () => {
+    if (createdIds.length) await db.testRecord.deleteMany({ where: { id: { in: createdIds } } })
     await cleanupScoped(db, { record_code: { startsWith: 'RC-verdict-' } }, 'after')
     await db.$disconnect()
   })
@@ -102,20 +115,58 @@ if (enabled) {
     assert.equal(res.body.data.byType.tableware.passCount, 2, 't4（多点位含不合格）与 t5（无结论）都不计合格')
   })
 
-  test('肉蛋：服务端给出品种细分，`鱼、虾` 归入鱼肉，未分类不硬塞', async () => {
+  test('肉蛋：服务端给出品种细分，`鱼、虾` 归入鱼肉，未分类落「其它」兜底卡', async () => {
     const res = await callStats({ start: '2026-09-01', end: '2026-09-30' })
     const byMeat = res.body.data.byMeatType
     assert.ok(byMeat, '应返回 byMeatType（仅 leanMeat 可见时）')
-    assert.deepEqual(Object.keys(byMeat).sort(), ['禽蛋', '禽肉', '牛肉', '猪肉', '羊肉', '鱼肉'].sort(), '键恒定为 6 个卡片键')
+    assert.deepEqual(Object.keys(byMeat).sort(), ['禽蛋', '禽肉', '牛肉', '猪肉', '羊肉', '鱼肉', '其它'].sort(), '键恒定为 7 个卡片键（含「其它」兜底卡）')
     assert.equal(byMeat['鱼肉'].count, 1, '“鱼、虾”必须归入鱼肉（此前不落入任何卡片）')
     assert.equal(byMeat['鱼肉'].passRate, 100)
     assert.equal(byMeat['禽蛋'].count, 1)
     assert.equal(byMeat['猪肉'].count, 0)
     assert.equal(byMeat['猪肉'].passRate, null, '无数据 → null（前端显示“无”）')
-    // 未归类记录仍计入 leanMeat 总数，但不进任何卡片
+    // 方案 A：未归类记录落「其它」兜底卡 ⇒ 各卡合计恒等于肉蛋类型总数（不再有数据"消失"）
     assert.equal(res.body.data.byType.leanMeat.count, 3)
+    assert.equal(byMeat['其它'].count, 1, '未分类品种应落「其它」')
+    assert.equal(byMeat['其它'].passRate, 100)
     const sum = Object.values(byMeat).reduce((a, s) => a + s.count, 0)
-    assert.equal(sum, 2, '未分类品种被忽略（看板 6 卡合计可小于类型总数）')
+    assert.equal(sum, 3, '7 张卡合计 = 肉蛋类型总数（兜底卡保证不丢数据）')
+  })
+
+  test('写入侧自洽：提交"洗涤剂残留"点位（记录级 result 为空）时，服务端按点位聚合补写 result', async () => {
+    // 用独立日期，避免影响上面按 9 月窗口断言的用例（各用例互不干扰）
+    const WRITE_DAY = '2026-08-05'
+    const created = await callCreate({
+      test_type: 'tableware', test_name: '餐具洁净度检测',
+      testDate: WRITE_DAY, canteen: '写入自洽回归食堂', inspector: '测试员',   // 该入口要求三键在顶层（validateRecordPayload）
+      sample_info: { testDate: WRITE_DAY, canteen: '写入自洽回归食堂', inspector: '测试员' },
+      result_data: { result: '', rluValue: '0.05', atpPoints: [{ loc: '不锈钢餐具', rlu: '0.05', res: '合格 (≤0.1 mg/L)', testType: 'detergent' }] },
+    }, { tableName: 'tableware' })
+    assert.equal(created.statusCode, 200, JSON.stringify(created.body))
+    const row = await db.testRecord.findUnique({ where: { id: created.body.data.id } })
+    assert.equal(row.test_type, 'tableware')
+    assert.equal(String(row.result_data.result || ''), '合格 (≤0.1 mg/L)', '记录级 result 应由点位结论聚合补写（新数据自洽）')
+    assert.equal(row.result_data.atpPoints.length, 1, '点位明细保持原样，不被改写')
+
+    // 不覆盖已有文本：显式提交非空 result 时以提交值为准
+    const explicit = await callCreate({
+      test_type: 'tableware', test_name: '餐具洁净度检测',
+      testDate: WRITE_DAY, canteen: '写入自洽回归食堂2', inspector: '测试员',
+      sample_info: { testDate: WRITE_DAY, canteen: '写入自洽回归食堂2', inspector: '测试员' },
+      result_data: { result: '不合格 (>500)', rluValue: '614', atpPoints: [{ loc: '餐盘表面', rlu: '10', res: '合格 (<200)', testType: 'atp' }] },
+    }, { tableName: 'tableware' })
+    const row2 = await db.testRecord.findUnique({ where: { id: explicit.body.data.id } })
+    assert.equal(String(row2.result_data.result || ''), '不合格 (>500)', '已有文本不得被点位聚合覆盖')
+
+    // 未提交点位（例如只补一个 remark）→ 不因无关编辑补写结果
+    const noPoints = await callCreate({
+      test_type: 'tableware', test_name: '餐具洁净度检测',
+      testDate: WRITE_DAY, canteen: '写入自洽回归食堂3', inspector: '测试员',
+      sample_info: { testDate: WRITE_DAY, canteen: '写入自洽回归食堂3', inspector: '测试员' },
+      result_data: { remark: '仅补备注' },
+    }, { tableName: 'tableware' })
+    const row3 = await db.testRecord.findUnique({ where: { id: noPoints.body.data.id } })
+    assert.equal(String(row3.result_data.result || ''), '', '未提交点位不得擅自补写 result')
   })
 
   test('总合格率：分母含全部在范围内记录，分子只含合格（口径未扩大）', async () => {
