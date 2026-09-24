@@ -4,6 +4,11 @@ import express from 'express'
 import { normalizeRecordType, buildRecordPayload, buildRecordWriteData, normalizeWriteJson, resolveWritableStatus, validateRecordPayload, writeRecordAuditLog, getLatestRecheckPassed, buildDeterministicRecordCode, RECORD_ROUTE_TYPES } from '../lib/recordNormalize.js'
 import { sanitizeObjectKeys, safeParseJson } from '../lib/sanitize.js'
 import { canModifyRecord, maskGuestSensitiveFields } from '../lib/securityGuards.js'
+// 餐具「记录级结论」规则（顶层 result 为空时回退 atpPoints[].res）：
+// 与 openApiScope / openApiRoutes / 前端 Dashboard 同一条规则，定义见 lib/tablewareVerdict.js
+import { TABLEWARE_PASS_SQL } from '../lib/tablewareVerdict.js'
+// 肉蛋品种归类（鱼、虾 → 鱼肉 等）：看板子卡由服务端聚合驱动，避免本地缓存漂移
+import { MEAT_CARD_KEYS, normalizeMeatKey } from '../lib/leanMeatCategory.js'
 
 const VALID_TEST_RECORD_STATUSES = new Set(['pending', 'completed', 'failed', 'archived'])
 
@@ -176,6 +181,7 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
                                      THEN ("sample_info"->>'testDate')::date END)`
             const PASS_EXPR = `(CASE "test_type"
                 WHEN 'pathogen' THEN COALESCE("result_data"->>'riskLevel','') = '无风险'
+                WHEN 'tableware' THEN ${TABLEWARE_PASS_SQL}
                 WHEN 'oil' THEN (CASE WHEN COALESCE("result_data"->>'colorLevel','') <> ''
                                       THEN "result_data"->>'colorLevel' NOT LIKE '%不合格%'
                                       ELSE (COALESCE("result_data"->>'result','') LIKE '%合格%'
@@ -219,6 +225,37 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
                 passTotal += row.pass
             }
 
+            // 肉蛋按品种细分（2026-09-24 修复）：看板子卡此前只读本地缓存、且 `鱼、虾` 归不进去。
+            // 现由服务端给出 6 个卡片键的 count/passCount/passRate（键恒定，无数据为 0），前端直接渲染。
+            let byMeatType = null
+            if (types.includes('leanMeat')) {
+                const meatRows = await req.db.$queryRawUnsafe(
+                    `SELECT COALESCE("result_data"->>'meatType','') AS "meat_type",
+                            COUNT(*)::int AS "total",
+                            COUNT(*) FILTER (WHERE ${PASS_EXPR})::int AS "pass"
+                       FROM "TestRecord"
+                      WHERE "test_type" = 'leanMeat'
+                        AND ${DATE_EXPR} IS NOT NULL
+                        AND ${DATE_EXPR} >= $1::date
+                        AND ${DATE_EXPR} <= $2::date
+                        AND ($3::text IS NULL OR "sample_info"->>'canteen' = $3)
+                      GROUP BY 1`,
+                    start, end, canteen
+                )
+                byMeatType = {}
+                for (const k of MEAT_CARD_KEYS) byMeatType[k] = { count: 0, passCount: 0, passRate: null }
+                for (const row of meatRows) {
+                    const key = normalizeMeatKey(row.meat_type)
+                    if (!key) continue
+                    byMeatType[key].count += row.total
+                    byMeatType[key].passCount += row.pass
+                }
+                for (const k of MEAT_CARD_KEYS) {
+                    const slot = byMeatType[k]
+                    slot.passRate = slot.count ? Math.round((slot.passCount / slot.count) * 1000) / 10 : null
+                }
+            }
+
             res.json({
                 success: true,
                 data: {
@@ -226,6 +263,8 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
                     passCount: passTotal,
                     passRate: total ? Math.round((passTotal / total) * 1000) / 10 : null,
                     byType,
+                    // 肉蛋品种细分（仅当 leanMeat 可见时给出；键恒定为 6 个卡片键）
+                    byMeatType,
                     visibleTypes: types,
                     range: { start, end, canteen },
                     generatedAt: new Date().toISOString()

@@ -45,6 +45,8 @@ import {
 } from '../lib/openApiScope.js'
 import { DEFAULT_OPEN_TYPES } from '../lib/openApiScope.js'
 import { OPEN_API_CONTRACT_VERSION, listFieldDescriptors, buildSyntheticSamples, extractCustomFieldMeta, buildAllowedResultKeyMap, allowedKeysFingerprint } from '../lib/openApiFieldSchema.js'
+// 餐具记录级结论规则（与员工端统计、对外明细同一条规则，定义见 lib/tablewareVerdict.js）
+import { TABLEWARE_PASS_SQL } from '../lib/tablewareVerdict.js'
 
 const TAG = '[openApiRoutes]'
 const MAX_PAGE_SIZE = 200
@@ -600,6 +602,7 @@ export function createOpenApiRoutes({ prisma }) {
       // 未识别值回退 result 文本（不再像旧实现那样"非空即合格"）。
       const passExpr = `CASE
           WHEN "test_type" = 'pathogen' THEN (COALESCE("result_data"->>'riskLevel','') = '无风险')
+          WHEN "test_type" = 'tableware' THEN ${TABLEWARE_PASS_SQL}
           WHEN "test_type" = 'oil' THEN (
             CASE
               WHEN COALESCE("result_data"->>'colorLevel','') IN ('合格','警戒') THEN TRUE

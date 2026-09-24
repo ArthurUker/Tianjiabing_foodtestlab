@@ -12,6 +12,7 @@
 
 import crypto from 'node:crypto'
 import { RECORD_ROUTE_TYPES, TEST_TYPE_LABELS, getLatestRecheckPassed, isValidBusinessDate } from './recordNormalize.js'
+import { tablewareVerdict } from './tablewareVerdict.js'
 
 /** 未配置 visible_types 时的默认开放范围（与访客白名单同口径，病原体恒不含）。 */
 export const DEFAULT_OPEN_TYPES = ['tableware', 'pesticide', 'oil', 'leanMeat']
@@ -271,6 +272,12 @@ export function deriveConclusion(testType, resultData) {
       text = String(data.result ?? '').trim()
       initial = textToConclusion(text)
     }
+  } else if (testType === 'tableware' && !String(data.result ?? '').trim()) {
+    // 餐具：顶层 `result` 为空时回退点位结论（洗涤剂残留记录只写 `atpPoints[].res`，此前被判 unknown）。
+    // 规则与统计 SQL 逐字同源：lib/tablewareVerdict.js；顶层有文本时仍走下面的既有逻辑，行为不变。
+    const v = tablewareVerdict(data)
+    text = v.text
+    initial = v.level === 'pass' ? PASS : (v.level === 'fail' ? FAIL : (v.level === 'warn' ? WARN : UNKNOWN))
   } else {
     text = String(data.result ?? '').trim()
     initial = textToConclusion(text)
