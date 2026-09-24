@@ -802,6 +802,20 @@ function loadDashboardData() {
     fetchServerStats(startDate, endDate, selectedCanteen);
 }
 
+// ⚠️ 2026-09-24：肉蛋品种归类（与后端 lib/leanMeatCategory.js **逐字一致**，改动必须两边同步）。
+// 此前用精确匹配 {猪肉/…/鱼肉/禽蛋}，导致库内的 `鱼、虾` 记录不落入任何卡片（看板"鱼肉 0"却实有数据）。
+function normalizeMeatKey(raw) {
+    const s = String(raw == null ? '' : raw).trim();
+    if (!s) return null;
+    if (s.includes('蛋')) return '禽蛋';       // 先判蛋，否则"禽蛋"会被"禽"抢走
+    if (s.includes('猪')) return '猪肉';
+    if (s.includes('羊')) return '羊肉';
+    if (s.includes('牛')) return '牛肉';
+    if (s.includes('禽') || /鸡|鸭|鹅|鸽/.test(s)) return '禽肉';
+    if (/鱼|虾|蟹|贝|海鲜/.test(s)) return '鱼肉';
+    return null;
+}
+
 // ✅ 修改：获取肉蛋农残分类统计（增加食堂筛选）
 function getLeanMeatStatsByType(startDate, endDate, selectedCanteen = 'all') {
     const records = services.leanMeat.getAll();
@@ -829,8 +843,8 @@ function getLeanMeatStatsByType(startDate, endDate, selectedCanteen = 'all') {
     };
     
     filtered.forEach(r => {
-        const meatType = r.meatType;
-        if (meatTypes[meatType]) {
+        const meatType = normalizeMeatKey(r.meatType);
+        if (meatType && meatTypes[meatType]) {
             meatTypes[meatType].count++;
             meatTypes[meatType].records.push(r);
             
@@ -966,7 +980,19 @@ function isQualified(type, record) {
     const customVerdict = isRecordQualifiedByCustomFields(type, record);
     if (type === 'tableware') {
         const result = (record.result || '').toString().trim();
-        return result.includes('合格') && !result.includes('不合格') && customVerdict;
+        if (result) return result.includes('合格') && !result.includes('不合格') && customVerdict;
+        // ⚠️ 2026-09-24 修复：顶层 result 为空时**回退点位结论**。
+        // 洗涤剂残留（testType='detergent'）保存时只写 atpPoints[].res，不写记录级 result；
+        // 旧逻辑对此直接返回 false（记为不合格），导致看板把合格的洗涤剂残留算成不合格
+        // （生产实测 school_zhsy 餐具 5/9=56%，实际应为 9/9=100%）。
+        // 规则与后端 lib/tablewareVerdict.js **逐字一致**（改动必须两边同步）：
+        //   任一点含"不合格" → 不合格；所有点都含"合格" → 合格；其余（警戒/无结论/无点位）→ 不合格。
+        const resList = (Array.isArray(record.atpPoints) ? record.atpPoints : [])
+            .map((p) => String((p && p.res) || '').trim()).filter(Boolean);
+        if (!resList.length) return false;
+        if (resList.some((r) => r.includes('不合格'))) return false;
+        if (resList.every((r) => r.includes('合格'))) return customVerdict;
+        return false;
     }
     if (type === 'pathogen') {
         // ✅ 实时算法，与卡片/风险提示/对比图完全一致（不复用可能过期的 positiveItems 字符串）
@@ -1159,6 +1185,22 @@ function applyServerStats(data) {
     if (totalEl) totalEl.textContent = totalCount;
     if (totalPassEl) {
         totalPassEl.textContent = totalCount > 0 ? `${Math.round((totalPassed / totalCount) * 100)}%` : '—';
+    }
+
+    // ✅ 2026-09-24：肉蛋子卡也以服务端聚合为准（此前只读本地缓存 → 缓存漂移时子卡与库内不符，
+    //    且 `鱼、虾` 归不进任何卡片）。byMeatType 的键恒定为 6 个卡片键，无数据为 0/null。
+    if (data.byMeatType) {
+        const meatByCn = {};
+        Object.keys(data.byMeatType).forEach((cnKey) => {
+            const s = data.byMeatType[cnKey] || { count: 0, passCount: 0, passRate: null };
+            meatByCn[cnKey] = {
+                count: s.count,
+                passCount: s.passCount,
+                passRate: (s.passRate === null || s.passRate === undefined) ? null : Math.round(s.passRate),
+                records: [],
+            };
+        });
+        updateLeanMeatCards(meatByCn);
     }
 }
 
