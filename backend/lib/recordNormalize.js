@@ -2,6 +2,8 @@
 import crypto from 'crypto'
 import { sanitizeObjectKeys, safeParseJson } from './sanitize.js'
 import { writeTenantAuditLog } from './auditLog.js'
+// 餐具记录级结论聚合（写入侧自洽）：顶层 result 为空时按 atpPoints[].res 补写，规则单一来源
+import { fillTablewareAggregate } from './tablewareVerdict.js'
 
 const RECORD_ROUTE_TYPES = new Set([
     'tableware',
@@ -179,7 +181,7 @@ function stripControlKeys(source) {
  */
 function normalizeWriteJson({
     payload = {}, resultData, sampleInfo, existingSampleInfo = null, existingResultData = null,
-    resultDataMode = 'merge', mode = 'update',
+    resultDataMode = 'merge', mode = 'update', testType = null,
 } = {}) {
     if (resultData !== undefined && resultData !== null && !isPlainObject(resultData)) {
         return { ok: false, code: 'INVALID_RESULT_DATA', message: 'result_data 必须是 JSON 对象（不接受字符串/数组）' }
@@ -257,6 +259,14 @@ function normalizeWriteJson({
         }
     }
 
+    // 写入侧自洽（2026-09-24）：餐具记录本次提交了点位、但记录级 result 为空 → 按点位结论聚合补写
+    // （洗涤剂残留表单只写 atpPoints[].res，导致库内"记录级结论"缺失，看板与列表口径分叉）。
+    // 只填不覆盖、未提交点位不补写；规则与统计/明细/前端同源，见 lib/tablewareVerdict.js。
+    if (testType === 'tableware' && resultDataOut && typeof resultDataOut === 'object') {
+        const submitted = strippedKeys > 0 ? stripped : (mode === 'create' ? stripControlKeys(payload) : null)
+        resultDataOut = fillTablewareAggregate(resultDataOut, submitted)
+    }
+
     return {
         ok: true,
         sampleInfo: sampleInfoOut,
@@ -309,6 +319,7 @@ function buildRecordWriteData(tableName, payload = {}, opts = {}) {
         existingResultData,
         resultDataMode,
         mode,
+        testType: tableName,
     })
     if (!norm.ok) return norm
     return {

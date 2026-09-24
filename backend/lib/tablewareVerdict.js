@@ -41,6 +41,30 @@ export function isTablewarePass(resultData) {
 }
 
 /**
+ * 写入侧自洽（2026-09-24 二阶段）：本次提交了点位、但记录级 `result` 为空时，
+ * 按点位结论聚合**补写** `result`（最差点胜出）—— 让库内数据与看板/列表/对外接口同一口径，
+ * 不再依赖读取侧兜底（读取侧兜底仍然保留，用于兜住历史数据）。
+ *
+ * 三条边界（避免"顺手改数据"）：
+ *   ① 已有非空 `result` → **一律不动**（不覆盖录入/复检写入的文本）；
+ *   ② 本次提交里没有点位（例如只改了食堂）→ **不补写**，不因一次无关编辑改动结果字段；
+ *   ③ 点位无法得出结论（unknown）→ 不补写（保持空，读取侧按 unknown 处理）。
+ *
+ * @param {object} resultData 已归一（剔控制字段）的最终结果对象
+ * @param {object|null} submitted 本次提交的结果对象（用于判断"是否提交了点位"）
+ */
+export function fillTablewareAggregate(resultData, submitted) {
+  const rd = resultData && typeof resultData === 'object' ? resultData : null
+  if (!rd) return resultData
+  if (String(rd.result ?? '').trim()) return resultData
+  const submittedPoints = Array.isArray(submitted?.atpPoints) ? submitted.atpPoints : null
+  if (!submittedPoints || !submittedPoints.length) return resultData
+  const v = tablewareVerdict(rd)
+  if (v.level === 'unknown' || !v.text) return resultData
+  return { ...rd, result: v.text }
+}
+
+/**
  * 统计用 SQL：餐具是否合格（与 `isTablewarePass` 同规则）。
  *
  * ⚠️ 片段内直接引用列名 `"result_data"`，只能用在 `TestRecord` 的查询里；

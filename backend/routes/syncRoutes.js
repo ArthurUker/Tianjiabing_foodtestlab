@@ -88,6 +88,7 @@ export function createSyncRoutes(userManager, prisma) {
                         sampleInfo: data.sample_info,
                         existingSampleInfo: null,
                         mode: 'create',
+                        testType: store,
                     })
                     if (!norm.ok) {
                         return res.status(400).json({ success: false, error: `❌ ${norm.message}`, code: norm.code })
@@ -133,6 +134,7 @@ export function createSyncRoutes(userManager, prisma) {
                         existingResultData: safeParseJson(existingUpdate.result_data, {}) || {},
                         resultDataMode: data.result_data_mode === 'replace' ? 'replace' : 'merge',
                         mode: 'update',
+                        testType: store,
                     })
                     if (!normUpdate.ok) {
                         return res.status(400).json({ success: false, error: `❌ ${normUpdate.message}`, code: normUpdate.code })
@@ -236,6 +238,7 @@ export function createSyncRoutes(userManager, prisma) {
                                 sampleInfo: data.sample_info,
                                 existingSampleInfo: null,
                                 mode: 'create',
+                                testType: store,
                             })
                             if (!norm.ok) { const e = new Error(norm.message); e.code = norm.code; throw e }
                             const statusCheck = resolveWritableStatus({ requested: data.status, role: req.user?.role, currentStatus: null })
@@ -268,6 +271,7 @@ export function createSyncRoutes(userManager, prisma) {
                                 existingResultData: safeParseJson(existing.result_data, {}) || {},
                                 resultDataMode: data.result_data_mode === 'replace' ? 'replace' : 'merge',
                                 mode: 'update',
+                                testType: store,
                             })
                             if (!normU.ok) { const e = new Error(normU.message); e.code = normU.code; throw e }
                             const statusCheckU = resolveWritableStatus({ requested: data.status, role: req.user?.role, currentStatus: existing.status })

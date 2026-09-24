@@ -7,7 +7,10 @@
 //
 // 规则：按"包含关键词"归类，永远落到 6 个卡片键之一或 null（未分类，忽略不显示）。
 // 注意顺序：先判「蛋」，否则「禽蛋」会被「禽」抢走。
-export const MEAT_CARD_KEYS = ['猪肉', '羊肉', '牛肉', '禽肉', '鱼肉', '禽蛋']
+// 第 7 个键「其它」是**兜底卡**（2026-09-24 方案 A）：任何归类不上的品种落到这里，
+// 不再"静默消失"（此前 `鱼、虾` 就不落入任何卡片）。因此 byMeatType 各卡合计 == 肉蛋类型总数。
+export const OTHER_MEAT_KEY = '其它'
+export const MEAT_CARD_KEYS = ['猪肉', '羊肉', '牛肉', '禽肉', '鱼肉', '禽蛋', OTHER_MEAT_KEY]
 
 export function normalizeMeatKey(raw) {
   const s = String(raw ?? '').trim()
@@ -19,4 +22,12 @@ export function normalizeMeatKey(raw) {
   if (s.includes('禽') || /鸡|鸭|鹅|鸽/.test(s)) return '禽肉'
   if (/鱼|虾|蟹|贝|海鲜/.test(s)) return '鱼肉'
   return null
+}
+
+/**
+ * 用于**看板卡片**的归类：与 `normalizeMeatKey` 同规则，但归不上的一律落 `其它`，
+ * 保证"每一条肉蛋记录都能在某张卡上被看到"（也就是各卡合计 = 肉蛋类型总数）。
+ */
+export function toMeatCardKey(raw) {
+  return normalizeMeatKey(raw) || OTHER_MEAT_KEY
 }

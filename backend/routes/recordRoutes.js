@@ -8,7 +8,7 @@ import { canModifyRecord, maskGuestSensitiveFields } from '../lib/securityGuards
 // 与 openApiScope / openApiRoutes / 前端 Dashboard 同一条规则，定义见 lib/tablewareVerdict.js
 import { TABLEWARE_PASS_SQL } from '../lib/tablewareVerdict.js'
 // 肉蛋品种归类（鱼、虾 → 鱼肉 等）：看板子卡由服务端聚合驱动，避免本地缓存漂移
-import { MEAT_CARD_KEYS, normalizeMeatKey } from '../lib/leanMeatCategory.js'
+import { MEAT_CARD_KEYS, toMeatCardKey } from '../lib/leanMeatCategory.js'
 
 const VALID_TEST_RECORD_STATUSES = new Set(['pending', 'completed', 'failed', 'archived'])
 
@@ -55,6 +55,7 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
                 sampleInfo: sample_info,
                 existingSampleInfo: null,
                 mode: 'create',
+                testType: test_type,
             })
             if (!norm.ok) {
                 return res.status(400).json({ error: `❌ ${norm.message}`, code: norm.code })
@@ -244,9 +245,10 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
                 )
                 byMeatType = {}
                 for (const k of MEAT_CARD_KEYS) byMeatType[k] = { count: 0, passCount: 0, passRate: null }
+                // 方案 A（2026-09-24）：归不上的品种落「其它」兜底卡，不再静默消失
+                // ⇒ byMeatType 各卡合计恒等于肉蛋类型总数（前端可据此自查）。
                 for (const row of meatRows) {
-                    const key = normalizeMeatKey(row.meat_type)
-                    if (!key) continue
+                    const key = toMeatCardKey(row.meat_type)
                     byMeatType[key].count += row.total
                     byMeatType[key].passCount += row.pass
                 }
@@ -836,6 +838,7 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
                 existingResultData: safeParseJson(existing.result_data, {}) || {},
                 resultDataMode: req.body?.result_data_mode === 'replace' ? 'replace' : 'merge',
                 mode: 'update',
+                testType: existing?.test_type || req.body?.test_type || null,
             })
             if (!norm.ok) {
                 return res.status(400).json({ error: `❌ ${norm.message}`, code: norm.code })
