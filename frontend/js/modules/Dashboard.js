@@ -494,7 +494,7 @@ function createDashboardStructure() {
             <!-- 肉蛋农残分类统计卡片 -->
             <div class="mb-6" data-module-card="leanMeat">
                 <h3 class="font-semibold text-gray-800 mb-3" data-title-key="dash_leanMeat">肉、蛋农残检测</h3>
-                <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 print-cards">
+                <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-3 print-cards">
                     <!-- 猪肉 -->
                     <div class="glass-panel p-3">
                         <div class="text-center">
@@ -541,6 +541,14 @@ function createDashboardStructure() {
                             <p class="text-xs opacity-90">禽蛋</p>
                             <p class="text-2xl font-bold" id="card_lean_egg_count">0</p>
                             <p class="text-xs mt-1">合格率: <span id="card_lean_egg_pass">0%</span></p>
+                        </div>
+                    </div>
+                    <!-- 其它（兜底卡：归不进上面 6 类的品种，避免数据"消失"；2026-09-24 方案 A） -->
+                    <div class="glass-panel p-3">
+                        <div class="text-center">
+                            <p class="text-xs opacity-90">其它</p>
+                            <p class="text-2xl font-bold" id="card_lean_other_count">0</p>
+                            <p class="text-xs mt-1">合格率: <span id="card_lean_other_pass">0%</span></p>
                         </div>
                     </div>
                 </div>
@@ -839,12 +847,13 @@ function getLeanMeatStatsByType(startDate, endDate, selectedCanteen = 'all') {
         '牛肉': { count: 0, passCount: 0, records: [] },
         '禽肉': { count: 0, passCount: 0, records: [] },
         '鱼肉': { count: 0, passCount: 0, records: [] },
-        '禽蛋': { count: 0, passCount: 0, records: [] }
+        '禽蛋': { count: 0, passCount: 0, records: [] },
+        '其它': { count: 0, passCount: 0, records: [] }   // 兜底（与服务端 toMeatCardKey 同规则）
     };
     
     filtered.forEach(r => {
-        const meatType = normalizeMeatKey(r.meatType);
-        if (meatType && meatTypes[meatType]) {
+        const meatType = normalizeMeatKey(r.meatType) || '其它';   // 归不上 → 其它（不丢数据）
+        if (meatTypes[meatType]) {
             meatTypes[meatType].count++;
             meatTypes[meatType].records.push(r);
             
@@ -877,7 +886,8 @@ function updateLeanMeatCards(leanMeatByType) {
         '牛肉': 'beef',
         '禽肉': 'poultry',
         '鱼肉': 'fish',
-        '禽蛋': 'egg'
+        '禽蛋': 'egg',
+        '其它': 'other'   // 兜底卡（方案 A）：归不上前 6 类的品种在这里展示
     };
     
     Object.keys(typeMapping).forEach(cnType => {
