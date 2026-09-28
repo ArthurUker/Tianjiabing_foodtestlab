@@ -4,6 +4,10 @@ import { auditService } from '../services/AuditService.js';
 import { AdaptiveUploadQueue } from './AdaptiveUploadQueue.js';
 // TD-TenantIsolation：认证态 key 已按学校命名空间隔离，读取需拼 schoolCode 前缀
 import { extractSchoolCode } from '../utils/schoolCode.js';
+// P3-W4-T01（AUD-001）：缓存/队列/指纹/退避键的唯一作用域入口（tenant + subject + resource）
+import { resolveSyncScope, buildScopedKeys, quarantineLegacySyncKeys, recordScopeViolation } from './SyncScope.js';
+// P3-W4-T01（AUD-021/AUD-022）：显式同步状态机 + 版本化队列 + 字段级三路合并
+import { SYNC_STATES, SYNC_EVENTS, applyTransition, normalizeQueueSnapshot, serializeQueueSnapshot, threeWayMergeRecords, summarizeConflict, CONTROL_FIELDS } from './SyncStateMachine.js';
 
 const DEFAULT_CONFIG = {
     apiBaseUrl: '/api/records',
@@ -18,7 +22,10 @@ const DEFAULT_CONFIG = {
     queueBatchDelayMs: 400,
     minRetryDelayMs: 1000,
     maxRetryDelayMs: 30000,
-    globalBackoffKey: 'app_sync_backoff_until'
+    // 仅保留基名；实际键在构造时按 tenant+subject 作用域化（AUD-001）
+    globalBackoffKey: 'app_sync_backoff_until',
+    // AUD-022：409 后只允许"字段级三路合并无冲突"的自动重基，且每条任务最多 1 次预算
+    autoRebaseBudget: 1
 };
 
 const TABLE_NAME_MAP = {
@@ -40,7 +47,9 @@ const VOLATILE_FIELDS = new Set([
     'created_at', 'updated_at', 'createdAt', 'updatedAt',
     'sync_time', 'last_sync_at', 'modificationLogs',
     'recheckRecords', 'recheckReports', 'importTime',
-    'importUser', 'lastModified'
+    'importUser', 'lastModified',
+    // P3-W4-T01：本地同步态的元字段（状态机/冲突附件/基线声明）不得进入内容指纹与三路合并
+    '_syncState', '_base', '_conflict', 'base_version', 'base_updated_at',
 ]);
 
 export class StorageService {
@@ -54,13 +63,25 @@ export class StorageService {
         this.minRetryDelayMs = config.minRetryDelayMs || DEFAULT_CONFIG.minRetryDelayMs;
         this.maxRetryDelayMs = config.maxRetryDelayMs || DEFAULT_CONFIG.maxRetryDelayMs;
         this.globalBackoffKey = config.globalBackoffKey || DEFAULT_CONFIG.globalBackoffKey;
+        // AUD-022：409 后"字段级三路合并无冲突"才允许自动重基，且每条任务限 1 次预算
+        this.autoRebaseBudget = Number.isInteger(config.autoRebaseBudget) ? config.autoRebaseBudget : DEFAULT_CONFIG.autoRebaseBudget;
 
         const dbTableName = TABLE_NAME_MAP[tableName] || tableName;
         this.apiEndpoint = `${this.apiBaseUrl}/${dbTableName}`;
 
-        this.localCacheKey = `cache_${tableName}`;
-        this.pendingRequestsKey = `pending_${tableName}`;
-        this.fingerprintIndexKey = `fingerprint_index_${tableName}`;
+        // ===== P3-W4-T01（AUD-001）：缓存/队列/指纹/墓碑/退避键一律按 tenant + subject + resource 作用域 =====
+        // 作用域在构造时快照（tenant=学校 code；subject=用户/访客标识，回退 token payload）。
+        // 旧键（cache_<table> 等）不再被任何路径读取 —— 首次升级时一次性隔离封存并记录（见 SyncScope.js）。
+        this.syncScope = resolveSyncScope();
+        this._scopeFingerprint = this.syncScope.scopeId;
+        const scopedKeys = buildScopedKeys(tableName, this.syncScope);
+        this.localCacheKey = scopedKeys.cacheKey;
+        this.pendingRequestsKey = scopedKeys.queueKey;
+        this.fingerprintIndexKey = scopedKeys.fingerprintKey;
+        this.tombstoneKey = scopedKeys.tombstoneKey;
+        this.tempMapKey = scopedKeys.tempMapKey;
+        // 退避属于同步态：不得跨主体共享（否则一个主体的 429 会阻塞另一个主体）
+        this.globalBackoffKey = scopedKeys.backoffKey;
 
         this.pendingTempIds = new Set();
         this.processingRequestIds = new Set();
@@ -69,6 +90,23 @@ export class StorageService {
         this._isProcessingQueue = false;
         this._queueTimer = null;
         this._serverFingerprintIndex = new Map();
+        this._inFlightTempIds = new Set();      // AUD-021：create 在途的 tempId（出队后编辑要能追上）
+        this._postCreateEdits = new Map();      // AUD-021：在途 create 的编辑（成功后转 update）
+        this._postCreateDelete = new Set();     // AUD-021：在途 create 的删除意图（成功后删服务器行）
+        // P3-W5-RECORD-T01（AUD-020 / RC-07）：本地缓存只是**分页窗口**，不是全量。
+        // 覆盖范围元数据（returned/total/hasMore/partial）随缓存一起按 tenant+subject 作用域落盘，
+        // 供看板/报告声明数据范围，禁止再把「?limit=maxSyncRows 的结果」称作完整。
+        this._coverage = null;
+        this._tombstones = new Set();           // AUD-021：已删除 id（阻止 pending-merge/同步复活）
+        this._tombstonesLoaded = false;
+        this._tempIdMap = new Map();            // temp id → server id（编辑转 update 的映射来源）
+        this._tempIdMapLoaded = false;
+
+        this._legacyMigration = quarantineLegacySyncKeys({ scope: this.syncScope });
+        if (this._legacyMigration.ran && (this._legacyMigration.discarded || []).length) {
+            console.warn(`[Storage:${tableName}] AUD-001 键作用域升级：已一次性隔离封存旧键 ${this._legacyMigration.discarded.length} 个（不迁移、不双读）`);
+            this._emit('sync', { type: 'scope_migration', discarded: this._legacyMigration.discarded });
+        }
 
         this._initializeLocalCache();
 
@@ -95,6 +133,23 @@ export class StorageService {
         return cached;
     }
 
+    /** 供其它模块（导出/看板/快速访问）读取当前作用域，避免各自硬编码 `cache_<table>`（AUD-001 收口）。 */
+    getSyncScope() {
+        return { ...this.syncScope };
+    }
+
+    /** 当前作用域下的全部存储键（只读快照，供诊断与后续调用方迁移使用）。 */
+    getStorageKeys() {
+        return {
+            cacheKey: this.localCacheKey,
+            queueKey: this.pendingRequestsKey,
+            fingerprintKey: this.fingerprintIndexKey,
+            tombstoneKey: this.tombstoneKey,
+            tempMapKey: this.tempMapKey,
+            backoffKey: this.globalBackoffKey,
+        };
+    }
+
     // P1-14: 新增强制同步刷新方法，调用方需要最新数据时使用
     // 解决 getAll() 同步返回本地缓存导致数据一致性无保障的问题
     // 注意：getAll() 保留同步签名以兼容现有 ~30 处调用方，需服务端最新数据时改用 getAllFresh()
@@ -114,7 +169,8 @@ export class StorageService {
         }
 
         const tempId = `temp_${crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
-        const tempRecord = { ...clean, id: tempId, _status: 'pending' };
+        // 显式状态机入口：TEMP_CREATED（AUD-021）
+        const tempRecord = { ...clean, id: tempId, _status: 'pending', _syncState: SYNC_STATES.TEMP_CREATED };
 
         this._addToLocalCache(tempRecord);
         this.pendingTempIds.add(tempId);
@@ -122,8 +178,10 @@ export class StorageService {
         this._addPendingRequest({
             id: this._genReqId('create'),
             type: 'create',
+            state: SYNC_STATES.TEMP_CREATED,
             data: tempRecord,
             tempId,
+            scope: this._scopeFingerprint,     // 任务归属快照：跨主体后不得以新主体凭据上传
             timestamp: Date.now(),
             retryCount: 0
         });
@@ -148,13 +206,19 @@ export class StorageService {
             return false;
         }
 
+        // AUD-022：保存"本地已同步基线"（三路合并的 base），并在载荷中声明重基基线
+        const baseSnapshot = { ...cached[index] };
+        const baseVersion = baseSnapshot.version ?? clean.version ?? null;
+        const baseUpdatedAt = baseSnapshot.updated_at || baseSnapshot.updatedAt || null;
         cached[index] = {
             ...cached[index],
             ...clean,
             id,
-            _status: 'updating'
+            _status: 'updating',
+            _syncState: SYNC_STATES.EDITING_PENDING,
+            _base: this._baseSnapshotOf(baseSnapshot),
         };
-        this._updateLocalCache(cached);
+        this._updateLocalCache(cached, { forceServer: true });
 
         if (this._isTempId(id)) {
             this._queueTempUpdate(id, clean);
@@ -162,8 +226,14 @@ export class StorageService {
             this._addPendingRequest({
                 id: this._genReqId('update'),
                 type: 'update',
+                state: SYNC_STATES.EDITING_PENDING,
                 recordId: id,
-                data: { ...clean, version: cached[index].version ?? clean.version },
+                // version 保持既有 CAS 语义；base_version/base_updated_at 为 AUD-022 的显式重基声明
+                data: this._withBaseDeclaration({ ...clean, version: baseVersion }, { version: baseVersion, updated_at: baseUpdatedAt }),
+                base: { version: baseVersion, updatedAt: baseUpdatedAt },
+                baseSnapshot: this._baseSnapshotOf(baseSnapshot),
+                scope: this._scopeFingerprint,
+                autoRebaseAttempts: 0,
                 timestamp: Date.now(),
                 retryCount: 0
             });
@@ -179,16 +249,25 @@ export class StorageService {
         if (index === -1) return false;
 
         cached.splice(index, 1);
-        this._updateLocalCache(cached);
+        // AUD-021：墓碑（删除后不得被 pending-merge / 全量同步复活成幽灵行）
+        this._addTombstone(id);
+        this._updateLocalCache(cached, { forceServer: true });
 
         if (this._isTempId(id)) {
             this.pendingTempIds.delete(id);
-            this._cleanupTempRequests(id);
+            if (this._inFlightTempIds.has(id)) {
+                // create 已在途，无法撤回 → 保留 create 任务并标记"成功后立即删除服务器行"
+                this._flagPostCreateDelete(id);
+            } else {
+                this._cleanupTempRequests(id);
+            }
         } else {
             this._addPendingRequest({
                 id: this._genReqId('delete'),
                 type: 'delete',
+                state: SYNC_STATES.DELETED,
                 recordId: id,
+                scope: this._scopeFingerprint,
                 timestamp: Date.now(),
                 retryCount: 0
             });
@@ -266,11 +345,36 @@ export class StorageService {
             const response = await res.json();
             const serverRows = Array.isArray(response) ? response : (response.data || []);
 
+            // P3-W5-RECORD-T01（AUD-020 / RC-07）：记录本次同步窗口的覆盖范围（不再假定"拉到的就是全量"）。
+            // 服务端契约：{ total, limit, offset, returned, hasMore, nextCursor, pagination, totalBasis, filters }
+            const meta = (!Array.isArray(response) && response && typeof response === 'object') ? response : {};
+            const totalFromServer = Number.isFinite(Number(meta.total)) ? Number(meta.total) : null;
+            const hasMore = typeof meta.hasMore === 'boolean'
+                ? meta.hasMore
+                : (totalFromServer !== null ? serverRows.length < totalFromServer : false);
+            const partial = hasMore || (totalFromServer !== null && serverRows.length < totalFromServer);
+            this._coverage = {
+                fetchedAt: new Date().toISOString(),
+                window: { limit: this.maxSyncRows, offset: 0 },
+                returned: serverRows.length,
+                total: totalFromServer,
+                hasMore,
+                partial,
+                complete: !partial,
+                pagination: meta.pagination || 'offset',
+                nextCursor: meta.nextCursor || null,
+                totalBasis: meta.totalBasis || null,
+                filters: meta.filters || null,
+            };
+            this._persistCoverage();
+
             const serverDataMap = new Map();
             const serverFingerprintIndex = new Map();
             for (const row of serverRows) {
+                // AUD-021：已删除（墓碑）的记录不得被全量同步复活
+                if (this._isTombstoned(row.id)) continue;
                 const content = (row.data && typeof row.data === 'object') ? row.data : row;
-                const normalized = { ...content, id: row.id, _status: 'synced' };
+                const normalized = { ...content, id: row.id, _status: 'synced', _syncState: SYNC_STATES.SYNCED };
                 serverDataMap.set(row.id, normalized);
                 serverFingerprintIndex.set(this._buildFingerprint(normalized), normalized);
             }
@@ -288,7 +392,7 @@ export class StorageService {
                     continue;
                 }
 
-                if (localItem._status === 'updating' || localItem._status === 'pending') {
+                if (localItem._status === 'updating' || localItem._status === 'pending' || this._isDirtySyncState(localItem._syncState)) {
                     mergedData.push(localItem);
                     continue;
                 }
@@ -299,7 +403,7 @@ export class StorageService {
             }
 
             for (const [id, serverItem] of serverDataMap) {
-                if (!processedIds.has(id)) mergedData.push(serverItem);
+                if (!processedIds.has(id) && !this._isTombstoned(id)) mergedData.push(serverItem);
             }
 
             mergedData.sort((a, b) => {
@@ -319,6 +423,72 @@ export class StorageService {
         }
     }
 
+    /** 覆盖范围元数据落盘（与缓存同作用域键，避免跨主体串味）。 */
+    _persistCoverage() {
+        try {
+            if (this._coverage) localStorage.setItem(`${this.localCacheKey}__coverage`, JSON.stringify(this._coverage));
+        } catch (e) {
+            console.warn('⚠️ 覆盖范围元数据落盘失败（不影响数据）:', e.message);
+        }
+    }
+
+    /**
+     * P3-W5-RECORD-T01-R1（AUD-020）：服务端**权威快照导出**落地本地缓存后，同步更新覆盖范围元数据。
+     *
+     * 语义（保守）：只有当服务端作业自证完整（expectedCount === exportedCount === 实际行数）时，
+     * 才把该类型标为 `complete`；任何计数缺失/不一致 → 一律 `partial`（宁可声明非全量，不得冒充全量）。
+     * @param {{rows?:Array, expected?:number|null, exported?:number|null, jobId?:string|null, checksum?:string|null}} info
+     */
+    markAuthoritativeCoverage({ rows = [], expected = null, exported = null, jobId = null, checksum = null } = {}) {
+        const rowCount = Array.isArray(rows) ? rows.length : 0;
+        const expectedNum = Number.isFinite(Number(expected)) ? Number(expected) : null;
+        const exportedNum = Number.isFinite(Number(exported)) ? Number(exported) : null;
+        const consistent = expectedNum !== null && exportedNum !== null
+            && expectedNum === exportedNum && rowCount === exportedNum;
+        const partial = !consistent;
+        this._coverage = {
+            fetchedAt: new Date().toISOString(),
+            source: 'authoritative-export',
+            window: { limit: null, offset: 0, jobId, checksum },
+            returned: rowCount,
+            total: expectedNum,
+            hasMore: false,
+            partial,
+            complete: !partial,
+            pagination: 'snapshot',
+            nextCursor: null,
+            totalBasis: 'export-job expectedCount === exportedCount（服务端快照）',
+            filters: null,
+            consistency: { expected: expectedNum, exported: exportedNum, rows: rowCount, consistent },
+        };
+        this._persistCoverage();
+        return this.getCoverage();
+    }
+
+    /**
+     * 本地数据覆盖范围（P3-W5-RECORD-T01 / AUD-020）。
+     * 任何"总数/完整"文案必须使用 returns 中的口径，不得再用 `rows.length` 冒充全量。
+     */
+    getCoverage() {
+        if (!this._coverage) {
+            try {
+                const raw = localStorage.getItem(`${this.localCacheKey}__coverage`);
+                this._coverage = raw ? JSON.parse(raw) : null;
+            } catch { this._coverage = null; }
+        }
+        if (!this._coverage) {
+            return { known: false, partial: true, complete: false, returned: null, total: null, label: '覆盖范围未知（尚未完成一次服务端同步）' };
+        }
+        const { returned, total, partial, source } = this._coverage;
+        const authoritative = source === 'authoritative-export';
+        const label = partial
+            ? `${authoritative ? '权威快照' : '本地窗口'} ${returned}/${total === null ? '未知' : total} 条（部分数据，非全量）`
+            : (authoritative
+                ? `权威快照 ${returned} 条（expectedCount/exportedCount/渲染数一致）`
+                : `本地窗口 ${returned} 条（与服务端总数一致）`);
+        return { known: true, ...this._coverage, label };
+    }
+
     async _processQueuedRequests() {
         if (!this._canSyncWithServer()) return;
         if (this._isProcessingQueue) return;
@@ -331,14 +501,33 @@ export class StorageService {
         }
 
         const all = this._getPendingRequests();
-        const todo = all.filter(r =>
+        // ===== P3-W4-T01（AUD-001）：作用域守卫 —— 归属不属于当前主体的任务一律隔离，绝不上传 =====
+        // 典型场景：A 校离线创建后切到 B 校（键本身已隔离，此处为纵深防御 + 显式记录）。
+        let quarantined = 0;
+        const scoped = [];
+        for (const r of all) {
+            if (!r.scope || r.scope === this._scopeFingerprint) { scoped.push(r); continue; }
+            if (r._scopeViolation) continue;   // 已隔离过的直接丢弃，不再重复登记
+            recordScopeViolation({ item: r, reason: 'scope_mismatch' });
+            quarantined++;
+        }
+        if (quarantined > 0) {
+            this._setPendingRequests(scoped);
+            this._emit('sync', { type: 'scope_violation_quarantined', count: quarantined });
+            this._emit('error', {
+                request: { type: 'scope', count: quarantined },
+                error: new Error(`AUD-001：${quarantined} 个待上传任务不属于当前主体作用域(${this._scopeFingerprint})，已隔离且不会上传`)
+            });
+        }
+
+        const todo = scoped.filter(r =>
             !this.processingRequestIds.has(r.id) &&
             r._failed !== true &&
             (!r.nextAttemptAt || r.nextAttemptAt <= now)
         );
 
         if (todo.length === 0) {
-            const waiting = all.filter(r => !r._failed && r.nextAttemptAt && r.nextAttemptAt > now);
+            const waiting = scoped.filter(r => !r._failed && r.nextAttemptAt && r.nextAttemptAt > now);
             if (waiting.length > 0) {
                 const earliest = Math.min(...waiting.map(r => r.nextAttemptAt));
                 this._scheduleQueueProcess(earliest - now + 50);
@@ -352,6 +541,8 @@ export class StorageService {
             const batch = todo.slice(0, this.queueBatchSize);
             for (const req of batch) {
                 this.processingRequestIds.add(req.id);
+                // AUD-021：记录级状态机同步标记"发送中"（delete 任务的行已被移除，_markRecordState 自然 no-op）
+                this._markRecordState(req, SYNC_STATES.SYNCING);
 
                 try {
                     if (req.type === 'create') await this._handleCreate(req);
@@ -368,27 +559,27 @@ export class StorageService {
                     const isVersionConflict = httpStatus === 409;
                     const isClientError = httpStatus >= 400 && httpStatus < 500 && !isRateLimited && !isVersionConflict;
 
-                    const maxRetries = isVersionConflict ? 2 : 3;
+                    if (isVersionConflict) {
+                        // ===== P3-W4-T01（AUD-022）：409 一律不"换 version 整量重放" =====
+                        // 字段级三路合并（base=本地已同步快照 / local=本地改动 / server=latest）：
+                        //   无实质冲突 → 自动重基一次（携带 base_version+base_updated_at 显式声明）；
+                        //   有冲突/预算耗尽 → 显式 CONFLICT 态，交用户裁决（绝不自动落库覆盖他人）。
+                        req.autoRebaseAttempts = Number(req.autoRebaseAttempts || 0) + 1;
+                        await this._handleConflict(req, e);
+                        this.processingRequestIds.delete(req.id);
+                        continue;
+                    }
+
+                    const maxRetries = 3;
                     const shouldRetry = !isClientError && currentRetry <= maxRetries;
 
                     if (shouldRetry) {
                         const retryDelay = this._computeRetryDelay(currentRetry, e?.retryAfterMs);
                         if (isRateLimited) this._setGlobalBackoff(retryDelay);
-                        // TD-409-Retry: 版本冲突重试前先获取服务端最新 version，避免用旧 version 永久 409。
-                        // 优先用 409 响应体携带的 serverVersion（AdaptiveUploadQueue 已解析），省一次 GET；
-                        // 缺失时才回退 _fetchLatestVersion。
-                        if (isVersionConflict && req.type === 'update' && req.recordId) {
-                            try {
-                                const sv = e.serverVersion;
-                                const latestVersion = (sv !== undefined && sv !== null && sv !== 'stale')
-                                    ? sv
-                                    : await this._fetchLatestVersion(req.recordId);
-                                if (latestVersion != null) req.data = { ...req.data, version: latestVersion };
-                            } catch (_) { /* 拉取失败则沿用原 payload，交给下层失败处理 */ }
-                        }
                         this._updateRequestRetry(req.id, currentRetry, Date.now() + retryDelay);
                     } else {
                         this._markRequestFailed(req.id, e.message || '请求失败');
+                        this._markRecordState(req, SYNC_STATES.FAILED);
                         // FIX-15: 权限拒绝（403/401）的 create 请求，回滚本地 temp 记录，
                         // 避免 viewer 看到"保存成功"后刷新又消失的假成功，以及 localStorage 脏数据残留。
                         if (req.type === 'create' && (httpStatus === 403 || httpStatus === 401)) {
@@ -408,41 +599,289 @@ export class StorageService {
         }
     }
 
+    /**
+     * P3-W4-T01（AUD-022）：409 冲突处理 —— 唯一允许的路径是"字段级三路合并"或"显式冲突态"。
+     * 明确禁止：把 serverVersion 盖回旧 payload 后整量重放（原 TD-409-Retry 行为，会静默覆盖他人更新）。
+     */
+    async _handleConflict(req, error) {
+        const recordId = req.recordId || req.tempId;
+        const serverLatest = this._conflictLatestFromError(error) || await this._fetchLatestRecord(recordId);
+        const serverData = this._businessFieldsOf(serverLatest || {});
+        const localData = this._businessFieldsOf(req.data || {});
+        const baseData = req.baseSnapshot || {};
+        const merge = threeWayMergeRecords({ base: baseData, local: localData, server: serverData });
+        const conflicts = merge.conflicts || [];
+        const attemptsUsed = Number(req.autoRebaseAttempts || 0);
+
+        if (serverLatest && conflicts.length === 0 && attemptsUsed <= this.autoRebaseBudget) {
+            // 无实质冲突 → 以 latest 为基线做字段级重基，并显式声明 base_version / base_updated_at
+            this._applyRebasedRecord(recordId, {
+                ...serverData,
+                ...merge.merged,
+                id: recordId,
+                _status: 'updating',
+                _syncState: SYNC_STATES.EDITING_PENDING,
+            });
+            this._removeRequestFromQueue(req.id);
+            this._addPendingRequest({
+                id: this._genReqId('update'),
+                type: 'update',
+                state: SYNC_STATES.EDITING_PENDING,
+                recordId,
+                data: this._withBaseDeclaration(merge.merged, serverLatest),
+                base: { version: serverLatest.version ?? null, updatedAt: serverLatest.updated_at || serverLatest.updatedAt || null },
+                baseSnapshot: serverData,
+                scope: this._scopeFingerprint,
+                autoRebaseAttempts: attemptsUsed + 1,
+                reason: 'conflict_rebase',
+                timestamp: Date.now(),
+                retryCount: 0,
+            });
+            this._emit('sync', {
+                type: 'conflict_rebased',
+                recordId,
+                appliedFields: merge.appliedFields,
+                adoptedFields: merge.adoptedFields,
+            });
+            this._scheduleQueueProcess(this.queueBatchDelayMs);
+            return;
+        }
+
+        // 有实质字段冲突 / 重基预算耗尽 / 拿不到服务端基线 → 显式冲突态（用户裁决；不自动落库）
+        const serverReason = (error && error.conflict && error.conflict.reason) || null;
+        const reason = !serverLatest
+            ? 'unresolved_server_baseline'
+            : (conflicts.length ? 'field_conflict' : (serverReason || 'conflict'))
+        const summary = summarizeConflict({
+            reason,
+            fields: conflicts.map((c) => c.field),
+            base: baseData,
+            local: localData,
+            server: serverData,
+        })
+        if (serverReason) summary.serverReason = serverReason
+        this._markRequestConflict(req.id, summary);
+        this._markRecordState(req, SYNC_STATES.CONFLICT, { _conflict: summary });
+        this._emit('sync', { type: 'conflict', recordId, conflict: summary });
+        this._emit('error', { request: req, error, conflict: summary });
+    }
+
+    _conflictLatestFromError(error) {
+        if (!error) return null;
+        if (error.latest && typeof error.latest === 'object') return error.latest;
+        if (error.conflictBody && error.conflictBody.latest && typeof error.conflictBody.latest === 'object') return error.conflictBody.latest;
+        return null;
+    }
+
+    /** 业务字段抽取（剥离控制/协议字段）——三路合并与基础快照共用。 */
+    _businessFieldsOf(record) {
+        const out = {};
+        for (const [k, v] of Object.entries(record || {})) {
+            if (CONTROL_FIELDS.has(k)) continue;
+            out[k] = v;
+        }
+        return out;
+    }
+
+    _baseSnapshotOf(record) {
+        return this._businessFieldsOf(record || {});
+    }
+
+    /** 在载荷中显式声明重基基线（AUD-022 协议的一部分；version 保持既有 CAS 兼容语义）。 */
+    _withBaseDeclaration(payload, base) {
+        const out = { ...(payload || {}) };
+        const version = base && base.version !== undefined && base.version !== null ? base.version : null;
+        const updatedAt = base ? (base.updated_at || base.updatedAt || null) : null;
+        if (version !== null) {
+            out.version = version;
+            out.base_version = version;
+        }
+        if (updatedAt) out.base_updated_at = updatedAt;
+        return out;
+    }
+
+    /** 拉取服务端单条完整记录（冲突重基的 server 侧基线）。 */
+    async _fetchLatestRecord(recordId) {
+        try {
+            const res = await fetch(`${this.apiEndpoint}/${recordId}`, { headers: this._getHeaders() });
+            if (!res.ok) return null;
+            const json = await res.json();
+            const row = json && (json.data || json);
+            return row && typeof row === 'object' ? row : null;
+        } catch {
+            return null;
+        }
+    }
+
+    _isDirtySyncState(state) {
+        return state === SYNC_STATES.EDITING_PENDING
+            || state === SYNC_STATES.SYNCING
+            || state === SYNC_STATES.TEMP_CREATED
+            || state === SYNC_STATES.FAILED
+            || state === SYNC_STATES.CONFLICT;
+    }
+
+    /** 把状态机状态写回本地记录（可选附加字段），非法转移留痕但不静默。 */
+    _markRecordState(req, state, extra = {}) {
+        const id = (req && (req.recordId || req.tempId)) || null;
+        if (!id) return;
+        const rows = this._getLocalCacheData();
+        const idx = rows.findIndex(r => String(r.id) === String(id));
+        if (idx === -1) return;
+        const eventMap = {
+            [SYNC_STATES.SYNCING]: SYNC_EVENTS.SEND_START,
+            [SYNC_STATES.SYNCED]: SYNC_EVENTS.SEND_OK,
+            [SYNC_STATES.FAILED]: SYNC_EVENTS.SEND_FAIL,
+            [SYNC_STATES.CONFLICT]: SYNC_EVENTS.SEND_CONFLICT,
+            [SYNC_STATES.DELETED]: SYNC_EVENTS.DELETE_OK,
+            [SYNC_STATES.EDITING_PENDING]: SYNC_EVENTS.EDIT,
+        };
+        const transition = applyTransition(rows[idx]._syncState, eventMap[state]);
+        if (transition.rejected) {
+            console.warn(`[Storage:${this.tableName}] 状态机：${rows[idx]._syncState} --${eventMap[state]}--> ${state} 非法转移（按目标态落库并留痕）`);
+        }
+        rows[idx] = { ...rows[idx], _syncState: state, ...extra };
+        if (state === SYNC_STATES.FAILED || state === SYNC_STATES.CONFLICT) rows[idx]._status = 'updating';
+        if (state === SYNC_STATES.SYNCED || state === SYNC_STATES.TEMP_CREATED) rows[idx]._status = state === SYNC_STATES.SYNCED ? 'synced' : 'pending';
+        this._updateLocalCache(rows, { forceServer: true });
+    }
+
+    _applyRebasedRecord(recordId, record) {
+        const rows = this._getLocalCacheData();
+        const idx = rows.findIndex(r => String(r.id) === String(recordId));
+        if (idx === -1) return;
+        rows[idx] = { ...rows[idx], ...record, id: rows[idx].id };
+        this._updateLocalCache(rows, { forceServer: true });
+    }
+
+    _setRequestState(reqId, state) {
+        const list = this._getPendingRequests();
+        const idx = list.findIndex(r => r.id === reqId);
+        if (idx === -1) return;
+        list[idx].state = state;
+        this._setPendingRequests(list);
+    }
+
+    _markRequestConflict(reqId, summary) {
+        const list = this._getPendingRequests();
+        const idx = list.findIndex(r => r.id === reqId);
+        if (idx === -1) return;
+        list[idx].state = SYNC_STATES.CONFLICT;
+        list[idx]._failed = true;                 // 不自动重试：必须由用户裁决/编辑后重新入队
+        list[idx]._conflict = summary;
+        list[idx].nextAttemptAt = null;
+        this._setPendingRequests(list);
+    }
+
+    _flagPostCreateDelete(tempId) {
+        this._postCreateDelete.add(tempId);
+        const list = this._getPendingRequests();
+        const item = list.find(r => r.type === 'create' && r.tempId === tempId);
+        if (item) {
+            item.postCreateDelete = true;
+            this._setPendingRequests(list);
+        }
+    }
+
+    _enqueueDeleteTask(recordId) {
+        this._addTombstone(recordId);
+        this._addPendingRequest({
+            id: this._genReqId('delete'),
+            type: 'delete',
+            state: SYNC_STATES.DELETED,
+            recordId,
+            scope: this._scopeFingerprint,
+            reason: 'post_create_delete',
+            timestamp: Date.now(),
+            retryCount: 0
+        });
+        this._processQueuedRequests();
+    }
+
+    _enqueueUpdateTask({ recordId, payload, base, baseSnapshot, reason }) {
+        this._addPendingRequest({
+            id: this._genReqId('update'),
+            type: 'update',
+            state: SYNC_STATES.EDITING_PENDING,
+            recordId,
+            data: this._withBaseDeclaration({ ...(payload || {}) }, base || {}),
+            base: base || { version: null, updatedAt: null },
+            baseSnapshot: baseSnapshot || {},
+            scope: this._scopeFingerprint,
+            autoRebaseAttempts: 0,
+            reason: reason || 'edit',
+            timestamp: Date.now(),
+            retryCount: 0
+        });
+        this._processQueuedRequests();
+    }
+
     async _handleCreate(req) {
         const { id: reqId, tempId, data } = req;
-        const { id, _status, ...realData } = this._sanitizePayload(data || {});
+        const { id, _status, _syncState, _base, _conflict, ...realData } = this._sanitizePayload(data || {});
 
-        // 云端去重校验：先检查本地缓存的云端指纹索引
-        const cloudDup = await this._findCloudDuplicate(realData);
-        if (cloudDup) {
-            this._replaceTempIdInCache(tempId, cloudDup);
-            this._emit('sync', { type: 'cloud_dedupe_hit', record: cloudDup });
-            return;
+        // AUD-021：标记在途，使"create 出队后的编辑"能追上来（合并进 post-create update）
+        this._inFlightTempIds.add(tempId);
+        this._setRequestState(req.id, SYNC_STATES.SYNCING);
+        try {
+            // 云端去重校验：先检查本地缓存的云端指纹索引
+            const cloudDup = await this._findCloudDuplicate(realData);
+            if (cloudDup) {
+                this._replaceTempIdInCache(tempId, cloudDup);
+                this._emit('sync', { type: 'cloud_dedupe_hit', record: cloudDup });
+                return;
+            }
+
+            const responseJson = await this._uploadQueue.enqueue(this.tableName, null, realData, {
+                method: 'POST',
+                idempotencyKey: reqId
+            });
+
+            if (responseJson && responseJson.skipped) {
+                this._emit('sync', { type: 'queue_skipped_duplicate', tempId });
+                return;
+            }
+
+            const serverRow = (responseJson && (responseJson.data || responseJson)) || {};
+            const content = (serverRow.data && typeof serverRow.data === 'object') ? serverRow.data : serverRow;
+            const savedRecord = { ...content, id: serverRow.id, _status: 'synced', _syncState: SYNC_STATES.SYNCED };
+            if (serverRow.id) this._mapTempId(tempId, serverRow.id);
+
+            const postEdits = this._postCreateEdits.get(tempId) || req.postCreateEdits || null;
+            const deleteAfterCreate = this._postCreateDelete.has(tempId) || req.postCreateDelete === true;
+
+            // AUD-021：把在途编辑合并进本地行（不静默丢失），并保证 temp id 被替换为 server id
+            this._replaceTempIdInCache(tempId, savedRecord, postEdits);
+            this._indexServerFingerprint({ ...savedRecord, ...(postEdits || {}) });
+            this._emit('sync', { type: 'create', record: savedRecord });
+            auditService.log('create', this.tableName, null, `新增记录 #${savedRecord.id || '?'}`).catch(() => {});
+
+            if (savedRecord.id && deleteAfterCreate) {
+                // 删除意图发生在 create 在途期间：创建后必须立即删除服务器行（不得留幽灵行）
+                this._enqueueDeleteTask(savedRecord.id);
+                this._emit('sync', { type: 'create_then_delete', recordId: savedRecord.id });
+            } else if (savedRecord.id && postEdits && Object.keys(postEdits).length > 0) {
+                // AUD-021：create 出队/在途期间的编辑 → 转为针对新 id 的 update 任务（不再丢弃）
+                this._enqueueUpdateTask({
+                    recordId: savedRecord.id,
+                    payload: postEdits,
+                    base: { version: savedRecord.version ?? null, updatedAt: savedRecord.updated_at || null },
+                    baseSnapshot: this._baseSnapshotOf(savedRecord),
+                    reason: 'post_create_edit',
+                });
+            }
+        } finally {
+            this._inFlightTempIds.delete(tempId);
+            this._postCreateEdits.delete(tempId);
+            this._postCreateDelete.delete(tempId);
         }
-
-        const responseJson = await this._uploadQueue.enqueue(this.tableName, null, realData, {
-            method: 'POST',
-            idempotencyKey: reqId
-        });
-
-        if (responseJson && responseJson.skipped) {
-            this._emit('sync', { type: 'queue_skipped_duplicate', tempId });
-            return;
-        }
-
-        const serverRow = (responseJson && (responseJson.data || responseJson)) || {};
-        const content = (serverRow.data && typeof serverRow.data === 'object') ? serverRow.data : serverRow;
-        const savedRecord = { ...content, id: serverRow.id, _status: 'synced' };
-
-        this._replaceTempIdInCache(tempId, savedRecord);
-        this._indexServerFingerprint(savedRecord);
-        this._emit('sync', { type: 'create', record: savedRecord });
-        auditService.log('create', this.tableName, null, `新增记录 #${savedRecord.id || '?'}`).catch(() => {});
     }
 
     async _handleUpdate(req) {
         const { id: reqId, recordId, data } = req;
-        const { id, _status, ...realData } = this._sanitizePayload(data || {});
+        // 载荷保留 version / base_version / base_updated_at（AUD-022 的 CAS + 重基声明）
+        const declared = this._withBaseDeclaration({ ...(data || {}) }, req.base || {});
+        const { id, _status, _syncState, _base, _conflict, ...realData } = this._sanitizePayload(declared);
 
         const responseJson = await this._uploadQueue.enqueue(this.tableName, recordId, realData, {
             method: 'PUT',
@@ -461,11 +900,12 @@ export class StorageService {
         // 缺陷X（Step3）: 改用 _applyServerRecord（forceServer），避免本地旧 dirty 记录
         // 覆盖服务端成功响应导致 _status/version 永久陈旧。
         if (serverRow && serverRow.id) {
-            const patched = { ...content, id: serverRow.id, _status: 'synced' };
+            const patched = { ...content, id: serverRow.id, _status: 'synced', _syncState: SYNC_STATES.SYNCED };
             this._applyServerRecord(patched);
             this._indexServerFingerprint(patched);
         } else {
             this._updateCacheStatus(recordId, 'synced');
+            this._markRecordState(req, SYNC_STATES.SYNCED);
         }
 
         auditService.log('update', this.tableName, null, `修改记录 #${recordId}`).catch(() => {});
@@ -480,20 +920,10 @@ export class StorageService {
 
         if (responseJson && responseJson.skipped) return;
         this._removeFingerprintByRecordId(recordId);
+        // AUD-021：删除后写墓碑并确保本地行不存在（防复活）
+        this._addTombstone(recordId);
+        this._pruneCacheRow(recordId);
         auditService.log('delete', this.tableName, null, `删除记录 #${recordId}`).catch(() => {});
-    }
-
-    // TD-409-Retry: 拉取服务端记录的最新 version，供版本冲突重试前更新 payload
-    async _fetchLatestVersion(recordId) {
-        try {
-            const res = await fetch(`${this.apiEndpoint}/${recordId}`, { headers: this._getHeaders() });
-            if (!res.ok) return null;
-            const json = await res.json();
-            const row = json && (json.data || json);
-            return row && row.version != null ? row.version : null;
-        } catch {
-            return null;
-        }
     }
 
     _initializeLocalCache() {
@@ -501,8 +931,11 @@ export class StorageService {
             localStorage.setItem(this.localCacheKey, JSON.stringify({ data: [] }));
         }
         if (!localStorage.getItem(this.pendingRequestsKey)) {
-            localStorage.setItem(this.pendingRequestsKey, JSON.stringify([]));
+            // 队列为版本化快照（AUD-021）：{ schemaVersion, items[] }
+            this._setPendingRequests([]);
         }
+        this._loadTombstones();
+        this._loadTempIdMap();
         this._loadPersistedFingerprintIndex();
         this._migrateCache(); // 净化已存在于 localStorage 的历史脏数据
     }
@@ -569,7 +1002,8 @@ export class StorageService {
         //   用于"服务端写操作成功响应"路径（_applyServerRecord），避免本地旧 dirty 记录
         //   无条件覆盖服务端最新数据（导致 _status/version 永久陈旧）。
         //   默认 false，不改动任何现有调用点行为（离线保护语义保持不变）。
-        const incoming = rows || [];
+        // AUD-021：墓碑（已删除 id）在两条路径上都不得被写回 —— 删除后不复活
+        const incoming = (rows || []).filter(r => !this._isTombstoned(r && r.id));
         if (opts.forceServer === true) {
             localStorage.setItem(this.localCacheKey, JSON.stringify({ data: incoming.slice() }));
             return;
@@ -578,8 +1012,8 @@ export class StorageService {
         const pendingMap = new Map();
         for (const item of localRows) {
             const isTemp = this._isTempId(item.id);
-            const isDirty = item._status === 'pending' || item._status === 'updating';
-            if (isTemp || isDirty) pendingMap.set(String(item.id), item);
+            const isDirty = item._status === 'pending' || item._status === 'updating' || this._isDirtySyncState(item._syncState);
+            if ((isTemp || isDirty) && !this._isTombstoned(item.id)) pendingMap.set(String(item.id), item);
         }
         let merged = incoming.slice();
         if (pendingMap.size > 0) {
@@ -617,9 +1051,11 @@ export class StorageService {
     //   - synced 但 serverV < localV：console.warn 留痕后仍以服务端为准覆盖（便于排查）
     //   - local._status === 'pending'：本地未上传新建，禁止覆盖（离线保护）
     _applyServerRecord(serverRecord) {
+        // AUD-021：已删除（墓碑）的记录不得被服务端响应复活
+        if (this._isTombstoned(serverRecord && serverRecord.id)) return;
         const rows = this._getLocalCacheData();
         const idx = rows.findIndex(r => String(r.id) === String(serverRecord.id));
-        const fresh = { ...serverRecord, id: serverRecord.id, _status: 'synced' };
+        const fresh = { ...serverRecord, id: serverRecord.id, _status: 'synced', _syncState: SYNC_STATES.SYNCED };
 
         if (idx >= 0) {
             const local = rows[idx];
@@ -648,15 +1084,104 @@ export class StorageService {
     _getPendingRequests() {
         try {
             const raw = localStorage.getItem(this.pendingRequestsKey);
-            const parsed = JSON.parse(raw || '[]');
-            return Array.isArray(parsed) ? parsed : [];
+            const snap = normalizeQueueSnapshot(raw);
+            if (!snap.ok) {
+                // AUD-021：队列结构变更需版本化 + 一次性迁移。旧结构（裸数组/未知版本）不静默双读：
+                // 记为迁移事件后按空队列启动（其归属/结构无法证明，宁可显式丢弃也不以错误语义发送）。
+                this._recordQueueMigration(snap.reason, raw);
+                this._setPendingRequests([]);
+                return [];
+            }
+            return snap.items.filter(r => r && typeof r === 'object');
         } catch {
             return [];
         }
     }
 
     _setPendingRequests(list) {
-        localStorage.setItem(this.pendingRequestsKey, JSON.stringify(Array.isArray(list) ? list : []));
+        localStorage.setItem(this.pendingRequestsKey, serializeQueueSnapshot(list));
+    }
+
+    _recordQueueMigration(reason, raw) {
+        try {
+            const key = 'sync_queue_migration_v2';
+            const prev = JSON.parse(localStorage.getItem(key) || '[]');
+            const list = Array.isArray(prev) ? prev : [];
+            let items = null;
+            try {
+                const parsed = raw ? JSON.parse(raw) : null;
+                items = Array.isArray(parsed) ? parsed.length : null;
+            } catch { items = null; }
+            list.push({
+                at: new Date().toISOString(),
+                reason: reason || 'unknown',
+                queueKey: this.pendingRequestsKey,
+                scope: this._scopeFingerprint,
+                bytes: raw ? raw.length : 0,
+                items,
+            });
+            localStorage.setItem(key, JSON.stringify(list.slice(-50)));
+        } catch { /* 记录失败不影响隔离本身 */ }
+    }
+
+    // ===== P3-W4-T01（AUD-021）：墓碑 / temp→server 映射 =====
+    _loadTombstones() {
+        if (this._tombstonesLoaded) return this._tombstones;
+        this._tombstonesLoaded = true;
+        try {
+            const parsed = JSON.parse(localStorage.getItem(this.tombstoneKey) || 'null');
+            const ids = parsed && parsed.ids && typeof parsed.ids === 'object' ? Object.keys(parsed.ids) : [];
+            this._tombstones = new Set(ids.map(String));
+        } catch {
+            this._tombstones = new Set();
+        }
+        return this._tombstones;
+    }
+
+    _isTombstoned(id) {
+        if (id === undefined || id === null) return false;
+        return this._loadTombstones().has(String(id));
+    }
+
+    _addTombstone(id) {
+        if (id === undefined || id === null) return;
+        this._loadTombstones().add(String(id));
+        this._persistTombstones();
+    }
+
+    _persistTombstones() {
+        try {
+            const ids = {};
+            for (const id of Array.from(this._tombstones).slice(-500)) ids[id] = Date.now();
+            localStorage.setItem(this.tombstoneKey, JSON.stringify({ schemaVersion: 1, ids }));
+        } catch { /* 忽略持久化失败（内存墓碑仍生效） */ }
+    }
+
+    _pruneCacheRow(recordId) {
+        const rows = this._getLocalCacheData();
+        const filtered = rows.filter(r => String(r.id) !== String(recordId));
+        if (filtered.length !== rows.length) this._updateLocalCache(filtered, { forceServer: true });
+    }
+
+    _loadTempIdMap() {
+        if (this._tempIdMapLoaded) return this._tempIdMap;
+        this._tempIdMapLoaded = true;
+        try {
+            const parsed = JSON.parse(localStorage.getItem(this.tempMapKey) || 'null');
+            const map = parsed && parsed.map && typeof parsed.map === 'object' ? Object.entries(parsed.map) : [];
+            this._tempIdMap = new Map(map.map(([k, v]) => [String(k), String(v)]));
+        } catch {
+            this._tempIdMap = new Map();
+        }
+        return this._tempIdMap;
+    }
+
+    _mapTempId(tempId, serverId) {
+        if (!tempId || !serverId) return;
+        this._loadTempIdMap().set(String(tempId), String(serverId));
+        try {
+            localStorage.setItem(this.tempMapKey, JSON.stringify({ schemaVersion: 1, map: Object.fromEntries(this._tempIdMap) }));
+        } catch { /* 忽略持久化失败 */ }
     }
 
     _addPendingRequest(request) {
@@ -690,11 +1215,17 @@ export class StorageService {
         }
     }
 
-    _replaceTempIdInCache(tempId, savedRecord) {
+    _replaceTempIdInCache(tempId, savedRecord, pendingEdits = null) {
         const rows = this._getLocalCacheData();
         const index = rows.findIndex(r => r.id === tempId);
+        const serverId = (savedRecord && savedRecord.id) || tempId;
         if (index !== -1) {
-            rows[index] = { ...savedRecord, _status: 'synced' };
+            const edits = pendingEdits && typeof pendingEdits === 'object' ? pendingEdits : null;
+            const hasEdits = !!edits && Object.keys(edits).length > 0;
+            rows[index] = hasEdits
+                // AUD-021：在途编辑合并进本地行（保持 dirty），由随后的 post-create update 任务确认
+                ? { ...savedRecord, ...edits, id: serverId, _status: 'updating', _syncState: SYNC_STATES.EDITING_PENDING }
+                : { ...savedRecord, id: serverId, _status: 'synced', _syncState: SYNC_STATES.SYNCED };
             // 缺陷X（Step3）: create 成功响应以服务端为权威，跳过 pending merge，
             // 避免本地 tempId 旧记录（pending）被误并入覆盖服务端新建数据。
             this._updateLocalCache(rows, { forceServer: true });
@@ -707,31 +1238,100 @@ export class StorageService {
         const index = rows.findIndex(r => String(r.id) === String(recordId));
         if (index !== -1) {
             rows[index]._status = status;
+            if (status === 'synced') rows[index]._syncState = SYNC_STATES.SYNCED;
             this._updateLocalCache(rows);
         }
     }
 
+    /**
+     * AUD-021：临时记录编辑的三条路径（唯一写入路径，不允许静默丢弃）：
+     *   ① create 仍在队列（未发送）      → 直接把编辑并入 create 载荷；
+     *   ② create 已在途（已出队/发送中） → 记为 post-create 编辑，成功后转为针对新 id 的 update；
+     *   ③ create 已完成（有 temp→server 映射）→ 直接转为针对 server id 的 update；
+     *      映射缺失（如跨刷新丢失）     → 显式 CONFLICT 态（保留编辑，请用户处理）。
+     */
     _queueTempUpdate(tempId, data) {
-        this._addPendingRequest({
-            id: this._genReqId('update_temp'),
-            type: 'update_temp',
-            tempId,
-            data,
-            timestamp: Date.now(),
-            retryCount: 0
-        });
+        const list = this._getPendingRequests();
+        const queuedCreate = list.find(r => r.type === 'create' && r.tempId === tempId && !this.processingRequestIds.has(r.id));
+        if (queuedCreate) {
+            queuedCreate.data = { ...queuedCreate.data, ...data };
+            queuedCreate.state = SYNC_STATES.EDITING_PENDING;
+            queuedCreate.editedAt = Date.now();
+            this._setPendingRequests(list);
+            const rows = this._getLocalCacheData();
+            const idx = rows.findIndex(r => String(r.id) === String(tempId));
+            if (idx !== -1) {
+                rows[idx] = { ...rows[idx], _syncState: SYNC_STATES.EDITING_PENDING };
+                this._updateLocalCache(rows, { forceServer: true });
+            }
+            return;
+        }
+        if (this._inFlightTempIds.has(tempId)) {
+            this._appendPostCreateEdits(tempId, data);
+            return;
+        }
+        const mappedId = this._loadTempIdMap().get(String(tempId));
+        if (mappedId) {
+            const baseRow = this._getLocalCacheData().find(r => String(r.id) === String(mappedId)) || {};
+            this._enqueueUpdateTask({
+                recordId: mappedId,
+                payload: data,
+                base: { version: baseRow.version ?? null, updatedAt: baseRow.updated_at || baseRow.updatedAt || null },
+                baseSnapshot: this._baseSnapshotOf(baseRow),
+                reason: 'temp_edit_after_create',
+            });
+            return;
+        }
+        const rows = this._getLocalCacheData();
+        const idx = rows.findIndex(r => String(r.id) === String(tempId));
+        if (idx !== -1) {
+            const summary = summarizeConflict({
+                reason: 'orphan_temp_edit',
+                fields: Object.keys(data || {}),
+                base: null,
+                local: data,
+                server: null,
+            });
+            rows[idx] = { ...rows[idx], _status: 'updating', _syncState: SYNC_STATES.CONFLICT, _conflict: summary };
+            this._updateLocalCache(rows, { forceServer: true });
+            this._emit('sync', { type: 'conflict', recordId: tempId, conflict: summary });
+            this._emit('error', {
+                request: { type: 'update_temp', tempId },
+                error: new Error('AUD-021：临时记录已失去服务端映射，编辑已保留并标记为冲突（未静默丢弃）'),
+                conflict: summary,
+            });
+        }
     }
 
+    /** AUD-021：把在途 create 的编辑记为 post-create 编辑（内存 + 持久化队列项）。 */
+    _appendPostCreateEdits(tempId, edits) {
+        const merged = { ...(this._postCreateEdits.get(tempId) || {}), ...(edits || {}) };
+        this._postCreateEdits.set(tempId, merged);
+        const list = this._getPendingRequests();
+        const item = list.find(r => r.type === 'create' && r.tempId === tempId);
+        if (item) {
+            item.postCreateEdits = { ...(item.postCreateEdits || {}), ...(edits || {}) };
+            item.state = SYNC_STATES.EDITING_PENDING;
+            this._setPendingRequests(list);
+        }
+        const rows = this._getLocalCacheData();
+        const idx = rows.findIndex(r => String(r.id) === String(tempId));
+        if (idx !== -1) {
+            rows[idx] = { ...rows[idx], _syncState: SYNC_STATES.EDITING_PENDING };
+            this._updateLocalCache(rows, { forceServer: true });
+        }
+    }
+
+    /** 兼容旧任务类型（版本化迁移后不应再出现）：能并入仍未发送的 create 则并入，否则留痕。 */
     async _handleUpdateTemp(req) {
         const list = this._getPendingRequests();
         const createReqIndex = list.findIndex(r => r.type === 'create' && r.tempId === req.tempId);
         if (createReqIndex !== -1) {
-            list[createReqIndex].data = {
-                ...list[createReqIndex].data,
-                ...req.data
-            };
+            list[createReqIndex].data = { ...list[createReqIndex].data, ...req.data };
             this._setPendingRequests(list);
+            return;
         }
+        this._appendPostCreateEdits(req.tempId, req.data || {});
     }
 
     _cleanupTempRequests(tempId) {

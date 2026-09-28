@@ -11,8 +11,9 @@
 //      统计口径另有一套 SQL LIKE 判定（见 routes/openApiRoutes.js 的 /stats），仅供对账。
 
 import crypto from 'node:crypto'
-import { RECORD_ROUTE_TYPES, TEST_TYPE_LABELS, getLatestRecheckPassed, isValidBusinessDate } from './recordNormalize.js'
-import { tablewareVerdict } from './tablewareVerdict.js'
+import { RECORD_ROUTE_TYPES, TEST_TYPE_LABELS, isValidBusinessDate } from './recordNormalize.js'
+// 结论归一唯一事实源（RC-09a / AUD-025）：本文件不再自持判定分支，deriveConclusion 只做委派。
+import { normalizeConclusion, OIL_COLOR_PASS as OIL_PASS_ENUM, OIL_COLOR_FAIL as OIL_FAIL_ENUM } from './conclusionVerdict.js'
 
 /** 未配置 visible_types 时的默认开放范围（与访客白名单同口径，病原体恒不含）。 */
 export const DEFAULT_OPEN_TYPES = ['tableware', 'pesticide', 'oil', 'leanMeat']
@@ -218,96 +219,13 @@ export function minDay(a, b) {
   return !a ? b : (!b ? a : (a <= b ? a : b))
 }
 
-/* ─────────────── 结论口径（与前端 Dashboard.isQualified / stats SQL 同源）─────────────── */
-
-const PASS = 'pass'
-const FAIL = 'fail'
-const WARN = 'warning'
-const UNKNOWN = 'unknown'
-
-function textToConclusion(text) {
-  const s = String(text ?? '').trim()
-  if (!s) return UNKNOWN
-  if (s === '复检通过') return PASS
-  if (s === '复检未通过') return FAIL
-  if (s.includes('不合格')) return FAIL
-  if (s.includes('警戒')) return WARN
-  if (s.includes('合格')) return PASS
-  return UNKNOWN
-}
-
-/**
- * 由记录数据推导初检/最终结论。
- * - 无复检：按当前保存的 result/colorLevel/riskLevel 推导；
- * - 有复检：初检快照通常已被 Web 覆盖，初检标 unknown；最终优先取最新结构化 isPassed，
- *   缺失时回退可识别的 finalStatus，并标出冲突；
- * - is_positive：病原体优先按保存的 positiveDetails 判断检出。
- */
+/* ─────────────── 结论口径（唯一事实源：lib/conclusionVerdict.js，与前端/stats SQL 同源）─────────────── */
+// 2026-09-25 P3-W5-T01（AUD-025）：判定分支不再在本文件复制一份，deriveConclusion 直接委派
+// `normalizeConclusion`。口径见 conclusionVerdict.js 头注释：
+//   油脂 未知非空 colorLevel → unknown（不计合格，不再回退 result）；空值才回退 result。
+// 本文件只保留 `deriveConclusion` 这一对外名称（历史调用方/契约用例沿用）。
 export function deriveConclusion(testType, resultData) {
-  const data = resultData && typeof resultData === 'object' ? resultData : {}
-  let initial = UNKNOWN
-  let text = ''
-
-  if (testType === 'pathogen') {
-    const risk = String(data.riskLevel ?? '').trim()
-    initial = risk ? (risk === '无风险' ? PASS : FAIL) : UNKNOWN
-    text = risk
-  } else if (testType === 'oil') {
-    // 食用油口径（业务方 2026-07-23 裁定，与前端 Dashboard.isOilQualified 及 /api/test-records/stats 同源）：
-    //   按「品质等级」colorLevel 判定，**仅“不合格”判不合格**；已知等级 合格/警戒 视为合格；
-    //   无 colorLevel 时以 result 兜底。
-    // ⚠️ 2026-09-17 P1 修复：原实现 `color.includes('不合格') ? FAIL : PASS` 是 **fail-open** ——
-    //   任何非空脏值（“深绿色”“foo”“录入错误”）都会被判成“合格”。现改为**显式枚举**：
-    //     已知合格类 → pass；已知不合格 → fail；**未识别值回退 result 文本判定**（与 /stats 的 SQL 分支一致）。
-    //   实测生产 colorLevel 仅 合格/警戒，本修复对现有数据零影响；若业务方确认“其它等级也算合格”，
-    //   需提供权威枚举后再登记到 OIL_COLOR_PASS。
-    const color = String(data.colorLevel ?? '').trim()
-    if (OIL_COLOR_PASS.has(color)) {
-      initial = PASS
-      text = color
-    } else if (OIL_COLOR_FAIL.has(color)) {
-      initial = FAIL
-      text = color
-    } else {
-      text = String(data.result ?? '').trim()
-      initial = textToConclusion(text)
-    }
-  } else if (testType === 'tableware' && !String(data.result ?? '').trim()) {
-    // 餐具：顶层 `result` 为空时回退点位结论（洗涤剂残留记录只写 `atpPoints[].res`，此前被判 unknown）。
-    // 规则与统计 SQL 逐字同源：lib/tablewareVerdict.js；顶层有文本时仍走下面的既有逻辑，行为不变。
-    const v = tablewareVerdict(data)
-    text = v.text
-    initial = v.level === 'pass' ? PASS : (v.level === 'fail' ? FAIL : (v.level === 'warn' ? WARN : UNKNOWN))
-  } else {
-    text = String(data.result ?? '').trim()
-    initial = textToConclusion(text)
-  }
-
-  const finalStatus = String(data.finalStatus ?? '').trim()
-  const recheckPassed = getLatestRecheckPassed(data)
-  const hasRecheck = finalStatus !== ''
-    || (Array.isArray(data.recheckRecords) && data.recheckRecords.length > 0)
-    || (Array.isArray(data.recheckReports) && data.recheckReports.length > 0)
-  let final = initial
-  let basis = 'initial'
-  const statusConclusion = textToConclusion(finalStatus)
-  const conflict = hasRecheck && typeof recheckPassed === 'boolean'
-    && statusConclusion !== UNKNOWN && statusConclusion !== (recheckPassed ? PASS : FAIL)
-  if (hasRecheck) {
-    // 现有 Web 写入会覆盖 result/riskLevel。没有单独保存的初检快照时不可逆推。
-    initial = UNKNOWN
-    final = typeof recheckPassed === 'boolean' ? (recheckPassed ? PASS : FAIL) : statusConclusion
-    text = finalStatus || (typeof recheckPassed === 'boolean' ? (recheckPassed ? '复检通过' : '复检不通过') : '')
-    basis = 'recheck'
-  }
-
-  const isPositive = testType === 'pathogen'
-    ? (Array.isArray(data.positiveDetails)
-      ? data.positiveDetails.length > 0
-      : (String(data.riskLevel ?? '').trim() ? String(data.riskLevel).trim() !== '无风险' : null))
-    : null
-
-  return { initial, final, text: text || null, isPositive, basis, conflict }
+  return normalizeConclusion(testType, resultData)
 }
 
 /* ─────────────── 对外记录序列化 ─────────────── */
@@ -343,9 +261,10 @@ export function pickTestDate(sampleInfo) {
   return isValidBusinessDate(m[1]) ? m[1] : null
 }
 
-/** 食用油 colorLevel 权威枚举：仅「不合格」判不合格（业务裁定）；未识别值不得默认合格。 */
-export const OIL_COLOR_PASS = new Set(['合格', '警戒'])
-export const OIL_COLOR_FAIL = new Set(['不合格'])
+/** 食用油 colorLevel 权威枚举：仅「不合格」判不合格（业务裁定）；未识别值不得默认合格。
+ * 定义在 lib/conclusionVerdict.js（唯一事实源），此处按原名称再导出以兼容既有引用。 */
+export const OIL_COLOR_PASS = OIL_PASS_ENUM
+export const OIL_COLOR_FAIL = OIL_FAIL_ENUM
 
 /**
  * 组装单条对外记录。

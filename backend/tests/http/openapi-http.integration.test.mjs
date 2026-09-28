@@ -14,33 +14,38 @@
 // 隔离：tests/_isolation.mjs 门禁（解析连接串校验库名/schema + 写前断言 current_database/current_schema
 //      + 统一把 process.env.DATABASE_URL 重定向到隔离库，使路由内的 createTenantClient 也指向隔离库）。
 //
-// 启用：REVIEW_TEST_DATABASE_URL='…/foodsentinel_review_test' node --test tests/http/
+// 启用：TEST_DATABASE_URL + TEST_DB_CONTEXT_FILE（provisioner 输出）node --test tests/http/
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import crypto from 'node:crypto'
-import { require, isConfigured, assertIsolationConfig, assertIsolated, cleanupScoped } from '../_isolation.mjs'
+import { require, loadIsolation, assertIsolated as gateAssert, cleanupScoped } from '../_isolation.mjs'
 
-const TEST_SCHEMA = 'school_reviewtest'
-const SCHOOL = 'reviewtest'
+const isoInfo = loadIsolation()
+const TENANT = isoInfo.ok ? isoInfo.tenant('a') : null   // 派生租户（slot a；不再硬编码 school_review*）
+const TEST_SCHEMA = TENANT ? TENANT.schema : null
+const SCHOOL = TENANT ? TENANT.tenantCode : null   // 派生学校 code（已授权；不再硬编码 reviewtest）
+const OTHER_SCHOOL = isoInfo.ok ? isoInfo.tenant('b').tenantCode : null   // 派生但未授权（403 负例用）
 const CLIENT_ID = 'httptest-client'
 const USER_ID = 'u-http-test'
 const KEY = 'oap_' + crypto.randomBytes(24).toString('base64url')
 const KEY_HASH = crypto.createHash('sha256').update(KEY).digest('hex')
-const enabled = isConfigured()
+const enabled = isoInfo.ok
 
 if (!enabled) {
-  test('开放接口 HTTP 链路（未设置 REVIEW_TEST_DATABASE_URL，跳过）', { skip: 'SKIP: TEST_DATABASE_URL not configured' }, () => {})
+  test('开放接口 HTTP 链路：[T02C] 未配置显式 TEST_DATABASE_URL + TEST_DB_CONTEXT_FILE → 拒绝（fail-closed，不再 skip）', () => {
+    assert.fail(`[T02C-ISOLATION-REFUSED] code=${isoInfo.code || 'UNKNOWN'} reason=${isoInfo.reason || 'n/a'}；本套件只认显式 TEST_* 配置（不回落 DATABASE_URL / 业务 dotenv）`)
+  })
 }
 
 if (enabled) {
-  const iso = assertIsolationConfig({ schema: TEST_SCHEMA })   // 含 DATABASE_URL 重定向
+  const iso = { url: isoInfo.url, db: isoInfo.db, schema: TEST_SCHEMA }   // 共享门禁派生值（TESTS/helpers/db-isolation）
   const { PrismaClient } = require('@prisma/client')
   const express = require('express')
   const { createOpenApiRoutes } = await import('../../routes/openApiRoutes.js')
   const { createAdminOpenApiRoutes } = await import('../../routes/adminOpenApiRoutes.js')
 
   const prisma = new PrismaClient({ datasources: { db: { url: iso.url } } })
-  const tenant = new PrismaClient({ datasources: { db: { url: `${iso.url}${iso.url.includes('?') ? '&' : '?'}schema=${TEST_SCHEMA}` } } })
+  const tenant = new PrismaClient({ datasources: { db: { url: TENANT.urlWithSchema } } })
 
   let server
   let base
@@ -54,12 +59,12 @@ if (enabled) {
   }
 
   test.before(async () => {
-    await assertIsolated(prisma, iso.db, 'public 客户端')
-    await assertIsolated(tenant, iso.db, '租户客户端')
+    await gateAssert(prisma, 'public', 'public 客户端')
+    await gateAssert(tenant, TEST_SCHEMA, '租户客户端')
     const schemas = await tenant.$queryRawUnsafe('SELECT current_schema() AS s')
     assert.equal(schemas[0].s, TEST_SCHEMA, `租户客户端必须落在 ${TEST_SCHEMA}`)
 
-    await prisma.school.upsert({
+    const schoolRow = await prisma.school.upsert({
       where: { code: SCHOOL }, update: { status: 'active' },
       create: { code: SCHOOL, name: 'HTTP 回归学校', status: 'active' },
     })
@@ -74,11 +79,14 @@ if (enabled) {
     })
     const grant = await prisma.openApiGrant.findFirst({ where: { client_id: CLIENT_ID, school_code: SCHOOL } })
     if (grant) await prisma.openApiGrant.delete({ where: { id: grant.id } })
+    // P3-LIFECYCLE-AB-R3（M1，授权面 A5）：直建 grant 必须携带**授权时学校身份**（school_id + generation），
+    // 否则读时 fail-closed（GRANT_IDENTITY_MISSING）——这是新契约的显式证明，不是放宽。
     await prisma.openApiGrant.create({
       data: {
         client_id: CLIENT_ID, school_code: SCHOOL, status: 'active',
         visible_types: ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'],
         include_pathogen: true, include_inspector: false, scope_version: 1,
+        school_id: schoolRow.id, school_generation: schoolRow.generation,
       },
     })
     await tenant.user.upsert({
@@ -139,10 +147,10 @@ if (enabled) {
   })
 
   test('HTTP：未授权学校 403；未授权类型 403', async () => {
-    const school = await api('/v1/stats?school_code=tjb')
+    const school = await api(`/v1/stats?school_code=${OTHER_SCHOOL}`)   // 派生但未授权
     assert.equal(school.status, 403)
     assert.equal(school.code, 'SCHOOL_NOT_AUTHORIZED')
-    const type = await api('/v1/samples?school_code=reviewtest&test_type=unknown-type')
+    const type = await api(`/v1/samples?school_code=${SCHOOL}&test_type=unknown-type`)   // 已授权学校 + 未授权类型
     assert.equal(type.status, 403)
     assert.equal(type.code, 'TYPE_NOT_AUTHORIZED')
   })

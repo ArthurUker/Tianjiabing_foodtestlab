@@ -335,47 +335,217 @@ export class ExportService {
         return { startDate, endDate, canteens, testTypes, meatTypes, title, notes };
     }
 
-    // P2-14: 导出前从服务器同步最新数据，避免使用过期的本地缓存
-    async syncBeforeExport() {
-        const results = {};
-        const types = ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'];
+    /** 当前认证 token（按学校命名空间读取；记住我时回退 sessionStorage）。 */
+    _authToken() {
+        const _code = extractSchoolCode() || '';
+        const _adminKey = _code ? `auth_token__${_code}` : 'auth_token';
+        const _guestKey = _code ? `guest_token__${_code}` : 'guest_token';
+        return localStorage.getItem(_adminKey) || sessionStorage.getItem(_adminKey)
+            || localStorage.getItem(_guestKey) || sessionStorage.getItem(_guestKey);
+    }
 
-        await Promise.all(types.map(async (type) => {
+    /** 轮询导出作业直到终态（completed/failed/cancelled）或超时。 */
+    async _awaitExportJob(jobId, token, timeoutMs = 120000) {
+        const deadline = Date.now() + timeoutMs;
+        let last = null;
+        while (Date.now() < deadline) {
+            const res = await fetch(`/api/records/exports/${jobId}`, {
+                headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+            });
+            if (!res.ok) return null;
+            const body = await res.json();
+            last = body.job || null;
+            if (last && ['completed', 'failed', 'cancelled'].includes(last.state)) return last;
+            await new Promise((r) => setTimeout(r, 800));
+        }
+        return last; // 超时：按终态可判定性交给调用方（未完成 → 视为不可信）
+    }
+
+    // P3-W5-RECORD-T01（AUD-020 / RC-07）：导出改用**服务端快照作业**，替换旧 `?limit=10000`（被后端上限
+    // 静默截断成 2000 条却仍被当"完整报告"）。作业完成后：expectedCount === exportedCount + ID 无重无漏
+    // + 校验和 → 才算"权威全量"；任一类型失败 → 该类型只标注**本地部分窗口**，报告不得声称完整。
+    async syncBeforeExport(config = null) {
+        const cfg = config || (typeof this.getExportConfig === 'function' ? this.getExportConfig() : {});
+        const allTypes = ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'];
+        const requested = Array.isArray(cfg.testTypes) && cfg.testTypes.length ? cfg.testTypes : allTypes;
+        const testTypes = requested.filter((t) => allTypes.includes(t));
+        const filters = {
+            startDate: cfg.startDate || '',
+            endDate: cfg.endDate || '',
+            canteens: (cfg.canteens || []).filter((c) => c && c !== 'all'),
+            meatTypes: (cfg.meatTypes || []).filter((m) => m && m !== 'all'),
+        };
+        const token = this._authToken();
+        const results = {};
+        const jobs = [];
+
+        for (const type of (testTypes.length ? testTypes : allTypes)) {
             try {
-                // 尝试从后端获取最新数据
-                // TD-TenantIsolation：按当前学校命名空间读取 token（与 AuthService._nsKey 一致）
-                // P2-记住我：不勾选「记住我」时 token 仅存 sessionStorage，需回退读取
-                const _code = extractSchoolCode() || '';
-                const _adminKey = _code ? `auth_token__${_code}` : 'auth_token';
-                const _guestKey = _code ? `guest_token__${_code}` : 'guest_token';
-                const token = localStorage.getItem(_adminKey) || sessionStorage.getItem(_adminKey)
-                    || localStorage.getItem(_guestKey) || sessionStorage.getItem(_guestKey);
-                const response = await fetch(`/api/records/${type}?limit=10000`, {
+                const created = await fetch('/api/records/exports', {
+                    method: 'POST',
+                    headers: { ...(token ? { 'Authorization': `Bearer ${token}` } : {}), 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filters: { ...filters, testTypes: [type] } }),
+                });
+                if (created.status !== 202) {
+                    results[type] = { success: false, code: `CREATE_${created.status}`, fallback: true };
+                    continue;
+                }
+                const createdBody = await created.json();
+                const jobId = createdBody.jobId;
+                const job = await this._awaitExportJob(jobId, token, 120000);
+                if (!job || job.state !== 'completed') {
+                    results[type] = { success: false, fallback: true, code: job ? `${job.state}:${(job.error && job.error.code) || ''}` : 'JOB_TIMEOUT', jobId };
+                    continue;
+                }
+                const dl = await fetch(`/api/records/exports/${jobId}/download`, {
                     headers: token ? { 'Authorization': `Bearer ${token}` } : {}
                 });
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data.success && Array.isArray(data.data)) {
-                        // 更新本地缓存
-                        this.storage[type]._updateLocalCache(data.data);
-                        results[type] = { success: true, count: data.data.length };
-                    } else {
-                        results[type] = { success: false, fallback: true };
-                    }
-                } else {
-                    results[type] = { success: false, fallback: true };
+                if (!dl.ok) {
+                    results[type] = { success: false, fallback: true, code: `DOWNLOAD_${dl.status}`, jobId };
+                    continue;
                 }
+                const text = await dl.text();
+                const rows = text.split('\n').filter((l) => l.trim().length > 0).map((l) => JSON.parse(l));
+                // 权威数据落地本地缓存（该类型此时为服务端快照全量）
+                this.storage[type]._updateLocalCache(rows);
+                // R1（AUD-020）：覆盖范围元数据同步为"权威快照"（expected/exported/行数三者不一致 → 保守标 partial）
+                if (typeof this.storage[type].markAuthoritativeCoverage === 'function') {
+                    this.storage[type].markAuthoritativeCoverage({
+                        rows,
+                        expected: job.expectedCount,
+                        exported: job.exportedCount,
+                        jobId,
+                        checksum: job.checksum,
+                    });
+                }
+                results[type] = {
+                    success: true,
+                    count: rows.length,
+                    expected: job.expectedCount,
+                    exported: job.exportedCount,
+                    checksum: job.checksum,
+                    jobId,
+                };
+                jobs.push({ type, jobId, checksum: job.checksum, expected: job.expectedCount, exported: job.exportedCount });
             } catch (error) {
-                console.warn(`⚠️ ${type} 数据同步失败，使用本地缓存:`, error.message);
+                console.warn(`⚠️ ${type} 权威导出作业失败，将回退本地窗口:`, error.message);
                 results[type] = { success: false, fallback: true, error: error.message };
             }
-        }));
+        }
 
-        const failedTypes = Object.entries(results).filter(([_, r]) => !r.success).map(([t]) => t);
+        const failedTypes = Object.entries(results).filter(([, r]) => !r.success).map(([t]) => t);
+        this._authoritative = {
+            at: new Date().toISOString(),
+            types: Object.keys(results),
+            results,
+            jobs,
+            complete: failedTypes.length === 0,
+            failedTypes,
+            filters,
+        };
         if (failedTypes.length > 0) {
-            console.warn(`⚠️ 以下类型数据未能从服务器同步，将使用本地缓存: ${failedTypes.join(', ')}`);
+            console.warn(`⚠️ 以下类型未取得权威全量（报告将声明"部分数据"）: ${failedTypes.join(', ')}`);
         }
         return results;
+    }
+
+    /**
+     * 渲染范围审计（R1 新增，报告数据范围的唯一事实源）：
+     * 逐类型记录 `source/expected/exported/cached/rendered/truncated`，供 `dataScopeLines()` 判定
+     * "本预览/PDF 是否等于权威全量"，并把 expectedCount/exportedCount/渲染数一致性显式化。
+     */
+    buildRenderScope(data) {
+        const auth = this._authoritative;
+        const audit = {};
+        for (const type of Object.keys(data || {})) {
+            const rendered = (data[type] || []).length;
+            let cached = null;
+            try { cached = typeof this.storage[type].getAll === 'function' ? this.storage[type].getAll().length : null; } catch { cached = null; }
+            const r = (auth && auth.results && auth.results[type]) || null;
+            const source = r && r.success ? 'authoritative' : 'local-window';
+            const expected = source === 'authoritative' && Number.isFinite(Number(r.expected)) ? Number(r.expected) : null;
+            const exported = source === 'authoritative' && Number.isFinite(Number(r.exported)) ? Number(r.exported) : null;
+            // 截断判据（两路任一成立即部分数据）：
+            //   ① 权威 expected 已知且大于实际渲染数；
+            //   ② 本地缓存在"筛选前"就已触及单类型上限（collectData 的 _rowsTruncated 登记）—— 被切掉的行可能本应命中筛选。
+            const capTruncated = !!(this._rowsTruncated && this._rowsTruncated[type] !== undefined);
+            const truncated = (expected !== null && rendered < expected) || capTruncated;
+            audit[type] = {
+                type, source, expected, exported, cached, rendered,
+                capTruncated,
+                truncated,
+                // 渲染数与权威计数一致（仅权威来源且有 expected 时可判定）
+                consistent: source === 'authoritative' && expected !== null && rendered === expected,
+                jobId: r && r.jobId ? r.jobId : null,
+                checksum: r && r.checksum ? r.checksum : null,
+            };
+        }
+        return audit;
+    }
+
+    /** 完整原始产物清单（服务端权威快照；未截断，可下载核对）。 */
+    rawArtifacts() {
+        const auth = this._authoritative;
+        if (!auth || !Array.isArray(auth.jobs)) return [];
+        return auth.jobs.map((j) => ({
+            type: j.type,
+            jobId: j.jobId,
+            expected: j.expected ?? null,
+            exported: j.exported ?? null,
+            checksum: j.checksum || null,
+            downloadPath: `/api/records/exports/${j.jobId}/download`,
+        }));
+    }
+
+    /**
+     * 报告中的"数据范围声明"（AUD-020；R1：预览/PDF 被渲染上限截断时**不得**声称"权威全量"）。
+     * 只有「服务端作业完整 + 本报告已渲染全部行」才允许出现"（权威全量）"字样。
+     */
+    dataScopeLines() {
+        const auth = this._authoritative;
+        const audit = this._renderAudit || {};
+        const entries = Object.values(audit);
+        const lines = [];
+        const truncTypes = entries.filter((e) => e.truncated).map((e) => e.type);
+        const sum = (k) => entries.reduce((s, e) => s + (Number(e[k]) || 0), 0);
+        const allAuthoritative = entries.length > 0 && entries.every((e) => e.source === 'authoritative');
+
+        if (auth && auth.complete && entries.length === 0) {
+            // 兼容直接调用（未经过 _doPreviewReport → 无渲染审计）：沿用旧声明口径。
+            // 报告生成路径**总是**先构建 _renderAudit，因此"截断却声称全量"不会经此分支发生。
+            const total = (auth.jobs || []).reduce((s, j) => s + (Number(j.expected) || 0), 0);
+            lines.push(`数据范围：服务端快照导出作业（权威全量）—— 实际导出行数 ${total}，expectedCount === exportedCount 且 ID 无重无漏。`);
+        } else if (auth && auth.complete && truncTypes.length === 0 && allAuthoritative) {
+            // 真全量：服务端快照完整 **且** 本报告渲染了全部行
+            lines.push(`数据范围：服务端快照导出作业（权威全量）—— 报告已渲染全部 ${sum('rendered')} 行；`
+                + `expectedCount === exportedCount === 渲染数（逐类型可核），ID 无重无漏（校验和见原始产物）。`);
+        } else if (auth && auth.complete) {
+            // 服务端全量成立，但本预览/PDF 受单类型渲染上限截断 → 明确"部分数据"+ 指向完整原始产物
+            lines.push(`数据范围：**部分数据**（非全量）—— 服务端权威快照共 ${sum('expected')} 行；`
+                + `本预览/PDF 仅渲染 ${sum('rendered')} 行（单类型上限 ${this.MAX_ROWS_PER_TYPE} 条/类型）。`
+                + `完整原始产物（NDJSON，含全部行）见文末「完整原始产物」区块，可下载核对。`);
+        } else if (auth) {
+            const okTypes = Object.entries(auth.results).filter(([, r]) => r.success).map(([t]) => t);
+            lines.push(`数据范围：**部分数据**（非全量）—— 权威作业完成类型：${okTypes.length ? okTypes.join('、') : '无'}；`
+                + `未完成类型：${auth.failedTypes.length ? auth.failedTypes.join('、') : '无'}（这些类型仅含本地缓存窗口，可能缺记录）。`
+                + (okTypes.length ? '已完成的类型可在文末「完整原始产物」下载完整 NDJSON。' : ''));
+        } else {
+            lines.push('数据范围：**本地缓存窗口**（未取得服务端权威快照）—— 不构成完整数据声明。');
+        }
+
+        if (truncTypes.length) {
+            lines.push(`渲染截断：${truncTypes.join('、')} —— 该类型预览/PDF 不含全部记录（上限 ${this.MAX_ROWS_PER_TYPE} 条/类型）；`
+                + `完整数据必须以下载的原始产物为准。`);
+        } else {
+            // 仅对**非权威来源**的类型报"本地窗口截断"：权威来源的截断判定以上面的 expected/渲染数审计为准，
+            // 不能用 `渲染数 >= 上限` 的启发式（恰好 2000/2000 的完整报告会被误报为部分数据）。
+            const localCapHit = (Array.isArray(this._localCapHit) ? this._localCapHit : [])
+                .filter((t) => (audit[t] ? audit[t].source !== 'authoritative' : true));
+            if (localCapHit.length) {
+                lines.push(`本地窗口截断：${localCapHit.join('、')} 达到单类型上限 ${this.MAX_ROWS_PER_TYPE} 条 —— 该类型为部分数据。`);
+            }
+        }
+        return lines;
     }
 
     // NB-22: 大数据量保护——每种类型最多加载的记录数，防止 OOM。
@@ -468,11 +638,13 @@ export class ExportService {
         const config = this.getExportConfig();
         console.log('📋 配置信息:', config);
         
-        // P2-14: 先从服务器同步最新数据，再收集本地缓存数据
-        this.syncBeforeExport().then(() => {
+        // P3-W5-RECORD-T01（AUD-020）：先跑权威导出作业（服务端快照），再据其结果生成报告；
+        // 作业不可用时回落本地窗口，但报告**必须**声明"部分数据"（见 dataScopeLines）。
+        this.syncBeforeExport(config).then(() => {
             this._doPreviewReport(config);
         }).catch(err => {
-            console.warn('⚠️ 服务器同步失败，使用本地缓存生成报告:', err.message);
+            console.warn('⚠️ 权威导出作业失败，使用本地窗口生成报告（报告会声明非全量）:', err.message);
+            this._authoritative = this._authoritative || { at: new Date().toISOString(), types: [], results: {}, jobs: [], complete: false, failedTypes: [], filters: {} };
             this._doPreviewReport(config);
         });
     }
@@ -499,8 +671,69 @@ export class ExportService {
             console.log('3. localStorage 中的 key 名称是否匹配？');
         }
         
+        // 本地单类型上限命中登记（报告数据范围声明用；AUD-020：截断必须显式）
+        this._localCapHit = Object.entries(data)
+            .filter(([, rows]) => rows.length >= this.MAX_ROWS_PER_TYPE)
+            .map(([t]) => t);
+
+        // R1（AUD-020）：渲染范围审计（expected/exported/渲染数）—— 报告"是否等于权威全量"的唯一事实源
+        this._renderAudit = this.buildRenderScope(data);
+        const scopeAudit = Object.values(this._renderAudit);
+        console.log('📐 渲染范围审计:',
+            scopeAudit.map((e) => `${e.type}:${e.source}/${e.rendered}${e.expected !== null ? `/${e.expected}` : ''}${e.truncated ? '(截断)' : ''}`).join(' '));
+
         const html = this.generateReportHTML(data, config);
-        document.getElementById('reportPreview').innerHTML = html;
+        const preview = document.getElementById('reportPreview');
+        preview.innerHTML = html;
+        this._attachRawArtifactHandlers();
+    }
+
+    /**
+     * 下载**完整原始产物**（服务端权威快照 NDJSON；未截断）。
+     * 走既有作业下载端点（当前权限/归属在服务端重校验），浏览器侧触发文件保存。
+     * @returns {Promise<boolean>} 是否成功触发下载
+     */
+    async downloadRawArtifact(jobId) {
+        if (!jobId) return false;
+        try {
+            const token = this._authToken();
+            const res = await fetch(`/api/records/exports/${jobId}/download`, {
+                headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+            });
+            if (!res.ok) {
+                console.warn(`⚠️ 原始产物下载失败（HTTP ${res.status}）：可能作业未完成、产物已过期或权限已变更`);
+                return false;
+            }
+            const text = await res.text();
+            const blob = new Blob([text], { type: 'application/x-ndjson' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${jobId}.ndjson`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => { try { URL.revokeObjectURL(url); } catch { /* ignore */ } }, 1000);
+            return true;
+        } catch (e) {
+            console.warn('⚠️ 原始产物下载异常:', e.message);
+            return false;
+        }
+    }
+
+    /** 报告预览内的"完整原始产物"下载按钮事件委托（幂等绑定）。 */
+    _attachRawArtifactHandlers() {
+        const container = document.getElementById('reportPreview');
+        if (!container || container.dataset.w5RawBound === '1') return;
+        container.dataset.w5RawBound = '1';
+        container.addEventListener('click', (ev) => {
+            const btn = ev.target && typeof ev.target.closest === 'function'
+                ? ev.target.closest('[data-w5-raw-download]')
+                : null;
+            if (!btn) return;
+            ev.preventDefault();
+            this.downloadRawArtifact(btn.getAttribute('data-w5-raw-download'));
+        });
     }
     
     // ✅ 修改：生成报告HTML时显示肉类品种筛选信息
@@ -515,6 +748,7 @@ export class ExportService {
                     <p class="text-xs text-gray-500 mt-1">
                         生成时间：${new Date().toLocaleString('zh-CN')}
                     </p>
+                    ${this.dataScopeLines().map((l) => `<p class="text-xs text-gray-600 mt-1">${l}</p>`).join('')}
         `;
         
         // ✅ 新增：显示肉类品种筛选信息
@@ -590,10 +824,16 @@ export class ExportService {
             leanMeat: '肉、蛋农残', pathogen: '病原体检测'
         };
 
+        // R1（AUD-020）：汇总里的"总检测记录数"必须说清是**本报告渲染数**；截断时并列权威快照总数
+        const auditEntries = Object.values(this._renderAudit || {});
+        const expectedTotal = auditEntries.reduce((s, e) => s + (Number(e.expected) || 0), 0);
+        const hasKnownExpected = auditEntries.some((e) => e.expected !== null);
+        const anyTruncated = auditEntries.some((e) => e.truncated);
         html += `
             <div class="mt-6 p-4 bg-blue-50 border border-blue-200 rounded">
                 <h4 class="font-bold mb-2">📊 数据汇总</h4>
-                <p class="text-sm">总检测记录数：<span class="font-bold text-blue-600">${totalRecords}</span> 条</p>
+                <p class="text-sm">本报告渲染记录数：<span class="font-bold text-blue-600">${totalRecords}</span> 条${anyTruncated ? '（<strong>部分数据</strong>，非全量）' : ''}</p>
+                ${hasKnownExpected ? `<p class="text-sm">服务端权威快照总记录数：<span class="font-bold text-blue-600">${expectedTotal}</span> 条</p>` : ''}
                 <p class="text-sm">检测类型数：<span class="font-bold text-blue-600">${config.testTypes.length}</span> 类</p>
                 <p class="text-sm">涉及食堂：<span class="font-bold text-blue-600">${config.canteens.length || '全部'}</span></p>
         `;
@@ -605,17 +845,39 @@ export class ExportService {
             `;
         }
 
-        // NB-22: 超限截断提示
+        // NB-22: 超限截断提示（R1：必须指向完整原始产物，不得让读者以为本报告是全量）
         if (truncatedTypes.length > 0) {
             html += `
                 <div class="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
-                    <strong>⚠️ 注：</strong>
-                    ${truncatedTypes.map(t => `${typeNamesForTruncation[t] || t} 记录数超过 ${this.MAX_ROWS_PER_TYPE} 条，仅显示前 ${this.MAX_ROWS_PER_TYPE} 条`).join('；')}
-                    （如需全部数据，建议分批按日期范围导出）
+                    <strong>⚠️ 本报告为部分数据：</strong>
+                    ${truncatedTypes.map(t => `${typeNamesForTruncation[t] || t} 记录数超过 ${this.MAX_ROWS_PER_TYPE} 条，本预览/PDF 仅显示前 ${this.MAX_ROWS_PER_TYPE} 条`).join('；')}
+                    （完整数据见下方「完整原始产物」下载，或按日期范围分批导出）
                 </div>
             `;
         }
-        
+
+        // R1（AUD-020）：完整原始产物区块（服务端权威快照，未截断）—— 部分数据报告必须提供全量下载入口
+        const artifacts = this.rawArtifacts();
+        if (artifacts.length) {
+            html += `
+                <div class="mt-4 p-4 bg-indigo-50 border border-indigo-200 rounded" id="rawArtifactsBlock">
+                    <h4 class="font-bold mb-2">📦 完整原始产物（服务端权威快照，未截断）</h4>
+                    <p class="text-xs text-gray-700 mb-2">
+                        以下 NDJSON 由服务端快照导出作业原子发布（私有产物，含该类型全部记录）；行数与校验和可逐项核对。
+                        ${truncatedTypes.length ? '<strong>本次预览/PDF 为部分数据，完整数据以下载产物为准。</strong>' : ''}
+                    </p>
+                    <ul class="text-xs space-y-1">
+                        ${artifacts.map((a) => `<li>${this._escapeHtml(typeNamesForTruncation[a.type] || a.type)}：`
+                            + `${a.exported === null ? '?' : a.exported} 行`
+                            + `（expected=${a.expected === null ? '?' : a.expected}），jobId=${this._escapeHtml(a.jobId)}，`
+                            + `sha256=${this._escapeHtml(String(a.checksum || '').slice(0, 16))}… `
+                            + `<button type="button" class="ml-2 px-2 py-0.5 bg-indigo-600 text-white rounded hover:bg-indigo-700" `
+                            + `data-w5-raw-download="${this._escapeHtml(a.jobId)}">下载完整 NDJSON</button></li>`).join('')}
+                    </ul>
+                </div>
+            `;
+        }
+
         html += `
             </div>
         `;
@@ -1035,7 +1297,13 @@ export class ExportService {
             
             document.body.removeChild(loadingDiv);
             
-            this.showToast('✅ 高清PDF导出成功！', 'success');
+            // R1（AUD-020）：被渲染上限截断的 PDF 必须显式声明"部分数据"，不得让用户以为是全量
+            const truncated = Object.values(this._renderAudit || {}).filter((e) => e.truncated).map((e) => e.type);
+            if (truncated.length) {
+                this.showToast(`⚠️ PDF 已导出，但为部分数据（${truncated.join('、')} 超过上限 ${this.MAX_ROWS_PER_TYPE} 条/类型）：完整数据请在预览区「完整原始产物」下载 NDJSON`, 'warning');
+            } else {
+                this.showToast('✅ 高清PDF导出成功！', 'success');
+            }
 
         } catch (error) {
             console.error('PDF导出失败:', error);

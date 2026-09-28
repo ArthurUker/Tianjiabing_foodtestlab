@@ -1,5 +1,5 @@
 import { UIHelper } from './utils/UIHelper.js';
-import { initTableware } from './modules/Tableware.js';
+import { initTableware, tablewareStorage } from './modules/Tableware.js';
 import { GenericTestModule } from './modules/GenericTest.js';
 import { initPathogen } from './modules/Pathogen.js';
 import { initDashboard } from './modules/Dashboard.js';
@@ -432,7 +432,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // 专门处理餐具洁净度
                 const tbody = document.getElementById('tablewareRecords');
                 if (tbody) {
-                    const cacheData = localStorage.getItem('cache_tableware');
+                    // P3-CONS-T01（AUD-001 收口，W4 未决 #1）：旧键 'cache_tableware' 直读 →
+                    // 复用 Tableware 模块的 StorageService 实例取作用域键（tenant+subject+resource）
+                    const cacheData = localStorage.getItem(tablewareStorage.getStorageKeys().cacheKey);
                     if (cacheData) {
                         try {
                             const parsed = JSON.parse(cacheData);

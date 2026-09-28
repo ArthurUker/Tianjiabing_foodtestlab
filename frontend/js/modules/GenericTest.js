@@ -10,8 +10,12 @@ import { collectCustomFieldValues, getSchoolCustomization, getSchoolCanteens } f
 // 过滤"已隐藏的自定义字段"；若 getSchoolCustomization 不传 schoolCode 则恒为 {}，
 // 隐藏规则失效，被管理端隐藏的字段会随提交再次落库。
 import { extractSchoolCode } from '../utils/schoolCode.js';
-import { escapeHtml } from '../utils/schoolCustomization/shared.js';
+// P3-W5-T01（AUD-003/RC-05）：业务数据 → DOM 一律经共享安全渲染通道（文本=textContent、属性=setAttribute），
+// 本模块不再自持转义实现（原 escapeHtml 分叉已由 domSafe 收编）。
+import { html, mount, setText } from '../core/domSafe.js';
 import { getLocalDateStr } from '../utils/dateUtil.js';
+// 油脂结论口径（与后端 lib/conclusionVerdict.js 同规则的前端副本；未知等级不计合格）
+import { oilLevelOf, isOilPass } from '../core/conclusionVerdict.js';
 
 export class GenericTestModule {
     constructor(config) {
@@ -231,7 +235,9 @@ export class GenericTestModule {
         
         if (isQuickAccess) {
             try {
-                const cacheKey = `cache_${this.moduleName}`;
+                // P3-CONS-T01（AUD-001 收口，W4 未决 #1）：旧键 `cache_${this.moduleName}` 直读 →
+                // 经 StorageService#getStorageKeys() 取作用域键（tenant+subject+resource）
+                const cacheKey = this.storage.getStorageKeys().cacheKey;
                 const cacheData = localStorage.getItem(cacheKey);
                 allRecords = cacheData ? JSON.parse(cacheData).data || [] : [];
                 console.log(`📖 快速访问模式: ${this.moduleName} 从localStorage读取`, allRecords.length, '条记录');
@@ -341,9 +347,11 @@ export class GenericTestModule {
         modal.id = 'editModal';
         modal.className = 'fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center';
 
+        // P3-W5-T01（AUD-003）：整改日志/复检历史字段（用户、内容、复检人、说明）改经 domSafe
+        // 文本槽位渲染 —— 注入串只会成为文本，不可能闭合标签或属性。
         const renderLogs = (logs) => {
-            if (!logs || logs.length === 0) return '<div class="text-gray-400 text-sm italic">暂无整改日志</div>';
-            return logs.map(log => `
+            if (!logs || logs.length === 0) return html`<div class="text-gray-400 text-sm italic">暂无整改日志</div>`;
+            return html`${logs.map(log => html`
                 <div class="text-xs border-l-2 border-blue-400 pl-2 mb-2 bg-gray-50 p-1 rounded-r">
                     <div class="flex justify-between text-gray-500">
                         <span>${log.time}</span>
@@ -351,12 +359,12 @@ export class GenericTestModule {
                     </div>
                     <div class="text-gray-800 font-medium mt-1">${log.action}: ${log.content || '内容已隐藏'}</div>
                 </div>
-            `).join('');
+            `)}`;
         };
 
         const renderRecheckHistory = (rechecks) => {
-            if (!rechecks || rechecks.length === 0) return '<div class="text-gray-400 text-sm italic p-2">暂无复检记录</div>';
-            return rechecks.map(rec => `
+            if (!rechecks || rechecks.length === 0) return html`<div class="text-gray-400 text-sm italic p-2">暂无复检记录</div>`;
+            return html`${rechecks.map(rec => html`
                 <div class="border border-gray-200 rounded p-2 mb-2 bg-white text-xs">
                     <div class="flex justify-between border-b pb-1 mb-1">
                         <span class="font-bold ${rec.isPassed ? 'text-green-600' : 'text-red-600'}">
@@ -364,13 +372,15 @@ export class GenericTestModule {
                         </span>
                         <span class="text-gray-500">${rec.time}</span>
                     </div>
-                    ${rec.recheckInspector ? `<div class="text-gray-500 mb-1"><i class="fas fa-user mr-1"></i>复检人：${escapeHtml(rec.recheckInspector)}</div>` : ''}
+                    ${rec.recheckInspector ? html`<div class="text-gray-500 mb-1"><i class="fas fa-user mr-1"></i>复检人：${rec.recheckInspector}</div>` : ''}
                     <div class="text-gray-700">${rec.description || '无描述'}</div>
                 </div>
-            `).join('');
+            `)}`;
         };
 
-        modal.innerHTML = `
+        // P3-W5-T01（AUD-003）：整改措施原先是 textarea 内容位置直拼（`</textarea><script>` 可闭合逃逸），
+        // 现改由 mount 以槽位渲染；textarea 的初值统一用 `.value` 属性赋值（下方 $el 定义后）。
+        mount(modal, html`
             <div class="bg-white rounded-lg shadow-xl w-11/12 md:w-3/4 max-h-[90vh] overflow-y-auto flex flex-col">
                 <div class="p-4 border-b flex justify-between items-center bg-gray-50">
                     <h3 class="font-bold text-lg text-gray-800"><i class="fas fa-edit text-blue-600 mr-2"></i>整改与复检管理</h3>
@@ -386,7 +396,7 @@ export class GenericTestModule {
                     <div id="tabCorrective" class="block">
                         <div class="mb-4">
                             <label class="block text-sm font-medium text-gray-700 mb-2">新增/更新整改措施</label>
-                            <textarea id="newCorrectiveAction" class="w-full border border-gray-300 rounded p-3 focus:ring-2 focus:ring-blue-500" rows="3" placeholder="请输入针对不合格项的整改措施...">${record.correctiveAction || ''}</textarea>
+                            <textarea id="newCorrectiveAction" class="w-full border border-gray-300 rounded p-3 focus:ring-2 focus:ring-blue-500" rows="3" placeholder="请输入针对不合格项的整改措施..."></textarea>
                         </div>
                         <div class="flex justify-end mb-6">
                             <button id="btnSaveLog" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 shadow-sm flex items-center">
@@ -446,7 +456,7 @@ export class GenericTestModule {
                     </div>
                 </div>
             </div>
-        `;
+        `);
 
         document.body.appendChild(modal);
 
@@ -454,6 +464,9 @@ export class GenericTestModule {
         // 避免 Tableware 主表单的 id="recheckResult" textarea 抢占 getElementById
         // 导致复检 isPassed 永远为 false（"填合格反馈不合格"根因）。
         const $el = (id) => modal.querySelector(`#${id}`);
+
+        // 整改措施初值：属性赋值（不经 HTML 解析），与 textarea 内容位置注入面等价但安全
+        $el('newCorrectiveAction').value = record.correctiveAction || '';
 
         $el('closeEditModal').onclick = () => modal.remove();
 
@@ -497,7 +510,7 @@ export class GenericTestModule {
             const success = this.storage.update(record.id, record);
 
             if (success) {
-                $el('auditLogsList').innerHTML = renderLogs(record.modificationLogs);
+                mount($el('auditLogsList'), renderLogs(record.modificationLogs));
                 this.render();
                 document.dispatchEvent(new Event('dataChanged'));
                 alert('日志已保存');
@@ -561,7 +574,7 @@ export class GenericTestModule {
                 // 更新期间引用可能变化导致 recheckRecords 看似为空）；统一从 storage
                 // 重新拉取最新缓存，确保弹窗与列表/服务端一致。
                 const fresh = this.storage.getAll().find(r => String(r.id) === String(record.id)) || record;
-                $el('recheckHistoryList').innerHTML = renderRecheckHistory(fresh.recheckRecords);
+                mount($el('recheckHistoryList'), renderRecheckHistory(fresh.recheckRecords));
                 $el('recheckDescription').value = '';
                 this.render();
                 document.dispatchEvent(new Event('dataChanged'));
@@ -582,7 +595,7 @@ export class GenericTestModule {
             if (!fresh) return;
             // 同步弹窗历史与最新缓存
             const historyEl = $el('recheckHistoryList');
-            if (historyEl) historyEl.innerHTML = renderRecheckHistory(fresh.recheckRecords);
+            if (historyEl) mount(historyEl, renderRecheckHistory(fresh.recheckRecords));
             this.render();
             // 弹窗存在时提示用户（避免与正在显示的 alert 冲突）
             if (document.getElementById('editModal')) {
@@ -620,18 +633,20 @@ export class GenericTestModule {
         const recheckBadgeClass = isRecheckPassed
             ? 'bg-blue-50 text-blue-700 border border-blue-300'
             : null;
+        // 全部字段经 domSafe 槽位渲染（文本=文本节点）：详情弹窗不再有业务字段直拼 innerHTML
         const resultBadge = (text, colorClass) =>
-            `<span class="px-2 py-1 rounded ${colorClass}">${escapeHtml(text)}</span>`;
+            html`<span class="px-2 py-1 rounded ${colorClass}">${text}</span>`;
         const standardBadgeClass = (val, okVal, warnVal) =>
             val === okVal ? 'bg-green-100 text-green-800'
             : val === warnVal ? 'bg-yellow-100 text-yellow-800'
             : 'bg-red-100 text-red-800';
+        const remarkLine = (text) => html`<div class="col-span-2"><span class="font-medium">备注：</span>${text}</div>`;
 
         let detailContent = '';
         if (this.moduleName === 'pesticide') {
             const displayResult = recheckBadgeText || record.result || '';
             const badgeClass = recheckBadgeClass || standardBadgeClass(record.result, '合格');
-            detailContent = `
+            detailContent = html`
                 <div class="grid grid-cols-2 gap-4">
                     <div><span class="font-medium">检测日期：</span>${record.testDate}</div>
                     <div><span class="font-medium">食堂：</span>${record.canteen}</div>
@@ -639,11 +654,17 @@ export class GenericTestModule {
                     <div><span class="font-medium">蔬菜品种：</span>${record.vegetableType}</div>
                     <div><span class="font-medium">检测项目：</span>${record.batchNo}</div>
                     <div><span class="font-medium">检测结果：</span>${resultBadge(displayResult, badgeClass)}</div>
-                    ${record.remark ? `<div class="col-span-2"><span class="font-medium">备注：</span>${escapeHtml(record.remark)}</div>` : ''}
+                    ${record.remark ? remarkLine(record.remark) : ''}
                 </div>
             `;
         } else if (this.moduleName === 'oil') {
-            detailContent = `
+            // 品质等级徽标（2026-09-25 AUD-025）：未知等级**不得显示为不合格**，单独用灰色「未判定」；
+            // 合格/警戒 → 绿，不合格 → 红（与统计口径同源：lib → core/conclusionVerdict.js）。
+            const oilLevel = oilLevelOf(record);
+            const oilBadgeClass = oilLevel === 'pass' ? 'bg-green-100 text-green-800'
+                : oilLevel === 'fail' ? 'bg-red-100 text-red-800'
+                : 'bg-gray-100 text-gray-700';
+            detailContent = html`
                 <div class="grid grid-cols-2 gap-4">
                     <div><span class="font-medium">检测日期：</span>${record.testDate}</div>
                     <div><span class="font-medium">食堂：</span>${record.canteen}</div>
@@ -651,14 +672,14 @@ export class GenericTestModule {
                     <div><span class="font-medium">油温：</span>${record.oilTemp}℃</div>
                     <div><span class="font-medium">预估氧化值(TPM)：</span>${record.tpmValue} g/100g</div>
                     <div><span class="font-medium">预估酸价值：</span>${record.acidValue || '-'} mg/g</div>
-                    <div><span class="font-medium">食用油品质等级：</span><span class="px-2 py-1 rounded ${standardBadgeClass(record.colorLevel, '合格', '警戒')}">${record.colorLevel}</span></div>
-                    ${record.remark ? `<div class="col-span-2"><span class="font-medium">备注：</span>${escapeHtml(record.remark)}</div>` : ''}
+                    <div><span class="font-medium">食用油品质等级：</span><span class="px-2 py-1 rounded ${oilBadgeClass}">${record.colorLevel}</span>${oilLevel === 'unknown' && String(record.colorLevel || '').trim() ? html`<span class="text-xs text-gray-500 ml-1">未识别的等级，按未判定处理（不计入合格）</span>` : ''}</div>
+                    ${record.remark ? remarkLine(record.remark) : ''}
                 </div>
             `;
         } else if (this.moduleName === 'leanMeat') {
             const displayResult = recheckBadgeText || record.result || '';
             const badgeClass = recheckBadgeClass || standardBadgeClass(record.result, '合格');
-            detailContent = `
+            detailContent = html`
                 <div class="grid grid-cols-2 gap-4">
                     <div><span class="font-medium">检测日期：</span>${record.testDate}</div>
                     <div><span class="font-medium">食堂：</span>${record.canteen}</div>
@@ -666,12 +687,12 @@ export class GenericTestModule {
                     <div><span class="font-medium">肉类品种：</span>${record.meatType}</div>
                     <div><span class="font-medium">检测项目：</span>${record.batchNo}</div>
                     <div><span class="font-medium">检测结果：</span>${resultBadge(displayResult, badgeClass)}</div>
-                    ${record.remark ? `<div class="col-span-2"><span class="font-medium">备注：</span>${escapeHtml(record.remark)}</div>` : ''}
+                    ${record.remark ? remarkLine(record.remark) : ''}
                 </div>
             `;
         }
 
-        modal.innerHTML = `
+        mount(modal, html`
             <div class="bg-white rounded-lg shadow-xl w-11/12 md:w-2/3 max-h-[90vh] overflow-y-auto">
                 <div class="p-4 border-b flex justify-between items-center bg-gray-50">
                     <h3 class="font-bold text-lg text-gray-800"><i class="fas fa-info-circle text-blue-600 mr-2"></i>检测记录详情</h3>
@@ -679,27 +700,27 @@ export class GenericTestModule {
                 </div>
                 <div class="p-6">
                     ${detailContent}
-                    ${record.correctiveAction ? `
+                    ${record.correctiveAction ? html`
                         <div class="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded">
                             <div class="font-medium text-gray-700 mb-1">整改措施：</div>
                             <div class="text-gray-600">${record.correctiveAction}</div>
                         </div>
                     ` : ''}
-                    ${record.recheckRecords && record.recheckRecords.length > 0 ? `
+                    ${record.recheckRecords && record.recheckRecords.length > 0 ? html`
                         <div class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded">
                             <div class="font-medium text-gray-700 mb-2">复检记录：</div>
-                            ${record.recheckRecords.map(rec => `
+                            ${record.recheckRecords.map(rec => html`
                                 <div class="text-sm mb-1">
                                     <span class="font-medium ${rec.isPassed ? 'text-green-600' : 'text-red-600'}">[${rec.isPassed ? '合格' : '不合格'}]</span>
-                                    ${rec.recheckInspector ? `复检人：${escapeHtml(rec.recheckInspector)} | ` : ''}
-                                    ${rec.time} - ${escapeHtml(rec.description || '')}
+                                    ${rec.recheckInspector ? html`复检人：${rec.recheckInspector} | ` : ''}
+                                    ${rec.time} - ${rec.description || ''}
                                 </div>
-                            `).join('')}
+                            `)}
                         </div>
                     ` : ''}
                 </div>
             </div>
-        `;
+        `);
 
         document.body.appendChild(modal);
         document.getElementById('closeDetailModal').onclick = () => modal.remove();
@@ -1325,47 +1346,55 @@ export class GenericTestModule {
         this.updatePaginationUI(startIndex, Math.min(startIndex + this.recordsPerPage, totalRecords), totalRecords, totalPages);
 
         if (currentRecords.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-gray-500">暂无数据</td></tr>`;
+            mount(tbody, html`<tr><td colspan="8" class="text-center py-4 text-gray-500">暂无数据</td></tr>`);
             return;
         }
 
-        tbody.innerHTML = currentRecords.map(r => {
+        // P3-W5-T01（AUD-003）：列表行全部字段（日期/食堂/品种/TPM/备注/检测人/ID）改经 domSafe 槽位渲染。
+        // 备注同时用于「属性上下文 title」——占位符经 setAttribute 落地，引号闭合串不可能逃逸。
+        mount(tbody, html`${currentRecords.map(r => {
             const result = r.result || r.colorLevel || '未知';
             // TD-RecheckBadge: 最近一次复检为合格 → "复检合格"（蓝底描边），区别于首次检验合格的纯绿
             const latestRecheck = Array.isArray(r.recheckRecords) && r.recheckRecords.length > 0 ? r.recheckRecords[0] : null;
             const isRecheckPassed = !!(latestRecheck && latestRecheck.isPassed === true);
             const displayResult = isRecheckPassed ? '复检合格' : result;
-            // P2-24: 列表颜色改为三元判定（合格绿/警戒黄/不合格红），与详情弹窗 showDetailModal 一致
+            // P2-24: 列表颜色三元判定（合格绿/警戒黄/不合格红），与详情弹窗 showDetailModal 一致。
+            // AUD-025：油脂改按归一等级着色 —— 未识别等级用灰色「未判定」，不得显示为不合格（红）。
+            const oilLevel = this.moduleName === 'oil' ? oilLevelOf(r) : null;
             const resultColorClass = isRecheckPassed
                 ? 'bg-blue-50 text-blue-700 border border-blue-300'
+                : oilLevel === 'pass' ? 'bg-green-100 text-green-800'
+                : oilLevel === 'fail' ? 'bg-red-100 text-red-800'
+                : oilLevel === 'unknown' ? 'bg-gray-100 text-gray-700'
                 : result === '合格' ? 'bg-green-100 text-green-800'
                 : result === '警戒' ? 'bg-yellow-100 text-yellow-800'
                 : 'bg-red-100 text-red-800';
 
-            const remarkInfo = r.remark
-                ? `<div class="text-xs text-gray-500 mt-1" title="${r.remark}">备注: ${r.remark.length > 15 ? r.remark.substring(0, 15) + '...' : r.remark}</div>`
+            const remarkText = r.remark === null || r.remark === undefined ? '' : String(r.remark);
+            const remarkInfo = remarkText
+                ? html`<div class="text-xs text-gray-500 mt-1" title="${remarkText}">备注: ${remarkText.length > 15 ? remarkText.substring(0, 15) + '...' : remarkText}</div>`
                 : '';
 
             let dataColumns = '';
             if (this.moduleName === 'pesticide') {
-                dataColumns = `
+                dataColumns = html`
                     <td class="border px-4 py-2">${r.vegetableType || '-'}</td>
                     <td class="border px-4 py-2">${r.batchNo || '-'}</td>
                 `;
             } else if (this.moduleName === 'oil') {
-                dataColumns = `
+                dataColumns = html`
                     <td class="border px-4 py-2">${r.oilTemp || '-'}℃</td>
                     <td class="border px-4 py-2">TPM: ${r.tpmValue || '-'}</td>
                     <td class="border px-4 py-2">AV: ${r.acidValue || '-'}</td>
                 `;
             } else if (this.moduleName === 'leanMeat') {
-                dataColumns = `
+                dataColumns = html`
                     <td class="border px-4 py-2">${r.meatType || '-'}</td>
                     <td class="border px-4 py-2">${r.batchNo || '-'}</td>
                 `;
             }
 
-            return `
+            return html`
             <tr class="border-b hover:bg-gray-50">
                 <td class="border px-4 py-2">${r.testDate}</td>
                 <td class="border px-4 py-2">${r.canteen}</td>
@@ -1379,14 +1408,14 @@ export class GenericTestModule {
                 <td class="border px-4 py-2">${r.inspector || '-'}</td>
                 <td class="border px-4 py-2">
                     <div class="flex gap-2 justify-center">
-                        ${canUpdate ? `<button class="text-blue-600 hover:text-blue-800 btn-edit" data-id="${r.id}" title="整改/复检"><i class="fas fa-edit"></i></button>` : ''}
+                        ${canUpdate ? html`<button class="text-blue-600 hover:text-blue-800 btn-edit" data-id="${r.id}" title="整改/复检"><i class="fas fa-edit"></i></button>` : ''}
                         <button class="text-green-600 hover:text-green-800 btn-detail" data-id="${r.id}" title="查看详情">
                             <i class="fas fa-info-circle"></i>
                         </button>
-                        ${canDelete ? `<button class="text-red-600 hover:text-red-800 btn-delete" data-id="${r.id}" title="删除"><i class="fas fa-trash"></i></button>` : ''}
+                        ${canDelete ? html`<button class="text-red-600 hover:text-red-800 btn-delete" data-id="${r.id}" title="删除"><i class="fas fa-trash"></i></button>` : ''}
                     </div>
                 </td>
             </tr>`;
-        }).join('');
+        })}`);
     }
 }

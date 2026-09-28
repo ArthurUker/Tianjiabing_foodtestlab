@@ -1,7 +1,14 @@
 // ====== 检测记录路由（/api/test-records + /api/records，P1-5 拆路由 Step 2）======
 // 从 server.js 抽取。req.db 由 authenticateUser 注入；幂等中间件经参数传入。
 import express from 'express'
+import fs from 'node:fs'
 import { normalizeRecordType, buildRecordPayload, buildRecordWriteData, normalizeWriteJson, resolveWritableStatus, validateRecordPayload, writeRecordAuditLog, getLatestRecheckPassed, buildDeterministicRecordCode, RECORD_ROUTE_TYPES } from '../lib/recordNormalize.js'
+// P3-W5-RECORD-T01（AUD-020 / RC-07）：完整读取契约（分页元数据 / keyset 游标 / 超限显式拒绝）
+import { parsePageQuery, cursorWhere, mergeWhere, pageMeta } from '../lib/readContract.js'
+// P3-W5-RECORD-T01（AUD-020 / RC-07）：权威导出作业（服务端快照 + 流式私有产物 + 原子发布）
+import { createExportJob, getExportJob, runExportJob, requestCancel, isDownloadable, cleanupExpiredJobs, publicExportJobView, exportJobArtifactPath, EXPORT_JOB_STATES } from '../lib/exportJobs.js'
+// P3-W5-RECORD-T01（AUD-002 / RC-01）：幂等作用域（tenant/subject）—— 与中间件同一实现
+import { tenantScopeOf, subjectScopeOf } from '../middleware/idempotencyMiddleware.js'
 import { sanitizeObjectKeys, safeParseJson } from '../lib/sanitize.js'
 import { canModifyRecord, maskGuestSensitiveFields } from '../lib/securityGuards.js'
 // 餐具「记录级结论」规则（顶层 result 为空时回退 atpPoints[].res）：
@@ -9,6 +16,8 @@ import { canModifyRecord, maskGuestSensitiveFields } from '../lib/securityGuards
 import { TABLEWARE_PASS_SQL } from '../lib/tablewareVerdict.js'
 // 肉蛋品种归类（鱼、虾 → 鱼肉 等）：看板子卡由服务端聚合驱动，避免本地缓存漂移
 import { MEAT_CARD_KEYS, toMeatCardKey } from '../lib/leanMeatCategory.js'
+// 油脂结论口径的 SQL 等价物（唯一事实源 lib/conclusionVerdict.js；本文件只消费，不复制规则）
+import { oilVerdictSql } from '../lib/conclusionVerdict.js'
 
 const VALID_TEST_RECORD_STATUSES = new Set(['pending', 'completed', 'failed', 'archived'])
 
@@ -21,12 +30,18 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
     const router = express.Router()
 
     // ====== Test Records API ======
-    // CR-11: 写接口幂等中间件覆盖（与 /api/records 一致，避免重试导致重复写入）
-    router.use('/api/test-records', idempotencyMiddleware)
-    router.use('/api/records', idempotencyMiddleware)
+    // P3-W5-RECORD-T01（AUD-002 / RC-01）：幂等中间件**不再**用 `router.use` 挂在认证之前 ——
+    // 旧挂法（`router.use('/api/test-records'|'/api/records', idempotencyMiddleware)`）使未认证/无权限请求
+    // 也能命中进程内缓存（跨主体泄漏 + 越权读取他人响应）。
+    // 现改为逐写路由挂载，顺序固定为 `authenticateUser → requireEditorOrAbove → idempotencyMiddleware → handler`：
+    //   · 身份键由中间件从认证上下文推导（tenant/subject/resource/method/operationId），同 key 同 body 的
+    //     不同学校/不同账号不再互相命中；
+    //   · 命中必然已通过**当前**认证与授权 → 权限被撤回的请求在命中前即被拒（旧权限缓存不授予新权限）。
+    // 覆盖的 7 条写路由：POST /api/test-records、POST /api/records/:tableName、POST …/bulk-upsert、
+    //   PUT/DELETE /api/records/:tableName/:id、PUT/DELETE /api/test-records/:id。
 
     // 创建测试记录
-    router.post('/api/test-records', authenticateUser, requireEditorOrAbove, async (req, res) => {
+    router.post('/api/test-records', authenticateUser, requireEditorOrAbove, idempotencyMiddleware, async (req, res) => {
         try {
             const { test_type, test_name, sample_info, result_data } = req.body
 
@@ -124,14 +139,20 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
                 }
             }
 
-            const safeLimit = Math.min(parseInt(limit) || 100, MAX_RECORDS_LIMIT)
-            const safeOffset = Math.max(0, parseInt(offset) || 0)
+            // P3-W5-RECORD-T01（AUD-020 / RC-07）：明确分页契约 —— cursor 优先、offset 兼容、
+            // **超限显式拒绝**（旧实现 `Math.min(limit, 2000)` 把 limit=10000 静默降成 2000）。
+            const page = parsePageQuery(req.query)
+            if (!page.ok) {
+                return res.status(page.status).json({ error: page.error, code: page.code, ...(page.extra || {}) })
+            }
+            const effectiveWhere = mergeWhere(where, page.cursor ? cursorWhere(page.cursor) : null)
 
             const records = await req.db.testRecord.findMany({
-                where,
-                skip: safeOffset,
-                take: safeLimit,
-                orderBy: { created_at: 'desc' }
+                where: effectiveWhere,
+                ...(page.cursor ? {} : { skip: page.offset }),
+                take: page.limit,
+                // 稳定顺序（keyset 游标的前提）：created_at 同值时用 id 兜底，避免并发写入下重复/漏行
+                orderBy: [{ created_at: 'desc' }, { id: 'desc' }]
             })
 
             const total = await req.db.testRecord.count({ where })
@@ -141,9 +162,19 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
             res.json({
                 success: true,
                 data: req.user?.role === 'guest' ? payloads.map(p => maskGuestSensitiveFields(p)) : payloads,
-                total,
-                limit: safeLimit,
-                offset: safeOffset
+                // 分页元数据（hasMore / nextCursor / totalBasis / filters / coverage）
+                ...pageMeta({
+                    rows: records,
+                    total,
+                    limit: page.limit,
+                    offset: page.offset,
+                    cursorUsed: !!page.cursor,
+                    filters: {
+                        test_type: test_type || null,
+                        status: status || null,
+                        guestVisibleTypes: req.user?.role === 'guest' ? (req.guestVisibleTypes || []) : null,
+                    },
+                }),
             })
         } catch (error) {
             console.error('❌ Error fetching test records:', error)
@@ -159,7 +190,10 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
     // 2026-09-14 田家炳补导历史数据后暴露：库内 1109 条，看板只显示 703。
     // 本接口在 DB 侧聚合，与前端 Dashboard.isQualified 口径对齐：
     //   tableware / pesticide / leanMeat：result 含"合格"且不含"不合格"
-    //   oil：colorLevel 非空时按"不含不合格"判定，为空时回退 result 规则
+    //   oil（2026-09-25 AUD-025 修复）：等级 ∈ {合格, 警戒} 计合格；其它非空值（不合格 / 未识别）
+    //        一律不计合格；仅等级为空时回退 result 规则 —— SQL 由 lib/conclusionVerdict.js
+    //        `oilVerdictSql()` 同源生成，与访客统计/对外接口/前端看板逐字一致。
+    //        旧实现 `colorLevel NOT LIKE '%不合格%'` 会把未识别等级（如"深绿色"/"foo"）计为合格（fail-open）。
     //   pathogen：riskLevel === '无风险' 计为合格；阳性数 = riskLevel 非空且 ≠ '无风险'
     // ⚠ 前端 isQualified 还含「学校自定义字段判定」(statRole='result')，本接口未复刻该分支；
     //   田家炳/实验中学/一中 field_rules 与 custom_fields 均为空，故当前完全一致。
@@ -183,10 +217,7 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
             const PASS_EXPR = `(CASE "test_type"
                 WHEN 'pathogen' THEN COALESCE("result_data"->>'riskLevel','') = '无风险'
                 WHEN 'tableware' THEN ${TABLEWARE_PASS_SQL}
-                WHEN 'oil' THEN (CASE WHEN COALESCE("result_data"->>'colorLevel','') <> ''
-                                      THEN "result_data"->>'colorLevel' NOT LIKE '%不合格%'
-                                      ELSE (COALESCE("result_data"->>'result','') LIKE '%合格%'
-                                            AND COALESCE("result_data"->>'result','') NOT LIKE '%不合格%') END)
+                WHEN 'oil' THEN ${oilVerdictSql()}
                 ELSE (COALESCE("result_data"->>'result','') LIKE '%合格%'
                       AND COALESCE("result_data"->>'result','') NOT LIKE '%不合格%')
             END)`
@@ -278,6 +309,138 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
         }
     })
 
+    // ====== 权威导出作业（P3-W5-RECORD-T01 / AUD-020 / RC-07）======
+    // 创建/状态/下载/取消：**注册在本文件所有 `/api/records/:tableName` 通配之前**（否则 'exports' 会被当成 tableName）。
+    // 三处入口都重新校验当前主体权限与资源归属：
+    //   · `authenticateUser, requireEditorOrAbove` 已按**当前**身份与角色重验（权限撤回 → 在此即被拒）；
+    //   · 归属 = tenantScope + subject（学校 + 创建者），不匹配一律 404（不泄露他人作业是否存在）。
+    const EXPORT_TYPES = ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen']
+
+    /** 导出筛选 → Prisma where（与列表/看板同口径；日期/食堂在 sample_info，品种兼容 sample_info|result_data）。 */
+    function buildExportWhere({ testTypes, filters }) {
+      const where = { test_type: { in: testTypes } }
+      const and = []
+      const startDate = String((filters && filters.startDate) || '').trim()
+      const endDate = String((filters && filters.endDate) || '').trim()
+      if (/^\d{4}-\d{2}-\d{2}$/.test(startDate)) and.push({ sample_info: { path: ['testDate'], gte: startDate } })
+      if (/^\d{4}-\d{2}-\d{2}$/.test(endDate)) and.push({ sample_info: { path: ['testDate'], lte: endDate } })
+      const canteens = Array.isArray(filters && filters.canteens) ? filters.canteens.filter(Boolean) : []
+      if (canteens.length) {
+        and.push({ OR: canteens.map((c) => ({ sample_info: { path: ['canteen'], equals: c } })) })
+      }
+      const meatTypes = Array.isArray(filters && filters.meatTypes) ? filters.meatTypes.filter(Boolean) : []
+      if (meatTypes.length) {
+        and.push({
+          OR: meatTypes.flatMap((m) => ([
+            { sample_info: { path: ['meatType'], equals: m } },
+            { result_data: { path: ['meatType'], equals: m } },
+          ])),
+        })
+      }
+      if (and.length) where.AND = and
+      return where
+    }
+
+    function ownershipMatches(req, job) {
+      return job.tenantScope === tenantScopeOf(req) && job.subject === subjectScopeOf(req)
+    }
+
+    // 创建导出作业：返回 202 + jobId（状态/下载分离，避免"HTTP 200 之后才发现少页"）
+    router.post('/api/records/exports', authenticateUser, requireEditorOrAbove, idempotencyMiddleware, async (req, res) => {
+        try {
+            const filters = (req.body && typeof req.body.filters === 'object' && req.body.filters) ? req.body.filters : {}
+            const requested = Array.isArray(filters.testTypes) && filters.testTypes.length ? filters.testTypes : EXPORT_TYPES
+            const testTypes = requested.filter((t) => EXPORT_TYPES.includes(t))
+            if (!testTypes.length) {
+                return res.status(400).json({ error: 'filters.testTypes 非法（合法值：tableware/pesticide/oil/leanMeat/pathogen）', code: 'INVALID_EXPORT_FILTERS' })
+            }
+            const job = createExportJob({
+                tenantScope: tenantScopeOf(req),
+                subject: subjectScopeOf(req),
+                role: req.user?.role,
+                filters: { ...filters, testTypes },
+            })
+            const where = buildExportWhere({ testTypes, filters })
+            // 异步执行：HTTP 立刻返回 jobId；完整性由 expectedCount/exportedCount 与 ID 校验在作业内保证
+            runExportJob({ db: req.db, jobId: job.jobId, testTypes, where })
+                .catch((e) => console.error('[export] job crashed', job.jobId, e && e.message))
+            cleanupExpiredJobs().catch(() => { /* 清理失败不影响作业 */ })
+            res.status(202).json({
+                success: true,
+                jobId: job.jobId,
+                state: job.state,
+                statusUrl: `/api/records/exports/${job.jobId}`,
+                downloadUrl: `/api/records/exports/${job.jobId}/download`,
+                manifest: publicExportJobView(job),
+            })
+        } catch (error) {
+            console.error('❌ Error creating export job:', error)
+            res.status(500).json({ error: '导出作业创建失败', code: 'EXPORT_CREATE_FAILED' })
+        }
+    })
+
+    // 查询状态（重新校验权限与归属）
+    router.get('/api/records/exports/:id', authenticateUser, requireEditorOrAbove, async (req, res) => {
+        try {
+            const job = getExportJob(req.params.id)
+            if (!job || !ownershipMatches(req, job)) {
+                return res.status(404).json({ error: '导出作业不存在', code: 'EXPORT_JOB_NOT_FOUND' })
+            }
+            res.json({ success: true, job: publicExportJobView(job), downloadable: isDownloadable(job) })
+        } catch (error) {
+            console.error('❌ Error reading export job:', error)
+            res.status(500).json({ error: '导出作业查询失败', code: 'EXPORT_STATUS_FAILED' })
+        }
+    })
+
+    // 下载：仅服务**已完成**产物；未完成/失败 → 明确 409（绝不流式发送残缺内容）
+    router.get('/api/records/exports/:id/download', authenticateUser, requireEditorOrAbove, async (req, res) => {
+        try {
+            const job = getExportJob(req.params.id)
+            if (!job || !ownershipMatches(req, job)) {
+                return res.status(404).json({ error: '导出作业不存在', code: 'EXPORT_JOB_NOT_FOUND' })
+            }
+            if (!isDownloadable(job)) {
+                return res.status(409).json({
+                    error: `导出作业当前不可下载（state=${job.state}）`,
+                    code: 'EXPORT_NOT_READY',
+                    state: job.state,
+                    job: publicExportJobView(job),
+                })
+            }
+            const artifact = exportJobArtifactPath(job.jobId)
+            res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8')
+            res.setHeader('Content-Disposition', `attachment; filename="${job.jobId}.ndjson"`)
+            res.setHeader('X-Export-Job-Id', job.jobId)
+            res.setHeader('X-Export-Expected-Count', String(job.expectedCount))
+            res.setHeader('X-Export-Exported-Count', String(job.exportedCount))
+            res.setHeader('X-Export-Checksum-Sha256', String(job.checksum || ''))
+            res.setHeader('X-Export-Verify', job.expectedCount === job.exportedCount && job.idDupCount === 0 ? 'complete' : 'incomplete')
+            fs.createReadStream(artifact).pipe(res)
+        } catch (error) {
+            console.error('❌ Error downloading export artifact:', error)
+            res.status(500).json({ error: '导出产物下载失败', code: 'EXPORT_DOWNLOAD_FAILED' })
+        }
+    })
+
+    // 取消（批间协作取消；不发布任何产物）
+    router.post('/api/records/exports/:id/cancel', authenticateUser, requireEditorOrAbove, idempotencyMiddleware, async (req, res) => {
+        try {
+            const job = getExportJob(req.params.id)
+            if (!job || !ownershipMatches(req, job)) {
+                return res.status(404).json({ error: '导出作业不存在', code: 'EXPORT_JOB_NOT_FOUND' })
+            }
+            if (job.state === EXPORT_JOB_STATES.COMPLETED) {
+                return res.status(409).json({ error: '导出已完成，无法取消', code: 'EXPORT_ALREADY_COMPLETED', state: job.state })
+            }
+            requestCancel(job.jobId)
+            res.json({ success: true, jobId: job.jobId, state: job.state, cancelRequested: true })
+        } catch (error) {
+            console.error('❌ Error cancelling export job:', error)
+            res.status(500).json({ error: '导出取消失败', code: 'EXPORT_CANCEL_FAILED' })
+        }
+    })
+
     // ====== Legacy Frontend Compatibility: /api/records/:tableName ======
 
     // 越权修复：guest 只能读取该校 visible_types 白名单模块（强制排除 pathogen），见 requireGuestReadOnly
@@ -288,17 +451,23 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
                 return res.status(400).json({ error: `未知记录类型: ${req.params.tableName}` })
             }
 
-            const { limit = 100, offset = 0, status } = req.query
-            const safeLimit = Math.min(parseInt(limit) || 100, MAX_RECORDS_LIMIT)
-            const safeOffset = Math.max(0, parseInt(offset) || 0)
+            const { status } = req.query
+            // P3-W5-RECORD-T01（AUD-020 / RC-07）：与 /api/test-records 同一分页契约
+            // （cursor 优先 / offset 兼容 / 超限显式拒绝），消费方可统一按 pageMeta 判断覆盖范围。
+            const page = parsePageQuery(req.query)
+            if (!page.ok) {
+                return res.status(page.status).json({ error: page.error, code: page.code, ...(page.extra || {}) })
+            }
             const where = { test_type: testType }
             if (status) where.status = status
+            const effectiveWhere = mergeWhere(where, page.cursor ? cursorWhere(page.cursor) : null)
 
             const records = await req.db.testRecord.findMany({
-                where,
-                skip: safeOffset,
-                take: safeLimit,
-                orderBy: { created_at: 'desc' }
+                where: effectiveWhere,
+                ...(page.cursor ? {} : { skip: page.offset }),
+                take: page.limit,
+                // 稳定顺序（keyset 游标前提）
+                orderBy: [{ created_at: 'desc' }, { id: 'desc' }]
             })
 
             const total = await req.db.testRecord.count({ where })
@@ -308,9 +477,14 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
             res.json({
                 success: true,
                 data: req.user?.role === 'guest' ? payloads.map(p => maskGuestSensitiveFields(p)) : payloads,
-                total,
-                limit: safeLimit,
-                offset: safeOffset
+                ...pageMeta({
+                    rows: records,
+                    total,
+                    limit: page.limit,
+                    offset: page.offset,
+                    cursorUsed: !!page.cursor,
+                    filters: { test_type: testType, status: status || null },
+                }),
             })
         } catch (error) {
             console.error('❌ Error fetching legacy records:', error)
@@ -318,7 +492,7 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
         }
     })
 
-    router.post('/api/records/:tableName', authenticateUser, requireEditorOrAbove, async (req, res) => {
+    router.post('/api/records/:tableName', authenticateUser, requireEditorOrAbove, idempotencyMiddleware, async (req, res) => {
         try {
             const testType = normalizeRecordType(req.params.tableName)
             if (!testType) {
@@ -399,7 +573,7 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
         }
     })
 
-    router.post('/api/records/:tableName/bulk-upsert', authenticateUser, requireEditorOrAbove, async (req, res) => {
+    router.post('/api/records/:tableName/bulk-upsert', authenticateUser, requireEditorOrAbove, idempotencyMiddleware, async (req, res) => {
         try {
             const testType = normalizeRecordType(req.params.tableName)
             if (!testType) {
@@ -543,7 +717,7 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
         }
     })
 
-    router.put('/api/records/:tableName/:id', authenticateUser, requireEditorOrAbove, async (req, res) => {
+    router.put('/api/records/:tableName/:id', authenticateUser, requireEditorOrAbove, idempotencyMiddleware, async (req, res) => {
         try {
             const testType = normalizeRecordType(req.params.tableName)
             if (!testType) {
@@ -561,6 +735,14 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
             // DS3-C1（方案甲）: operator 仅能修改自己创建的记录（created_by 匹配）
             if (!canModifyRecord({ role: req.user?.role, userId: req.userId }, existing)) {
                 return res.status(403).json({ error: '❌ 仅记录创建者本人或主管（manager）可修改该记录' })
+            }
+
+            // ===== P3-W4-T01（AUD-022）：stale 重放识别 + 基线声明（helper 见文件末尾，不改中间件顺序）=====
+            // 顺序说明：鉴权/归属校验之后、任何字段归一与写库之前 —— 只读比对，不产生写副作用。
+            const baselineGuard = evaluateWriteBaseline({ body: req.body, existing, recordId: req.params.id })
+            if (baselineGuard.reject) {
+                if (baselineGuard.status === 409) setW4ConflictFence(req.params.id)
+                return res.status(baselineGuard.status).json(baselineGuard.payload)
             }
 
             // P2-07: 更新前进行字段 Schema 验证
@@ -625,12 +807,17 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
             }
 
             // 版本号乐观锁（如果客户端传了 version 字段）
+            // P3-W4-T01（AUD-022）：409 保持既有字段 + 扩展冲突信息（latest/基线/原因），并置冲突栅栏。
             if (req.body && typeof req.body.version !== 'undefined' && req.body.version !== existing.version) {
-                return res.status(409).json({
-                    error: '版本冲突，请获取最新数据后重试',
-                    serverVersion: existing.version,
-                    clientVersion: req.body.version
-                })
+                setW4ConflictFence(req.params.id)
+                return res.status(409).json(buildW4ConflictPayload({
+                    existing,
+                    testType,
+                    declared: readDeclaredBase(req.body),
+                    reason: 'version_mismatch',
+                    staleReplay: true,
+                    clientVersion: req.body.version,
+                }))
             }
 
             // TD-OptimisticLock-Atomic: where 带上 version 做原子条件更新
@@ -645,10 +832,25 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
                 })
             } catch (e) {
                 if (e?.code === 'P2025') {
-                    return res.status(409).json({ error: '版本冲突，请获取最新数据后重试', serverVersion: 'stale' })
+                    // P3-W4-T01（AUD-022）：原子 CAS 失败 = 明确的 stale 重放；回读最新行一并下发冲突信息
+                    // （回读失败时退回本次读到的 existing，不掩盖冲突语义）。
+                    setW4ConflictFence(req.params.id)
+                    let fresh = null
+                    try { fresh = await req.db.testRecord.findUnique({ where: { id: req.params.id } }) } catch (_) { /* 回读失败不阻断 409 */ }
+                    return res.status(409).json(buildW4ConflictPayload({
+                        existing: fresh || existing,
+                        testType,
+                        declared: readDeclaredBase(req.body),
+                        reason: 'atomic_cas_lost',
+                        staleReplay: true,
+                        clientVersion: req.body?.version,
+                    }))
                 }
                 throw e
             }
+
+            // P3-W4-T01（AUD-022）：写成功后清除冲突栅栏（该记录已进入新的服务端基线）
+            clearW4ConflictFence(req.params.id)
 
             // P2-02: 记录更新操作写入审计日志
             await writeRecordAuditLog(req.db, req.userId, 'update', 'test_record', record.id, {
@@ -669,7 +871,7 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
         }
     })
 
-    router.delete('/api/records/:tableName/:id', authenticateUser, requireEditorOrAbove, async (req, res) => {
+    router.delete('/api/records/:tableName/:id', authenticateUser, requireEditorOrAbove, idempotencyMiddleware, async (req, res) => {
         try {
             const testType = normalizeRecordType(req.params.tableName)
             if (!testType) {
@@ -692,6 +894,9 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
             await req.db.testRecord.delete({
                 where: { id: req.params.id }
             })
+
+            // P3-W4-T01（AUD-022）：记录已删除，冲突栅栏随之失效（防止陈旧栅栏误伤后续同 id 语义）
+            clearW4ConflictFence(req.params.id)
 
             // P2-02: 记录删除操作写入审计日志
             await writeRecordAuditLog(req.db, req.userId, 'delete', 'test_record', req.params.id, {
@@ -794,7 +999,7 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
 
     // 更新测试记录
     // NB-13: result_data 需经过 sanitizeObjectKeys 净化；status 白名单校验
-    router.put('/api/test-records/:id', authenticateUser, requireEditorOrAbove, async (req, res) => {
+    router.put('/api/test-records/:id', authenticateUser, requireEditorOrAbove, idempotencyMiddleware, async (req, res) => {
         try {
             const { id } = req.params
             const { test_name, status, result_data } = req.body
@@ -883,7 +1088,7 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
     })
 
     // 删除测试记录
-    router.delete('/api/test-records/:id', authenticateUser, requireEditorOrAbove, async (req, res) => {
+    router.delete('/api/test-records/:id', authenticateUser, requireEditorOrAbove, idempotencyMiddleware, async (req, res) => {
         try {
             const { id } = req.params
 
@@ -919,4 +1124,146 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
     })
 
     return router
+}
+
+// ===================== P3-W4-T01（AUD-022）冲突协议 helper（模块级，append-only）=====================
+// 边界声明（不改 schema / 不改认证与授权语义 / 不改 :20-21 的中间件顺序，仅 PUT /api/records/:tableName/:id 使用）：
+//   ① 基线声明：PUT 可携带 base_version / base_updated_at（显式基线；version 仍按既有 CAS 语义兼容）。
+//      显式基线与当前服务端状态不一致 → 409 + 冲突信息（latest / 原因 / staleReplay），绝不"最后写入胜出"。
+//   ② stale 重放识别：本进程对该记录下发过 409 后留下短 TTL「冲突栅栏」；栅栏存续期内，任何**未携带**
+//      与当前状态一致的显式基线写入（典型形态：只把 version 换成最新值、payload 仍是旧的整量重放）
+//      一律 409（staleReplay=true）—— 即"识别并拒绝"，而不是让它静默覆盖他人内容。
+//   ③ 向后兼容：error / serverVersion / clientVersion 三个既有字段保持不变；新增字段旧客户端忽略即可，
+//      忽略的结果是重放持续 409（明确失败），不会误判为可重试成功。
+//   ④ 残余边界（写入 RESULT）：栅栏为进程内状态（与既有幂等 store 同为进程内实现 NF-A-02），跨实例部署的
+//      重放防护依赖 ①（显式基线不匹配即拒绝）与客户端状态机（禁止自动全量重放）。
+const W4_CONFLICT_FENCE_TTL_MS = 10 * 60 * 1000
+const W4_CONFLICT_FENCE_MAX = 4096
+const w4ConflictFences = new Map()   // String(recordId) → { at: epochMs }
+
+function w4ToEpochMs(value) {
+    if (value === undefined || value === null || value === '') return null
+    if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value.getTime()
+    const t = Date.parse(String(value))
+    return Number.isFinite(t) ? t : null
+}
+
+function readDeclaredBase(body) {
+    const b = body || {}
+    const hasBaseVersion = b.base_version !== undefined && b.base_version !== null && b.base_version !== ''
+    const hasVersion = b.version !== undefined && b.version !== null && b.version !== ''
+    const rawUpdatedAt = b.base_updated_at !== undefined ? b.base_updated_at : b.expected_updated_at
+    const hasBaseUpdatedAt = rawUpdatedAt !== undefined && rawUpdatedAt !== null && rawUpdatedAt !== ''
+    const baseVersionNum = hasBaseVersion ? Number(b.base_version) : null
+    return {
+        hasExplicitBase: hasBaseVersion || hasBaseUpdatedAt,
+        explicitBaseVersion: hasBaseVersion ? baseVersionNum : null,
+        explicitBaseUpdatedAt: hasBaseUpdatedAt ? rawUpdatedAt : null,
+        explicitBaseUpdatedAtMs: hasBaseUpdatedAt ? w4ToEpochMs(rawUpdatedAt) : null,
+        invalidExplicitBase: (hasBaseVersion && !Number.isFinite(baseVersionNum))
+            || (hasBaseUpdatedAt && w4ToEpochMs(rawUpdatedAt) === null)
+            || (hasBaseVersion && !Number.isInteger(baseVersionNum)),
+        legacyVersion: hasVersion ? b.version : undefined,
+    }
+}
+
+function setW4ConflictFence(recordId) {
+    if (recordId === undefined || recordId === null) return
+    const key = String(recordId)
+    const now = Date.now()
+    if (w4ConflictFences.size >= W4_CONFLICT_FENCE_MAX) {
+        for (const [k, f] of w4ConflictFences) {
+            if (now - f.at > W4_CONFLICT_FENCE_TTL_MS) w4ConflictFences.delete(k)
+        }
+        while (w4ConflictFences.size >= W4_CONFLICT_FENCE_MAX) {
+            const oldest = w4ConflictFences.keys().next().value
+            w4ConflictFences.delete(oldest)
+        }
+    }
+    w4ConflictFences.set(key, { at: now })
+}
+
+function getW4ConflictFence(recordId) {
+    if (recordId === undefined || recordId === null) return null
+    const key = String(recordId)
+    const fence = w4ConflictFences.get(key)
+    if (!fence) return null
+    if (Date.now() - fence.at > W4_CONFLICT_FENCE_TTL_MS) {
+        w4ConflictFences.delete(key)
+        return null
+    }
+    return fence
+}
+
+function clearW4ConflictFence(recordId) {
+    if (recordId === undefined || recordId === null) return
+    w4ConflictFences.delete(String(recordId))
+}
+
+function buildW4ConflictPayload({ existing, testType, declared, reason, staleReplay, clientVersion }) {
+    const serverVersion = existing && existing.version !== undefined ? existing.version : null
+    const serverUpdatedAt = existing && existing.updated_at !== undefined ? existing.updated_at : null
+    return {
+        error: '版本冲突，请基于最新数据合并后重试',
+        code: 'VERSION_CONFLICT',
+        // —— 既有字段（向后兼容，语义不变）——
+        serverVersion,
+        clientVersion: clientVersion === undefined ? null : clientVersion,
+        // —— 新增字段（旧客户端忽略 = 明确失败，不会误成功）——
+        staleReplay: !!staleReplay,
+        conflict: {
+            reason,
+            recordId: existing ? existing.id : null,
+            testType: testType || (existing ? existing.test_type : null) || null,
+            server: { version: serverVersion, updatedAt: serverUpdatedAt },
+            base: {
+                version: declared && declared.legacyVersion !== undefined
+                    ? declared.legacyVersion
+                    : (declared ? declared.explicitBaseVersion : null),
+                explicitBaseVersion: declared ? declared.explicitBaseVersion : null,
+                updatedAt: declared ? declared.explicitBaseUpdatedAt : null,
+            },
+            retryable: false,
+            guidance: '禁止把 serverVersion 盖回旧 payload 直接重放：请以 latest 为服务端基线做字段级三路合并（base=本地已同步快照 / server=latest / local=本地改动），或先携带 base_version+base_updated_at 声明已重基再提交。',
+        },
+        // latest 即字段级基线（与 GET 单条同形状的扁平对象：业务字段 + id/version/updated_at）
+        latest: existing ? buildRecordPayload(existing) : null,
+    }
+}
+
+function evaluateWriteBaseline({ body, existing, recordId }) {
+    const declared = readDeclaredBase(body)
+    const serverVersion = Number(existing && existing.version !== undefined && existing.version !== null ? existing.version : 0)
+    const serverUpdatedAtMs = w4ToEpochMs(existing ? existing.updated_at : null)
+
+    if (declared.invalidExplicitBase) {
+        return {
+            reject: true,
+            status: 400,
+            payload: {
+                error: '❌ 基线字段非法（base_version 必须为整数、base_updated_at 必须为可解析时间）',
+                code: 'INVALID_BASE_DECLARATION',
+            },
+        }
+    }
+    // ① 显式基线声明与当前服务端状态不一致 → stale（无论栅栏是否存在）
+    if (declared.explicitBaseUpdatedAtMs !== null && serverUpdatedAtMs !== null && declared.explicitBaseUpdatedAtMs !== serverUpdatedAtMs) {
+        return { reject: true, status: 409, payload: buildW4ConflictPayload({ existing, declared, reason: 'stale_base_updated_at', staleReplay: true, clientVersion: declared.legacyVersion }) }
+    }
+    if (declared.explicitBaseVersion !== null && Number.isFinite(declared.explicitBaseVersion) && declared.explicitBaseVersion !== serverVersion) {
+        return { reject: true, status: 409, payload: buildW4ConflictPayload({ existing, declared, reason: 'stale_base_version', staleReplay: true, clientVersion: declared.legacyVersion }) }
+    }
+    // ② 既有 CAS 语义（兼容旧客户端）：version 与当前不一致 → 冲突
+    if (declared.legacyVersion !== undefined && Number.isFinite(Number(declared.legacyVersion)) && Number(declared.legacyVersion) !== serverVersion) {
+        return { reject: true, status: 409, payload: buildW4ConflictPayload({ existing, declared, reason: 'version_mismatch', staleReplay: true, clientVersion: declared.legacyVersion }) }
+    }
+    // ③ 冲突栅栏：刚下发过 409 → 必须携带"显式且与当前一致"的重基声明（只换 version 的重放被拒绝）
+    if (getW4ConflictFence(recordId)) {
+        const hasCurrentRebase = (declared.explicitBaseVersion !== null && Number(declared.explicitBaseVersion) === serverVersion)
+            || (declared.explicitBaseUpdatedAtMs !== null && serverUpdatedAtMs !== null && declared.explicitBaseUpdatedAtMs === serverUpdatedAtMs)
+        if (!hasCurrentRebase) {
+            return { reject: true, status: 409, payload: buildW4ConflictPayload({ existing, declared, reason: 'stale_replay_after_conflict', staleReplay: true, clientVersion: declared.legacyVersion }) }
+        }
+    }
+    return { reject: false, declared }
 }

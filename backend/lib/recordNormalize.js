@@ -4,6 +4,9 @@ import { sanitizeObjectKeys, safeParseJson } from './sanitize.js'
 import { writeTenantAuditLog } from './auditLog.js'
 // 餐具记录级结论聚合（写入侧自洽）：顶层 result 为空时按 atpPoints[].res 补写，规则单一来源
 import { fillTablewareAggregate } from './tablewareVerdict.js'
+// 结论归一唯一事实源（RC-09a / AUD-025）：复检结论提取与 colorLevel 枚举校验同源。
+// 注意：本文件只从 conclusionVerdict 单向导入（对方不反向依赖本文件），无循环依赖。
+import { findInvalidColorLevels, getLatestRecheckPassed } from './conclusionVerdict.js'
 
 const RECORD_ROUTE_TYPES = new Set([
     'tableware',
@@ -336,38 +339,38 @@ function buildRecordWriteData(tableName, payload = {}, opts = {}) {
     }
 }
 
-// TD-Recheck-Sync: 提取记录「最新一次复检是否通过」的结论（通用，与学校租户无关）。
-// 兼容三种检测模块的复检数据结构：
-//   - GenericTest（果蔬/油/肉蛋）: recheckRecords[0].isPassed
-//   - Tableware（餐具）           : recheckRecords[0].isPassed（顶层，points 为点位明细）
-//   - Pathogen（病原体）          : recheckReports[0].isPassed
-// 无法判定（无复检 / 结构未知 / isPassed 非布尔）时返回 null，调用方据此跳过自愈。
-function getLatestRecheckPassed(resultData) {
-    const recs = Array.isArray(resultData?.recheckRecords) ? resultData.recheckRecords : []
-    if (recs.length > 0) {
-        const latest = recs[0]
-        if (latest && typeof latest.isPassed === 'boolean') return latest.isPassed
-    }
-    const reports = Array.isArray(resultData?.recheckReports) ? resultData.recheckReports : []
-    if (reports.length > 0) {
-        const latest = reports[0]
-        if (latest && typeof latest.isPassed === 'boolean') return latest.isPassed
-    }
-    return null
-}
+// TD-Recheck-Sync: 提取记录「最新一次复检是否通过」的结论 —— 定义已迁至 lib/conclusionVerdict.js
+// （结论相关辅助与判定同源），本文件经下方统一 export 块按原名称再导出，保持既有 import 面不变。
 
 // P2-07: 记录字段 Schema 验证 — 校验 testDate/canteen/inspector 必填且为非空字符串
+// 2026-09-25（AUD-025 / RC-09a）：补 **食用油 colorLevel 枚举校验** ——
+//   合法非空值仅 合格 / 警戒 / 不合格；空值视为"未提交"（读侧回退 result 规则）；
+//   未识别的非空值此前会被静默接受并入库，读侧再被当成"非不合格即合格"（fail-open）或回退 result，
+//   现于写入入口**拒绝**（400），不再静默放行。
+//   选择"拒绝"而非"归一"的理由：归一等于静默改写业务录入值（或丢字段），无法向调用方解释；
+//   拒绝给出可操作错误，且与既有 validateRecordPayload 的错误风格一致。
+//   `legacy 未知值保留原值`（RC-09a）：本校验只作用于**写入**，不改写库内历史数据，
+//   历史未知值读侧统一按 unknown 处理（不计入合格）。
 function validateRecordPayload(tableName, payload) {
     const errors = []
+    const body = (payload && typeof payload === 'object') ? payload : {}
     const requiredFields = ['testDate', 'canteen', 'inspector']
     for (const field of requiredFields) {
-        const val = payload[field]
+        const val = body[field]
         if (val === undefined || val === null || String(val).trim() === '') {
             errors.push(`字段 "${field}" 不能为空`)
         }
     }
     if (!RECORD_ROUTE_TYPES.has(tableName)) {
         errors.push(`未知的记录类型: ${tableName}`)
+    }
+    const badColors = findInvalidColorLevels(tableName, {
+        payload: body,
+        sampleInfo: body.sample_info,
+        resultData: body.result_data,
+    })
+    if (badColors.length) {
+        errors.push(`字段 "colorLevel" 的值 ${badColors.map((v) => `"${v}"`).join('、')} 不是合法等级（合法值：合格 / 警戒 / 不合格）`)
     }
     return { valid: errors.length === 0, errors }
 }

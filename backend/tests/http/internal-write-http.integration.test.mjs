@@ -14,22 +14,26 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import crypto from 'node:crypto'
-import { require, isConfigured, assertIsolationConfig, assertIsolated, cleanupScoped } from '../_isolation.mjs'
+import { require, loadIsolation, assertIsolated as gateAssert, cleanupScoped } from '../_isolation.mjs'
 
-const TEST_SCHEMA = 'school_reviewtest'
-const SCHOOL = 'reviewtest'
+const isoInfo = loadIsolation()
+const TENANT = isoInfo.ok ? isoInfo.tenant('a') : null   // 派生租户（slot a；不再硬编码 school_review*）
+const TEST_SCHEMA = TENANT ? TENANT.schema : null
+const SCHOOL = TENANT ? TENANT.tenantCode : null   // 派生学校 code（不再硬编码 reviewtest）
 const PASSWORD = 'Review-Test-Passw0rd!'
 const EDITOR = 'http-editor'
 const VIEWER = 'http-viewer'
 const OPERATOR = 'http-operator'
-const enabled = isConfigured()
+const enabled = isoInfo.ok
 
 if (!enabled) {
-  test('内部写入 HTTP 链路（未设置 REVIEW_TEST_DATABASE_URL，跳过）', { skip: 'SKIP: TEST_DATABASE_URL not configured' }, () => {})
+  test('内部写入 HTTP 链路：[T02C] 未配置显式 TEST_DATABASE_URL + TEST_DB_CONTEXT_FILE → 拒绝（fail-closed，不再 skip）', () => {
+    assert.fail(`[T02C-ISOLATION-REFUSED] code=${isoInfo.code || 'UNKNOWN'} reason=${isoInfo.reason || 'n/a'}；本套件只认显式 TEST_* 配置（不回落 DATABASE_URL / 业务 dotenv）`)
+  })
 }
 
 if (enabled) {
-  const iso = assertIsolationConfig({ schema: TEST_SCHEMA })
+  const iso = { url: isoInfo.url, db: isoInfo.db, schema: TEST_SCHEMA }   // 共享门禁派生值（TESTS/helpers/db-isolation）
   // ⚠️ 必须在导入 UserManager / authMiddleware **之前**设置：测试自有的 JWT 密钥 + test 模式
   process.env.NODE_ENV = 'test'
   process.env.JWT_SECRET = process.env.JWT_SECRET || `test-only-${crypto.randomBytes(16).toString('hex')}`
@@ -45,7 +49,7 @@ if (enabled) {
   const { createSyncRoutes } = await import('../../routes/syncRoutes.js')
 
   const prisma = new PrismaClient({ datasources: { db: { url: iso.url } } })
-  const tenant = new PrismaClient({ datasources: { db: { url: `${iso.url}${iso.url.includes('?') ? '&' : '?'}schema=${TEST_SCHEMA}` } } })
+  const tenant = new PrismaClient({ datasources: { db: { url: TENANT.urlWithSchema } } })
 
   let server
   let base
@@ -72,8 +76,8 @@ if (enabled) {
     http('/api/user/login', { method: 'POST', body: { username, password, schoolCode } })
 
   test.before(async () => {
-    await assertIsolated(prisma, iso.db, 'public 客户端')
-    await assertIsolated(tenant, iso.db, '租户客户端')
+    await gateAssert(prisma, 'public', 'public 客户端')
+    await gateAssert(tenant, TEST_SCHEMA, '租户客户端')
     const [sc] = await tenant.$queryRawUnsafe('SELECT current_schema() AS s')
     assert.equal(sc.s, TEST_SCHEMA)
 
@@ -150,7 +154,7 @@ if (enabled) {
     // 跨校登录：**根因已查明**（2026-09-17 复核对二轮）——
     // ① 隔离库不存在 `school_tjb` schema → tenant 客户端查询报 P2021 → 500（**测试环境产物**，非产品缺陷）；
     // ② 生产路径的"学校不匹配"分支确实返回 **401 USER_NOT_FOUND**（见 modules/UserManager.js 的 mismatch 分支）。
-    // 因此这里改为**精确构造不匹配场景**：在 school_reviewtest 里放一个 school_code 字段与所属 schema 不一致的用户，
+    // 因此这里改为**精确构造不匹配场景**：在派生租户 schema 里放一个 school_code 字段与所属 schema 不一致的用户，
     // 走真实登录接口，断言 401 与响应结构（不泄露账号是否存在：与"用户不存在"返回同码同文案）。
     await tenant.user.deleteMany({ where: { username: 'http-crossuser' } })
     await tenant.user.create({

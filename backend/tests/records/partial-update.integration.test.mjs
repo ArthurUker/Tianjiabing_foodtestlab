@@ -10,24 +10,26 @@
 //      不带 → 明确 LWW，但 version **原子递增**（不再出现"改了但版本不变"）。
 //
 // 启用：
-//   REVIEW_TEST_DATABASE_URL='postgresql://USER:PASS@127.0.0.1:5432/foodsentinel_review_test' \
+//   TEST_DATABASE_URL='postgresql://<provisioner 派生 role>:<pw>@127.0.0.1:<port>/<derived db>' TEST_DB_CONTEXT_FILE=<provisioner 输出> \
 //     node --test tests/records/partial-update.integration.test.mjs
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {
-  require, isConfigured, assertIsolationConfig, assertIsolated as sharedAssertIsolated,
-} from '../_isolation.mjs'
+import { require, loadIsolation, assertIsolated as gateAssert, cleanupScoped } from '../_isolation.mjs'
 
-const TEST_SCHEMA = 'school_reviewtest'
-const enabled = isConfigured()
+const isoInfo = loadIsolation()
+const TENANT = isoInfo.ok ? isoInfo.tenant('a') : null   // 派生租户（slot a；不再硬编码 school_review*）
+const TEST_SCHEMA = TENANT ? TENANT.schema : null
+const enabled = isoInfo.ok
 
 if (!enabled) {
-  test('局部更新集成测试（未设置 REVIEW_TEST_DATABASE_URL，跳过）', { skip: 'SKIP: TEST_DATABASE_URL not configured' }, () => {})
+  test('局部更新集成测试：[T02C] 未配置显式 TEST_DATABASE_URL + TEST_DB_CONTEXT_FILE → 拒绝（fail-closed，不再 skip）', () => {
+    assert.fail(`[T02C-ISOLATION-REFUSED] code=${isoInfo.code || 'UNKNOWN'} reason=${isoInfo.reason || 'n/a'}；本套件只认显式 TEST_* 配置（不回落 DATABASE_URL / 业务 dotenv）`)
+  })
 }
 
 if (enabled) {
   // 配置级门禁（F8）：解析连接串校验库名 + 专用测试 schema（在创建客户端之前）
-  const iso = assertIsolationConfig({ schema: TEST_SCHEMA })
+  const iso = { url: isoInfo.url, db: isoInfo.db, schema: TEST_SCHEMA }   // 共享门禁派生值（TESTS/helpers/db-isolation）
 
   const { PrismaClient } = require('@prisma/client')
   const { createSyncRoutes } = await import('../../routes/syncRoutes.js')
@@ -38,10 +40,10 @@ if (enabled) {
   const publicDb = new PrismaClient({ datasources: { db: { url: iso.url } } })
   const USER_ID = 'u-partial-test'
 
-  async function assertIsolated() {
-    const { schema } = await sharedAssertIsolated(db, iso.db, '租户客户端')
+  async function localAssert() {
+    const { schema } = await gateAssert(db, TEST_SCHEMA, '租户客户端')
     assert.equal(schema, TEST_SCHEMA, `安全校验：租户客户端 current_schema 必须是 ${TEST_SCHEMA}`)
-    await sharedAssertIsolated(publicDb, iso.db, 'public 客户端')
+    await gateAssert(publicDb, 'public', 'public 客户端')
   }
 
   const noop = (req, res, next) => next()
@@ -92,7 +94,7 @@ if (enabled) {
   const si = (row) => (typeof row.sample_info === 'string' ? JSON.parse(row.sample_info) : row.sample_info) || {}
 
   test.before(async () => {
-    await assertIsolated()
+    await localAssert()
     await db.user.upsert({
       where: { id: USER_ID }, update: {},
       create: { id: USER_ID, username: 'partial-test', password_hash: 'x', role: 'manager', full_name: '局部更新回归' },

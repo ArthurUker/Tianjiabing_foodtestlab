@@ -163,46 +163,28 @@ export class AdaptiveUploadQueue {
 
         this._scheduleNext(pauseDuration);
       } else if (error.status === 409) {
-        try {
-          // 优先使用 409 响应体携带的 serverVersion（_doRequest 已解析），省一次 GET；
-          // 缺失/异常（如 'stale'）时才回退 _fetchLatest 拉取。
-          let latestVersion = error.serverVersion;
-          if (latestVersion === undefined || latestVersion === null || latestVersion === 'stale') {
-            const latest = await this._fetchLatest(item.collection, item.recordId);
-            const latestRow = latest?.data || latest || {};
-            latestVersion = latestRow.version;
-          }
-          if (typeof latestVersion !== 'undefined' && latestVersion !== null && latestVersion !== 'stale') {
-            item.payload = { ...item.payload, version: latestVersion };
-          }
-          item.fingerprint = this._makeFingerprint(item.collection, item.recordId, item.payload);
-          item.attempt++;
-          if (item.attempt <= 3) {
-            this._queueList.unshift(item);
-            this._queueMap.set(queueKey, item);
-            this._scheduleNext(500);
-          } else {
-            // 缺陷B修复：重试耗尽 reject 后必须释放 _isProcessing 并继续调度，
-            // 否则 enqueue 因 _isProcessing===true 不再 _scheduleNext → 队列永久死锁。
-            item.rejectors.forEach(r => r(error));
-            this._totalCompleted++;
-            this._notifyProgress();
-            this._isProcessing = false;
-            this._scheduleNext(this._currentInterval);
-          }
-        } catch (fetchError) {
-          // 缺陷B修复：_fetchLatest 失败 reject 后同样释放 _isProcessing 并继续调度，
-          // 防止同 key 后续 enqueue 被 _isProcessing===true 拦截导致静默死锁。
-          item.rejectors.forEach(r => r(error));
-          this._totalCompleted++;
-          this._notifyProgress();
-          this._isProcessing = false;
-          this._scheduleNext(this._currentInterval);
-        }
-      } else {
+        // P3-W4-T01（AUD-022）：409 一律**不再**把 latest version 盖回旧 payload 后自动重试。
+        // 原 TD-409-Retry 行为会让 stale 全量载荷静默覆盖他人的更新（AUD-022 已实证）。
+        // 现改为：把冲突信息（latest/conflict/reason）原样交给上层 —— Storage 的状态机做
+        // 字段级三路合并（无冲突才自动重基，且显式声明 base_version/base_updated_at）或进入
+        // 显式 CONFLICT 态请用户裁决；队列本身立即 reject，不做任何重放。
+        // 注意：仍需释放 _isProcessing 并继续调度（缺陷B修复不回退，否则队列死锁）。
         item.attempt++;
+        item.rejectors.forEach(r => r(error));
+        this._totalCompleted++;
+        this._notifyProgress();
+        this._isProcessing = false;
+        this._scheduleNext(this._currentInterval);
+      } else {
+        // P3-W4-T01（AUD-021）：明确的客户端错误（4xx，除 408/425/429）不重试 ——
+        // 原实现会把 403/400/404 也退避重试至 ~14s，使"显式 FAILED 态"迟迟不可达且白白放大权限拒绝流量。
+        // 网络错误/5xx 仍按既有指数退避重试（不改变既有语义）。
+        item.attempt++;
+        const definitiveClientError = typeof error.status === 'number'
+          && error.status >= 400 && error.status < 500
+          && error.status !== 408 && error.status !== 425 && error.status !== 429;
         const delay = Math.min(1000 * Math.pow(2, item.attempt), 30000);
-        if (item.attempt <= 3) {
+        if (!definitiveClientError && item.attempt <= 3) {
           this._queueList.unshift(item);
           this._queueMap.set(queueKey, item);
           this._scheduleNext(delay);
@@ -210,6 +192,7 @@ export class AdaptiveUploadQueue {
           item.rejectors.forEach(r => r(error));
           this._totalCompleted++;
           this._notifyProgress();
+          this._isProcessing = false;
           this._scheduleNext(this._currentInterval);
         }
       }
@@ -245,28 +228,25 @@ export class AdaptiveUploadQueue {
       const err = new Error(`HTTP ${response.status}`);
       err.status = response.status;
       err.retryAfter = response.headers.get('Retry-After');
-      // 409 响应体携带 serverVersion：直接解析携带，重试时无需再发 GET 即可拿到最新版本
-      // （避免 _fetchLatest 依赖 GET 端点，GET 限流/网络抖动时重试链仍可自愈）
+      // P3-W4-T01（AUD-022）：409 响应体解析（扩展冲突信息）——仅解析并上抛，不在此层做任何重试决策。
+      // 兼容：旧服务端只给 serverVersion 时，err.conflict/latest 为空，上层按"无冲突信息"处理（仍不自动重放）。
       if (response.status === 409) {
         try {
           const body = await response.json();
+          err.conflictBody = body;
           if (body && typeof body.serverVersion !== 'undefined') err.serverVersion = body.serverVersion;
-        } catch (_) { /* 响应体非 JSON 时忽略，回退 _fetchLatest */ }
+          if (body && typeof body.latest !== 'undefined') err.latest = body.latest;
+          if (body && typeof body.conflict !== 'undefined') err.conflict = body.conflict;
+        } catch (_) { /* 响应体非 JSON 时忽略：上层仍走显式冲突处理，不自动重放 */ }
+        err.retryable = false;
       }
       throw err;
     }
     return response.json();
   }
 
-  async _fetchLatest(collection, recordId) {
-    const headers = this._getHeaders() || {};
-    // 与 _doRequest 保持一致：使用 getBaseUrl 回调，避免自定义 baseUrl 场景下
-    // 相对路径 /api/records 拉取失败导致 409 重试永远拿不到最新 version。
-    const baseUrl = this._getBaseUrl();
-    const response = await fetch(`${baseUrl}/${collection}/${recordId}`, { headers });
-    if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
-    return response.json();
-  }
+  // 说明（P3-W4-T01/AUD-022）：原 `_fetchLatest()`（409 后拉取最新 version 供重试）已移除 ——
+  // 它正是"stale 全量重放"链路的一环。冲突处置统一由 Storage 的同步状态机负责。
 
   _makeFingerprint(collection, recordId, payload) {
     const content = `${collection}::${recordId || 'new'}::${JSON.stringify(

@@ -1,26 +1,29 @@
 // 数据库级集成回归（**必须使用隔离测试库**，禁止指向生产）
 //
-// 启用方式（未设置则整体跳过）：
-//   REVIEW_TEST_DATABASE_URL='postgresql://USER:PASS@127.0.0.1:5432/foodsentinel_review_test' \
-//     node --test tests/records/db-integration.test.mjs
-// 库名必须包含 "reviewtest"（防止误连生产）；租户 schema 由 `prisma db push` 预建（见测试说明）。
+// 启用方式（未配置则拒绝（fail-closed））：
+//   TEST_DATABASE_URL='postgresql://<provisioner 派生 role>:<pw>@127.0.0.1:<port>/<derived db>' TEST_DB_CONTEXT_FILE=<provisioner 输出> \
+//     node --test backend/tests/records/db-integration.test.mjs
+// 库名/角色/schema 一律取 provisioner 派生值（T02C：不再有 reviewtest 之类硬编码）。
 //
 // 覆盖审阅要求的完整回归链路 1~10（真实 DB：JSON 写入/读取、唯一约束、版本冲突、租户隔离）。
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { require, isConfigured, assertIsolationConfig, assertIsolated, cleanupScoped } from '../_isolation.mjs'
+import { require, loadIsolation, assertIsolated as gateAssert, cleanupScoped } from '../_isolation.mjs'
 
-const URL = process.env.REVIEW_TEST_DATABASE_URL || ''
-const TEST_SCHEMA = 'school_reviewtest'   // 固定：不再允许 REVIEW_TEST_SCHEMA 任意指定（F8）
-const enabled = isConfigured()
+const isoInfo = loadIsolation()
+const TENANT = isoInfo.ok ? isoInfo.tenant('a') : null   // 派生租户（slot a；不再硬编码 school_review*）
+const TEST_SCHEMA = TENANT ? TENANT.schema : null
+const enabled = isoInfo.ok
 
 if (!enabled) {
-  test('DB 集成测试（未设置 REVIEW_TEST_DATABASE_URL，跳过）', { skip: 'SKIP: TEST_DATABASE_URL not configured' }, () => {})
+  test('DB 集成测试：[T02C] 未配置显式 TEST_DATABASE_URL + TEST_DB_CONTEXT_FILE → 拒绝（fail-closed，不再 skip）', () => {
+    assert.fail(`[T02C-ISOLATION-REFUSED] code=${isoInfo.code || 'UNKNOWN'} reason=${isoInfo.reason || 'n/a'}；本套件只认显式 TEST_* 配置（不回落 DATABASE_URL / 业务 dotenv）`)
+  })
 }
 
 if (enabled) {
   // 配置级门禁：解析连接串 + 校验库名/schema（在创建任何客户端之前）
-  const iso = assertIsolationConfig({ schema: TEST_SCHEMA })
+  const iso = { url: isoInfo.url, db: isoInfo.db, schema: TEST_SCHEMA }   // 共享门禁派生值（TESTS/helpers/db-isolation）
 
   const { PrismaClient } = require('@prisma/client')
   const { buildRecordPayload, buildDeterministicRecordCode } = await import('../../lib/recordNormalize.js')
@@ -29,9 +32,9 @@ if (enabled) {
   const { createSyncRoutes } = await import('../../routes/syncRoutes.js')
   const { createRecordRoutes } = await import('../../routes/recordRoutes.js')
 
-  const tenantUrl = `${URL}${URL.includes('?') ? '&' : '?'}schema=${TEST_SCHEMA}`
+  const tenantUrl = TENANT.urlWithSchema
   const db = new PrismaClient({ datasources: { db: { url: tenantUrl } } })
-  const publicDb = new PrismaClient({ datasources: { db: { url: URL } } })
+  const publicDb = new PrismaClient({ datasources: { db: { url: isoInfo.url } } })
 
   const noop = (req, res, next) => next()
   const PRISMA_STUB = { $executeRawUnsafe: async () => 1, $queryRawUnsafe: async () => [] }
@@ -67,8 +70,8 @@ if (enabled) {
 
   test.before(async () => {
     // 运行时双确认：真实库名必须等于配置中的隔离库（写操作之前）
-    await assertIsolated(db, iso.db, '租户客户端')
-    await assertIsolated(publicDb, iso.db, 'public 客户端')
+    await gateAssert(db, TEST_SCHEMA, '租户客户端')
+    await gateAssert(publicDb, 'public', 'public 客户端')
     for (const [id, name] of [[USER_ID, 'review-owner'], [OTHER_ID, 'review-other']]) {
       await db.user.upsert({ where: { id }, update: {}, create: { id, username: name, password_hash: 'x', role: 'manager', full_name: name } })
     }
@@ -110,7 +113,7 @@ if (enabled) {
     await db.testRecord.update({ where: { id: row.id }, data: { sample_info: { ...row.sample_info, canteen: '' }, result_data: { ...row.result_data, canteen: '历史旧食堂' } } })
     const after = await db.testRecord.findUnique({ where: { id: row.id } })
     assert.equal(buildRecordPayload(after).canteen, '', '权威位置空串 = 显式清空')
-    const open = buildOpenRecord(after, GRANT, { schoolCode: 'reviewtest', allowedResultKeys: allowedResultKeys('oil') })
+    const open = buildOpenRecord(after, GRANT, { schoolCode: TENANT ? TENANT.tenantCode : null, allowedResultKeys: allowedResultKeys('oil') })
     assert.equal(open.canteen, '')
   })
 
@@ -123,7 +126,7 @@ if (enabled) {
     })
     const after = await db.testRecord.findUnique({ where: { id: row.id } })
     const flat = buildRecordPayload(after)
-    const open = buildOpenRecord(after, GRANT, { schoolCode: 'reviewtest', allowedResultKeys: allowedResultKeys('oil') })
+    const open = buildOpenRecord(after, GRANT, { schoolCode: TENANT ? TENANT.tenantCode : null, allowedResultKeys: allowedResultKeys('oil') })
     assert.equal(flat.canteen, '权威食堂')
     assert.equal(open.canteen, '权威食堂')
     assert.equal(flat.testDate, '2026-04-01')
@@ -166,13 +169,13 @@ if (enabled) {
     const rows = await db.testRecord.findMany()
     for (const row of rows) {
       const allowed = allowedResultKeys(row.test_type)
-      const item = buildOpenRecord(row, GRANT, { schoolCode: 'reviewtest', allowedResultKeys: allowed })
+      const item = buildOpenRecord(row, GRANT, { schoolCode: TENANT ? TENANT.tenantCode : null, allowedResultKeys: allowed })
       for (const k of Object.keys(item.result)) assert.ok(allowed.has(k), `下发了未登记字段 ${row.test_type}/result.${k}`)
       assert.equal('inspector' in item, false)
       assert.equal(JSON.stringify(item).includes('"inspector"'), false)
     }
     for (const s of buildSyntheticSamples('oil')) {
-      const item = buildOpenRecord(s.record, GRANT, { schoolCode: 'reviewtest', allowedResultKeys: allowedResultKeys('oil') })
+      const item = buildOpenRecord(s.record, GRANT, { schoolCode: TENANT ? TENANT.tenantCode : null, allowedResultKeys: allowedResultKeys('oil') })
       for (const k of Object.keys(item.result)) assert.ok(allowedResultKeys('oil').has(k))
     }
   })
@@ -180,9 +183,9 @@ if (enabled) {
   /* ─── 链路 10：完整替换可清除撤回字段 ─── */
   test('链路10：授权从"下发姓名"改为"不下发"后，客户端按完整对象替换即可清除字段', async () => {
     const row = await db.testRecord.findFirst({ where: { test_type: 'tableware' } })
-    const on = buildOpenRecord(row, { ...GRANT, include_inspector: true }, { schoolCode: 'reviewtest', allowedResultKeys: allowedResultKeys('tableware') })
+    const on = buildOpenRecord(row, { ...GRANT, include_inspector: true }, { schoolCode: TENANT ? TENANT.tenantCode : null, allowedResultKeys: allowedResultKeys('tableware') })
     assert.equal(on.inspector, '张三')
-    const off = buildOpenRecord(row, GRANT, { schoolCode: 'reviewtest', allowedResultKeys: allowedResultKeys('tableware') })
+    const off = buildOpenRecord(row, GRANT, { schoolCode: TENANT ? TENANT.tenantCode : null, allowedResultKeys: allowedResultKeys('tableware') })
     // 客户端本地 = 完整替换（不是字段 merge）
     const local = JSON.parse(JSON.stringify(on))
     for (const k of Object.keys(local)) if (!(k in off)) delete local[k]
@@ -204,7 +207,7 @@ if (enabled) {
     try {
       publicCount = await publicDb.testRecord.count()
     } catch (e) {
-      // 隔离库只在 school_reviewtest 建了租户表 → public 下无同名表，属更强的隔离证据
+      // 隔离库只为派生租户 schema 建了租户表 → public 下无同名表，属更强的隔离证据
       assert.match(String(e.message), /does not exist|P2021/)
     }
     assert.equal(publicCount, 0, 'public 不应出现租户数据')

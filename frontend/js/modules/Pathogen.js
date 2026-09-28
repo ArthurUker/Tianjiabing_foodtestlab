@@ -5,6 +5,8 @@ import { UINotification } from '../utils/UINotification.js';
 import { NetworkHelper } from '../utils/NetworkHelper.js';
 import { GuestAuthService } from '../services/GuestAuthService.js';
 import { escapeHtml } from '../utils/schoolCustomization/shared.js';
+// P3-W5-T01（AUD-003/RC-05）：详情弹窗等新代码统一经共享安全渲染通道（文本=textContent、属性=setAttribute）
+import { html, mount } from '../core/domSafe.js';
 import { getSchoolCustomization } from '../utils/schoolCustomization/cache.js';
 // TD-CanteenFromConfig: 改用共享实现，避免 Pathogen 与 Dashboard / 后续模块对「学校配置的食堂」
 // 各持一份逻辑导致排序、容错、默认值不同步。
@@ -1104,7 +1106,8 @@ function showTestDetailModal(testData) {
     modal.className = 'fixed inset-0 bg-black bg-opacity-60 z-[60] flex items-center justify-center';
     modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
     
-    const testItemsHtml = testData.allTestItems && testData.allTestItems.length > 0 ? `
+    // P3-W5-T01（AUD-003）：逐项检测表的靶标/结果/通道/Ct 等业务字段原先直拼 innerHTML，现经 domSafe 槽位渲染。
+    const testItemsHtml = testData.allTestItems && testData.allTestItems.length > 0 ? html`
         <div class="overflow-x-auto">
             <table class="w-full text-sm border-collapse border border-gray-300">
                 <thead class="bg-gradient-to-r from-gray-100 to-gray-200">
@@ -1120,30 +1123,30 @@ function showTestDetailModal(testData) {
                     ${testData.allTestItems.map(item => {
                         const isPositive = isPositiveResult(item.result);
                         const isInternalControl = item.isInternalControl;
-                        
+
                         let rowClass = 'hover:bg-gray-50';
-                        let resultBadge = item.result;
-                        
+                        let resultBadge;
+
                         if (isPositive && isInternalControl) {
                             rowClass = 'bg-blue-50';
-                            resultBadge = `<span class="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700 border border-blue-300">
+                            resultBadge = html`<span class="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700 border border-blue-300">
                                 <i class="fas fa-check-circle mr-1"></i>${item.result} (质控正常)
                             </span>`;
                         } else if (isPositive) {
                             rowClass = 'bg-red-50 font-medium';
-                            resultBadge = `<span class="px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700 border border-red-300">
+                            resultBadge = html`<span class="px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700 border border-red-300">
                                 <i class="fas fa-exclamation-triangle mr-1"></i>${item.result}
                             </span>`;
                         } else {
-                            resultBadge = `<span class="text-gray-600">${item.result}</span>`;
+                            resultBadge = html`<span class="text-gray-600">${item.result}</span>`;
                         }
-                        
-                        return `
+
+                        return html`
                             <tr class="${rowClass}">
                                 <td class="border border-gray-300 p-3 text-center">${item.no}</td>
                                 <td class="border border-gray-300 p-3">
                                     ${item.pathogen}
-                                    ${isInternalControl ? '<span class="ml-2 text-xs text-blue-600">(内标)</span>' : ''}
+                                    ${isInternalControl ? html`<span class="ml-2 text-xs text-blue-600">(内标)</span>` : ''}
                                 </td>
                                 <td class="border border-gray-300 p-3 text-center text-xs text-gray-600">${item.channel}</td>
                                 <td class="border border-gray-300 p-3 text-center ${isPositive && !isInternalControl ? 'font-bold text-red-600' : 'text-gray-500'}">${item.ct}</td>
@@ -1152,16 +1155,16 @@ function showTestDetailModal(testData) {
                                 </td>
                             </tr>
                         `;
-                    }).join('')}
+                    })}
                 </tbody>
             </table>
-            
+
             <div class="mt-4 bg-blue-50 border border-blue-200 rounded p-3 text-xs text-blue-800">
                 <i class="fas fa-info-circle mr-1"></i>
                 <strong>说明：</strong>内标（Internal Control）用于验证检测系统是否正常工作，内标阳性表示质控正常，不代表病原体阳性。
             </div>
         </div>
-    ` : '<p class="text-gray-500 text-center py-6">无详细检测数据</p>';
+    ` : html`<p class="text-gray-500 text-center py-6">无详细检测数据</p>`;
     
     const getRiskColor = (riskLevel) => {
         const colorMap = {
@@ -1178,7 +1181,7 @@ function showTestDetailModal(testData) {
     const summaryBg = `bg-${summaryColor}-50 border-${summaryColor}-300`;
     const summaryIcon = testData.isPassed ? 'fa-check-circle' : 'fa-exclamation-triangle';
     
-    modal.innerHTML = `
+    mount(modal, html`
         <div class="bg-white rounded-lg shadow-2xl w-11/12 md:w-4/5 lg:w-3/4 max-h-[90vh] overflow-y-auto">
             <div class="sticky top-0 bg-gradient-to-r from-blue-600 to-blue-700 text-white p-5 rounded-t-lg flex justify-between items-center z-10">
                 <div>
@@ -1204,12 +1207,12 @@ function showTestDetailModal(testData) {
                         <span class="text-gray-600 text-xs">检测员</span>
                         <div class="font-medium text-gray-800 mt-1">${testData.inspector}</div>
                     </div>
-                    ${testData.importTime ? `
+                    ${testData.importTime ? html`
                         <div class="bg-gray-50 p-3 rounded border">
                             <span class="text-gray-600 text-xs">导入时间</span>
                             <div class="font-medium text-gray-800 mt-1 text-xs">${testData.importTime}</div>
                         </div>
-                    ` : '<div></div>'}
+                    ` : html`<div></div>`}
                 </div>
 
                 <div class="border-2 ${summaryBg} rounded-lg p-4 mb-5">
@@ -1228,7 +1231,7 @@ function showTestDetailModal(testData) {
                             <div class="font-bold text-${summaryColor}-600 mt-1">${testData.positiveItems}</div>
                         </div>
                     </div>
-                    ${testData.riskReason ? `
+                    ${testData.riskReason ? html`
                         <div class="mt-3 pt-3 border-t text-sm text-gray-700">
                             <i class="fas fa-info-circle mr-1"></i>${testData.riskReason}
                         </div>
@@ -1242,8 +1245,8 @@ function showTestDetailModal(testData) {
                 ${testItemsHtml}
             </div>
         </div>
-    `;
-    
+    `);
+
     document.body.appendChild(modal);
 }
 

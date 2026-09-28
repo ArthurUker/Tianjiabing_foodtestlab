@@ -6,7 +6,14 @@
 //   source=issue 测试人员自发反馈的问题（上报时动态创建，第 1 轮 execution 即反馈本身）
 //   当前状态 = 最新一条 TestExecution.result（派生）；收口/修复标记为用例级字段。
 //
-// 端点（全部 authenticateUser，任意已登录账号可提交/查看——测试场景）：
+// 授权（P3-W5-REPORT-AUTH-T01 / AUD-017 / RC-08）：
+//   全部端点 = authenticateUser（W1 统一会话模型）→ requireReportPlatformAdmin；
+//   生产全局测试报告**仅平台授权管理角色**（role='admin' 且无学校归属）可读写，
+//   guest / viewer / operator / 普通学校 manager 一律 403（服务端强制，不是隐藏 UI）。
+//   此前"任意已登录账号可提交/查看"的临时测试口径已废止；未来如保留学校测试协作，
+//   应另建显式 participant grant（任务/学校 × 读/提交/结案/修复），不直接放开全局。
+//
+// 端点（全部 authenticateUser + requireReportPlatformAdmin）：
 //   GET  /api/test-results/defs                — 任务用例清单（CASE_DEFS 权威源，前端渲染任务列表）
 //   GET  /api/test-results/cases               — 用例/问题列表 + 当前状态（task+issue 统一展示）
 //   GET  /api/test-results/cases/:id/history    — 单用例完整复测轨迹（时间线）
@@ -68,10 +75,38 @@ async function deriveLatestState(prisma, caseId) {
         : { result: 'pending', testerName: null, executedAt: null, detail: null }
 }
 
+/**
+ * 测试报告平台授权守卫（P3-W5-REPORT-AUTH-T01 / AUD-017 / RC-08）。
+ *
+ * 判据与 server.js 的平台超管守卫逐字一致（`server.js` 的 `requirePlatformSuperAdmin`）：
+ *   平台授权管理角色 = `role === 'admin'` 且**无学校归属**（schoolCode 为空）。
+ * 明确拒绝：guest（含快速访客）、viewer、operator、普通学校 manager（以及任何带 schoolCode 的身份）。
+ * 说明：
+ *   · 认证仍由 W1 统一会话模型 `authenticateUser` 承担（吊销/epoch/停校语义唯一事实源）；
+ *     本守卫只判角色与归属，**不另造 token 失效判断**；
+ *   · 拒绝响应显式 `Cache-Control: no-store`，避免共享缓存缓存授权失败结果；
+ *   · 授权先于参数/存在性校验（中间件），未授权身份无法通过 400/404 差异探测用例或证据。
+ */
+export function requireReportPlatformAdmin(req, res, next) {
+    const role = req.user?.role
+    const schoolCode = req.user?.schoolCode || null
+    if (role !== 'admin' || schoolCode) {
+        res.setHeader('Cache-Control', 'no-store')
+        return res.status(403).json({
+            success: false,
+            error: '❌ 无权访问测试报告（仅平台超级管理员）',
+            code: 'REPORT_FORBIDDEN',
+        })
+    }
+    next()
+}
+
 export function createTestResultRoutes(userManager, prisma) {
     const router = express.Router()
     const { authenticateUser } = createAuthMiddleware(userManager, prisma)
-    router.use(authenticateUser)
+    // 认证 → 授权，router.use 顺序对全部端点统一生效；
+    // 守卫必须是第一个业务中间件（在所有 handler 之前）。
+    router.use(authenticateUser, requireReportPlatformAdmin)
 
     // ── GET /api/test-results/defs — 任务用例清单（CASE_DEFS 权威源，不含 serverOnly）──
     router.get('/defs', async (req, res) => {

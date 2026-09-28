@@ -1,13 +1,15 @@
 /**
- * 缺陷B（U1）· AdaptiveUploadQueue 409 恢复回归测试（jsdom）
+ * AdaptiveUploadQueue 409 语义回归（jsdom）—— P3-CONS-T01 按总控裁决更新（P3-PARALLEL-R1_REVIEW.md 收口清单 #3）
  *
- * 覆盖：
- *   1. 409 响应携带 serverVersion 时：优先使用 serverVersion 重试（不依赖 GET），
- *      即使 GET 恒失败也能自愈（不再需要 GET 端点可用）。
- *   2. 409 无 serverVersion 且 _fetchLatest(GET 单条) 恒失败时：
- *      内层 3 次尝试耗尽 → reject 传播给 enqueue 调用方（Storage 层可收到 error）
- *   3. reject 之后 _isProcessing 必须复位为 false（否则后续 enqueue 被拦截 → 队列死锁）
- *   4. 死锁修复后：紧接的新 enqueue 能正常进入处理流程（_isProcessing 恢复工作）
+ * 来源映射（注释溯源，场景保留、断言反转为新语义）：
+ *   · 本文件原为「缺陷B（U1）probe」：验证 409 重试后 _isProcessing 复位、队列不死锁 ——
+ *     该死锁修复的**正式 regression 已由 P3-W4-T01 套件承接**（backend/tests/sync/w4-sync-state-machine.test.mjs
+ *     与 w4-conflict-merge.test.mjs 的队列继续调度断言）。
+ *   · P3-W4-T01（AUD-022）新语义：409 一律**不自动重放** —— 队列立即 reject（把 conflict/latest 原样上抛，
+ *     由 Storage 的同步状态机做字段级三路合并或显式 CONFLICT 态），`_fetchLatest()`（409 后 GET 单条再重试）
+ *     已整体移除；serverVersion 仅作为冲突信息解析透传，不再触发重试。
+ *   · 因此原「serverVersion 优先重试 4 次 PUT / 无 serverVersion 回退 GET」的断言反转为：
+ *     每个 enqueue 恰好 1 次 PUT、0 次 GET；_isProcessing 复位与不死锁语义保留不变。
  */
 
 import { AdaptiveUploadQueue } from '../frontend/js/core/AdaptiveUploadQueue.js';
@@ -21,19 +23,19 @@ function jsonResponse(status, body = {}) {
     };
 }
 
-describe('缺陷B · AdaptiveUploadQueue 409 恢复', () => {
+describe('AdaptiveUploadQueue · 409 不自动重放（P3-W4-T01 新语义；死锁修复不回退）', () => {
     beforeEach(() => {
         jest.restoreAllMocks();
     });
 
-    test('409 携带 serverVersion：优先用它重试，GET 恒失败也能耗尽重试并复位 _isProcessing', async () => {
-        // mock fetch：PUT 恒 409（响应体带 serverVersion）；GET 恒 500（_fetchLatest 失败）
+    test('409 携带 serverVersion：立即 reject（不重试、不发 GET），_isProcessing 复位且队列继续调度', async () => {
+        // mock fetch：PUT 恒 409（响应体带 serverVersion/latest —— 新协议的冲突信息）；GET 恒 500
         const fetchMock = jest.fn(async (url, opts = {}) => {
             const method = (opts.method || 'GET').toUpperCase();
             if (method === 'PUT') {
-                return jsonResponse(409, { error: '版本冲突', serverVersion: 2, clientVersion: 1 });
+                return jsonResponse(409, { error: '版本冲突', code: 'VERSION_CONFLICT', serverVersion: 2, clientVersion: 1, latest: { id: 'rec1', version: 2 } });
             }
-            // GET（_fetchLatest 内部拉取单条）→ 500，不应被依赖
+            // GET（旧 _fetchLatest 路径已移除）→ 500；若仍被调用即违反新语义
             return jsonResponse(500, {});
         });
         global.fetch = fetchMock;
@@ -47,30 +49,29 @@ describe('缺陷B · AdaptiveUploadQueue 409 恢复', () => {
             getBaseUrl: () => '/api/records',
         });
 
-        // 第一次 enqueue：PUT 恒 409 → 用 serverVersion 重试 3 次后 reject
+        // 第一次 enqueue：PUT 409 → 立即 reject（冲突信息原样上抛，无重放）
         await expect(
             queue.enqueue('leanMeat', 'rec1', { version: 1, result: '合格' }, { method: 'PUT' })
         ).rejects.toMatchObject({ status: 409 });
 
-        // 断言：reject 后 _isProcessing 复位（修复前会永久卡 true）
+        // 断言：reject 后 _isProcessing 复位（缺陷B修复不回退）
         expect(queue._isProcessing).toBe(false);
 
-        // 断言：新的 enqueue 能被调度处理（修复前因 _isProcessing=true 永不 _scheduleNext → 死锁）
+        // 断言：新的 enqueue 能被调度处理（不死锁），同样立即 reject
         const enqueue2 = queue.enqueue('leanMeat', 'rec2', { version: 1, result: '合格' }, { method: 'PUT' });
-        // 修复后：第二个请求会进入处理并因 409 最终 reject；若死锁则 enqueue2 永远 pending
         await expect(enqueue2).rejects.toMatchObject({ status: 409 });
 
-        // 每个 enqueue 最多 4 次 PUT 尝试（attempt 0→3），两个 enqueue 共 8 次 PUT、0 次 GET
-        // （serverVersion 优先，重试不依赖 GET 端点）
+        // P3-W4-T01 新语义：409 不自动重放 → 每个 enqueue 恰好 1 次 PUT、0 次 GET
+        // （serverVersion/latest 只是上抛的冲突信息，不再触发重试；旧断言为 8 次 PUT）
         const putCalls = fetchMock.mock.calls.filter(([url, opts]) => (opts?.method || 'GET') === 'PUT');
         const getCalls = fetchMock.mock.calls.filter(([url, opts]) => (opts?.method || 'GET') === 'GET');
-        expect(putCalls.length).toBe(8); // rec1 4次 + rec2 4次
-        expect(getCalls.length).toBe(0); // serverVersion 优先，不再发 GET
+        expect(putCalls.length).toBe(2); // rec1 1次 + rec2 1次
+        expect(getCalls.length).toBe(0); // _fetchLatest 已移除，409 路径不发 GET
         expect(queue._isProcessing).toBe(false);
     });
 
-    test('409 无 serverVersion + GET 失败：重试耗尽后 reject 且 _isProcessing 复位（不死锁）', async () => {
-        // mock fetch：PUT 恒 409（响应体不带 serverVersion）；GET 单条恒 500
+    test('409 无 serverVersion：同样立即 reject（无 GET 回退），_isProcessing 复位（不死锁）', async () => {
+        // mock fetch：PUT 恒 409（响应体不带 serverVersion —— 旧服务端兼容形态）；GET 单条恒 500
         const fetchMock = jest.fn(async (url, opts = {}) => {
             const method = (opts.method || 'GET').toUpperCase();
             if (method === 'PUT') {
@@ -98,12 +99,12 @@ describe('缺陷B · AdaptiveUploadQueue 409 恢复', () => {
         const enqueue2 = queue.enqueue('leanMeat', 'rec2', { version: 1, result: '合格' }, { method: 'PUT' });
         await expect(enqueue2).rejects.toMatchObject({ status: 409 });
 
-        // 无 serverVersion → 409 时回退 _fetchLatest；GET 失败抛错 → catch 分支直接 reject，
-        // 不重试（每次 enqueue = 1 次 PUT + 1 次 GET），两个 enqueue 共 2 次 PUT、2 次 GET
+        // P3-W4-T01 新语义：无 serverVersion 也不得回退 GET 拉取后重试（旧断言 2 PUT + 2 GET）
+        // → 每个 enqueue 1 次 PUT、0 次 GET；冲突处置统一上抛给 Storage 状态机
         const putCalls = fetchMock.mock.calls.filter(([url, opts]) => (opts?.method || 'GET') === 'PUT');
         const getCalls = fetchMock.mock.calls.filter(([url, opts]) => (opts?.method || 'GET') === 'GET');
         expect(putCalls.length).toBe(2); // rec1 1次 + rec2 1次
-        expect(getCalls.length).toBe(2); // 每次 409 尝试一次 GET（均失败）
+        expect(getCalls.length).toBe(0); // 不再回退 GET（原断言为 2）
         expect(queue._isProcessing).toBe(false);
     });
 });

@@ -15,6 +15,9 @@ import { extractSchoolCode } from '../utils/schoolCode.js';
 import { getLocalDateStr } from '../utils/dateUtil.js';
 
 const storage = new StorageService('tableware');
+// P3-CONS-T01（AUD-001 收口）：供 main.js 快速访问兜底渲染器读取同一实例的作用域键
+// （避免在 main.js 再造实例/硬编码旧键 cache_tableware —— W4 未决 #1）
+export const tablewareStorage = storage;
 let currentPage = 1;
 let recordsPerPage = 10;
 let sortOrder = 'desc'; 
@@ -838,7 +841,9 @@ function renderTable() {
     
     if (isQuickAccess) {
         try {
-            const cacheData = localStorage.getItem('cache_tableware');
+            // P3-CONS-T01（AUD-001 收口，W4 未决 #1）：旧键 'cache_tableware' 直读 →
+            // 经 StorageService#getStorageKeys() 取作用域键（tenant+subject+resource）
+            const cacheData = localStorage.getItem(storage.getStorageKeys().cacheKey);
             const parsed = JSON.parse(cacheData || '{}');
             allRecords = parsed.data || [];
             console.log('📖 快速访问模式：从localStorage读取', allRecords.length, '条记录');

@@ -12,6 +12,8 @@ import { auditService } from '../services/AuditService.js';
 import { isRecordQualifiedByCustomFields, getVisibleTypes, getSchoolCustomization, getSchoolCanteens } from '../utils/schoolCustomization.js';
 import { extractSchoolCode } from '../utils/schoolCode.js';
 import { getLocalDateStr, getLocalMonthStr, startOfLocalDay, endOfLocalDay } from '../utils/dateUtil.js';
+// 结论归一唯一入口（前端出口）：与后端 lib/conclusionVerdict.js 同口径，AUD-025 修复
+import { isOilPass } from '../core/conclusionVerdict.js';
 
 const services = {
     tableware: new StorageService('tableware'),
@@ -235,7 +237,9 @@ function initCanteenFilter() {
 
         if (isQuickAccess) {
             try {
-                const cacheKey = `cache_${type}`;
+                // P3-CONS-T01（AUD-001 收口，W4 未决 #1）：旧键 `cache_${type}` 直读 →
+                // 经 StorageService#getStorageKeys() 取作用域键（tenant+subject+resource）
+                const cacheKey = services[type].getStorageKeys().cacheKey;
                 const cacheData = localStorage.getItem(cacheKey);
                 records = cacheData ? JSON.parse(cacheData).data || [] : [];
             } catch (e) {
@@ -968,17 +972,14 @@ function getWeekRange(weekString) {
     };
 }
 
-// ✅ 食用油合格率判定（2026-07-23 业务方裁定）：
-//    按"品质等级"(colorLevel) 判定，仅"不合格"为不合格；
-//    其余（合格 / 警戒 / 其它等级）均视为合格。
-//    无 colorLevel 时（如联调测试记录）以 result 兜底。
+// ✅ 食用油合格率判定（2026-07-23 业务方裁定 + 2026-09-25 AUD-025 修复）：
+//    按"品质等级"(colorLevel) 判定：`合格` / `警戒` 视为合格（警戒计入合格，既有裁定），
+//    `不合格` 为不合格；**未识别的非空等级 → 未判定（不计合格）**；
+//    仅当 colorLevel 为空时（如联调测试记录）才以 result 兜底。
+//    规则唯一实现：frontend/js/core/conclusionVerdict.js（与后端 /stats、访客统计、对外接口同源）。
+//    旧实现 `!colorLevel.includes('不合格')` 会把未识别等级当成合格（fail-open，AUD-025）。
 function isOilQualified(record) {
-    const colorLevel = (record.colorLevel || '').toString().trim();
-    if (colorLevel) {
-        return !colorLevel.includes('不合格');
-    }
-    const result = (record.result || '').toString().trim();
-    return result.includes('合格') && !result.includes('不合格');
+    return isOilPass(record);
 }
 
 // ✅ 统一合格率判定（所有统计函数共用，避免各模块口径分叉导致趋势图/卡片/总合格率不一致）
@@ -1025,7 +1026,9 @@ function getStats(type, startDate, endDate, selectedCanteen = 'all') {
   
   if (isQuickAccess) {
       try {
-          const cacheKey = `cache_${type}`;
+          // P3-CONS-T01（AUD-001 收口，W4 未决 #1）：旧键 `cache_${type}` 直读 →
+          // 经 StorageService#getStorageKeys() 取作用域键（tenant+subject+resource）
+          const cacheKey = services[type].getStorageKeys().cacheKey;
           const cacheData = localStorage.getItem(cacheKey);
           records = cacheData ? JSON.parse(cacheData).data || [] : [];
           console.log(`📖 快速访问模式: ${type} 从localStorage读取`, records.length, '条记录');
@@ -1105,7 +1108,7 @@ function getStats(type, startDate, endDate, selectedCanteen = 'all') {
           riskLevels
       };
   } else if (type === 'oil') {
-      // ✅ 食用油：按品质等级判定，仅"不合格"为不合格，其余(合格/警戒/其它等级)均合格
+      // ✅ 食用油：按品质等级判定（合格/警戒 → 合格；不合格 → 不合格；未识别等级 → 未判定不计合格）
       // RK21: 统一走 isQualified，含学校自定义字段判定
       count = sortedRecords.length;
       passCount = sortedRecords.filter(r => isQualified('oil', r)).length;

@@ -7,6 +7,21 @@ import { getLocalDateStr } from './dateUtil.js';
 // TD-CascadeFieldOption: 同样需要 schoolCode；快速访问模式下空 customization 会导致示例数据
 // 永远不带学校定制字段，体验与正式租户不一致。
 import { extractSchoolCode } from './schoolCode.js';
+// P3-CONS-T01（AUD-001 收口，W4 未决 #1）：旧键 cache_<table> 直读 → 作用域键
+// cache_v2__<tenant>__<subjectHash>__<res>。键派生与 StorageService#getStorageKeys() 完全同源
+// （core/SyncScope.buildScopedKeys —— Storage.js 构造函数内部即用它生成本地缓存键）。
+// 此处不经 StorageService 实例取键：其构造函数会用 {data:[]} 初始化缓存键，
+// 破坏本模块「只初始化缺失数据」的键存在性判断（initializeSampleData 的既有逻辑，保持不变）。
+import { resolveSyncScope, buildScopedKeys } from '../core/SyncScope.js';
+
+const SAMPLE_TYPES = ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'];
+const _scopedCacheKeyCache = new Map();
+function scopedCacheKey(type) {
+    if (!_scopedCacheKeyCache.has(type)) {
+        _scopedCacheKeyCache.set(type, buildScopedKeys(type, resolveSyncScope()).cacheKey);
+    }
+    return _scopedCacheKeyCache.get(type);
+}
 
 // RK45: 为学校自定义字段补示例值，避免快速访问示例数据缺少定制字段
 function withCustomFields(moduleCode, record) {
@@ -26,33 +41,27 @@ export function initializeSampleData() {
     
     console.log('📊 初始化示例数据用于快速访问模式...');
 
-    // ✨ 只初始化缺失的数据，保留现有数据
-    const existingKeys = new Set();
-    for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && key.startsWith('cache_')) {
-            existingKeys.add(key);
-        }
-    }
-    
+    // ✨ 只初始化缺失的数据，保留现有数据（键来源：P3-CONS-T01 迁移为作用域键）
+    const existingKeys = new Set(SAMPLE_TYPES.map(scopedCacheKey));
+
     // 只初始化缺失的缓存
-    if (!existingKeys.has('cache_tableware')) {
+    if (!existingKeys.has(scopedCacheKey('tableware'))) {
         console.log('📊 初始化缺失的餐具洁净度数据...');
         initTableware();
     } else {
         console.log('✅ 缓存已存在，跳过初始化餐具洁净度数据');
     }
-    
-    if (!existingKeys.has('cache_pesticide')) initPesticide();
+
+    if (!existingKeys.has(scopedCacheKey('pesticide'))) initPesticide();
     else console.log('✅ 缓存已存在，跳过初始化果蔬农残数据');
-    
-    if (!existingKeys.has('cache_oil')) initOil();
+
+    if (!existingKeys.has(scopedCacheKey('oil'))) initOil();
     else console.log('✅ 缓存已存在，跳过初始化食用油品质数据');
-    
-    if (!existingKeys.has('cache_leanMeat')) initMeat();
+
+    if (!existingKeys.has(scopedCacheKey('leanMeat'))) initMeat();
     else console.log('✅ 缓存已存在，跳过初始化肉蛋农残数据');
-    
-    if (!existingKeys.has('cache_pathogen')) initPathogen();
+
+    if (!existingKeys.has(scopedCacheKey('pathogen'))) initPathogen();
     else console.log('✅ 缓存已存在，跳过初始化病原体数据');
     
     // initDashboard();  // 仪表板数据不需要示例数据
@@ -72,7 +81,7 @@ export function initializeSampleData() {
  * 初始化餐具洁净度检测示例数据
  */
 function initTableware() {
-    const storageKey = 'cache_tableware';
+    const storageKey = scopedCacheKey('tableware'); // P3-CONS-T01：作用域键（原 'cache_tableware'）
 
     // P1-22: 示例数据 ID 改用 temp_sample_{n}，兼容 StorageService._isTempId() 规则避免同步时被丢弃
     const sampleData = [
@@ -118,7 +127,7 @@ function initTableware() {
  * 初始化果蔬农残检测示例数据
  */
 function initPesticide() {
-    const storageKey = 'cache_pesticide';
+    const storageKey = scopedCacheKey('pesticide'); // P3-CONS-T01：作用域键（原 'cache_pesticide'）
 
     // P1-22: 示例数据 ID 改用 temp_sample_{n}，兼容 StorageService._isTempId() 规则避免同步时被丢弃
     const sampleData = [
@@ -159,7 +168,7 @@ function initPesticide() {
  * 初始化食用油品质检测示例数据
  */
 function initOil() {
-    const storageKey = 'cache_oil';
+    const storageKey = scopedCacheKey('oil'); // P3-CONS-T01：作用域键（原 'cache_oil'）
 
     // P1-22: 示例数据 ID 改用 temp_sample_{n}，兼容 StorageService._isTempId() 规则避免同步时被丢弃
     const sampleData = [
@@ -195,7 +204,7 @@ function initOil() {
  * 初始化肉、蛋农残检测示例数据
  */
 function initMeat() {
-    const storageKey = 'cache_leanMeat';
+    const storageKey = scopedCacheKey('leanMeat'); // P3-CONS-T01：作用域键（原 'cache_leanMeat'）
 
     // P1-22: 示例数据 ID 改用 temp_sample_{n}，兼容 StorageService._isTempId() 规则避免同步时被丢弃
     const sampleData = [
@@ -227,7 +236,7 @@ function initMeat() {
  * 初始化病原体检测示例数据
  */
 function initPathogen() {
-    const storageKey = 'cache_pathogen';
+    const storageKey = scopedCacheKey('pathogen'); // P3-CONS-T01：作用域键（原 'cache_pathogen'）
 
     // P1-22: 示例数据 ID 改用 temp_sample_{n}，兼容 StorageService._isTempId() 规则避免同步时被丢弃
     const sampleData = [

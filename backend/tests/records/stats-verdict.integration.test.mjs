@@ -4,28 +4,31 @@
 // 旧统计把它算作"非合格"（既进分母）→ school_zhsy 餐具 5/9=56%，实际应为 9/9=100%。
 //
 // 启用方式（未设置则整体跳过）：
-//   REVIEW_TEST_DATABASE_URL='postgresql://USER:PASS@127.0.0.1:5432/foodsentinel_review_test' \
+//   TEST_DATABASE_URL='postgresql://<provisioner 派生 role>:<pw>@127.0.0.1:<port>/<derived db>' TEST_DB_CONTEXT_FILE=<provisioner 输出> \
 //     node --test tests/records/stats-verdict.integration.test.mjs
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { require, isConfigured, assertIsolationConfig, assertIsolated, cleanupScoped, parseDbUrl } from '../_isolation.mjs'
+import { require, loadIsolation, assertIsolated as gateAssert, cleanupScoped } from '../_isolation.mjs'
 
-const URL_ = process.env.REVIEW_TEST_DATABASE_URL || ''
-const TEST_SCHEMA = 'school_reviewtest'
-const enabled = isConfigured()
+const isoInfo = loadIsolation()
+const TENANT = isoInfo.ok ? isoInfo.tenant('a') : null   // 派生租户（slot a；不再硬编码 school_review*）
+const TEST_SCHEMA = TENANT ? TENANT.schema : null
+const enabled = isoInfo.ok
 
 if (!enabled) {
-  test('统计口径集成（未设置 REVIEW_TEST_DATABASE_URL，跳过）', { skip: 'SKIP: TEST_DATABASE_URL not configured' }, () => {})
+  test('统计口径集成：[T02C] 未配置显式 TEST_DATABASE_URL + TEST_DB_CONTEXT_FILE → 拒绝（fail-closed，不再 skip）', () => {
+    assert.fail(`[T02C-ISOLATION-REFUSED] code=${isoInfo.code || 'UNKNOWN'} reason=${isoInfo.reason || 'n/a'}；本套件只认显式 TEST_* 配置（不回落 DATABASE_URL / 业务 dotenv）`)
+  })
 }
 
 if (enabled) {
-  const iso = assertIsolationConfig({ schema: TEST_SCHEMA })
-  process.env.DATABASE_URL = URL_   // 保险：任何内部 createTenantClient 都不得落到生产
+  const iso = { url: isoInfo.url, db: isoInfo.db, schema: TEST_SCHEMA }   // 共享门禁派生值（TESTS/helpers/db-isolation）
+  process.env.DATABASE_URL = isoInfo.url   // 保险：任何内部 createTenantClient 都不得落到生产
 
   const { PrismaClient } = require('@prisma/client')
   const { createRecordRoutes } = await import('../../routes/recordRoutes.js')
 
-  const tenantUrl = `${URL_}${URL_.includes('?') ? '&' : '?'}schema=${TEST_SCHEMA}`
+  const tenantUrl = TENANT.urlWithSchema
   const db = new PrismaClient({ datasources: { db: { url: tenantUrl } } })
 
   const noop = (req, res, next) => next()
@@ -74,7 +77,7 @@ if (enabled) {
   ]
 
   test.before(async () => {
-    await assertIsolated(db, parseDbUrl(URL_).db, '统计口径集成租户客户端')
+    await gateAssert(db, TEST_SCHEMA, '统计口径集成租户客户端')
     await db.user.upsert({
       where: { id: USER_ID },
       update: {},
