@@ -1,0 +1,57 @@
+{
+  "purpose": "Immutable checksum baseline for the first 13 tenant migration files",
+  "chain_files": [
+    {
+      "name": "20260726000000_baseline",
+      "checksum": "c22a386cc2950e18e1d3b1d47f8cf055371be271b8909fae6413d6b01ba19048"
+    },
+    {
+      "name": "20260726100000_add_customization_columns_if_missing",
+      "checksum": "857762e304737690f6ec68f0a86c51a57c4539c5767599864fe48580982ca545"
+    },
+    {
+      "name": "20260729000000_add_must_change_password",
+      "checksum": "73745a2640185b1c2e6ce66dc14e435072ad5ee12198e0662c6c59420aba4e36"
+    },
+    {
+      "name": "20260814000000_remove_backup_model",
+      "checksum": "42b99992bd724d77d9ff2691a06dd83d8222b67d045cc77b8d2ec5886f7c42ca"
+    },
+    {
+      "name": "20260814020000_unify_school_customization_text",
+      "checksum": "a9ebb76c2d6b8772a60d9fa72d348b1a02c9d86e428d848e6bebb47a54bd8448"
+    },
+    {
+      "name": "20260814030000_revert_customization_to_jsonb",
+      "checksum": "a53e2597942da9c94d053ff9da844f0c5c3ff593aa12c2612c342be7edd70ffe"
+    },
+    {
+      "name": "20260814040000_json_fields_to_jsonb",
+      "checksum": "da8d6f408529ad849e37db7c70569cd4998fc61670a86bbc34d71c0a07a1772f"
+    },
+    {
+      "name": "20260816000000_add_school_short_name_unique",
+      "checksum": "8efb3856c67065abeff11a466fa51b727fb1839443c1070da57d57c35738e46d"
+    },
+    {
+      "name": "20260825000000_add_frequency_threshold_calendar",
+      "checksum": "c3ef86c51ff8f19ab628401794f75af9e1c9f510ca0f97173dc74ee0609468f6"
+    },
+    {
+      "name": "20260825120000_test_report_rewrite",
+      "checksum": "3e4ec2bc57b415ad8889028c7b89cc69302e539f34a902d815b8d616ce0b5325"
+    },
+    {
+      "name": "20260915120000_open_api_tables",
+      "checksum": "69d10c487793312e3cbdb01e4883f2457d225958314348221460d01e0433929a"
+    },
+    {
+      "name": "20260926120000_public_infra_tenant_migration_locks",
+      "checksum": "68bc29b1ff5eb96cd3f503057b9a4a3550f90b8adb3184fbe7be66ff3e8be2c2"
+    },
+    {
+      "name": "20260926120100_public_infra_revoked_tokens",
+      "checksum": "f7adce83353c84de7c696ffe120f588409c49f4e617ca0ca5e6439307bf5d18e"
+    }
+  ]
+}

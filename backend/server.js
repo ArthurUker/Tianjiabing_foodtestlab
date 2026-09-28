@@ -34,9 +34,12 @@ import { createOpenApiRoutes } from './routes/openApiRoutes.js'
 import { createAdminOpenApiRoutes } from './routes/adminOpenApiRoutes.js'
 import { disconnectAllTenantClients } from './lib/tenantClient.js'
 import { syncAllTenantSchemas } from './lib/tenantSync.js'
+import { redactSecrets } from './lib/tenantProvisioner.js'
 import { startSecurityEventAlerting } from './lib/securityAlerts.js'
 // 窗口3（资源访问控制与外围加固）：CORS 通配符检测
 import { corsConfigHasWildcard } from './lib/securityGuards.js'
+// P3-W0-T01 / RC-10 (AUD-044)：统一 JWT 配置校验（与 deploy 薄 CLI 共用单一规则）
+import { validateJwtConfig } from './lib/jwtSecretConfig.js'
 
 dotenv.config()
 
@@ -66,24 +69,22 @@ const RESERVED_STATIC_DIRS = new Set([
     // 保留 health/api 防止健康检查端点与 API 前缀被多租户路径改写中间件劫持
     'health', 'api',
 ])
-const JWT_SECRET = process.env.JWT_SECRET
-if (!JWT_SECRET) {
-  console.error('[FATAL] JWT_SECRET is not set. Server startup aborted.')
+// P3-W0-T01 / RC-10 (AUD-044)：统一 JWT access/refresh 配置门禁。
+// 单一规则来自 backend/lib/jwtSecretConfig.js（与 deploy 调用的薄 CLI 共用）；
+// 在监听、数据库与后台工作启动前执行，所有 NODE_ENV 一致生效，无 test/dev/跳过开关。
+// 失败仅输出字段名与安全原因，不输出任何密钥内容。
+const jwtConfigResult = validateJwtConfig({
+  accessSecret: process.env.JWT_SECRET,
+  refreshSecret: process.env.JWT_REFRESH_SECRET,
+})
+if (!jwtConfigResult.ok) {
+  for (const e of jwtConfigResult.errors) {
+    console.error(`[FATAL] ${e.field}: ${e.reason} (code=${e.code}). Server startup aborted. Generate a strong random secret (e.g. openssl rand -hex 32) and retry.`)
+  }
   process.exit(1)
 }
-
-// P0-12 (子问题3): 拒绝已知弱/默认占位密钥，防止误用 .env.example 默认值启动并签发 JWT
-const KNOWN_WEAK_SECRETS = [
-  'your-super-secret-jwt-key-change-this-in-production',
-  'your-secret-key-change-in-production',
-  'local-dev-jwt-secret',
-  'food-lab-secret-key',
-  'please_change_this_secret'
-]
-if (KNOWN_WEAK_SECRETS.includes(JWT_SECRET)) {
-  console.error('[FATAL] JWT_SECRET is a known weak/default value. Server startup aborted. Please generate a strong random secret.')
-  process.exit(1)
-}
+const JWT_SECRET = jwtConfigResult.accessSecret
+const JWT_REFRESH_SOURCE = jwtConfigResult.refreshSource
 const RATE_LIMIT_MAX_REQUESTS = Number(process.env.RATE_LIMIT_MAX_REQUESTS || 1000)
 const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || (60 * 1000))
 
@@ -190,6 +191,18 @@ app.use(express.json({ limit: process.env.BODY_LIMIT || '8mb' }))
 import { createReadOnlyGuard } from './middleware/readOnlyMiddleware.js'
 app.use(createReadOnlyGuard())
 
+// P3-W1-T01（承接 W3-T01 挂起项）：**per-school 写屏障**挂载。
+//   · W3 交付的 tenantWriteBarrier.createWriteBarrierMiddleware()：恢复窗口内按学校精确拒绝写
+//     （503 + code TENANT_WRITE_BARRIER + Retry-After），全局 READONLY_MODE 仍为兜底（同一中间件内联判定）；
+//   · 挂载失败**不得破坏启动**：捕获异常并高声告警（常规请求不受影响；恢复窗口仍由 READONLY_MODE 兜底）。
+import { createWriteBarrierMiddleware } from './lib/tenantWriteBarrier.js'
+try {
+    app.use(createWriteBarrierMiddleware())
+    console.log('✅ 写屏障中间件已挂载（per-school 精确屏障 + READONLY_MODE 兜底）')
+} catch (e) {
+    console.error('⚠️ 写屏障中间件挂载失败（不阻断启动；READONLY_MODE 兜底仍生效）:', e?.message || e)
+}
+
 // DS-10: 应用层安全响应头兜底（反向代理 deploy/ 亦应设置）
 app.use((_req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff')
@@ -243,11 +256,122 @@ if (serveStatic) {
 }
 
 // Health Check (P2-06: 合并重复定义，两个路由共用同一处理器)
+// P3-W2-T02-R1（RC-04）：liveness 保持 200，但**显式携带 readiness 摘要**——
+// 结构/迁移未就绪时不得对外声称"健康"（readiness 端点 /readyz 同步返回 503）。
 function healthCheck(req, res) {
-    res.json({ status: 'ok', timestamp: new Date() })
+    const r = app.locals.tenantReadiness || null
+    res.json({
+        status: 'ok',
+        ready: r ? r.ok === true : null,
+        tenantSchema: r ? {
+            mode: r.mode, status: r.status, certification: r.certification || null,
+            blockedSchools: r.blockedSchools || [], globalBlockers: (r.globalBlockers || []).map((g) => g.code),
+        } : null,
+        timestamp: new Date(),
+    })
 }
 app.get('/health', healthCheck)
 app.get('/api/health', healthCheck)
+
+// Readiness：租户结构/迁移就绪才是 200（RC-04：部署 migration 成功后才开放 readiness）。
+function readinessCheck(req, res) {
+    const r = app.locals.tenantReadiness || { ok: false, status: 'UNKNOWN', blockedSchools: [] }
+    res.status(r.ok ? 200 : 503).json({
+        status: r.ok ? 'ready' : 'not-ready',
+        tenantSchema: {
+            mode: r.mode || 'unknown',
+            status: r.status || 'UNKNOWN',
+            certification: r.certification || null,
+            blockedSchools: r.blockedSchools || [],
+            globalBlockers: (r.globalBlockers || []).map((g) => g.code),
+            publicExtraTables: r.publicExtraTables || [],
+            checkedAt: r.checkedAt || null,
+            detail: r.detail || null,
+        },
+        timestamp: new Date(),
+    })
+}
+app.get('/readyz', readinessCheck)
+app.get('/api/readyz', readinessCheck)
+
+// ====== 租户就绪能力闸门（P3-W2-T02-R1 / RC-04）======
+// 启动只做检测（永不写结构）；检测未通过（漂移 / 检查失败 / 迁移 pending|failed / 超时）时：
+//   · readiness 端点返回 503；同时**阻断受影响学校的能力**（503 TENANT_SCHEMA_NOT_READY）；
+//   · 只阻断"能确定学校上下文"的租户请求（路径前缀 / 登录体 schoolCode / Bearer 载荷 schoolCode）；
+//     平台级路径与健康/就绪端点不受影响；判定不出学校上下文的请求交由认证层裁决（避免误伤）。
+//   · mode=off（AUTO_SYNC_TENANTS=false）= 不跑检测 → 迁移**未证实** → 同样 fail-closed 阻断租户入口
+//     （R6 ①：不存在任何"凭环境变量放行"的通道；受保护 harness 必须改用已迁移实例 + 默认 check）。
+// 豁免清单（逐项列明；除此之外的入口在就绪未证实/存在阻断时必须拒绝）：
+//   · /health、/api/health      —— liveness（携带 ready 摘要，不声称就绪）
+//   · /readyz、/api/readyz      —— readiness 本身（用于诊断）
+//   · /api/admin/**             —— 平台超管的诊断/修复入口（暂停/恢复学校、备份、db 运维视图）
+//   · /api/user/super-admin/**  —— 平台超管登录（无学校归属）
+//   · 静态资源（在闸门之前注册，不经此处）
+const TENANT_PLATFORM_PATH_RE = /^\/(api\/admin\/|api\/user\/super-admin\/|api\/health|api\/readyz|health|readyz)/
+const RESERVED_SCHOOL_PREFIX = new Set(['api', 'health', 'readyz', 'css', 'js', 'images', 'img', 'assets', 'static', 'dist', 'uploads', 'favicon.ico'])
+function tenantSchoolHint(req) {
+    const url = String(req.originalUrl || req.url || '')
+    const m = url.match(/^\/([a-z0-9-]{1,40})\//)
+    if (m && !RESERVED_SCHOOL_PREFIX.has(m[1])) return m[1]
+    const body = req.body
+    if (body && typeof body === 'object' && typeof body.schoolCode === 'string' && body.schoolCode) return body.schoolCode
+    const auth = String(req.headers?.authorization || '')
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : ''
+    if (token && token.split('.').length === 3) {
+        try {
+            const payload = JSON.parse(Buffer.from(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'))
+            if (typeof payload.schoolCode === 'string' && payload.schoolCode) return payload.schoolCode
+        } catch { /* 载荷不可解析：不据此放行也不据此阻断 */ }
+    }
+    return null
+}
+function tenantReadinessGate(req, res, next) {
+    try {
+        const r = app.locals.tenantReadiness
+        if (!r) return next()                                   // 检测尚未完成的窗口（首轮在 listen 前完成，正常不可达）
+        if (r.ok === true) return next()                        // 已证实就绪：全部放行
+        const url = String(req.originalUrl || req.url || '')
+        if (TENANT_PLATFORM_PATH_RE.test(url)) return next()     // 显式豁免清单（见上）
+        // R6 ①：**不存在**凭环境变量放行租户流量的路径（原 TENANT_READINESS_ATTESTED 已删除）。
+        // 未证实就绪（off / 分类失败 / public 额外对象 / 迁移层问题）时，唯一放行通道 = 检测通过。
+        // ① 全局阻断（public 迁移 failed/pending/checksum/未知条目/台账缺失/检查超时/分类失败/public 额外对象）：
+        //    **所有**未豁免的租户入口拒绝（与学校归属无关，修复前不得穿透）
+        const globalBlockers = Array.isArray(r.globalBlockers) ? r.globalBlockers : []
+        if (globalBlockers.some((g) => g.trafficBlocking !== false)) {
+            return res.status(503).json({
+                error: '❌ 平台迁移未证实完成（public migration pending/failed/checksum/超时），已按 RC-04 阻断租户入口；请人工核实后运行 npm run db:sync 或按 runbook 处置',
+                code: 'TENANT_MIGRATION_NOT_READY',
+                checkStatus: r.status,
+                globalBlockers: globalBlockers.map((g) => g.code),
+                checkedAt: r.checkedAt || null,
+            })
+        }
+        // ② 按学校阻断：可归属 → 命中 blockedSchools 才拒绝；**归属无法确认 → 拒绝（fail-closed）**
+        const hint = tenantSchoolHint(req)
+        if (!hint) {
+            return res.status(503).json({
+                error: '❌ 无法确认该租户请求的学校归属（且平台迁移/结构未全部就绪），已 fail-closed 拒绝',
+                code: 'TENANT_NOT_ATTRIBUTED',
+                checkStatus: r.status,
+                checkedAt: r.checkedAt || null,
+            })
+        }
+        if (Array.isArray(r.blockedSchools) && r.blockedSchools.includes(hint)) {
+            return res.status(503).json({
+                error: '❌ 该校迁移/结构未就绪（RC-04：台账缺失/失败、结构漂移或额外对象），已阻断该校能力；请运行 npm run db:sync（逐租户版本化）或按 runbook 处置后重试',
+                code: 'TENANT_SCHEMA_NOT_READY',
+                schoolCode: hint,
+                checkStatus: r.status,
+                checkedAt: r.checkedAt || null,
+            })
+        }
+        return next()
+    } catch (e) {
+        // 闸门自身异常不得放行：fail-closed（保守拒绝，可重试）
+        return res.status(503).json({ error: '租户就绪闸门异常，已 fail-closed 拒绝', code: 'TENANT_GATE_ERROR' })
+    }
+}
+app.use(tenantReadinessGate)
 
 // ====== School Management (超管：动态新增/列出学校，方案② 运行时建 schema) ======
 // 仅 role=admin 且不属于任何具体学校（school_code 为空 = 平台超管，落在 public schema）可操作，
@@ -364,25 +488,96 @@ app.use((err, req, res, next) => {
 
 // ====== Start Server ======
 
-// 启动自愈：服务起来后，后台把全部租户（含控制台 UI 新建、不在 SCHOOL_CODES 的）schema
-// 与当前 schema.prisma 对齐，并回填 SchoolCustomization 的历史 NULL。
-// 这样无论「改 schema 后重部署」还是「手动 git pull 后重启」漏跑 db:sync，都能在下次重启自愈，
-// 不再依赖人工记忆「逐租户 db push」。非阻塞：服务已就绪即开始，失败仅告警不影响启动。
-// 可用 AUTO_SYNC_TENANTS=false 关闭（改由手动 npm run db:sync）。
-function selfHealTenantSchemas() {
-    if (process.env.AUTO_SYNC_TENANTS === 'false') {
-        console.log('ℹ️  AUTO_SYNC_TENANTS=false，跳过启动自愈（请记得手动 npm run db:sync）')
-        return
-    }
-    console.log('🔧 启动自愈：对齐全部租户 schema 与 schema.prisma（后台执行，不阻塞服务）...')
-    syncAllTenantSchemas(prisma, {
-        adminPassword: process.env.SEED_ADMIN_PASSWORD || '',
-        skipGenerate: true, // 运行时客户端已生成，无需再 generate
-        log: (m) => console.log(`[self-heal] ${m}`)
-    })
-        .then(() => console.log('✅ 租户 schema 自愈完成'))
-        .catch((e) => console.error('⚠️  租户 schema 自愈失败（不影响服务运行，可手动 npm run db:sync）:', e.message))
+// ====== 启动租户结构/迁移检测（P3-W2-T02-R1，RC-04）======
+// 原则（冻结裁决）：**启动只做 drift detection，任何 AUTO_SYNC_TENANTS 取值都不写结构**；
+//   部署 migration 成功后才开放 readiness；未知漂移 / 单租户失败 / failed migration 阻断对应能力。
+// 取值兼容（文档化）：
+//   · 未设置（默认）→ check：只读检测 + readiness 闸门（受影响学校能力 503）；
+//   · 'true'（历史值）→ **仍为 check**（不再 apply；启动日志打印兼容提示，杜绝"重启即对齐"）；
+//   · 'false' → off：跳过检测（运维显式自担；readiness = NOT_VERIFIED **且租户入口 503**，不是"放行"）。
+// 显式升级入口（唯一会写结构的路径）：`npm run db:sync`（非破坏性；0/1/2 退出码）。
+const TENANT_SYNC_MODE = process.env.AUTO_SYNC_TENANTS === 'false' ? 'off' : 'check'
+const TENANT_SYNC_LEGACY_TRUE = process.env.AUTO_SYNC_TENANTS === 'true'
+const TENANT_READINESS_TIMEOUT_MS = Number(process.env.TENANT_READINESS_TIMEOUT_MS || 15000)
+const TENANT_READINESS_RECHECK_MS = Number(process.env.TENANT_READINESS_RECHECK_MS || 60000)
+
+app.locals.tenantReadiness = {
+    ok: false, mode: TENANT_SYNC_MODE, status: 'PENDING', certification: 'pending',
+    globalBlockers: [], blockedSchools: [], publicExtraTables: [], checkedAt: null,
+    detail: '首轮只读证明未完成（listen 前完成；正常不可达）',
 }
+
+/** 只读证明（首轮在 listen 前完成；之后周期复检以便修复后自动放开）。 */
+async function refreshTenantReadiness() {
+    if (TENANT_SYNC_MODE === 'off') {
+        // RC-04（R5 ①/R6 ①）：`false` = 不跑检测 → **迁移未证实** → readiness 非 200 **且租户业务 fail-closed**。
+        // 没有例外通道：本函数与闸门均不读取任何"声明式"环境变量来放行（原 attestation 通道已删除）。
+        app.locals.tenantReadiness = {
+            ok: false, mode: 'off', status: 'NOT_VERIFIED', certification: 'not-verified',
+            globalBlockers: [{
+                code: 'NOT_VERIFIED', trafficBlocking: true,
+                detail: 'AUTO_SYNC_TENANTS=false：迁移未验证（未运行检测）→ 按 RC-04 阻断租户能力；'
+                    + '受控测试请在**已迁移实例**上使用默认 check（AUTO_SYNC_TENANTS 不设为 false）',
+            }],
+            blockedSchools: [], publicExtraTables: [], checkedAt: new Date().toISOString(),
+            detail: 'AUTO_SYNC_TENANTS=false：跳过检测 → readiness NOT_VERIFIED 且租户入口 503（fail-closed；无放行通道）',
+        }
+        console.warn('⚠️  AUTO_SYNC_TENANTS=false：跳过启动迁移/结构检测 → readiness=NOT_VERIFIED（/api/readyz 503）' +
+            '**且租户入口 503**（RC-04 fail-closed，无 attestation 放行通道）；不会写结构。' +
+            '受保护 harness 请在已迁移实例上改用默认 check。')
+        return app.locals.tenantReadiness
+    }
+    let result = null
+    let failure = null
+    try {
+        result = await Promise.race([
+            syncAllTenantSchemas(prisma, { mode: 'check', skipGenerate: true, log: (m) => console.log(`[tenant-check] ${m}`) }),
+            new Promise((_, reject) => {
+                const t = setTimeout(() => reject(new Error(`检测超时（${TENANT_READINESS_TIMEOUT_MS}ms）`)), TENANT_READINESS_TIMEOUT_MS)
+                if (typeof t.unref === 'function') t.unref()
+            }),
+        ])
+    } catch (e) {
+        failure = e
+        result = {
+            ok: false, status: 'CANNOT_CHECK', blockedSchools: [],
+            globalBlockers: [{ code: 'CANNOT_CHECK', trafficBlocking: true, detail: redactSecrets(e.message) }],
+        }
+    }
+    const ok = !!(result && result.ok === true && result.status === 'OK')
+    const readiness = {
+        ok,
+        mode: 'check',
+        status: result?.status || 'CANNOT_CHECK',
+        certification: ok ? 'verified' : 'not-verified',
+        globalBlockers: Array.isArray(result?.globalBlockers) ? result.globalBlockers : [],
+        blockedSchools: Array.isArray(result?.blockedSchools) ? result.blockedSchools : [],
+        publicExtraTables: result?.publicExtraObjects?.extraTables || [],
+        checkedAt: new Date().toISOString(),
+        detail: ok ? null : (failure?.message || `TENANT_SCHEMA_CHECK=${result?.status || 'unknown'}`),
+    }
+    app.locals.tenantReadiness = readiness
+    if (ok) {
+        console.log(`✅ 迁移/结构证明通过：TENANT_SCHEMA_CHECK=OK（schools=${result.checked ?? '-'}；active+disabled 全覆盖；checksum 逐条一致）`)
+    } else {
+        console.error(
+            `⛔ 迁移/结构证明未通过：TENANT_SCHEMA_CHECK=${readiness.status}` +
+            `${readiness.globalBlockers.length ? ` globalBlockers=[${readiness.globalBlockers.map((g) => g.code).join(',')}]` : ''}` +
+            `${readiness.blockedSchools.length ? ` blockedSchools=[${readiness.blockedSchools.join(',')}]` : ''}` +
+            `${readiness.publicExtraTables.length ? ` publicExtra=[${readiness.publicExtraTables.slice(0, 5).join(',')}]` : ''}` +
+            ` —— 租户入口按 RC-04 受限（全局中断 503 TENANT_MIGRATION_NOT_READY / 单校 503 TENANT_SCHEMA_NOT_READY / 无法归属 503 TENANT_NOT_ATTRIBUTED）；` +
+            `启动不写结构；请运行 npm run db:sync（逐租户版本化回放）或按 runbook 处置，复检每 ${Math.round(TENANT_READINESS_RECHECK_MS / 1000)}s`
+        )
+    }
+    return readiness
+}
+
+if (TENANT_SYNC_LEGACY_TRUE) {
+    console.warn('⚠️  AUTO_SYNC_TENANTS=true 的旧语义（启动时执行结构对齐）已按 RC-04 废止：本次仅做只读检测，不会写结构；请改用 npm run db:sync')
+}
+
+// 首轮检测在监听之前完成（无"监听后才异步告警"的窗口）；失败/超时只影响 readiness 与学校能力，不阻断启动。
+await refreshTenantReadiness()
 
 const server = app.listen(PORT, () => {
     console.log(`\n${'='.repeat(60)}`)
@@ -390,14 +585,21 @@ const server = app.listen(PORT, () => {
     console.log(`${'='.repeat(60)}`)
     console.log(`📍 Server running on: http://localhost:${PORT}`)
     console.log(`📍 API Endpoints: http://localhost:${PORT}/api`)
-    console.log(`🔐 JWT Secret configured: ${JWT_SECRET ? '✅' : '❌ MISSING'}`)
+    console.log(`🔐 JWT secrets: access configured ✅; refresh = ${JWT_REFRESH_SOURCE}`)
     console.log(`🗄️  Database: PostgreSQL (Prisma, Schema-per-tenant)`)
+    console.log(`🧩 Tenant schema mode: ${TENANT_SYNC_MODE}${TENANT_SYNC_MODE === 'check' ? '（只读证明；启动永不写结构）' : '（跳过检测）'}`)
+    const r = app.locals.tenantReadiness
+    console.log(`🩺 Tenant readiness: ${r.ok ? 'READY(verified)' : `NOT-READY(${r.status}; certification=${r.certification || 'n/a'}${r.globalBlockers.length ? `; global=${r.globalBlockers.map((g) => g.code).join(',')}` : ''}${r.blockedSchools.length ? `; blocked=${r.blockedSchools.join(',')}` : ''})`}`)
     console.log(`📦 CORS Origins: ${allowedOrigins.join(', ')}`)
     console.log(`📦 CORS Hostnames: ${allowedHostnames.length ? allowedHostnames.join(', ') : '(none)'}`)
     console.log(`${'='.repeat(60)}\n`)
 
-    // 服务就绪后再后台自愈，避免拖慢首请求响应
-    selfHealTenantSchemas()
+    // 周期复检（只读）：修复（db:sync / migration）后无需重启即可自动放开对应学校；
+    // 启动侧永不写结构（RC-04）。
+    if (TENANT_SYNC_MODE === 'check' && Number.isFinite(TENANT_READINESS_RECHECK_MS) && TENANT_READINESS_RECHECK_MS > 0) {
+        const timer = setInterval(() => { refreshTenantReadiness().catch(() => {}) }, TENANT_READINESS_RECHECK_MS)
+        if (typeof timer.unref === 'function') timer.unref()
+    }
 
     // 运行时 DDL 附加系统表：recycle_bin（学校回收站）。幂等建表（与 revoked_tokens 同模式）。
     // 旧版本遗漏建表代码，导致生产库缺表 → /api/admin/recycle-bin 查询 500。
