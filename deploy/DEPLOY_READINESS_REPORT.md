@@ -39,13 +39,16 @@
 
 1. `npx prisma generate`（失败中止）
 2. 首部署判定：`public."User"` 表是否存在
-3. `prisma migrate deploy` 建 public 全表（失败时仅首部署允许 `db push` 回退，非首部署中止）
+3. `prisma migrate deploy` 建 public 全表（**失败一律保留现场、原始 stderr 保留、非零停止**：无自动 resolve / 无 db push；只读诊断 A 空库 / B 既有库未接入(P3005) / C failed(P3009，含部分执行) / D 普通失败，处置见 `deploy/MIGRATION_FAILURE_RUNBOOK.md` —— P3-W2-T01-R2 / RC-04）
 4. 仅首部署：`SEED_ALLOW_PROD=true node prisma/seed.js` → public 三账号（admin/operator/viewer）+ School 记录
-5. §6.5 `provision-tenants.js`：遍历 `SCHOOL_CODES`，对每校执行 `provisionSchool` → ① `CREATE SCHEMA IF NOT EXISTS school_<code>` ② `prisma db push --schema=?schema=` 推业务表 ③ public 系统记录 ④ 租户 manager 账号（失败**中止部署**）
-6. §6.55 `sync-tenant-schemas.mjs`：读 `public."School"` **全部**学校（含控制台 UI 新建的）逐个幂等 db push，防 P2022 漂移（失败**中止部署**，旧版本继续服役）
+5. §6.5 `provision-tenants.js`：遍历 `SCHOOL_CODES`，对每校执行 `provisionSchool` → ① `CREATE SCHEMA IF NOT EXISTS school_<code>` ② **按版本化迁移链逐租户回放**业务表（逐租户台账 `_tenant_migrations`；无 db push）③ public 系统记录 ④ 租户 manager 账号（失败**中止部署**）
+6. §6.55 `sync-tenant-schemas.mjs`：读 `public."School"` **全部**学校（含控制台 UI 新建的）逐租户按版本化链推进（失败**中止部署**，旧版本继续服役。当前为 P3-W2-T02-R3 分类协议 + W2-T02-R4 运行语义：`false`/分类失败/public 未知额外对象一律阻断租户流量、无台账不再自动 baseline、`--rebuild-empty-schema` 已撤下；**R7 总控复审仍判 W2-T02-R4 = REWORK**——迁移锁接管、人工清锁 CAS、baseline 提交边界、锁表版本归属**返工中**，不构成完整 RC-04 验收）
 7. §6.6 `syncBootstrapPasswords.js`：库内 bootstrap 账号密码对齐 `.env` 当前值（失败仅 warn）
 8. §6.7 `SchoolCustomization` 跨 schema 增量补列 + NULL 回填（DO 块，幂等）
-9. 运行期兜底：`server.js` 启动后非阻塞自愈同步（`AUTO_SYNC_TENANTS=false` 可关）
+9. 运行期行为：`server.js` 启动后**只读检测**迁移/结构漂移（**不写结构、不执行自愈同步**；默认（不设置）=`check`）；
+   `AUTO_SYNC_TENANTS=false` = 跳过检测，readiness=`NOT_VERIFIED` **且真实租户 API 503 `TENANT_MIGRATION_NOT_READY`**
+   （`false` **不是**放行通道）；public 白名单外未知对象 / 分类失败 / 检查自身失败 = **全局阻断**；
+   详见 `deploy/README.md`「启动侧行为」与其中的「R7 返工中」声明）
 
 **幂等性**：✅ 全链路可安全重跑——migrate deploy 天然幂等；seed `ensureUser` 已存在即跳过；`CREATE SCHEMA IF NOT EXISTS`/`ADD COLUMN IF NOT EXISTS`；重部署时复用旧 `.env` 中 `PG_PASSWORD/JWT_SECRET/SEED_*`（`deploy.sh:370-394`），避免"重跑后密码不匹配"经典故障。
 

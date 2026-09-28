@@ -33,6 +33,34 @@ fail() {
   exit 1
 }
 
+# ─────────────────────────────────────────────────────────────────────────────
+# P3-W0-T01-R2（D1）：JWT 共享库分发检查 —— 必须在任何部署副作用（读适配配置/安装运行时/
+# 系统服务/数据库/clone 代码）之前完成。该库不在"deploy.sh + 适配文件两文件上传"范围内，
+# 必须与 deploy.sh 保持相对路径 lib/jwt-config.sh 一起分发（见 deploy/README.md「最小分发清单」）。
+# 失败一律固定原因、非零退出；不回退到不校验的旧路径，也不在别处二次 source 不同版本。
+# ─────────────────────────────────────────────────────────────────────────────
+DEPLOY_JWT_LIB="$SCRIPT_DIR/lib/jwt-config.sh"
+if [ ! -e "$DEPLOY_JWT_LIB" ]; then
+  echo "  分发要求：deploy.sh 必须与 deploy/lib/jwt-config.sh 一起传送（保持相对路径 lib/jwt-config.sh）。"
+  echo "  参见 deploy/README.md 的「最小分发清单」；分发包不得包含任何真实密钥。"
+  fail "缺少 JWT 共享库: $DEPLOY_JWT_LIB"
+fi
+if [ -d "$DEPLOY_JWT_LIB" ] || [ ! -r "$DEPLOY_JWT_LIB" ]; then
+  fail "JWT 共享库不可读（是目录或权限不足）: $DEPLOY_JWT_LIB"
+fi
+# shellcheck source=lib/jwt-config.sh
+if ! source "$DEPLOY_JWT_LIB"; then
+  fail "JWT 共享库加载失败（语法错误或权限）: $DEPLOY_JWT_LIB"
+fi
+for _jwt_fn in jwt_config_apply_env_overrides jwt_config_prepare \
+               jwt_config_register_cleanup_traps jwt_config_make_secure_tmp \
+               jwt_config_track_tmp jwt_config_publish_env; do
+  if ! declare -F "$_jwt_fn" >/dev/null 2>&1; then
+    fail "JWT 共享库缺少必需函数 ${_jwt_fn}（版本与 deploy.sh 不匹配，请使用同版本 lib/jwt-config.sh）"
+  fi
+done
+unset _jwt_fn
+
 # 生成强随机密码（14 位，含大小写字母与数字），供 PG / seed 使用
 gen_password() {
   local p
@@ -134,17 +162,22 @@ SQL
 _ENV_PG_PASSWORD="${PG_PASSWORD:-}"
 _ENV_DATABASE_URL="${DATABASE_URL:-}"
 _ENV_JWT_SECRET="${JWT_SECRET:-}"
+_ENV_JWT_REFRESH_SECRET="${JWT_REFRESH_SECRET:-}"
 
 # shellcheck disable=SC1090
 source "$ADAPTER_FILE"
 ok "已加载适配文件: $ADAPTER_FILE"
 
 # DS-19：环境变量优先覆盖适配文件中的同名机密；并对「适配文件硬编码机密」给出安全告警。
-for _s in PG_PASSWORD DATABASE_URL JWT_SECRET; do
+# JWT 两键（P3-W0-T01-R1）改由共享库函数覆盖（同一代码，harness 亦调用它），其余键沿用历史行为。
+for _s in PG_PASSWORD DATABASE_URL; do
   _envvar="_ENV_${_s}"
   if [ -n "${!_envvar}" ]; then eval "$_s=\"\${$_envvar}\""; fi
+done
+jwt_config_apply_env_overrides
+for _s in PG_PASSWORD DATABASE_URL JWT_SECRET JWT_REFRESH_SECRET; do
   # 仅当最终取值非空且适配文件里存在非空的硬编码赋值时告警（留空 ="" / 注释行不触发）
-  if [ -n "${!_s}" ] && grep -Eq "^[[:space:]]*${_s}=[\"']?[^\"'[:space:]]" "$ADAPTER_FILE" 2>/dev/null; then
+  if [ -n "${!_s:-}" ] && grep -Eq "^[[:space:]]*${_s}=[\"']?[^\"'[:space:]]" "$ADAPTER_FILE" 2>/dev/null; then
     warn "【安全·DS-19】适配文件疑似硬编码了 ${_s}。建议留空自动生成，或用真实环境变量传入（sudo -E），避免机密随适配文件进入版本库。"
   fi
 done
@@ -392,7 +425,10 @@ BACKEND_ENV="$REPO_ROOT/backend/.env"
 # 2026-08-18：新增 BACKUP_MASTER_KEY / TENCENT_* 复用 —— 备份加密密钥一旦丢失，
 # 已用该密钥加密的 .aes 备份将永久无法解密，故重部署必须保留（TD-School-Backup-Sync）。
 if [ -f "$BACKEND_ENV" ]; then
-  for k in PG_PASSWORD JWT_SECRET SEED_ADMIN_PASSWORD SEED_OPERATOR_PASSWORD SEED_VIEWER_PASSWORD \
+  # 注意：JWT_SECRET / JWT_REFRESH_SECRET 不在此循环内 —— P3-W0-T01（RC-10）把 JWT 两键的
+  # 旧 .env 复用移到 deploy/lib/jwt-config.sh 的安全读取（不使用 eval，避免旧值内容被
+  # 当作 shell 代码执行），随后统一走共享校验。其余键的历史行为不在本包内重构。
+  for k in PG_PASSWORD SEED_ADMIN_PASSWORD SEED_OPERATOR_PASSWORD SEED_VIEWER_PASSWORD \
            BACKUP_MASTER_KEY TENCENT_SECRET_ID TENCENT_SECRET_KEY TENCENT_KMS_REGION TENCENT_KMS_KEY_ID; do
     [ -n "${!k}" ] && continue
     v=$(grep -E "^${k}=" "$BACKEND_ENV" 2>/dev/null | head -1 | cut -d= -f2-)
@@ -404,7 +440,28 @@ if [ -z "$DATABASE_URL" ]; then
   [ -z "$PG_PASSWORD" ] && PG_PASSWORD=$(gen_password)
   DATABASE_URL="postgresql://${PG_USER}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/${PG_DB_NAME}"
 fi
-[ -z "$JWT_SECRET" ] && JWT_SECRET=$(openssl rand -base64 48)
+
+# ------------------------- 5.1 JWT 值解析与统一校验（P3-W0-T01-R2 / RC-10 / AUD-044）-------------------------
+# 顺序：环境变量/适配文件（§0 已合并）→ 旧 .env **有效值**解析（dotenv 子集：去引号/去行尾注释）
+# → 确实缺失才生成 → 共享强度校验 → 部署表示检查 → 序列化 0600 片段（值不经 argv/stdout）。
+# 校验在写 backend/.env 与重启服务之前执行；失败立即中止（不写 .env、不 restart）；
+# 非空弱值/解析歧义不会被自动替换、也不会被当作"缺失"，必须由运维处理后才能部署。
+# D1：共享库已在文件头完成分发/加载/必需函数检查，此处**不再 source**（避免加载不同版本）。
+# D2：临时资源从创建起即登记，EXIT/INT/TERM（含后续既有 exit 1 分支）统一清理。
+jwt_config_register_cleanup_traps
+if ! jwt_config_make_secure_tmp "${TMPDIR:-/tmp}"; then
+  fail "无法创建受限权限的 JWT 片段临时文件（${TMPDIR:-/tmp}）"
+fi
+JWT_FRAGMENT="$JWT_TMP_PATH"
+jwt_config_track_tmp "$JWT_FRAGMENT"
+if ! jwt_config_prepare "$BACKEND_ENV" "$REPO_ROOT/backend" "$JWT_FRAGMENT"; then
+  rm -f -- "$JWT_FRAGMENT" 2>/dev/null || true   # 立即回收（trap 兜底，幂等）
+  echo -e "\033[31m❌ JWT 配置校验失败：上述字段已被拒绝，部署中止（未写 backend/.env、未重启服务）。\033[0m"
+  echo "   处理方式：在受控环境中准备好强随机值后再运行部署（示例：export JWT_SECRET=\"\$(openssl rand -hex 32)\"），"
+  echo "   不要把密钥作为命令行参数传递；脚本不会自动替换或轮换既有非空密钥；旧的公开示例值必须更换后才能部署。"
+  exit 1
+fi
+ok "JWT 配置校验通过（access 已配置；显式 refresh 将写回并可跨重部署复用，未配置则按 <access>:refresh 派生）"
 # 密码策略：conf 显式提供 > 复用现有 .env 中已写入的密码 > 随机生成。
 # 关键：重部署时必须复用现有 .env 密码，否则新生成的密码与库中已 seed 的
 # password_hash 不一致，导致登录失败（seed 仅在首部署运行一次）。
@@ -465,32 +522,33 @@ if [ "$CORS_ORIGIN" = "http://127.0.0.1:$FRONTEND_PORT" ]; then
   echo "   部署后浏览器跨域请求将被拒绝，请手动修正 backend/.env 的 CORS_ORIGIN 为真实访问域名/IP 后重启服务。"
 fi
 
-# 注意：不要加引号、不要出现会破坏 systemd EnvironmentFile 解析的字符
-cat > "$BACKEND_ENV" <<EOF
-# Auto-generated by deploy.sh — 重新部署会覆盖
-NODE_ENV=production
-PORT=$API_PORT
-SERVE_STATIC=false
-DATABASE_URL=$DATABASE_URL
-JWT_SECRET=$JWT_SECRET
-JWT_EXPIRE=$JWT_EXPIRE
-CORS_ORIGIN=$CORS_ORIGIN
-SEED_ADMIN_PASSWORD=$SEED_ADMIN_PASSWORD
-SEED_OPERATOR_PASSWORD=$SEED_OPERATOR_PASSWORD
-SEED_VIEWER_PASSWORD=$SEED_VIEWER_PASSWORD
-BACKUP_DIR=$BACKUP_DIR
-BACKUP_KEEP_DAYS=$BACKUP_KEEP_DAYS
-BACKUP_MASTER_KEY=$BACKUP_MASTER_KEY
-TENCENT_SECRET_ID=$TENCENT_SECRET_ID
-TENCENT_SECRET_KEY=$TENCENT_SECRET_KEY
-TENCENT_KMS_REGION=$TENCENT_KMS_REGION
-TENCENT_KMS_KEY_ID=$TENCENT_KMS_KEY_ID
-EOF
-# DS-19：机密文件权限收紧到 600 并归属非 root 服务用户（系统用户已在 §3 创建），
-# 避免同机其它用户读到 DATABASE_URL / JWT_SECRET / SEED_* 等机密。
-chmod 600 "$BACKEND_ENV" 2>/dev/null || true
-chown "$SYSTEM_NAME:$SYSTEM_NAME" "$BACKEND_ENV" 2>/dev/null || true
-ok "backend/.env 已写入（PORT=$API_PORT, CORS_ORIGIN=$CORS_ORIGIN；已 chmod 600）"
+# ------------------------- 5.2 组装并原子发布 backend/.env（P3-W0-T01-R2 / D2）-------------------------
+# 不再先截断目标文件：在目标同目录创建受限权限 staging，完整组装（所有非 JWT 字段内容保持不变 +
+# 已验证 JWT 片段），校验必需字段成功后原子替换；任何失败保留旧目标并停止（不执行后续步骤与重启）。
+# staging 从创建起即登记（EXIT/INT/TERM 清理，见 deploy/lib/jwt-config.sh）。
+JWT_ENV_DIR="$(dirname -- "$BACKEND_ENV")"
+if ! jwt_config_make_secure_tmp "$JWT_ENV_DIR"; then
+  fail "无法在 $JWT_ENV_DIR 创建受限权限的 .env staging 文件（旧配置保持不变）"
+fi
+JWT_STAGING="$JWT_TMP_PATH"
+jwt_config_track_tmp "$JWT_STAGING"
+
+# 注意：不要加引号、不要出现会破坏 systemd EnvironmentFile 解析的字符。
+# 组装由真实共享函数完成（与测试同一实现）：prefix + JWT 片段 + suffix，
+# 每一步写入/读取都检查返回码；任一步失败立即停止，不进入 publish。
+JWT_ASSEMBLE_STAGING="$JWT_STAGING"
+JWT_ASSEMBLE_FRAGMENT="$JWT_FRAGMENT"
+if ! jwt_config_assemble_env; then
+  fail "backend/.env 组装失败（未替换目标，旧配置保持不变），后续步骤与重启未执行"
+fi
+rm -f -- "$JWT_FRAGMENT" 2>/dev/null || true   # 片段已并入 staging，立即回收（trap 兜底，幂等）
+
+# DS-19：权限 600 + 归属非 root 服务用户 —— 在 staging 上完成设置与核验后才原子替换
+# （替换失败时旧配置不变；mv 是最后一步，之后不再做可能失败却返回 0 的操作）。
+if ! jwt_config_publish_env "$JWT_STAGING" "$BACKEND_ENV" "$SYSTEM_NAME:$SYSTEM_NAME"; then
+  fail "backend/.env 发布失败：旧配置保持不变，未执行后续步骤与重启"
+fi
+ok "backend/.env 已原子替换（PORT=$API_PORT, CORS_ORIGIN=$CORS_ORIGIN；staging 权限/属主已核验）"
 warn "请记下初始账号密码（SEED_*_PASSWORD），首次登录后请修改"
 
 # ------------------------- 6. 后端依赖 / Prisma / Seed -------------------------
@@ -505,26 +563,81 @@ if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install 
 
 npx prisma generate || fail "prisma generate 失败"
 
+# 首部署判定：**仅用于下方 seed 门禁**（是否需要初始化账号）。
+# P3-W2-T01-R2：它只说明「此刻 public.User 不存在」，**不是**「数据库为空」或「可以回退/重建」的证据 ——
+# 既有库可能从未登记迁移链（P3005）、也可能只有部分结构；RC-04 明令不得据此触发任何自动修复。
 FIRST_DEPLOY=false
-# 首部署判定：public 下尚不存在 User 表（prisma db push 后才会创建）
 if ! PGPASSWORD="$PG_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB_NAME" \
      -tAc "SELECT 1 FROM pg_tables WHERE schemaname='public' AND tablename='User' LIMIT 1" 2>/dev/null | grep -q 1; then
   FIRST_DEPLOY=true
 fi
 
-# H3: 基线迁移已就绪，切为 prisma migrate deploy（生产推荐方式）；
-# 不再使用 db push --accept-data-loss（危险，可能静默删列/丢数据）。
-# 首部署时 baseline migration 会建全表；后续增量变更走新 migration 文件。
-if npx prisma migrate deploy 2>/dev/null; then
-  : # migrate deploy 成功
-else
-  warn "prisma migrate deploy 失败，尝试 db push 回退"
-  if [ "$FIRST_DEPLOY" = "true" ]; then
-    npx prisma db push --accept-data-loss || fail "prisma db push 也失败"
-  else
-    fail "prisma migrate deploy 失败且非首部署，请手动修复后再运行部署"
+# ─────────────────────────────────────────────────────────────────────────────
+# P3-W2-T01-R2（R4 裁决：W2-T01-R1 部署回退违反 RC-04）—— 迁移失败 fail-closed：
+#   · 结构演进唯一入口 = `prisma migrate deploy`（RC-04）；stdout/stderr **全保留**（不加任何重定向）；
+#   · 迁移失败一律**保留现场并非零停止**：不自动 `migrate resolve --rolled-back`、不自动
+#     `migrate resolve --applied`、不自动清 failed 记录、不 `db push`、不传 `--accept-data-loss`；
+#   · 失败时只做**只读诊断**（deploy_diagnose_migration_state）：区分「空库 / 既有库未接入(P3005) /
+#     failed(P3009, 含部分执行) / 普通失败」四类场景，给出人工处置入口 runbook；
+#   · 「无 --accept-data-loss」不等于迁移安全：旧 R1 的「首部署 → resolve --rolled-back + db push」
+#     回退会掩盖部分执行并跳过版本链，已按 R4 裁决整体移除；部分执行必须人工核实后才可处置。
+#   人工诊断与处置步骤见 deploy/MIGRATION_FAILURE_RUNBOOK.md。
+# ─────────────────────────────────────────────────────────────────────────────
+# 只读查询助手（诊断专用；任何失败退化为 '?'，绝不因诊断中断主流程，也绝不写库）
+deploy_readonly_query() {
+  PGPASSWORD="$PG_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB_NAME" -tAc "$1" 2>/dev/null || echo '?'
+}
+
+# 迁移失败的只读诊断（不 resolve / 不 db push / 不改 _prisma_migrations；只打印事实与场景分类）
+deploy_diagnose_migration_state() {
+  local tables user_exists mig_exists total applied failed rolled last_applied failed_list failed_steps
+  tables=$(deploy_readonly_query "SELECT count(*) FROM pg_tables WHERE schemaname='public'")
+  user_exists=$(deploy_readonly_query "SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename='User'")
+  mig_exists=$(deploy_readonly_query "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='_prisma_migrations'")
+  total=0; applied=0; failed=0; rolled=0; last_applied=''; failed_list=''; failed_steps=0
+  if [ "$mig_exists" = "1" ]; then
+    total=$(deploy_readonly_query "SELECT count(*) FROM _prisma_migrations")
+    applied=$(deploy_readonly_query "SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL")
+    failed=$(deploy_readonly_query "SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NULL AND rolled_back_at IS NULL")
+    rolled=$(deploy_readonly_query "SELECT count(*) FROM _prisma_migrations WHERE rolled_back_at IS NOT NULL")
+    last_applied=$(deploy_readonly_query "SELECT COALESCE(migration_name,'') FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL ORDER BY finished_at DESC LIMIT 1")
+    failed_list=$(deploy_readonly_query "SELECT COALESCE(string_agg(migration_name || '（已执行 ' || applied_steps_count || ' 步）', ', '),'') FROM _prisma_migrations WHERE finished_at IS NULL AND rolled_back_at IS NULL")
+    failed_steps=$(deploy_readonly_query "SELECT COALESCE(sum(applied_steps_count),0)::int FROM _prisma_migrations WHERE finished_at IS NULL AND rolled_back_at IS NULL")
   fi
-fi
+  warn "——— 迁移失败只读诊断（deploy.sh 未执行任何修复动作）———"
+  warn "public 表数=${tables}；User 表已存在=${user_exists}；_prisma_migrations 存在=${mig_exists}"
+  if [ "$mig_exists" = "1" ]; then
+    warn "_prisma_migrations：总计=${total}，已完成=${applied}，failed=${failed}，已 rolled-back=${rolled}；最后完成=${last_applied:-（无）}"
+  fi
+  if [ "$mig_exists" != "1" ] && [ "$tables" = "0" ]; then
+    warn "诊断=场景 A：全新空库（无迁移历史、public 无任何表）。空库上 migrate deploy 失败通常是环境/连接或 migration SQL 问题，仍需人工核实；不得自动改用 db push 建表。"
+  elif [ "$mig_exists" != "1" ]; then
+    warn "诊断=场景 B：既有库未接入迁移链（疑似 P3005：schema is not empty, no migration history）。必须先人工确认现有结构与数据，接入 baseline 属人工决策（见 runbook），不得自动 resolve --applied。"
+  elif [ "${failed:-0}" != "0" ]; then
+    warn "诊断=场景 C：存在 failed migration（P3009 阻断）：${failed_list}"
+    if [ "${failed_steps:-0}" != "0" ]; then
+      warn "其中含部分执行：failed 记录累计已执行 ${failed_steps} 步 —— 必须人工核实这些步骤在库中的实际效果后再决定处置（不得自动 resolve --rolled-back、不得自动清理）。"
+    fi
+  else
+    warn "诊断=场景 D：普通迁移失败（迁移历史存在、无 failed 记录；已完成=${applied} 条）。请按上方原始错误修复后重跑。"
+  fi
+  if [ "$user_exists" = "0" ]; then
+    warn "注意：public 目前无 User 表 —— 这只说明结构不完整，不得据此判定数据库为空或可以回退/重建（本次未做任何改动）。"
+  fi
+  warn "现场已保留：未执行 migrate resolve、未执行 prisma db push、未改动 _prisma_migrations。"
+  warn "处置入口：deploy/MIGRATION_FAILURE_RUNBOOK.md（先人工只读核实状态 → 再按场景选择人工命令）；重跑部署前不得跳过迁移。"
+}
+
+deploy_run_migrations() {
+  if npx prisma migrate deploy; then
+    return 0
+  fi
+  warn "prisma migrate deploy 失败（非零退出；原始 stdout/stderr 已完整保留在上方，未吞输出）"
+  deploy_diagnose_migration_state
+  fail "数据库迁移失败：已保留现场（零自动修改）。请按 deploy/MIGRATION_FAILURE_RUNBOOK.md 人工只读核实后处置"
+}
+
+deploy_run_migrations
 ok "数据库 schema 同步完成"
 
 # 透传学校代码给 seed（与 provision-tenants 一致），确保种子学校与租户 schema 对齐
