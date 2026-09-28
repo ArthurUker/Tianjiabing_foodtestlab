@@ -23,6 +23,7 @@ import { runRestore } from '../lib/restoreService.js'
 import { writeTenantAuditLog } from '../lib/auditLog.js'
 import { compareSchemaSnapshot } from '../lib/schemaCompatibility.js'
 import { schemaNameOf } from '../lib/tenantClient.js'
+import { httpErrorFor } from '../lib/backupErrors.js'
 
 const TAG = '[schoolBackupRoutes]'
 
@@ -225,13 +226,17 @@ export function createSchoolBackupRoutes({ prisma, authenticateUser }) {
         success: true,
         data: {
           runId: result.runId,
+          jobId: result.jobId,
+          snapshotMode: result.snapshotMode,
           file: path.basename(result.filePath),
           size: result.tableCounts,
         },
       })
     } catch (e) {
       console.error(`${TAG} 触发备份失败:`, e)
-      res.status(500).json({ success: false, error: e.message || '触发备份失败' })
+      // 本校已有备份/恢复持锁 → 409（AUD-005：并发第二个请求明确拒绝）
+      const mapped = httpErrorFor(e, { fallbackMessage: '触发备份失败' })
+      res.status(mapped.status).json({ success: false, code: mapped.code, error: mapped.error })
     }
   })
 
@@ -380,8 +385,10 @@ export function createSchoolBackupRoutes({ prisma, authenticateUser }) {
       )
       res.json({
         success: result.ok,
+        jobId: result.jobId,
         checks: result.checks,
         error: result.error || null,
+        code: result.code || null,
         schema: result.schema,
         oldSchema: result.oldSchema,
         schemaCompatible: result.schemaCompatibility?.compatible ?? null,
@@ -390,7 +397,9 @@ export function createSchoolBackupRoutes({ prisma, authenticateUser }) {
       })
     } catch (e) {
       console.error(`${TAG} 恢复失败:`, e)
-      res.status(500).json({ success: false, error: e.message || '恢复失败' })
+      // 本校已有恢复/备份持锁 → 409（AUD-005：并发第二个请求明确拒绝）
+      const mapped = httpErrorFor(e, { fallbackMessage: '恢复失败' })
+      res.status(mapped.status).json({ success: false, code: mapped.code, error: mapped.error })
     }
   })
 

@@ -18,11 +18,12 @@ import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import os from 'node:os'
 import crypto from 'node:crypto'
-import { runBackup } from '../lib/backupService.js'
+import { runBackup, registerExternalBackup, backupRootDir } from '../lib/backupService.js'
 import { verifyBackupFile } from '../lib/backupVerify.js'
 import { runRestore } from '../lib/restoreService.js'
 import { compareAllSchemaSnapshots, compareSchemaSnapshot } from '../lib/schemaCompatibility.js'
 import { writeAdminOpsLog } from '../lib/auditLog.js'
+import { httpErrorFor } from '../lib/backupErrors.js'
 
 const TAG = '[adminBackupRoutes]'
 
@@ -160,10 +161,21 @@ export function createAdminBackupRoutes({ prisma, authenticateUser, requirePlatf
         details: { scope, file: path.basename(result.filePath) },
         level: 'info',
       })
-      res.json({ success: true, data: { runId: result.runId, file: path.basename(result.filePath), size: result.tableCounts } })
+      res.json({
+        success: true,
+        data: {
+          runId: result.runId,
+          jobId: result.jobId,
+          snapshotMode: result.snapshotMode,
+          file: path.basename(result.filePath),
+          size: result.tableCounts,
+        },
+      })
     } catch (e) {
       console.error(`${TAG} 触发备份失败:`, e)
-      res.status(500).json({ success: false, error: e.message || '触发备份失败' })
+      // 同 scope 已有备份/恢复持锁 → 409（AUD-005：并发只允许一个执行者，其余明确拒绝）
+      const mapped = httpErrorFor(e, { fallbackMessage: '触发备份失败' })
+      res.status(mapped.status).json({ success: false, code: mapped.code, error: mapped.error })
     }
   })
 
@@ -481,9 +493,9 @@ export function createAdminBackupRoutes({ prisma, authenticateUser, requirePlatf
         for (const code of codes) {
           try {
             const r = await runRestore({ prisma, backup: fakeRun, targetSchoolCode: code, actor })
-            results.push({ schoolCode: code, ok: r.ok, schema: r.schema, checks: r.checks, error: r.error || null })
+            results.push({ schoolCode: code, ok: r.ok, jobId: r.jobId, schema: r.schema, checks: r.checks, error: r.error || null, errorCode: r.code || null })
           } catch (e) {
-            results.push({ schoolCode: code, ok: false, schema: null, checks: [], error: e.message || String(e) })
+            results.push({ schoolCode: code, ok: false, jobId: null, schema: null, checks: [], error: e.message || String(e), errorCode: e.code || null })
           }
         }
         const okCount = results.filter((r) => r.ok).length
@@ -508,27 +520,84 @@ export function createAdminBackupRoutes({ prisma, authenticateUser, requirePlatf
         await cleanup()
         return res.status(400).json({ success: false, error: `该备份属于学校 ${fakeRun.school_code}，不能恢复到 ${codes[0]}` })
       }
-      const r = await runRestore({ prisma, backup: fakeRun, targetSchoolCode: codes[0], actor })
+      let r
+      try {
+        r = await runRestore({ prisma, backup: fakeRun, targetSchoolCode: codes[0], actor })
+      } catch (e) {
+        // 互斥拒绝（409）等类型化错误：清理上传临时文件后按状态码返回
+        await cleanup()
+        const mapped = httpErrorFor(e, { fallbackMessage: '本地恢复失败' })
+        return res.status(mapped.status).json({ success: false, code: mapped.code, error: mapped.error })
+      }
       await writeAdminOpsLog(prisma, {
         action: r.ok ? 'backup_restore_upload' : 'backup_restore_upload_failed',
         actor,
         targetId: runId,
         targetSchoolCode: codes[0],
-        details: { ok: r.ok, schema: r.schema, sourceFile: data.filename, error: r.error || null },
+        details: { jobId: r.jobId, ok: r.ok, schema: r.schema, sourceFile: data.filename, error: r.error || null },
         level: r.ok ? 'warn' : 'error',
       })
       await cleanup()
       return res.json({
         success: r.ok,
+        jobId: r.jobId,
         checks: r.checks,
         error: r.error || null,
+        code: r.code || null,
         schema: r.schema,
         oldSchema: r.oldSchema,
       })
     } catch (e) {
       await cleanup()
       console.error(`${TAG} 本地恢复失败:`, e)
-      res.status(500).json({ success: false, error: e.message || '本地恢复失败' })
+      const mapped = httpErrorFor(e, { fallbackMessage: '本地恢复失败' })
+      res.status(mapped.status).json({ success: false, code: mapped.code, error: mapped.error })
+    }
+  })
+
+  // ── POST /api/admin/backups/register-external ─────────────────────────────
+  // 受控外部备份注册（P3-W3-CROSS-REG-R1 / R9 :12,:20）：把**非本实例产生**的备份产物
+  // （灾备/源库导出的 .sql.gz.aes + .meta.json，已人工放入本实例 BACKUP_DIR）登记进本实例
+  // BackupRun，使其可被 /:id/restore 等既有入口引用。
+  //   · **不放宽** restore-from-upload 的 runId 防伪造链——本端点是独立通道；
+  //   · 注册本身强校验：路径须在 BACKUP_DIR 内（拒符号链接/穿越）、sha256/大小/scope/
+  //     school（含**目标实例学校身份校核**）/表计数（verifyBackupFile）、**来源 fail-closed**
+  //     （sourceRunId 必填且必须 === meta.runId；旧格式"无 runId"拒绝）；重复注册拒绝；
+  //   · 落 run_type='external_import' + created_by='external:<sourceRunId>' + 独立审计
+  //     （[admin-audit] backup_external_registered，与记录同事务）。
+  // 入参：{ aesPath, metaPath?, targetSchoolCode?, sourceRunId?, dryRun? }；权限：平台超管。
+  router.post('/register-external', async (req, res) => {
+    try {
+      const { aesPath, metaPath, targetSchoolCode, sourceRunId, dryRun } = req.body || {}
+      if (!aesPath || typeof aesPath !== 'string') {
+        return res.status(400).json({ success: false, error: '缺少 aesPath（产物绝对路径，须位于 BACKUP_DIR 内）' })
+      }
+      if (!sourceRunId || typeof sourceRunId !== 'string' || !sourceRunId.trim()) {
+        return res.status(400).json({ success: false, error: '缺少 sourceRunId（显式来源 BackupRun id）；来源 fail-closed：禁止未知来源注册' })
+      }
+      const r = await registerExternalBackup({
+        prisma,
+        aesPath,
+        metaPath: typeof metaPath === 'string' && metaPath ? metaPath : null,
+        expectSchoolCode: typeof targetSchoolCode === 'string' && targetSchoolCode ? targetSchoolCode : null,
+        expectSourceRunId: sourceRunId,
+        actor: {
+          userId: req.user?.userId ?? null,
+          username: req.user?.username ?? null,
+          role: req.user?.role ?? null,
+          schoolCode: null,
+          ip: req.ip,
+        },
+        rootDir: backupRootDir(),
+        dryRun: Boolean(dryRun),
+      })
+      return res.json({ success: true, ...r })
+    } catch (e) {
+      const status = e?.code === 'REG_PATH_MISSING' || e?.code === 'REG_ROOT_MISSING' ? 404
+        : e?.code === 'REG_DUPLICATE_PATH' || e?.code === 'REG_DUPLICATE_CHECKSUM' ? 409
+          : 422
+      console.error(`${TAG} 外部备份注册被拒: [${e.code || 'UNKNOWN'}] ${e.message}`)
+      return res.status(status).json({ success: false, code: e.code || null, error: e.message })
     }
   })
 
@@ -574,9 +643,10 @@ export function createAdminBackupRoutes({ prisma, authenticateUser, requirePlatf
       for (const code of codes) {
         try {
           const r = await runRestore({ prisma, backup: run, targetSchoolCode: code, actor })
-          results.push({ schoolCode: code, ok: r.ok, schema: r.schema, checks: r.checks, error: r.error || null })
+          results.push({ schoolCode: code, ok: r.ok, jobId: r.jobId, schema: r.schema, checks: r.checks, error: r.error || null, errorCode: r.code || null })
         } catch (e) {
-          results.push({ schoolCode: code, ok: false, schema: null, checks: [], error: e.message || String(e) })
+          // 互斥拒绝（409）在批量场景按校记录，不中断其他学校
+          results.push({ schoolCode: code, ok: false, jobId: null, schema: null, checks: [], error: e.message || String(e), errorCode: e.code || null })
         }
       }
       const okCount = results.filter((r) => r.ok).length
@@ -637,10 +707,20 @@ export function createAdminBackupRoutes({ prisma, authenticateUser, requirePlatf
         targetSchoolCode,
         actor,
       })
-      res.json({ success: result.ok, checks: result.checks, error: result.error || null, schema: result.schema, oldSchema: result.oldSchema })
+      res.json({
+        success: result.ok,
+        jobId: result.jobId,
+        checks: result.checks,
+        error: result.error || null,
+        code: result.code || null,
+        schema: result.schema,
+        oldSchema: result.oldSchema,
+      })
     } catch (e) {
       console.error(`${TAG} 恢复失败:`, e)
-      res.status(500).json({ success: false, error: e.message || '恢复失败' })
+      // 同校已有恢复/备份持锁 → 409（AUD-005：并发第二个请求明确拒绝）
+      const mapped = httpErrorFor(e, { fallbackMessage: '恢复失败' })
+      res.status(mapped.status).json({ success: false, code: mapped.code, error: mapped.error })
     }
   })
 

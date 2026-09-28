@@ -66,7 +66,7 @@ async function main() {
     createdBy: 'system',
     log: (m) => console.log(m),
   })
-  console.log(`${TAG} 完成：${result.filePath}`)
+  console.log(`${TAG} 完成：${result.filePath}（jobId=${result.jobId}，snapshotMode=${result.snapshotMode}，runId=${result.runId || 'N/A'}）`)
 }
 
 main()
