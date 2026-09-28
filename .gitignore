@@ -35,7 +35,8 @@ temp/
 backend/.export-jobs/
 
 # Local audit workpapers and raw evidence (archive separately from deployable source)
-docs/AI_review/
+docs/AI_review/*
+!docs/AI_review/SERVER_CODEBUDDY_20260928/
 docs/reviews/global-audit-20260924/
 docs/reviews/REVIEW_CONTINUITY_HANDOFF.md
 
