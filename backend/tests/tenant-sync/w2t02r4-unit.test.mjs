@@ -115,13 +115,15 @@ test('R3 能力保留：链/注册表 checksum 绑定 + 分类协议 fail-closed
   const files = listMigrationFiles()
   // P3-PUBLIC-INFRA-CHAIN-R1（链尾所有者）新增 2 个 `-- @scope: public` migration（锁表 + 吊销表，第 12/13 位）；
   // P3-PUBLIC-INFRA-FOLLOWUP-R1 追加 1 个 public 前向修复（FieldOption FK，固定第 14 位）；
-  // P3-LIFECYCLE-AB-R3 只在其后追加 M1/M2（`@scope: both`，第 15/16 位）：
-  // 场景与断言保持（链 = 磁盘事实源、checksum 与文件一致），仅计数 11 → 13 → 14 → 16（逐项归因见各包 RESULT/R17 B-6）。
-  assert.equal(files.length, 16)
+  // P3-LIFECYCLE-AB-R3 只在其后追加 M1/M2（`@scope: both`，第 15/16 位）；
+  // P3-FRIENDLY-LINKS（2026-09-28）再追加 1 个 `@scope: both`（友情链接表，第 17 位 = 当前链尾）：
+  // 场景与断言保持（链 = 磁盘事实源、checksum 与文件一致），仅计数 11 → 13 → 14 → 16 → 17（逐项归因见各包 RESULT/R17 B-6）。
+  assert.equal(files.length, 17)
   for (const m of chainManifest()) assert.equal(fileChecksum(m.name), m.checksum)
   const reg = migrationClassificationRegistry()
-  assert.equal(reg.length, 11)
-  assert.equal(reg.reduce((a, r) => a + r.skippedStatements, 0), 3)
+  // 注册表 11 → 12：新增 `20260928120000_friendly_links`（skip = 种子数据 + 扫全库 DO 块，2 条）
+  assert.equal(reg.length, 12)
+  assert.equal(reg.reduce((a, r) => a + r.skippedStatements, 0), 5)
   for (const m of chainManifest()) {
     const proj = buildTenantProjection({ name: m.name, sql: read(`backend/prisma/migrations/${m.name}/migration.sql`), checksum: m.checksum })
     const stmts = splitSqlStatements(read(`backend/prisma/migrations/${m.name}/migration.sql`))
@@ -158,11 +160,13 @@ test('R3 能力保留：链/注册表 checksum 绑定 + 分类协议 fail-closed
     else process.env.TENANT_MIGRATIONS_DIR = prev
   }
   assert.equal(migrationChainDigest(), migrationChainDigest())
-  // P3-LIFECYCLE-AB-R3（M1 expand，第 15 位）新增 `AuditPrincipal`（不可变主体锚点）：
-  // 期望租户表 21 → 22（事实源 = schema.prisma model 声明；**逐项归因**，不盲加数字）。R17 B-6 见本包 RESULT。
+  // P3-LIFECYCLE-AB-R3（M1 expand，第 15 位）新增 `AuditPrincipal`（不可变主体锚点）；
+  // P3-FRIENDLY-LINKS（2026-09-28，第 17 位）新增 `FriendlyLink`（登录页友情链接）：
+  // 期望租户表 21 → 22 → 23（事实源 = schema.prisma model 声明；**逐项归因**，不盲加数字）。R17 B-6 见本包 RESULT。
   const expectedTables = readExpectedTenantTables()
-  assert.equal(expectedTables.count, 22, '期望租户表 = 21（R4 基线）+ 1（M1 新增 AuditPrincipal）')
+  assert.equal(expectedTables.count, 23, '期望租户表 = 22 + 1（P3-FRIENDLY-LINKS 新增 FriendlyLink）')
   assert.ok(expectedTables.tables.has('AuditPrincipal'), '新增表必须可归因为 M1 的 AuditPrincipal')
+  assert.ok(expectedTables.tables.has('FriendlyLink'), '新增表必须可归因为 P3-FRIENDLY-LINKS 的 FriendlyLink')
 })
 
 test('R3 能力保留：证明清单覆盖 + 凭据卫生 + 无 db push/末态 diff', () => {

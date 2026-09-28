@@ -542,3 +542,82 @@ if (guestEnterBtn) {
     });
 }
 
+// ===== 友情链接（2026-09-28）：由平台超管在控制台「友情链接」视图维护 =====
+// 口径与后端唯一事实源 backend/lib/friendlyLinks.js 对齐（前端只做渲染期兜底，不作为安全边界）：
+//   · 仅渲染 http/https 且不带账号密码的地址（协议不符 → 该条跳过，不渲染 href）；
+//   · 名称/描述一律 textContent 写入（不拼 innerHTML），图标仅接受 FontAwesome 类名形态；
+//   · 接口不可用（离线 / 迁移窗口 / 5xx）→ 保留 HTML 内置兜底链接，登录流程不受影响；
+//   · 接口正常但列表为空 → 隐藏整个区域（代表超管有意清空）。
+(function initFriendlyLinks() {
+    const host = document.getElementById('friendlyLinks');
+    if (!host) return;
+    const DEFAULT_ICON = 'fas fa-link';
+    const ICON_RE = /^(fas|far|fal|fad|fab|fa-solid|fa-regular|fa-brands)(\s+fa-[a-z0-9-]+)+$/;
+
+    function safeUrl(raw) {
+        try {
+            const u = new URL(String(raw || ''));
+            if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+            if (u.username || u.password) return null;
+            return u.toString();
+        } catch (e) { return null; }
+    }
+
+    function buildLink(item) {
+        const url = safeUrl(item && item.url);
+        if (!url) return null;
+        const a = document.createElement('a');
+        a.className = 'friendly-link glass';
+        a.href = url;
+        if (item.openInNewTab !== false) {
+            a.target = '_blank';
+            // 新窗口打开必须带 noopener，避免目标页通过 window.opener 反向控制登录页
+            a.rel = 'noopener noreferrer';
+        }
+        a.title = item.description || item.name || '';
+        const icon = document.createElement('i');
+        const iconCls = String(item.icon || '').trim();
+        icon.className = ICON_RE.test(iconCls) ? iconCls : DEFAULT_ICON;
+        icon.setAttribute('aria-hidden', 'true');
+        const label = document.createElement('span');
+        label.textContent = '友情链接：' + (item.name || '');
+        a.appendChild(icon);
+        a.appendChild(label);
+        // 点击计数：fire-and-forget（keepalive 保证跳转中仍发出）；失败绝不阻断跳转
+        a.addEventListener('click', function () {
+            try {
+                fetch('/api/public/friendly-links/' + encodeURIComponent(item.id) + '/visit', {
+                    method: 'POST',
+                    keepalive: true,
+                }).catch(function () { /* 计数失败忽略 */ });
+            } catch (e) { /* 计数失败忽略 */ }
+        });
+        return a;
+    }
+
+    fetch('/api/public/friendly-links', { headers: { Accept: 'application/json' } })
+        .then(async function (resp) {
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            const json = await resp.json();
+            const list = json && json.data && Array.isArray(json.data.items) ? json.data.items : null;
+            if (!list) throw new Error('返回结构异常');
+            return list;
+        })
+        .then(function (items) {
+            if (!items.length) {
+                // 超管清空了全部链接：隐藏区域（不保留兜底）
+                host.hidden = true;
+                host.textContent = '';
+                return;
+            }
+            const nodes = items.map(buildLink).filter(Boolean);
+            if (!nodes.length) return; // 全部地址非法：保留兜底链接
+            host.textContent = '';
+            nodes.forEach(function (n) { host.appendChild(n); });
+        })
+        .catch(function (e) {
+            // 接口不可用：保留 HTML 内置兜底链接（与历史行为一致）
+            console.warn('[friendly-links] 配置读取失败，保留内置兜底链接：', e && e.message);
+        });
+})();
+

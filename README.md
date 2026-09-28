@@ -64,6 +64,7 @@ logrotate 配置、适配文件 `/opt/deploy/deploy.foodtestlab.conf`。
    - [5.11 洗涤剂比色识别](#511-洗涤剂比色识别recognize挂载于-serverjs314)
    - [5.12 平台超管磁盘管理](#512-平台超管磁盘管理admin-disk挂载于-serverjs300)
    - [5.13 开放接口（第三方只读数据开放）](#513-开放接口第三方只读数据开放)
+  - [5.14 友情链接（登录页外链，超管可管理）](#514-友情链接登录页外链超管可管理)
 6. [前端模块设计](#6-前端模块设计)
 7. [认证与权限设计](#7-认证与权限设计)
 8. [部署架构](#8-部署架构)
@@ -97,6 +98,7 @@ logrotate 配置、适配文件 `/opt/deploy/deploy.foodtestlab.conf`。
 - **浏览器测试报告**：测试人员在线填报、汇总、收口归档的辅助工具（入口：平台超管 `admin-schools.html` 左侧菜单「测试报告」原生三视图，数据来自 `backend/lib/testCaseDefs.js` 权威清单 + `public.TestCase`/`TestExecution` 执行记录）。
 - **洗涤剂残留自动识别**：基于 OpenCV.js（WASM）的 ArUco 定位 + 单应校正 + ΔE2000 比色，前后端共用核心 `frontend/js/opencv/recognizer.js`（A4 拍摄卡四角定位标）。前端 `detergent-image-demo.html`（`frontend/js/modules/detergentDemo.js`）为「先定位区域 → 用户确认 → 再比色」的两步式演示/采集界面；后端 `backend/modules/recognitionQueue.js` + `backend/routes/recognitionRoutes.js` 提供单 Worker 排队式识别服务，已挂载于 `server.js:314` `app.use('/api', recognitionRoutes)`，对外暴露 `POST /api/recognize`（提交，图片 ≤8MB）与 `GET /api/recognize/status/:jobId`（轮询，排队超 5 分钟报错），进程启动时 `recognitionQueue` 自动 pump（见 §5.11）。
 - **平台超管磁盘管理**：磁盘水位总览、systemd journal 清理、应用日志清理、按天备份删除、以及**租户审计日志的人工归档清理**（先导出留档 JSON Lines 落数据盘，校验「已留档」后才允许删除，未留档一律拒绝）。入口为平台超管控制台「磁盘管理」视图（`frontend/js/modules/adminSchools/views/diskView.js`）与后端 `backend/routes/adminDiskRoutes.js`（挂载于 `server.js:300` `app.use('/api/admin/disk', adminDiskRoutes)`，见 §5.12）。
+- **友情链接（登录页外链）**：各校登录页登录卡下方的外链由平台超管在控制台「友情链接」视图维护（多条 / 排序 / 启用停用 / 快捷访问 / 点击统计），登录页读免鉴权 `/api/public/friendly-links` 渲染、失败回退内置兜底链接。数据 `public."FriendlyLink"`（迁移 `20260928120000_friendly_links`；入口 `frontend/js/modules/adminSchools/views/friendlyLinksView.js` + `backend/routes/adminFriendlyLinkRoutes.js`，见 §5.14）。
 
 ### 目标用户
 
@@ -894,13 +896,55 @@ erDiagram
 3. 回滚时**必须保留 migration 文件**，否则 `prisma migrate deploy` 会因「库中已登记、本地缺失」报错、部署中止。
 4. ⚠️ 用**旧代码恢复新备份**会失败（行数校验找不到这 3 张表，属安全失败、原数据无损）：回滚窗口内如需恢复，请先升回新版本代码。
 
+### 5.14 友情链接（登录页外链，超管可管理）
+
+> 2026-09-28 新增。此前登录卡下方的「友情链接：校园食安卫士」是 `frontend/pages/login.html` 内的
+> **硬编码单条外链**；现改为平台超管在控制台「友情链接」视图中维护（多条 / 排序 / 启用停用 /
+> 快捷访问 / 点击统计），登录页改为读取配置渲染，接口不可用时回退内置兜底链接。
+
+**数据模型**：`public."FriendlyLink"`（权威副本，`backend/prisma/schema.prisma`）——迁移
+`20260928120000_friendly_links`（`@scope: both`，**当前链尾**）：public 建表 + **仅 public 的种子数据**
+（保留原「校园食安卫士」入口，表非空则不写）+ 为各 `school_*` 建同名**空表**（结构对齐用；
+租户副本永不写入，应用层一律用基础 prisma 单例读写 public，**绝不用 `req.db`**）。
+
+| 方法 | 路径 | 权限 | 说明 |
+|------|------|------|------|
+| GET | `/api/admin/friendly-links` | 平台超管 | 列表（含停用项）+ 汇总（总数 / 启用 / 停用 / 累计访问） |
+| POST | `/api/admin/friendly-links` | 平台超管 | 新建（`name` / `url` 必填；缺省排序值 = 当前最大值 + 10，默认启用） |
+| PUT | `/api/admin/friendly-links/:id` | 平台超管 | 更新（**merge 语义**：只更新请求体中出现的字段） |
+| POST | `/api/admin/friendly-links/reorder` | 平台超管 | 重排（`{ids:[...]}` 按数组顺序重写 `sort_order` = (i+1)×10） |
+| DELETE | `/api/admin/friendly-links/:id` | 平台超管 | 删除（硬删；审计保留被删名称/地址快照） |
+| GET | `/api/public/friendly-links` | **免鉴权** | 启用中的链接（登录页渲染；`Cache-Control: no-store`，按 IP 120 次/分钟限流） |
+| POST | `/api/public/friendly-links/:id/visit` | **免鉴权** | 点击计数（仅启用项 `visit_count+1`；按 IP 60 次/分钟限流；恒 204 无返回体） |
+
+**口径与安全（唯一事实源 `backend/lib/friendlyLinks.js`，读写两侧共用，禁止另立一套）：**
+
+- 地址仅允许 **http/https 绝对地址**：拒绝 `javascript:` / `data:` / `vbscript:` / `file:` 等伪协议、
+  拒绝携带账号密码（`https://user:pass@host`）、拒绝空白与控制字符（防 href 属性截断）；
+- 名称 / 描述 / 分组按**纯文本**处理：前端一律 `textContent` 渲染，不拼 `innerHTML`；
+- 图标仅接受 FontAwesome 类名形态（`fas fa-link`、`fa-solid fa-shield-alt`），拒绝任意 class/属性注入；
+- 公开面**只做最小投影**（`id/name/url/description/icon/groupName/openInNewTab`），不外泄
+  `created_by`/`status`/计数/时间戳；**不提供任何跳转（301/302）端点**——避免开放重定向面；
+- 变更全部写平台级审计 `writeAdminOpsLog`（`public.SystemLog`，`[admin-audit] friendly_link.*`）。
+
+**登录页行为（`frontend/js/modules/loginPage.js` 末尾 `initFriendlyLinks`）：**
+
+- 成功且非空 → 按配置渲染（多条自动换行，单条与历史样式一致；`target=_blank` 带 `rel="noopener noreferrer"`）；
+- 成功但为空 → 隐藏整个区域（代表超管有意清空）；
+- 失败（离线 / 迁移窗口 503 / 网络异常）→ **保留 HTML 内置兜底链接**，登录流程不受影响；
+- 点击时 `POST .../visit` 计数（`keepalive` + fire-and-forget，失败不影响跳转）；管理台「打开」不计入统计。
+
+**⚠️ 运维要点**：① 本次为链尾迁移（链 17 个文件），部署需 `prisma migrate deploy` →`npm run db:sync`
+（租户台账补第 17 行）→ `prisma generate` → 重启，**不能只 pull + build + restart**（未迁移即重启 →
+就绪门禁阻断租户 API 503）；② public 段不参与备份恢复，链接配置靠迁移种子 + 超管界面留档。
+
 ---
 
 ## 6. 前端模块设计
 
 ### 6.1 路由结构（无框架路由，SPA 分区显隐）
 
-- 入口页：`login.html`（登录，含访客快速访问 Tab，登录卡下方有「友情链接：校园食安卫士」推广页入口，新窗口打开）、`super-admin-login.html`（平台超管登录）、`index.html`（主应用）、`admin-schools.html`（平台超管控制台：学校全生命周期管理 + 测试报告 + **磁盘管理**，见 §5.12）、`detergent-image-demo.html`（洗涤剂识别演示）、`help.html`（帮助）。
+- 入口页：`login.html`（登录，含访客快速访问 Tab，登录卡下方有**超管可维护的友情链接**——读取 `/api/public/friendly-links` 渲染，接口不可用时回退 HTML 内置兜底链接「校园食安卫士」，新窗口打开，见 §5.14）、`super-admin-login.html`（平台超管登录）、`index.html`（主应用）、`admin-schools.html`（平台超管控制台：学校全生命周期管理 + 测试报告 + **磁盘管理** + **友情链接**，见 §5.12 / §5.14）、`detergent-image-demo.html`（洗涤剂识别演示）、`help.html`（帮助）。
 - 侧边栏导航按钮用 `data-target` 标识目标区块（`dashboard`、`tableware-test`、`pesticide-test`、`oil-test`、`lean-meat-test`、`pathogen-test`、`export-data`、`backup-restore`、`user-management`、`audit-log`、`frequency-report`、`frequency-settings`），`data-admin-only` 仅管理员可见，`data-super-admin-only` 仅平台超管可见（如"学校管理"入口），`data-required-role` 按具体角色显隐导航项。
 - `frontend/js/core/Router.js`：权限守卫（按角色显隐 admin/guest 菜单、平台超管独有菜单）、Token 每 60s 定时校验 + 临期 5 分钟主动续期、30 分钟空闲登出（`visibilitychange` 时暂停/恢复定时器，TD-NoBeforeUnload）；FIX-15 无 `records:create` 权限（viewer）时从入口隐藏所有检测录入表单；角色中文标签映射（admin=管理员 / manager=主管 / operator=操作人员 / viewer=查看者 / guest=访客）。
 - `frontend/js/services/PermissionService.js`：RBAC 权限矩阵，`schools:manage` 权限仅当 `user.role==='admin' && !user.schoolCode` 时动态注入；`isPlatformSuperAdmin()` 方法供前端判断。

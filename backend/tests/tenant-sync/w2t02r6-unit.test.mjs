@@ -93,9 +93,10 @@ test('⑤ 锁表版本化：排期方案已由 P3-PUBLIC-INFRA-CHAIN-R1 落地�
   //   · 链 11 → 13：新增 2 个 `-- @scope: public` migration（锁表 / 吊销表，第 12/13 位；逐项归因见该包 RESULT）；
   //     P3-PUBLIC-INFRA-FOLLOWUP-R1 追加 1 个 public 前向修复（FieldOption FK，第 14 位）→ 14；
   //     P3-LIFECYCLE-AB-R3 只在其后追加 M1/M2（`@scope: both`，第 15/16 位）→ 16；
+  //     P3-FRIENDLY-LINKS 再追加 1 个 `@scope: both`（友情链接表，第 17 位）→ 17；
   //   · 锁表 DDL 只出现在**唯一**的 public migration 内（旧 11 文件与后续文件（含 M1/M2）仍不得包含）；
   //   · 运行时 ensure 不再执行 DDL（静态护栏：函数体内无 $executeRawUnsafe / CREATE / ALTER）。
-  assert.equal(listMigrationFiles().length, 16, '迁移链 = 原 11 + 公共基础设施 2（第 12/13 位）+ public 前向修复 1（第 14 位）+ M1/M2 2（第 15/16 位；R17 B-6）')
+  assert.equal(listMigrationFiles().length, 17, '迁移链 = 原 11 + 公共基础设施 2（第 12/13 位）+ public 前向修复 1（第 14 位）+ M1/M2 2（第 15/16 位）+ 友情链接 1（第 17 位；R17 B-6）')
   const legacy = listMigrationFiles().slice(0, 11)
   for (const m of legacy) {
     const sql = read(`backend/prisma/migrations/${m.name}/migration.sql`)

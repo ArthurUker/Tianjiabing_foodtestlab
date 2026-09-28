@@ -34,9 +34,11 @@ const LOCK_MIG = '20260926120000_public_infra_tenant_migration_locks'
 const REVOKED_MIG = '20260926120100_public_infra_revoked_tokens'
 // P3-PUBLIC-INFRA-FOLLOWUP-R1：历史 FieldOption FK 跨 schema 误判的前向修复（**第 14 位**，public-only；非当前链尾）
 const FOLLOWUP_MIG = '20260927120000_public_infra_field_option_self_fk'
-// P3-LIFECYCLE-AB-R3（窗口 3，R10 放行后）：M1/M2 生命周期迁移（`@scope: both`）**只追加**在第 14 位之后（当前链尾 = M2）
+// P3-LIFECYCLE-AB-R3（窗口 3，R10 放行后）：M1/M2 生命周期迁移（`@scope: both`）**只追加**在第 14 位之后；
+// P3-FRIENDLY-LINKS（2026-09-28）：友情链接表（`@scope: both`）再追加为**当前链尾（第 17 位）**。
 const M1_MIG = '20260927130000_lifecycle_audit_principal_expand'
 const M2_MIG = '20260927140000_lifecycle_audit_principal_enforce'
+const FL_MIG = '20260928120000_friendly_links'
 const lockSql = read(`backend/prisma/migrations/${LOCK_MIG}/migration.sql`)
 const revokedSql = read(`backend/prisma/migrations/${REVOKED_MIG}/migration.sql`)
 const followupSql = read(`backend/prisma/migrations/${FOLLOWUP_MIG}/migration.sql`)
@@ -56,15 +58,15 @@ function stubPrisma({ columns = [], pk = [], indexes = [] } = {}) {
 }
 const colRows = (shape) => shape.columns.map((c) => ({ name: c.name, type: c.type, not_null: c.notNull, default_expr: c.defaultExpr }))
 
-test('① 链位次入链：3 个 @scope: public migration 固定第 12/13/14 位（锁表 / 吊销表 / FieldOption FK 前向修复），其后只追加 M1/M2', () => {
+test('① 链位次入链：3 个 @scope: public migration 固定第 12/13/14 位（锁表 / 吊销表 / FieldOption FK 前向修复），其后只追加 M1/M2 与友情链接', () => {
   const files = listMigrationFiles()
-  assert.equal(files.length, 16, '链 = 原 11（both/既有）+ 3 个 public（第 12/13/14 位）+ M1/M2（第 15/16 位，P3-LIFECYCLE-AB-R3）')
+  assert.equal(files.length, 17, '链 = 原 11（both/既有）+ 3 个 public（第 12/13/14 位）+ M1/M2（第 15/16 位）+ 友情链接（第 17 位，P3-FRIENDLY-LINKS）')
   // 历史位置证明（**绝对位次**，不随链增长漂移；不得用 length-3/2/1 冒充）
   assert.equal(files[11].name, LOCK_MIG, '第 12 位：锁表')
   assert.equal(files[12].name, REVOKED_MIG, '第 13 位：吊销表')
   assert.equal(files[13].name, FOLLOWUP_MIG, '第 14 位：FieldOption FK 前向修复（**非**当前链尾）')
-  // 其后**只**追加 M1/M2（且它们是 both，非 public-only）
-  assert.deepEqual(files.slice(14).map((m) => m.name), [M1_MIG, M2_MIG], '第 15/16 位只能是 M1/M2（追加式，不得插队）')
+  // 其后**只**追加 M1/M2 与友情链接（且它们是 both，非 public-only）
+  assert.deepEqual(files.slice(14).map((m) => m.name), [M1_MIG, M2_MIG, FL_MIG], '第 15/16/17 位只能是 M1/M2 + 友情链接（追加式，不得插队）')
   assert.ok(/^\s*--\s*@scope:\s*both\s*$/m.test(m1Sql) && /^\s*--\s*@scope:\s*both\s*$/m.test(m2Sql), 'M1/M2 必须 @scope: both（租户投影；不得冒充 public-only）')
   assert.ok(/^\s*--\s*@scope:\s*public\s*$/m.test(lockSql) && /^\s*--\s*@scope:\s*public\s*$/m.test(revokedSql) && /^\s*--\s*@scope:\s*public\s*$/m.test(followupSql), '三者必须显式 @scope: public')
   assert.ok(!/@scope:\s*both/.test(lockSql + revokedSql + followupSql), '不得声明 both（不得进租户投影）')

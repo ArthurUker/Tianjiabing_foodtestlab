@@ -476,6 +476,37 @@ model OpenApiGrant {
   @@index([school_id])
 }
 
+// ========== 友情链接（登录页外链，public 权威副本）==========
+// 背景（2026-09-28）：登录卡下方的「友情链接」原为 frontend/pages/login.html 内硬编码的
+//   单条外链（https://foodsafety.digifluidic.com/）。现改为平台超管在 admin-schools.html
+//   「友情链接」视图中维护：多条 / 排序 / 启停 / 一键访问 / 访问计数；登录页改为读取
+//   免鉴权只读接口 `/api/public/friendly-links` 渲染（失败时回退内置兜底链接）。
+//
+// ⚠️ 与 OpenApi* / BackupRun / TestCase 同模式：权威副本在 public（由 prisma migrate 管理），
+//    迁移链逐租户回放会在各租户 schema 建**同名空表**（纯结构对齐）——忽略即可；
+//    应用层一律用基础 prisma 单例读写 public，**绝不用 req.db**（租户副本永不写入）。
+// ⚠️ 刻意不建外键：created_by 为平台超管 user id 的弱引用（与 BackupRun.created_by 同口径）。
+// ⚠️ 备份恢复：public 段不参与恢复（restoreService 只取租户段），故链接配置需靠
+//    「迁移种子 + 超管界面」留档，切勿以为能从备份还原。
+model FriendlyLink {
+  id              String    @id @default(cuid())
+  name            String    // 显示名称（登录页胶囊文案，服务端限 1-60 字）
+  url             String    // 目标地址（仅 http/https，服务端校验后写入）
+  description     String?   // 悬停说明 / 管理台副标题（≤200 字）
+  icon            String?   // FontAwesome 类名（如 fas fa-link）；缺省用内置默认
+  group_name      String?   // 分组标签（可选，管理台归类用）
+  sort_order      Int       @default(0) // 升序排列（越小越靠前）
+  status          String    @default("enabled") // enabled / disabled（disabled 不在登录页展示）
+  open_in_new_tab Boolean   @default(true)
+  visit_count     Int       @default(0) // 登录页点击次数（免鉴权 ping 累加，非精确计数）
+  last_visit_at   DateTime?
+  created_by      String?
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+
+  @@index([status, sort_order])
+}
+
 // ========== 学校注册表（系统级，位于 public schema）==========
 
 model School {

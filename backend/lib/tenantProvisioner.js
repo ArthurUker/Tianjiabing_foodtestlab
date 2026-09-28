@@ -298,6 +298,13 @@ const TENANT_MIGRATION_REGISTRY = Object.freeze({
   '20260825000000_add_frequency_threshold_calendar': { checksum: 'c3ef86c51ff8f19ab628401794f75af9e1c9f510ca0f97173dc74ee0609468f6', scope: 'both', skip: ['cdc4b2c2780fa0bc946631e1959a0020c109926204f48ac50ff822eda79b2747'], stmtCount: 5 },
   '20260825120000_test_report_rewrite': { checksum: '3e4ec2bc57b415ad8889028c7b89cc69302e539f34a902d815b8d616ce0b5325', scope: 'both', skip: [], stmtCount: 11 },
   '20260915120000_open_api_tables': { checksum: '69d10c487793312e3cbdb01e4883f2457d225958314348221460d01e0433929a', scope: 'both', skip: ['880226f6221a2cea88a0cf1600cd007babab84da4bfecb5bf4df004de0cf5789'], stmtCount: 11 },
+  // P3-FRIENDLY-LINKS（2026-09-28，第 17 位，`@scope: both`）：登录页友情链接表（`public."FriendlyLink"`
+  // 权威副本 + 各租户同名空表，结构对齐用）。4 条语句中**显式跳过 2 条**（逐租户回放不执行）：
+  //   ① 种子数据（id=fl-seed-campus-foodsafety）——**仅 public**，租户副本永不写入；
+  //   ② 扫全库 DO 块（一次性为存量 school_* 建空表）——单 schema 效果由同文件 2 条普通 DDL
+  //      的逐租户回放覆盖（CREATE TABLE / CREATE INDEX 均带 IF NOT EXISTS，幂等）。
+  //   ⚠️ 其后新增迁移必须继续追加（不得插队）：本文件为当前链尾。
+  '20260928120000_friendly_links': { checksum: 'd895a2ca8c265912614c634d6fc6cb0e0df425a07398fa3a9c0b8294df57f309', scope: 'both', skip: ['a55f8344faeacc689674b90303875103ef7cd4d9c36bfaf758e63be2268872d6', '895f1a63f79e00cd71a0d5fa45b8f6dffaec198c34506358661a7b136b76d375'], stmtCount: 4 },
 })
 
 /** 分类协议对外的可审计快照（供 `--check`/证据输出；值即编译进上表的常量）。 */
@@ -557,6 +564,10 @@ export function witnessProbes() {
     { index: 8, name: '20260825000000_add_frequency_threshold_calendar', label: 'FrequencyThreshold + DetectionCalendar', check: async (prisma, schema) => (await table(schema, 'FrequencyThreshold')(prisma)) && (await table(schema, 'DetectionCalendar')(prisma)) },
     { index: 9, name: '20260825120000_test_report_rewrite', label: 'TestCase + TestExecution', check: async (prisma, schema) => (await table(schema, 'TestCase')(prisma)) && (await table(schema, 'TestExecution')(prisma)) },
     { index: 10, name: '20260915120000_open_api_tables', label: 'OpenApiClient/Credential/Grant', check: async (prisma, schema) => (await table(schema, 'OpenApiClient')(prisma)) && (await table(schema, 'OpenApiCredential')(prisma)) && (await table(schema, 'OpenApiGrant')(prisma)) },
+    // 第 17 位（P3-FRIENDLY-LINKS）：登录页友情链接表（public 权威副本；租户侧同名空表，仅结构对齐）。
+    // 链尾必须落在 tenantRelevantIndex（最后一个非 `@scope: public` 迁移）上，否则无台账存量库的
+    // 版本探测会从 head 退化为 prefix。
+    { index: 16, name: '20260928120000_friendly_links', label: 'FriendlyLink（友情链接）', check: (p, s) => table(s, 'FriendlyLink')(p) },
   ]
 }
 

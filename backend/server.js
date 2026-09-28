@@ -32,6 +32,8 @@ import { createRecordRoutes } from './routes/recordRoutes.js'
 import frequencyRoutes from './routes/frequencyRoutes.js'
 import { createOpenApiRoutes } from './routes/openApiRoutes.js'
 import { createAdminOpenApiRoutes } from './routes/adminOpenApiRoutes.js'
+import { createAdminFriendlyLinkRoutes } from './routes/adminFriendlyLinkRoutes.js'
+import { createPublicFriendlyLinkRoutes } from './routes/publicFriendlyLinkRoutes.js'
 import { disconnectAllTenantClients } from './lib/tenantClient.js'
 import { syncAllTenantSchemas } from './lib/tenantSync.js'
 import { redactSecrets } from './lib/tenantProvisioner.js'
@@ -453,6 +455,20 @@ const adminOpenApiRoutes = createAdminOpenApiRoutes({ prisma, authenticateUser, 
 app.use('/api/admin/open-api', adminOpenApiRoutes)
 const openApiRoutes = createOpenApiRoutes({ prisma })
 app.use('/api/open', openApiRoutes)
+
+// ====== Friendly Links（友情链接：登录页外链，2026-09-28）======
+// 背景：登录卡下方「友情链接」原为 frontend/pages/login.html 内硬编码的单条外链，
+//   现改为超管在控制台「友情链接」视图维护（多条 / 排序 / 启停 / 一键访问 / 访问计数）。
+// ① /api/admin/friendly-links  —— 超管配置面（增删改查 / 重排；authenticateUser + requirePlatformSuperAdmin）
+// ② /api/public/friendly-links —— 免鉴权只读面（登录页渲染）+ 点击计数（按 IP 限流，无跳转端点）
+// ⚠️ 挂载顺序同 Open API：必须在下方 `app.use('/api', recognitionRoutes)` **之前**，
+//    否则 /api/public/* 会被其全局 authenticateUser 拦成 401「缺少授权令牌」。
+// ⚠️ 数据权威副本在 public."FriendlyLink"（迁移 20260928120000_friendly_links，链尾）：
+//    读写一律用基础 prisma 单例（public），**绝不用 req.db**（租户副本仅结构对齐，永不写入）。
+const adminFriendlyLinkRoutes = createAdminFriendlyLinkRoutes({ prisma, authenticateUser, requirePlatformSuperAdmin })
+app.use('/api/admin/friendly-links', adminFriendlyLinkRoutes)
+const publicFriendlyLinkRoutes = createPublicFriendlyLinkRoutes({ prisma, rateLimit })
+app.use('/api/public/friendly-links', publicFriendlyLinkRoutes)
 
 // ====== Test Result Routes（临时测试工具：测试结果上报，任意登录用户）======
 const testResultRoutes = createTestResultRoutes(userManager, prisma)
