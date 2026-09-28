@@ -124,7 +124,7 @@ export function initFriendlyLinksView({ API_BASE, authHeaders, notify }) {
                 <div class="flex items-center justify-between flex-wrap gap-3">
                     <div>
                         <h3><i class="fas fa-external-link-alt text-blue-500"></i>快捷访问</h3>
-                        <p class="text-xs text-gray-500">登录页登录卡下方的真实效果（仅「启用」的链接，按排序展示）。点击即在新窗口打开；<b>此处打开不计入访问统计</b>。</p>
+                        <p class="text-xs text-gray-500">登录页登录卡下方的真实效果（仅「启用」的链接，按排序展示）：<b>1 条</b>显示为胶囊，<b>≥2 条</b>合并为一条底栏（最多 4 条，其余折叠为「+N」）。点击即在新窗口打开；<b>此处打开不计入访问统计</b>。</p>
                     </div>
                     <a id="flLoginPreviewLink" href="/login.html" target="_blank" rel="noopener noreferrer" class="text-xs text-blue-600 hover:text-blue-800 hover:underline"><i class="fas fa-desktop mr-1"></i>打开登录页</a>
                 </div>
@@ -230,11 +230,14 @@ export function initFriendlyLinksView({ API_BASE, authHeaders, notify }) {
             </div>
         </div>
 
-        <!-- 登录页胶囊预览样式（与 login.html 的 .friendly-link 同视觉；仅作用于本视图，
-             只定义一次，避免每次重渲染重复注入） -->
+        <!-- 登录页预览样式：与 login.html 的 .friendly-link / .friendly-links__bar* 同视觉
+             （此处为镜像副本——登录页样式不跨页共享；改布局时两处必须同步）。
+             仅作用于本视图，只定义一次，避免每次重渲染重复注入。 -->
         <style>
+            /* 1 条：毛玻璃胶囊 */
             .friendly-link-preview {
                 display: inline-flex; align-items: center; justify-content: center;
+                width: fit-content; max-width: 100%;
                 padding: 7px 18px; border-radius: 999px; font-size: 13px; color: #374151;
                 background: rgba(255,255,255,0.55); backdrop-filter: blur(10px);
                 -webkit-backdrop-filter: blur(10px);
@@ -244,6 +247,42 @@ export function initFriendlyLinksView({ API_BASE, authHeaders, notify }) {
             }
             .friendly-link-preview i { margin-right: 8px; font-size: 12px; }
             .friendly-link-preview:hover { color: #2563eb; background: rgba(255,255,255,0.75); }
+            /* ≥2 条：合并底栏（统一标签 + 竖线分隔；最多 4 条 + “+N” 展开） */
+            .friendly-links__bar {
+                display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+                gap: 4px 10px;
+                max-width: min(100%, 520px); margin: 0 auto;
+                padding: 7px 16px; border-radius: 14px;
+                font-size: 12.5px; color: #4b5563; line-height: 1.5;
+                background: rgba(255,255,255,0.55); backdrop-filter: blur(10px);
+                -webkit-backdrop-filter: blur(10px);
+                border: 1px solid rgba(255,255,255,0.6);
+                box-shadow: 0 2px 10px rgba(30,44,80,0.08);
+            }
+            .friendly-links__bar-label {
+                display: inline-flex; align-items: center;
+                color: #9ca3af; font-size: 11.5px; letter-spacing: .04em; white-space: nowrap;
+            }
+            .friendly-links__bar-label i { margin-right: 6px; font-size: 11px; }
+            .friendly-links__bar-items {
+                display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+                row-gap: 2px; min-width: 0;
+            }
+            .friendly-links__bar-items > * + * {
+                margin-left: 10px; padding-left: 10px;
+                border-left: 1px solid rgba(148, 163, 184, 0.45);
+            }
+            .friendly-links__bar-items a {
+                color: #374151; text-decoration: none; transition: color .2s ease;
+                overflow-wrap: anywhere;
+            }
+            .friendly-links__bar-items a:hover { color: #2563eb; }
+            .friendly-links__bar-more {
+                background: none; border: 0; padding: 0; font: inherit;
+                color: #6b7280; cursor: pointer;
+                text-decoration: underline dotted; text-underline-offset: 3px;
+            }
+            .friendly-links__bar-more:hover { color: #2563eb; }
         </style>`;
     }
 
@@ -257,7 +296,47 @@ export function initFriendlyLinksView({ API_BASE, authHeaders, notify }) {
         if (el('flKpiVisits')) el('flKpiVisits').textContent = String(s.visits ?? 0);
     }
 
-    /* ─────────── 渲染：快捷访问（登录页胶囊同款） ─────────── */
+    /* ─────────── 渲染：快捷访问（登录页真实布局的镜像预览） ─────────── */
+    /**
+     * 与 login.html 一致的两种布局（改这里必须同步改 frontend/js/modules/loginPage.js initFriendlyLinks）：
+     *   · 1 条 → 毛玻璃胶囊「友情链接：<名称>」；
+     *   · ≥2 条 → 一条底栏：统一标签 + 竖线分隔的名称列表，最多 4 条，其余「+N」就地展开。
+     */
+    const PREVIEW_MAX_VISIBLE = 4;
+
+    function previewTargetAttr(it) {
+        return it.open_in_new_tab === false ? '' : 'target="_blank" rel="noopener noreferrer"';
+    }
+
+    /** 单条胶囊（含自定义图标）。 */
+    function previewPillHtml(it) {
+        const url = safeExternalUrl(it.url);
+        const inner = `<i class="${escapeHtml(safeIcon(it.icon))}" aria-hidden="true"></i><span>友情链接：${escapeHtml(it.name)}</span>`;
+        return url
+            ? `<a class="friendly-link-preview" href="${escapeHtml(url)}" ${previewTargetAttr(it)} title="${escapeHtml(it.description || it.name)}">${inner}</a>`
+            : `<span class="friendly-link-preview" title="地址非法，登录页不会渲染该链接">${inner}</span>`;
+    }
+
+    /** 多条底栏（标签统一使用默认链接图标；名称过长自然换行，不截断）。 */
+    function previewBarHtml(list) {
+        const items = list.map((it, idx) => {
+            const url = safeExternalUrl(it.url);
+            const hiddenAttr = idx >= PREVIEW_MAX_VISIBLE ? ' hidden data-fl-extra="1"' : '';
+            const label = escapeHtml(it.name);
+            const title = escapeHtml(it.description || it.name);
+            return url
+                ? `<a class="fl-extra-item"${hiddenAttr} href="${escapeHtml(url)}" ${previewTargetAttr(it)} title="${title}">${label}</a>`
+                : `<span class="fl-extra-item"${hiddenAttr} title="地址非法，登录页不会渲染该链接">${label}</span>`;
+        }).join('');
+        const more = list.length > PREVIEW_MAX_VISIBLE
+            ? `<button type="button" data-act="fl-more" class="friendly-links__bar-more" title="展开全部友情链接">+${list.length - PREVIEW_MAX_VISIBLE}</button>`
+            : '';
+        return `<div class="friendly-links__bar" style="margin:0 auto">
+            <span class="friendly-links__bar-label"><i class="${escapeHtml(DEFAULT_ICON)}" aria-hidden="true"></i>友情链接</span>
+            <span class="friendly-links__bar-items">${items}${more}</span>
+        </div>`;
+    }
+
     function renderQuickAccess() {
         const host = el('flQuickAccess');
         if (!host) return;
@@ -266,19 +345,16 @@ export function initFriendlyLinksView({ API_BASE, authHeaders, notify }) {
             host.innerHTML = `<div class="text-sm text-gray-400 py-3">当前没有启用中的链接，登录页将不显示友情链接入口。点击右上角「新增链接」添加。</div>`;
             return;
         }
+        const inner = enabled.length === 1 ? previewPillHtml(enabled[0]) : previewBarHtml(enabled);
         host.innerHTML = `
-            <div class="flex flex-col items-center gap-2 py-4 rounded-xl" style="background:linear-gradient(135deg,#fde68a 0%,#fbcfe8 45%,#c7d2fe 100%);">
-                ${enabled.map((it) => {
-                    const url = safeExternalUrl(it.url);
-                    const title = escapeHtml(it.description || it.name);
-                    const inner = `<i class="${escapeHtml(safeIcon(it.icon))}" aria-hidden="true"></i><span>友情链接：${escapeHtml(it.name)}</span>`;
-                    // 与 login.html 同款毛玻璃胶囊（.friendly-link 由登录页样式定义，这里内联等价样式）
-                    const cls = 'friendly-link-preview';
-                    return url
-                        ? `<a class="${cls}" href="${escapeHtml(url)}" ${it.open_in_new_tab === false ? '' : 'target="_blank" rel="noopener noreferrer"'} title="${title}">${inner}</a>`
-                        : `<span class="${cls}" title="地址非法，登录页不会渲染该链接">${inner}</span>`;
-                }).join('')}
-            </div>`;
+            <!-- 登录卡下方区域：max-width 448px 模拟登录页 max-w-md 卡片宽度，保证预览与线上比例一致 -->
+            <div class="py-6 px-4 rounded-xl">
+                <div class="mx-auto" style="max-width:448px">${inner}</div>
+            </div>
+            <p class="text-xs text-gray-400 mt-2">
+                布局随条数自动切换：<b>1 条</b>为胶囊；<b>≥2 条</b>合并为底栏（上例即当前 ${enabled.length} 条的形态，名称过长会自然换行）。
+                多条时统一使用「链接」图标，不再逐条显示各自的自定义图标。
+            </p>`;
     }
 
     /* ─────────── 渲染：管理列表 ─────────── */
@@ -518,6 +594,13 @@ export function initFriendlyLinksView({ API_BASE, authHeaders, notify }) {
 
             if (act === 'new') return openModal(null);
             if (act === 'refresh') return load(true);
+            if (act === 'fl-more') {
+                // 预览区「+N」：就地展开剩余链接（与登录页底栏的交互一致）
+                const box = btn.parentElement;
+                if (box) box.querySelectorAll('[data-fl-extra]').forEach((n) => n.removeAttribute('hidden'));
+                btn.remove();
+                return undefined;
+            }
             if (act === 'icon') {
                 if (el('flIcon')) el('flIcon').value = btn.getAttribute('data-icon') || DEFAULT_ICON;
                 return updatePreview();

@@ -548,6 +548,10 @@ if (guestEnterBtn) {
 //   · 名称/描述一律 textContent 写入（不拼 innerHTML），图标仅接受 FontAwesome 类名形态；
 //   · 接口不可用（离线 / 迁移窗口 / 5xx）→ 保留 HTML 内置兜底链接，登录流程不受影响；
 //   · 接口正常但列表为空 → 隐藏整个区域（代表超管有意清空）。
+// 布局（2026-09-28 二次优化，样式见 login.html 的 .friendly-links*）：
+//   · 1 条 → 毛玻璃胶囊「友情链接：<名称>」（历史样式，含自定义图标）；
+//   · ≥2 条 → 合并为一条底栏：统一「友情链接」标签 + 竖线分隔的名称列表，最多直接展示 4 条，
+//     其余折叠为「+N」点击展开（避免多条胶囊宽窄不一、各占一行的零散观感）。
 (function initFriendlyLinks() {
     const host = document.getElementById('friendlyLinks');
     if (!host) return;
@@ -563,36 +567,107 @@ if (guestEnterBtn) {
         } catch (e) { return null; }
     }
 
-    function buildLink(item) {
-        const url = safeUrl(item && item.url);
+    // 多条时的直接展示上限（其余折叠为「+N」，点击就地展开）——避免登录页被链接堆满
+    const MAX_VISIBLE = 4;
+
+    /** 规整字段 + 过滤非法地址（协议不符的条目整条丢弃，不渲染 href）。 */
+    function normalizeItem(raw) {
+        const url = safeUrl(raw && raw.url);
         if (!url) return null;
-        const a = document.createElement('a');
-        a.className = 'friendly-link glass';
-        a.href = url;
-        if (item.openInNewTab !== false) {
+        return {
+            id: raw.id,
+            name: String(raw.name || ''),
+            url: url,
+            description: String(raw.description || ''),
+            icon: String(raw.icon || '').trim(),
+            openInNewTab: raw.openInNewTab !== false,
+        };
+    }
+
+    /** 新窗口打开必须带 noopener，避免目标页通过 window.opener 反向控制登录页。 */
+    function applyTarget(a, item) {
+        if (item.openInNewTab) {
             a.target = '_blank';
-            // 新窗口打开必须带 noopener，避免目标页通过 window.opener 反向控制登录页
             a.rel = 'noopener noreferrer';
         }
-        a.title = item.description || item.name || '';
-        const icon = document.createElement('i');
-        const iconCls = String(item.icon || '').trim();
-        icon.className = ICON_RE.test(iconCls) ? iconCls : DEFAULT_ICON;
-        icon.setAttribute('aria-hidden', 'true');
-        const label = document.createElement('span');
-        label.textContent = '友情链接：' + (item.name || '');
-        a.appendChild(icon);
-        a.appendChild(label);
-        // 点击计数：fire-and-forget（keepalive 保证跳转中仍发出）；失败绝不阻断跳转
+    }
+
+    /** 点击计数：fire-and-forget（keepalive 保证跳转中仍发出）；失败绝不阻断跳转。 */
+    function bindVisit(a, id) {
         a.addEventListener('click', function () {
             try {
-                fetch('/api/public/friendly-links/' + encodeURIComponent(item.id) + '/visit', {
+                fetch('/api/public/friendly-links/' + encodeURIComponent(id) + '/visit', {
                     method: 'POST',
                     keepalive: true,
                 }).catch(function () { /* 计数失败忽略 */ });
             } catch (e) { /* 计数失败忽略 */ }
         });
+    }
+
+    /** 单条：毛玻璃胶囊（历史样式，语义完整：「友情链接：<名称>」+ 自定义图标）。 */
+    function buildPill(item) {
+        const a = document.createElement('a');
+        a.className = 'friendly-link glass';
+        a.href = item.url;
+        applyTarget(a, item);
+        a.title = item.description || item.name;
+        const icon = document.createElement('i');
+        icon.className = (ICON_RE.test(item.icon) ? item.icon : DEFAULT_ICON);
+        icon.setAttribute('aria-hidden', 'true');
+        const label = document.createElement('span');
+        label.textContent = '友情链接：' + item.name;
+        a.appendChild(icon);
+        a.appendChild(label);
+        bindVisit(a, item.id);
         return a;
+    }
+
+    /**
+     * 多条：合并为**一条底栏**（统一「友情链接」标签 + 竖线分隔的名称列表）。
+     * 名称过长时自然换行、不截断；超过 MAX_VISIBLE 条折叠为「+N」，点击就地展开。
+     */
+    function buildBar(items) {
+        const bar = document.createElement('div');
+        bar.className = 'friendly-links__bar glass';
+
+        const label = document.createElement('span');
+        label.className = 'friendly-links__bar-label';
+        const labelIcon = document.createElement('i');
+        labelIcon.className = DEFAULT_ICON;
+        labelIcon.setAttribute('aria-hidden', 'true');
+        label.appendChild(labelIcon);
+        label.appendChild(document.createTextNode('友情链接'));
+
+        const box = document.createElement('span');
+        box.className = 'friendly-links__bar-items';
+
+        function paint(expanded) {
+            box.textContent = '';
+            const shown = expanded ? items : items.slice(0, MAX_VISIBLE);
+            shown.forEach(function (item) {
+                const a = document.createElement('a');
+                a.href = item.url;
+                applyTarget(a, item);
+                a.title = item.description || item.name;
+                a.textContent = item.name;   // 纯文本写入（不拼 innerHTML）
+                bindVisit(a, item.id);
+                box.appendChild(a);
+            });
+            if (!expanded && items.length > MAX_VISIBLE) {
+                const more = document.createElement('button');
+                more.type = 'button';
+                more.className = 'friendly-links__bar-more';
+                more.textContent = '+' + (items.length - MAX_VISIBLE);
+                more.title = '展开全部友情链接';
+                more.addEventListener('click', function () { paint(true); });
+                box.appendChild(more);
+            }
+        }
+        paint(false);
+
+        bar.appendChild(label);
+        bar.appendChild(box);
+        return bar;
     }
 
     fetch('/api/public/friendly-links', { headers: { Accept: 'application/json' } })
@@ -610,10 +685,10 @@ if (guestEnterBtn) {
                 host.textContent = '';
                 return;
             }
-            const nodes = items.map(buildLink).filter(Boolean);
-            if (!nodes.length) return; // 全部地址非法：保留兜底链接
+            const list = items.map(normalizeItem).filter(Boolean);
+            if (!list.length) return; // 全部地址非法：保留兜底链接
             host.textContent = '';
-            nodes.forEach(function (n) { host.appendChild(n); });
+            host.appendChild(list.length === 1 ? buildPill(list[0]) : buildBar(list));
         })
         .catch(function (e) {
             // 接口不可用：保留 HTML 内置兜底链接（与历史行为一致）
