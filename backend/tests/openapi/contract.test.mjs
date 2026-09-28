@@ -179,11 +179,16 @@ test('结论口径：食用油 colorLevel 走显式枚举（未识别值不得�
   assert.equal(deriveConclusion('oil', { colorLevel: '警戒' }).initial, 'pass', '警戒属已知等级，按裁定仍算合格')
   assert.equal(deriveConclusion('oil', { colorLevel: '不合格' }).initial, 'fail')
   // ⚠️ 2026-09-17 P1 修复：原实现是 fail-open（任何非空 colorLevel 都判 pass）。
-  // 现改为显式枚举：未识别等级 → 回退 result 文本；两者都无可判文本 → unknown。
+  // P3-CONS-T01（总控裁决见 P3-PARALLEL-R1_REVIEW.md）：下面两条断言原来编码的
+  // 「未识别等级回退 result 文本」正是 AUD-025 审定的 fail-open 回退通道（2026-09-17
+  // 部分修复的残留——unknown 非空等级叠加可判 result 仍会被计为合格）。该反转已由
+  // P3-W5-T01 落地（lib/conclusionVerdict.js oilVerdict：未知非空 colorLevel → unknown，
+  // 仅空值回退 result 文本规则），本处两条断言按总控裁决同步为新口径：
+  //   深绿色 + result=合格 → unknown；foo + result=不合格(>0.25) → unknown。
   assert.equal(deriveConclusion('oil', { colorLevel: '深绿色' }).initial, 'unknown', '未识别等级不得默认合格')
   assert.equal(deriveConclusion('oil', { colorLevel: 'foo' }).initial, 'unknown', '脏值不得默认合格')
-  assert.equal(deriveConclusion('oil', { colorLevel: '深绿色', result: '合格' }).initial, 'pass', '未识别等级回退 result 文本')
-  assert.equal(deriveConclusion('oil', { colorLevel: 'foo', result: '不合格 (>0.25)' }).initial, 'fail')
+  assert.equal(deriveConclusion('oil', { colorLevel: '深绿色', result: '合格' }).initial, 'unknown', 'P3-CONS-T01：未知非空等级不得经 result 回退为合格（AUD-025 fail-open 残留反转）')
+  assert.equal(deriveConclusion('oil', { colorLevel: 'foo', result: '不合格 (>0.25)' }).initial, 'unknown', 'P3-CONS-T01：未知非空等级一律 unknown，不回退 result')
   assert.equal(deriveConclusion('oil', { colorLevel: '' }).initial, 'unknown', '空字符串 = 未提交等级')
   assert.equal(deriveConclusion('oil', { colorLevel: null }).initial, 'unknown', 'null 不得默认合格')
   assert.equal(deriveConclusion('oil', { result: '合格' }).initial, 'pass', 'colorLevel 缺失时回退 result')

@@ -33,6 +33,9 @@ import express from 'express';
 import request from 'supertest';
 import { UserManager } from '../backend/modules/UserManager.js';
 import { createUserRoutes } from '../backend/routes/userRoutes.js';
+// P3-PUBLIC-INFRA-FOLLOWUP-R1（测试层最小适配；**场景与业务断言不变**）：吊销表结构由链尾 migration 提供，
+// 认证侧只做 pg_catalog 只读形状探针（缺结构 → AUTH_INFRA_MISSING 503）→ stub 按合规形状应答。
+import { REVOKED_TOKENS_SHAPE, REVOKED_TOKENS_INDEXES } from '../backend/lib/publicInfraShape.js';
 
 const SECRET = 'unit-test-secret-1234567890';
 
@@ -80,6 +83,13 @@ function makeStubPrisma(user) {
       return 1;
     }),
     $queryRawUnsafe: jest.fn(async (sql, ...params) => {
+      // P3-PUBLIC-INFRA-FOLLOWUP-R1：认证侧吊销基础设施 = 只读形状探针（pg_catalog）——
+      // 按合规形状应答（健康索引 is_valid/is_ready=true、btree、无谓词/表达式；见 publicInfraShape.js）。
+      if (/pg_index/.test(sql) && /indisprimary/.test(sql)) return [{ cols: ['jti'] }] // 主键探针（含 pg_attribute join，必须先于列探针判定）
+      if (/pg_index/.test(sql)) return REVOKED_TOKENS_INDEXES.map((i) => ({ name: i.name, is_unique: false, is_valid: true, is_ready: true, method: 'btree', is_partial: false, expr_cols: 0, cols: [...i.columns] }))
+      if (/pg_attribute/.test(sql)) {
+        return REVOKED_TOKENS_SHAPE.columns.map((c) => ({ name: c.name, type: c.type, not_null: c.notNull, default_expr: c.defaultExpr }));
+      }
       if (/SELECT revoked_at, reason, token_type/i.test(sql)) {
         const row = revoked.get(params[0]);
         return row ? [{ revoked_at: row.revokedAt, reason: row.reason, token_type: row.tokenType }] : [];

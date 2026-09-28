@@ -24,6 +24,8 @@ import { createTenantClient } from '../lib/tenantClient.js'
 import { isValidSchoolCode } from '../lib/tenantProvisioner.js'
 import { createAuthMiddleware } from '../middleware/authMiddleware.js'
 import { rateLimit } from '../middleware/validationMiddleware.js'
+// 油脂结论口径的 SQL 等价物（唯一事实源 lib/conclusionVerdict.js）：与员工端统计/对外接口/前端看板同源
+import { oilVerdictSql } from '../lib/conclusionVerdict.js'
 
 // TD-GuestGate: quick-access 无凭证签发只读 JWT，需额外限流防批量枚举学校代码拉取数据
 const quickAccessLimiter = rateLimit(30, 60 * 1000)     // 每分钟30次
@@ -213,16 +215,16 @@ export function createGuestRoutes(userManager, prisma, jwtSecret) {
             }
 
             // 合格率：DB 侧 JSON 聚合（M1：避免 findMany 全量加载 result_data 到 Node.js 内存）
+            // oil 分支（2026-09-25 AUD-025 修复）：等级 ∈ {合格, 警戒} 计合格；其它非空值（含未识别）
+            // 一律不计合格；等级为空才回退 result 规则。SQL 由 lib/conclusionVerdict.js `oilVerdictSql()`
+            // 同源生成，与员工端统计 / 对外接口 / 前端看板逐字一致（旧实现 NOT LIKE '%不合格%' 是 fail-open）。
             const ruleTypes = allowed.filter(t => PASS_RULE_TYPES.has(t))
             if (ruleTypes.length) {
                 const passRows = await req.db.$queryRawUnsafe(
                     `SELECT "test_type", COUNT(*)::int AS "total",
                      COUNT(*) FILTER (
                        WHERE (CASE "test_type"
-                         WHEN 'oil' THEN (CASE WHEN COALESCE("result_data"::jsonb ->> 'colorLevel','') <> ''
-                                               THEN "result_data"::jsonb ->> 'colorLevel' NOT LIKE '%不合格%'
-                                               ELSE (COALESCE("result_data"::jsonb ->> 'result','') LIKE '%合格%'
-                                                     AND COALESCE("result_data"::jsonb ->> 'result','') NOT LIKE '%不合格%') END)
+                         WHEN 'oil' THEN ${oilVerdictSql()}
                          ELSE (COALESCE("result_data"::jsonb ->> 'result','') LIKE '%合格%'
                                AND COALESCE("result_data"::jsonb ->> 'result','') NOT LIKE '%不合格%')
                        END)

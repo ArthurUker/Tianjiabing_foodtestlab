@@ -324,11 +324,19 @@ function adminHandler(router, path, method) {
   throw new Error(`管理路由缺失：${method} ${path}`)
 }
 
-test('管理端 dict：有效授权返回字典与投影指纹', async () => {
-  const grant = { school_code: 'demo', status: 'active', scope_version: 1, visible_types: ['oil'], include_pathogen: false }
+test('管理端 dict：有效授权（含 school_id/generation 身份）返回字典与投影指纹', async () => {
+  // B-5（P3-LIFECYCLE-CONTRACT-R7）：管理端读路径与对外同源，**先判身份后下发字典** ⇒ 替身必须提供
+  //   当前学校 id/generation 与 grant 的 school_id/school_generation（值一致），否则按产品语义 403
+  //   GRANT_IDENTITY_MISSING。此处**不放宽**产品读时闸门，只把替身补成"真实授权"的形状。
+  const school = { id: 'sch-demo-1', code: 'demo', name: '示例学校', status: 'active', generation: 1 }
+  const grant = {
+    id: 'g-dict', school_code: 'demo', status: 'active', scope_version: 1,
+    visible_types: ['oil'], include_pathogen: false,
+    school_id: school.id, school_generation: school.generation,
+  }
   const prisma = {
     openApiClient: { findUnique: async () => ({ id: 'client', grants: [grant] }) },
-    school: { findUnique: async () => ({ code: 'demo', name: '示例学校' }) },
+    school: { findUnique: async () => school },
     schoolCustomization: { findUnique: async () => ({ custom_fields: {}, field_labels: {} }) },
   }
   const router = createAdminOpenApiRoutes({ prisma, authenticateUser: () => {}, requirePlatformSuperAdmin: () => {} })
@@ -337,6 +345,38 @@ test('管理端 dict：有效授权返回字典与投影指纹', async () => {
   assert.equal(res.statusCode, 200, JSON.stringify(res.md))
   assert.ok(res.md.data.field_schema.oil.fields.length > 0)
   assert.equal(typeof res.md.data.projection_fingerprint, 'string')
+})
+
+test('管理端 dict 负例：缺身份/错实体/旧世代授权 → 403 + 就地隔离，**不静默补值**', async () => {
+  const school = { id: 'sch-demo-1', code: 'demo', name: '示例学校', status: 'active', generation: 3 }
+  const cases = [
+    ['缺身份', { school_id: null, school_generation: null }, 'GRANT_IDENTITY_MISSING'],
+    ['错实体', { school_id: 'sch-other', school_generation: 3 }, 'GRANT_IDENTITY_MISMATCH'],
+    ['旧世代', { school_id: 'sch-demo-1', school_generation: 2 }, 'GRANT_IDENTITY_STALE_GENERATION'],
+  ]
+  for (const [label, identity, expectCode] of cases) {
+    const quarantined = []
+    const grant = {
+      id: `g-${expectCode}`, school_code: 'demo', status: 'active', scope_version: 1,
+      visible_types: ['oil'], include_pathogen: false, ...identity,
+    }
+    const prisma = {
+      openApiClient: { findUnique: async () => ({ id: 'client', grants: [grant] }) },
+      school: { findUnique: async () => school },
+      schoolCustomization: { findUnique: async () => ({ custom_fields: {}, field_labels: {} }) },
+      openApiGrant: { update: async ({ where, data }) => { quarantined.push({ where, data }); return { ...grant, ...data } } },
+    }
+    const router = createAdminOpenApiRoutes({ prisma, authenticateUser: () => {}, requirePlatformSuperAdmin: () => {} })
+    const res = makeRes()
+    await adminHandler(router, '/clients/:id/dict', 'get')({ params: { id: 'client' }, query: { schoolCode: 'demo' } }, res)
+    assert.equal(res.statusCode, 403, `${label}：必须 403（实际 ${res.statusCode}）`)
+    assert.equal(res.md.code, expectCode, `${label}：错误码可解释`)
+    assert.equal(res.md.data, undefined, `${label}：拒绝时不得下发任何字典/schema 数据`)
+    assert.equal(quarantined.length, 1, `${label}：必须就地隔离（禁用 + 原因 + scope_version+1）`)
+    assert.equal(quarantined[0].data.status, 'disabled')
+    assert.match(String(quarantined[0].data.revoked_reason), new RegExp(expectCode))
+    assert.equal(quarantined[0].data.scope_version, 2, '隔离须 bump scope_version（旧游标失效）')
+  }
 })
 
 test('管理端授权：空类型为零权限；第二学校失败回滚；非法日历日期写前拒绝', async () => {

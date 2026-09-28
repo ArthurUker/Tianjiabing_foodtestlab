@@ -39,7 +39,20 @@ import { createAuditRoutes } from '../backend/routes/auditRoutes.js';
 
 /** 内存 stub：user 表 + auditLog 表，支持 username/userId 过滤语义 */
 function makeDb({ users = [], logs = [] } = {}) {
+    // 溯源（P3-LIFECYCLE-AB-R3 / M1）：过滤契约由单列 `where.user_id` 扩展为**双来源**
+    //   where.OR = [{ user_id }, { principal: { subject_user_id } }]
+    //（历史行 user_id 可能为 NULL，主体身份以 principal.subject_user_id 为准）。
+    // 旧场景与断言语义保留；stub 增加 OR/principal 支路，使"按 userId 过滤仍返回同一批行"的语义可验证。
     const matchLog = (log, where = {}) => {
+        if (Array.isArray(where.OR) && where.OR.length) {
+            const hit = where.OR.some((clause) => {
+                if (clause.user_id !== undefined && log.user_id === clause.user_id) return true;
+                const subj = clause.principal?.subject_user_id;
+                if (subj !== undefined && log.principal?.subject_user_id === subj) return true;
+                return false;
+            });
+            if (!hit) return false;
+        }
         if (where.user_id && log.user_id !== where.user_id) return false;
         if (where.user?.username && log.user?.username !== where.user.username) return false;
         if (where.action && log.action !== where.action) return false;
@@ -115,17 +128,41 @@ describe('审计日志 · 按用户名筛选（GET /api/audit-logs?username=）'
         expect(whereArg).not.toHaveProperty('user');
     });
 
-    test('兼容保留：admin 传 userId（cuid）仍按 user_id 过滤', async () => {
+    test('兼容保留：admin 传 userId（cuid）仍命中同批日志（M1 起为双来源 OR 形状）', async () => {
         const db = makeDb({ logs: sampleLogs() });
         const res = await request(buildApp(db))
             .get('/api/audit-logs?userId=u-renkang')
             .set('x-test-user', asUser(adminUser));
 
         expect(res.status).toBe(200);
+        // 场景保留（按 userId 过滤返回同一批行）；形状断言按 M1 双来源契约更新（溯源见 beforeEach 上的注释）：
+        //   where.OR = [{ user_id: 'u-renkang' }, { principal: { subject_user_id: 'u-renkang' } }]
         expect(db.auditLog.findMany).toHaveBeenCalledWith(expect.objectContaining({
-            where: expect.objectContaining({ user_id: 'u-renkang' }),
+            where: expect.objectContaining({
+                OR: [
+                    { user_id: 'u-renkang' },
+                    { principal: { subject_user_id: 'u-renkang' } },
+                ],
+            }),
         }));
         expect(res.body.data).toHaveLength(2);
+    });
+
+    test('M1 新增：历史行 user_id 为 NULL 时，经 principal.subject_user_id 仍可筛出（双来源）', async () => {
+        const db = makeDb({
+            logs: [
+                ...sampleLogs(),
+                // 历史行：user_id 被 SET NULL（用户被硬删/迁移），主体锚点保留
+                { id: 'l4', user_id: null, principal: { subject_user_id: 'u-renkang' }, action: 'login', created_at: '2026-07-01T00:00:00.000Z', user: null },
+            ],
+        });
+        const res = await request(buildApp(db))
+            .get('/api/audit-logs?userId=u-renkang')
+            .set('x-test-user', asUser(adminUser));
+
+        expect(res.status).toBe(200);
+        // 旧实现（单列 user_id）会漏掉 l4；双来源必须同时命中
+        expect(res.body.data.map(l => l.id).sort()).toEqual(['l1', 'l3', 'l4']);
     });
 
     test('普通用户（operator）即使传 username 也强制只见本人日志', async () => {
@@ -135,8 +172,14 @@ describe('审计日志 · 按用户名筛选（GET /api/audit-logs?username=）'
             .set('x-test-user', asUser(operatorUser));
 
         expect(res.status).toBe(200);
+        // 场景保留（普通用户经 userId 强制只见本人）；形状按 M1 双来源契约更新（溯源见 beforeEach 上的注释）
         expect(db.auditLog.findMany).toHaveBeenCalledWith(expect.objectContaining({
-            where: expect.objectContaining({ user_id: operatorUser.userId }),
+            where: expect.objectContaining({
+                OR: [
+                    { user_id: operatorUser.userId },
+                    { principal: { subject_user_id: operatorUser.userId } },
+                ],
+            }),
         }));
         // 不允许 username 绕过本人限制
         expect(db.auditLog.findMany.mock.calls[0][0].where).not.toHaveProperty('user');

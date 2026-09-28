@@ -23,6 +23,8 @@
 import express from 'express'
 import { createOpenApiAuth } from '../middleware/openApiAuth.js'
 import { createTenantClient, schemaNameOf, isValidSchoolCode, assertSafeSchemaName } from '../lib/tenantClient.js'
+// P3-LIFECYCLE-AB-R3（M1）：grant 身份读时 fail-closed（缺失/错配/世代过期/孤儿 ⇒ 403 + 就地隔离）
+import { classifyGrantIdentity, quarantineGrant } from '../lib/openApiGrantIdentity.js'
 import {
   resolveGrantTypes,
   grantAllowsType,
@@ -47,6 +49,9 @@ import { DEFAULT_OPEN_TYPES } from '../lib/openApiScope.js'
 import { OPEN_API_CONTRACT_VERSION, listFieldDescriptors, buildSyntheticSamples, extractCustomFieldMeta, buildAllowedResultKeyMap, allowedKeysFingerprint } from '../lib/openApiFieldSchema.js'
 // 餐具记录级结论规则（与员工端统计、对外明细同一条规则，定义见 lib/tablewareVerdict.js）
 import { TABLEWARE_PASS_SQL } from '../lib/tablewareVerdict.js'
+// P3-CONS-T01（总控裁决 U1，P3-PARALLEL-R1_REVIEW.md）：oil 结论判定收敛到唯一事实源
+// lib/conclusionVerdict.js（四出口同源）；本文件的 oil 统计分支不再内联 CASE。
+import { oilVerdictSql } from '../lib/conclusionVerdict.js'
 
 const TAG = '[openApiRoutes]'
 const MAX_PAGE_SIZE = 200
@@ -149,7 +154,7 @@ export function createOpenApiRoutes({ prisma }) {
     return map
   }
 
-  /** 校验 school_code：格式合法 + 命中 active grant。返回 { grant, schema, school }。 */
+  /** 校验 school_code：格式合法 + 命中 active grant + **grant 身份一致**（M1）。返回 { grant, schema, school }。 */
   async function resolveSchool(req, res, schoolCode) {
     const code = String(schoolCode || '').trim()
     if (!isValidSchoolCode(code)) {
@@ -162,7 +167,17 @@ export function createOpenApiRoutes({ prisma }) {
       fail(res, 403, 'SCHOOL_NOT_AUTHORIZED', `未授权访问学校 ${code}`)
       return null
     }
-    const school = await prisma.school.findUnique({ where: { code }, select: { code: true, name: true, short_name: true, status: true } })
+    const school = await prisma.school.findUnique({
+      where: { code },
+      select: { id: true, code: true, name: true, short_name: true, status: true, generation: true },
+    })
+    // M1：grant 身份 fail-closed（身份缺失/错配/世代过期/孤儿 ⇒ 拒绝；隔离写失败仍拒绝）
+    const identity = classifyGrantIdentity(grant, school)
+    if (!identity.ok) {
+      await quarantineGrant(prisma, grant, identity.code, identity.detail)
+      fail(res, 403, 'SCHOOL_NOT_AUTHORIZED', `授权身份校验失败（${identity.code}）`)
+      return null
+    }
     if (!school || school.status !== 'active') {
       fail(res, 404, 'SCHOOL_NOT_FOUND', '学校不存在或已停用')
       return null
@@ -208,11 +223,24 @@ export function createOpenApiRoutes({ prisma }) {
   router.get('/v1/profile', async (req, res) => {
     try {
       const client = req.openApi.client
-      const grants = await loadGrants(client.id)
-      const codes = [...grants.keys()]
-      const schools = codes.length
-        ? await prisma.school.findMany({ where: { code: { in: codes } }, select: { code: true, name: true, short_name: true, status: true } })
+      const grantsAll = await loadGrants(client.id)
+      // P3-LIFECYCLE-AB-R3（M1）：身份校验不通过的 grant 不进下发列表（fail-closed），并就地隔离
+      const codesAll = [...grantsAll.keys()]
+      const schoolsAll = codesAll.length
+        ? await prisma.school.findMany({ where: { code: { in: codesAll } }, select: { id: true, code: true, name: true, short_name: true, status: true, generation: true } })
         : []
+      const schoolOf = new Map(schoolsAll.map((s) => [s.code, s]))
+      const grants = new Map()
+      for (const [code, g] of grantsAll) {
+        const identity = classifyGrantIdentity(g, schoolOf.get(code) || null)
+        if (!identity.ok) {
+          await quarantineGrant(prisma, g, identity.code, identity.detail)
+          continue
+        }
+        grants.set(code, g)
+      }
+      const codes = [...grants.keys()]
+      const schools = schoolsAll.filter((s) => grants.has(s.code))
       const nameOf = new Map(schools.map((s) => [s.code, s]))
       ok(res, {
         client: { name: client.name, rate_limit_per_min: client.rate_limit_per_min },
@@ -252,11 +280,21 @@ export function createOpenApiRoutes({ prisma }) {
       const rows = codes.length
         ? await prisma.school.findMany({
             where: { code: { in: codes }, status: 'active' },
-            select: { code: true, name: true, short_name: true },
+            select: { id: true, code: true, name: true, short_name: true, generation: true },
             orderBy: { code: 'asc' },
           })
         : []
-      ok(res, { schools: rows.map((s) => ({ school_code: s.code, school_name: s.name, short_name: s.short_name })) })
+      // P3-LIFECYCLE-AB-R3（M1）：仅下发身份校验通过的 grant（fail-closed；不静默包含旧授权）
+      const codeAllowed = new Set()
+      for (const g of grants.values()) {
+        if (g.status !== 'active') continue
+        const row = rows.find((s) => s.code === g.school_code)
+        const identity = classifyGrantIdentity(g, row || null)
+        if (identity.ok) { codeAllowed.add(g.school_code); continue }
+        await quarantineGrant(prisma, g, identity.code, identity.detail)
+      }
+      const visible = rows.filter((s) => codeAllowed.has(s.code))
+      ok(res, { schools: visible.map((s) => ({ school_code: s.code, school_name: s.name, short_name: s.short_name })) })
     } catch (e) {
       console.error(`${TAG} schools 失败:`, e)
       fail(res, 500, 'INTERNAL_ERROR', '读取学校列表失败')
@@ -598,17 +636,15 @@ export function createOpenApiRoutes({ prisma }) {
       const universeSql = `${validDate}${grantClause}`
       const inScopeSql = `${universeSql}${effClause}`
       const invalidDateSql = hasGrantRange ? 'false' : `NOT COALESCE(${validDate}, false)`
-      // oil 判定与 lib/openApiScope.deriveConclusion 同源：已知合格类 {合格,警戒}；已知不合格 {不合格}；
-      // 未识别值回退 result 文本（不再像旧实现那样"非空即合格"）。
+      // P3-CONS-T01（总控裁决 U1）：oil 分支改调 lib/conclusionVerdict.oilVerdictSql() ——
+      // 与员工端/访客端统计、对外明细（openApiScope.deriveConclusion）**同一判定源**：
+      // 已知合格类 {合格,警戒}→TRUE；已知不合格与其余非空值（含未识别等级）→FALSE（unknown 不计合格，
+      // 不再回退 result 文本 —— 旧内联 CASE 是 AUD-025 fail-open 的残留）；空等级 → result 文本规则。
+      // pathogen/tableware/其它类型分支语义不变（tableware 仍走 TABLEWARE_PASS_SQL 同源规则）。
       const passExpr = `CASE
           WHEN "test_type" = 'pathogen' THEN (COALESCE("result_data"->>'riskLevel','') = '无风险')
           WHEN "test_type" = 'tableware' THEN ${TABLEWARE_PASS_SQL}
-          WHEN "test_type" = 'oil' THEN (
-            CASE
-              WHEN COALESCE("result_data"->>'colorLevel','') IN ('合格','警戒') THEN TRUE
-              WHEN COALESCE("result_data"->>'colorLevel','') = '不合格' THEN FALSE
-              ELSE (COALESCE("result_data"->>'result','') LIKE '%合格%' AND COALESCE("result_data"->>'result','') NOT LIKE '%不合格%')
-            END)
+          WHEN "test_type" = 'oil' THEN ${oilVerdictSql('"result_data"')}
           ELSE (COALESCE("result_data"->>'result','') LIKE '%合格%' AND COALESCE("result_data"->>'result','') NOT LIKE '%不合格%')
         END`
 

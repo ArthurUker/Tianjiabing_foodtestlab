@@ -188,9 +188,50 @@ export function createUserRoutes(userManager) {
         })
     })
 
-    // 登出（JWT 无状态，服务端无需作废；返回 200 供前端统一清理本地态）
-    router.post('/logout', authenticateUser, (req, res) => {
-        res.json({ success: true, message: '已登出' })
+    // 登出（P3-W1-T01 / RC-02 / AUD-012）：服务端**主动吊销当前会话**（不再只是本地清态）。
+    //   - access token 的 jti 写入 public.revoked_tokens → 立即失效（无需等 TTL 自然过期）；
+    //   - 请求携带 X-Refresh-Token 时验签后一并吊销其 jti（refresh 会话同时失效，防重放换新）；
+    //   - 幂等：重复登出不报错（jti 已在吊销表 → 写入返回 false，不影响响应）；
+    //   - 写入失败 → 503 + code（**不假装已登出**：fail-closed，客户端应重试）。
+    router.post('/logout', authenticateUser, async (req, res) => {
+        try {
+            const rootPrisma = userManager.rootPrisma
+            const accessExpMs = (req.user?.exp ? req.user.exp * 1000 : Date.now() + 3600 * 1000)
+            if (req.user?.jti) {
+                await revokeToken(rootPrisma, {
+                    jti: req.user.jti,
+                    userId: req.user.userId,
+                    schoolCode: req.user.schoolCode || null,
+                    tokenType: 'access',
+                    reason: 'logout',
+                    expiresAt: new Date(accessExpMs),
+                })
+            }
+            const refreshHeader = req.headers['x-refresh-token']
+            if (refreshHeader && req.user?.userId) {
+                try {
+                    const decoded = userManager.verifyRefreshToken(refreshHeader)
+                    if (decoded?.jti && decoded.userId === req.user.userId) {
+                        await revokeToken(rootPrisma, {
+                            jti: decoded.jti,
+                            userId: decoded.userId,
+                            schoolCode: decoded.schoolCode || null,
+                            tokenType: 'refresh',
+                            reason: 'logout',
+                            expiresAt: new Date((decoded.exp || Math.floor(Date.now() / 1000) + 3600) * 1000),
+                        })
+                    }
+                } catch { /* refresh token 无效则忽略（access 注销已完成，登出语义达成） */ }
+            }
+            res.json({ success: true, message: '已登出' })
+        } catch (error) {
+            console.error('❌ [user] 登出吊销失败:', error.message)
+            res.status(503).json({
+                success: false,
+                code: 'LOGOUT_REVOKE_FAILED',
+                error: '登出失败（认证服务暂不可用），请重试',
+            })
+        }
     })
 
     // 刷新访问令牌（DS3-H1 重构，破坏性变更）：
@@ -284,12 +325,12 @@ export function createUserRoutes(userManager) {
             }
 
             // 3. 该用户是否已被全量吊销（user_all 记录晚于本 token 签发时间）
-            if (await isTokenRevoked(rootPrisma, { jti: null, userId, iat: decoded.iat })) {
+            if (await isTokenRevoked(rootPrisma, { jti: null, userId, iat: decoded.iat, idt: decoded.idt || null, schoolCode })) {
                 // REVOKED-REASON: 附带吊销原因（如 role_change_db_trigger / user_disable / refresh_replay），
                 // 前端据此提示「权限已被超级管理员更改」等，避免强制登出时用户一头雾水。
                 let revokeReason = null
                 try {
-                    revokeReason = await getTokenRevocationReason(rootPrisma, { jti: null, userId, iat: decoded.iat })
+                    revokeReason = await getTokenRevocationReason(rootPrisma, { jti: null, userId, iat: decoded.iat, idt: decoded.idt || null, schoolCode })
                 } catch { /* 查询失败仅丢失提示信息，不影响吊销判定本身 */ }
                 return res.status(401).json({ error: '❌ 会话已被吊销，请重新登录', code: 'REVOKED', reason: revokeReason })
             }
@@ -487,6 +528,23 @@ router.post('/change-password', authenticateUser, async (req, res) => {
                 oldPassword,
                 newPassword
             )
+            // P3-W1-T01（AUD-016 纵深防御）：除同事务 epoch 外，**精确吊销当前 access jti**。
+            // epoch 已覆盖（含毫秒 idt 精确比较）；此处对无 idt 的旧 token 同样立即失效。
+            try {
+                if (req.user?.jti) {
+                    await revokeToken(userManager.rootPrisma, {
+                        jti: req.user.jti,
+                        userId: req.user.userId,
+                        schoolCode: req.user.schoolCode || null,
+                        tokenType: 'access',
+                        reason: 'password_change_self',
+                        expiresAt: new Date((req.user.exp ? req.user.exp * 1000 : Date.now() + 3600 * 1000)),
+                    })
+                }
+            } catch (e) {
+                // 精确吊销失败不影响整体语义（epoch 已在同事务内落库，旧 token 仍被统一校验拦下）
+                console.warn('⚠️ [user] 改密后精确吊销当前 jti 失败（epoch 已生效）:', e.message)
+            }
             res.json(result)
         } catch (error) {
             console.error('❌ [user] 修改密码失败:', error)

@@ -20,6 +20,8 @@ import express from 'express'
 import { writeAdminOpsLog } from '../lib/auditLog.js'
 import { generateApiKey } from '../lib/openApiKeys.js'
 import { createTenantClient, schemaNameOf, isValidSchoolCode, assertSafeSchemaName } from '../lib/tenantClient.js'
+// R13-1：管理端读路径（preview/dict/samples）与对外接口**共用同一 grant 身份判定**（缺身份/孤儿/错配/世代过期 fail-closed）
+import { classifyGrantIdentity, quarantineGrant } from '../lib/openApiGrantIdentity.js'
 import { RECORD_ROUTE_TYPES, isValidBusinessDate } from '../lib/recordNormalize.js'
 import { resolveGrantTypes, grantDateRange, grantDateSqlClause, buildOpenRecord, computeProjectionFingerprint } from '../lib/openApiScope.js'
 import { OPEN_API_CONTRACT_VERSION, listFieldDescriptors, buildSyntheticSamples, extractCustomFieldMeta, buildAllowedResultKeyMap, allowedKeysFingerprint } from '../lib/openApiFieldSchema.js'
@@ -52,6 +54,47 @@ const IP_OR_CIDR_RE = /^[0-9a-fA-F:.]+(\/\d{1,3})?$/
 
 function badRequest(res, message) {
   return res.status(400).json({ success: false, error: message })
+}
+
+function forbidden(res, code, message) {
+  return res.status(403).json({ success: false, code, error: message })
+}
+
+export function createAdminOpenApiRoutes({ prisma, authenticateUser, requirePlatformSuperAdmin }) {
+  const router = express.Router()
+
+/**
+ * R13-1：管理端读路径的 grant 身份守门（与 `openApiRoutes.resolveSchool` 同一判定实现）。
+ * 读取**当前**学校 `id/generation` 后再判定：缺身份（历史行）/孤儿/`school_id` 错配/世代过期 ⇒ 拒绝；
+ * 失败时**就地隔离**（`quarantineGrant` 不抛出）；**隔离写失败仍拒绝**（fail-closed 不依赖写成功）。
+ * 返回 `{ ok:true, grant, school }` 或 `{ ok:false }`（已写出响应）。
+ */
+async function gateAdminGrantIdentity(res, { client, schoolCode }) {
+  const grant = client.grants.find((g) => g.school_code === schoolCode)
+  if (!grant) {
+    badRequest(res, '该校未授权给此对接方')
+    return { ok: false }
+  }
+  if (grant.status !== 'active') {
+    badRequest(res, '该校授权已停用，如需使用请先恢复授权')
+    return { ok: false }
+  }
+  const school = await prisma.school.findUnique({
+    where: { code: schoolCode },
+    select: { id: true, code: true, name: true, status: true, generation: true },
+  })
+  const verdict = classifyGrantIdentity(grant, school)
+  if (!verdict.ok) {
+    // 隔离（写失败也不放行）
+    await quarantineGrant(prisma, grant, verdict.code, verdict.detail)
+    forbidden(res, verdict.code, `授权身份校验失败（${verdict.code}）；该校授权已就地隔离，需重新授权`)
+    return { ok: false }
+  }
+  if (!school || school.status !== 'active') {
+    badRequest(res, '学校不存在或已停用')
+    return { ok: false }
+  }
+  return { ok: true, grant, school }
 }
 
 /** 'YYYY-MM-DD' → Date（Asia/Shanghai 当日 00:00）；空/非法返回 null。 */
@@ -112,8 +155,6 @@ function scopeSignature(g) {
   })
 }
 
-export function createAdminOpenApiRoutes({ prisma, authenticateUser, requirePlatformSuperAdmin }) {
-  const router = express.Router()
   router.use(authenticateUser, requirePlatformSuperAdmin)
 
   const actorOf = (req) => ({
@@ -334,7 +375,9 @@ export function createAdminOpenApiRoutes({ prisma, authenticateUser, requirePlat
         if (!isValidSchoolCode(schoolCode)) return badRequest(res, `学校代码非法: ${schoolCode}`)
         if (seenCodes.has(schoolCode)) return badRequest(res, `学校重复: ${schoolCode}`)
         seenCodes.add(schoolCode)
-        const school = await prisma.school.findUnique({ where: { code: schoolCode }, select: { code: true, status: true } })
+        // P3-LIFECYCLE-AB-R3（M1）：授权时绑定学校不可变身份（id + generation）——
+        // 同 code 重建/硬删恢复后，旧 grant 因 school_id/generation 不匹配而 fail-closed，只有**重新授权**才恢复。
+        const school = await prisma.school.findUnique({ where: { code: schoolCode }, select: { id: true, code: true, status: true, generation: true } })
         if (!school) return badRequest(res, `学校不存在: ${schoolCode}`)
         const includePathogen = raw?.includePathogen === true
         const normalizedTypes = normalizeVisibleTypes(raw?.visibleTypes, includePathogen)
@@ -352,6 +395,12 @@ export function createAdminOpenApiRoutes({ prisma, authenticateUser, requirePlat
           start_date: start,
           end_date: end,
           status: raw?.status === 'disabled' ? 'disabled' : 'active',
+          // M1 身份绑定：每次授权/重授都刷新为**当前**学校实体与世代（这就是"重授才恢复"的判据写入点）
+          school_id: school.id,
+          school_generation: school.generation,
+          // 重授清空隔离/吊销痕迹（隔离 grant 只有显式重授才解除）
+          revoked_at: null,
+          revoked_reason: null,
         })
       }
       const { applied, disabled } = await prisma.$transaction(async (tx) => {
@@ -399,14 +448,10 @@ export function createAdminOpenApiRoutes({ prisma, authenticateUser, requirePlat
       if (!client) return res.status(404).json({ success: false, error: '对接方不存在' })
       const schoolCode = String(req.query.schoolCode || '').trim()
       if (!isValidSchoolCode(schoolCode)) return badRequest(res, 'schoolCode 非法')
-      const grant = client.grants.find((g) => g.school_code === schoolCode)
-      // 与对外接口保持同一授权边界：已停用的授权不可预览（否则会"预览得到、接口取不到"）
-      if (!grant || grant.status !== 'active') {
-        return badRequest(res, grant ? '该校授权已停用，如需预览请先恢复授权' : '该校未授权给此对接方')
-      }
-
-      const school = await prisma.school.findUnique({ where: { code: schoolCode }, select: { code: true, name: true, status: true } })
-      if (!school || school.status !== 'active') return badRequest(res, '学校不存在或已停用')
+      // R13-1：身份判定（含隔离）**必须先于**任何租户数据读取 —— 拒绝路径绝不取样
+      const gate = await gateAdminGrantIdentity(res, { client, schoolCode })
+      if (!gate.ok) return
+      const { grant, school } = gate
       const schema = schemaNameOf(schoolCode)
       assertSafeSchemaName(schema)
       const types = resolveGrantTypes(grant)
@@ -455,9 +500,11 @@ export function createAdminOpenApiRoutes({ prisma, authenticateUser, requirePlat
       const client = await prisma.openApiClient.findUnique({ where: { id: req.params.id }, include: { grants: true } })
       if (!client) return res.status(404).json({ success: false, error: '对接方不存在' })
       const schoolCode = String(req.query.schoolCode || '').trim()
-      const grant = client.grants.find((g) => g.school_code === schoolCode && g.status === 'active')
-      if (!grant) return badRequest(res, '该校未授权或授权已停用（字段字典仅对已生效授权提供）')
-      const school = await prisma.school.findUnique({ where: { code: schoolCode }, select: { code: true, name: true } })
+      if (!isValidSchoolCode(schoolCode)) return badRequest(res, 'schoolCode 非法')
+      // R13-1：身份判定先于字典构建 —— 失败时不得下发该 grant 的任何字段/schema
+      const gate = await gateAdminGrantIdentity(res, { client, schoolCode })
+      if (!gate.ok) return
+      const { grant, school } = gate
       const cust = await prisma.schoolCustomization.findUnique({ where: { school_code: schoolCode } })
       const visibleTypes = resolveGrantTypes(grant)
       const field_schema = {}
@@ -496,9 +543,12 @@ export function createAdminOpenApiRoutes({ prisma, authenticateUser, requirePlat
       const client = await prisma.openApiClient.findUnique({ where: { id: req.params.id }, include: { grants: true } })
       if (!client) return res.status(404).json({ success: false, error: '对接方不存在' })
       const schoolCode = String(req.query.schoolCode || '').trim()
-      const grant = client.grants.find((g) => g.school_code === schoolCode && g.status === 'active')
-      if (!grant) return badRequest(res, '该校未授权或授权已停用（样例仅对已生效授权提供）')
-      const school = await prisma.school.findUnique({ where: { code: schoolCode }, select: { code: true, name: true } })
+      if (!isValidSchoolCode(schoolCode)) return badRequest(res, 'schoolCode 非法')
+      // R13-1（声明的扩展面）：samples 与 preview/dict 同类 —— 复用同一身份判定，
+      // 否则身份失效的 grant 仍能经合成样例下发布局/字段（同一绕过类，随本包一并收口）。
+      const gate = await gateAdminGrantIdentity(res, { client, schoolCode })
+      if (!gate.ok) return
+      const { grant, school } = gate
       const visibleTypes = resolveGrantTypes(grant)
       let target = visibleTypes
       if (req.query.test_type) {
@@ -888,6 +938,12 @@ export function createAdminOpenApiRoutes({ prisma, authenticateUser, requirePlat
         for (const g of Array.isArray(c.grants) ? c.grants : []) {
           const start = parseImportedDay(g.start_date)
           const end = parseImportedDay(g.end_date)
+          // P3-LIFECYCLE-AB-R3（M1）：导入同样绑定当前学校身份（导入不豁免读时 fail-closed；
+          // 学校不存在 ⇒ null，留给读时拒绝，不给"孤儿 grant"放行）
+          const schoolRow = await prisma.school.findUnique({
+            where: { code: String(g.school_code) },
+            select: { id: true, generation: true },
+          })
           const value = {
             visible_types: Array.isArray(g.visible_types) ? g.visible_types : null,
             include_pathogen: g.include_pathogen === true,
@@ -897,6 +953,10 @@ export function createAdminOpenApiRoutes({ prisma, authenticateUser, requirePlat
             end_date: end ?? null,
             status: g.status === 'disabled' ? 'disabled' : 'active',
             scope_version: Number(g.scope_version) > 0 ? Number(g.scope_version) : 1,
+            school_id: schoolRow ? schoolRow.id : null,
+            school_generation: schoolRow ? schoolRow.generation : null,
+            revoked_at: null,
+            revoked_reason: null,
           }
           await prisma.openApiGrant.upsert({
             where: { client_id_school_code: { client_id: saved.id, school_code: String(g.school_code) } },

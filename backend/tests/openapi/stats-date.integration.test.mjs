@@ -11,43 +11,45 @@
 //   ⑥ oil 判定走显式枚举（未识别等级不得默认合格），与 lib/openApiScope.deriveConclusion 一致。
 //
 // 启用：
-//   REVIEW_TEST_DATABASE_URL='postgresql://USER:PASS@127.0.0.1:5432/foodsentinel_review_test' \
+//   TEST_DATABASE_URL='postgresql://<provisioner 派生 role>:<pw>@127.0.0.1:<port>/<derived db>' TEST_DB_CONTEXT_FILE=<provisioner 输出> \
 //     node --test tests/openapi/stats-date.integration.test.mjs
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {
-  require, isConfigured, assertIsolationConfig, assertIsolated as sharedAssertIsolated,
-} from '../_isolation.mjs'
+import { require, loadIsolation, assertIsolated as gateAssert, cleanupScoped } from '../_isolation.mjs'
 
-const URL_ = process.env.REVIEW_TEST_DATABASE_URL || ''
-const TENANT_CODE = 'reviewtest'
-const TENANT_SCHEMA = `school_${TENANT_CODE}`
-const enabled = isConfigured()
+const isoInfo = loadIsolation()
+const TENANT = isoInfo.ok ? isoInfo.tenant('a') : null   // 派生租户（slot a；不再硬编码 school_review*）
+const TENANT_CODE = TENANT ? TENANT.tenantCode : null
+const TENANT_SCHEMA = TENANT ? TENANT.schema : null
+const enabled = isoInfo.ok
 
 if (!enabled) {
-  test('/v1/stats 日期口径（未设置 REVIEW_TEST_DATABASE_URL，跳过）', { skip: 'SKIP: TEST_DATABASE_URL not configured' }, () => {})
+  test('/v1/stats 日期口径：[T02C] 未配置显式 TEST_DATABASE_URL + TEST_DB_CONTEXT_FILE → 拒绝（fail-closed，不再 skip）', () => {
+    assert.fail(`[T02C-ISOLATION-REFUSED] code=${isoInfo.code || 'UNKNOWN'} reason=${isoInfo.reason || 'n/a'}；本套件只认显式 TEST_* 配置（不回落 DATABASE_URL / 业务 dotenv）`)
+  })
 }
 
 if (enabled) {
   // 配置级门禁（F8）：解析连接串后校验**库名**（不是整串匹配）+ 专用测试 schema
-  const iso = assertIsolationConfig({ schema: TENANT_SCHEMA })
+  const iso = { url: isoInfo.url, db: isoInfo.db, schema: TENANT_SCHEMA }   // 共享门禁派生值
   const DB_NAME = iso.db
 
   // ⚠️ 安全要点：`lib/tenantClient.js` 的 baseDatabaseUrl() 读的是 **process.env.DATABASE_URL**
   // （不是传入的 prisma 实例）——测试进程若带着生产 DATABASE_URL，路由内的 createTenantClient
   // 会连到生产库。这里必须先把它指向隔离库，再创建任何客户端。
-  process.env.DATABASE_URL = URL_
+  process.env.DATABASE_URL = isoInfo.url
 
   const { PrismaClient } = require('@prisma/client')
   const { createOpenApiRoutes } = await import('../../routes/openApiRoutes.js')
   const { buildOpenRecord } = await import('../../lib/openApiScope.js')
 
-  const prisma = new PrismaClient({ datasources: { db: { url: URL_ } } })
-  const tenant = new PrismaClient({ datasources: { db: { url: `${URL_}${URL_.includes('?') ? '&' : '?'}schema=${TENANT_SCHEMA}` } } })
+  const prisma = new PrismaClient({ datasources: { db: { url: isoInfo.url } } })
+  const tenant = new PrismaClient({ datasources: { db: { url: TENANT.urlWithSchema } } })
 
   /** 运行时安全断言（F8）：真实库名必须等于配置解析出的隔离库；租户客户端还需确认 current_schema。 */
-  async function assertIsolated(client, label, expectSchema) {
-    const { schema } = await sharedAssertIsolated(client, iso.db, label)
+  async function localAssert(client, label, expectSchema) {
+    const res = await gateAssert(client, expectSchema || (String(label).includes('public') ? 'public' : TENANT_SCHEMA), label)
+    const schema = res && res.identity ? res.identity.schema : null
     if (expectSchema) assert.equal(schema, expectSchema, `安全校验失败：${label} 的 current_schema 不是 ${expectSchema}`)
   }
 
@@ -57,7 +59,7 @@ if (enabled) {
     { code: 'RC-stats-1', type: 'oil', day: '2026-01-15', result: { colorLevel: '合格', tpmValue: '0.06' } },              // 已知合格 → pass
     { code: 'RC-stats-2', type: 'oil', day: '2026-01-31', result: { colorLevel: '不合格', tpmValue: '0.31' } },             // 已知不合格 → 不计入 pass
     { code: 'RC-stats-3', type: 'oil', day: '2026-02-01', result: { colorLevel: '警戒', tpmValue: '0.20' } },               // 授权范围外（授权 1 月时）
-    { code: 'RC-stats-4', type: 'oil', day: '2026-01-25', result: { colorLevel: '深绿色', result: '合格' } },               // 未识别等级 → 回退 result 文本
+    { code: 'RC-stats-4', type: 'oil', day: '2026-01-25', result: { colorLevel: '深绿色', result: '合格' } },               // 未识别等级（unknown 非空）→ 不计入合格（P3-CONS-T01 口径修正；原"回退 result 文本"为 AUD-025 fail-open 残留）
     { code: 'RC-stats-5', type: 'tableware', day: '2026-01-20', result: { result: '合格 (<200)' } },
     { code: 'RC-stats-6', type: 'pathogen', day: '2026-01-10', result: { riskLevel: '无风险' } },
     { code: 'RC-stats-7', type: 'tableware', day: '2026-1-5', result: { result: '合格 (<200)' } },                          // 格式非法
@@ -105,9 +107,11 @@ if (enabled) {
   }
 
   test.before(async () => {
-    await assertIsolated(prisma, 'public 客户端')
-    await assertIsolated(tenant, '租户客户端', TENANT_SCHEMA)
-    await prisma.school.upsert({
+    await localAssert(prisma, 'public 客户端')
+    await localAssert(tenant, '租户客户端', TENANT_SCHEMA)
+    // B-5（P3-LIFECYCLE-CONTRACT-R7）：授权必须绑定**当前**学校实体与世代 —— 从 upsert 返回的 School 行读取
+    //   id/generation（产品读时闸门不放宽：缺身份的历史 grant 一律 403，不由产品侧自动补值）。
+    const schoolRow = await prisma.school.upsert({
       where: { code: TENANT_CODE },
       update: { status: 'active' },
       create: { code: TENANT_CODE, name: '回归测试学校', status: 'active' },
@@ -117,6 +121,7 @@ if (enabled) {
       update: {},
       create: { id: CLIENT_ID, name: 'stats 回归测试', status: 'active', ip_whitelist: [], rate_limit_per_min: 600 },
     })
+    const identity = { school_id: schoolRow.id, school_generation: schoolRow.generation }
     const existing = await prisma.openApiGrant.findFirst({ where: { client_id: CLIENT_ID, school_code: TENANT_CODE } })
     if (!existing) {
       await prisma.openApiGrant.create({
@@ -124,7 +129,25 @@ if (enabled) {
           client_id: CLIENT_ID, school_code: TENANT_CODE, status: 'active',
           visible_types: ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'],
           include_pathogen: true, include_inspector: false, scope_version: 1,
+          ...identity,
         },
+      })
+    } else if (existing.school_id == null || existing.school_generation == null) {
+      // 旧缺身份测试记录：**显式删除后重授**（不依赖产品读时补值/不放宽闸门；仅处置本测试 client 的记录）
+      await prisma.openApiGrant.delete({ where: { id: existing.id } })
+      await prisma.openApiGrant.create({
+        data: {
+          client_id: CLIENT_ID, school_code: TENANT_CODE, status: 'active',
+          visible_types: ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'],
+          include_pathogen: true, include_inspector: false, scope_version: 1,
+          ...identity,
+        },
+      })
+    } else if (existing.school_id !== schoolRow.id || Number(existing.school_generation) !== Number(schoolRow.generation)) {
+      // 错实体/旧世代（同 code 重建后遗留）：显式重授到当前实体（等价于人工重新授权）
+      await prisma.openApiGrant.update({
+        where: { id: existing.id },
+        data: { status: 'active', ...identity, revoked_at: null, revoked_reason: null },
       })
     }
     await tenant.user.upsert({
@@ -145,6 +168,55 @@ if (enabled) {
         },
       })
     }
+  })
+
+  /* ───────── ⑦ B-5：grant 身份合同（缺身份/错实体/旧世代 → 403 + 隔离；恢复授权 → 200） ───────── */
+
+  test('grant 身份：缺身份/错实体/旧世代 → 403 + 就地隔离；重授到当前实体 → 200（产品闸门不放宽）', async () => {
+    const schoolRow = await prisma.school.findUnique({ where: { code: TENANT_CODE }, select: { id: true, generation: true } })
+    assert.ok(schoolRow?.id, '前置：当前学校行存在（身份来源）')
+    const grantRow = await prisma.openApiGrant.findFirst({ where: { client_id: CLIENT_ID, school_code: TENANT_CODE } })
+    assert.ok(grantRow?.id, '前置：测试授权行存在')
+    const good = { school_id: schoolRow.id, school_generation: schoolRow.generation }
+    // 对外 HTTP 层统一以 SCHOOL_NOT_AUTHORIZED 拒绝（不向调用方泄露内部判定细节）；
+    // 具体身份原因落在**隔离记录** revoked_reason（可审计）——下面对两者分别断言。
+    const cases = [
+      ['缺身份', { school_id: null, school_generation: null }, 'GRANT_IDENTITY_MISSING'],
+      ['错实体', { school_id: 'sch-not-this-one', school_generation: good.school_generation }, 'GRANT_IDENTITY_MISMATCH'],
+      ['旧世代', { school_id: good.school_id, school_generation: Number(good.school_generation) + 1 }, 'GRANT_IDENTITY_STALE_GENERATION'],
+    ]
+    try {
+      for (const [label, identity, expectCode] of cases) {
+        const pre = await prisma.openApiGrant.findUnique({ where: { id: grantRow.id } })
+        await prisma.openApiGrant.update({
+          where: { id: grantRow.id },
+          data: { status: 'active', ...identity, revoked_at: null, revoked_reason: null },
+        })
+        const r = await callStats({ school_code: TENANT_CODE })
+        assert.equal(r.statusCode, 403, `${label}：必须 403（实际 ${r.statusCode}），不得静默补值放行`)
+        assert.equal(r.body.code, 'SCHOOL_NOT_AUTHORIZED', `${label}：对外统一拒绝码（不区分具体身份缺陷）`)
+        assert.match(String(r.body.error || ''), new RegExp(expectCode), `${label}：错误说明须可解释且与隔离记录同因`)
+        assert.equal(r.body.data, undefined, `${label}：拒绝时不得返回任何统计（含数量侧信道）`)
+        const after = await prisma.openApiGrant.findUnique({ where: { id: grantRow.id } })
+        assert.equal(after.status, 'disabled', `${label}：必须就地隔离（禁用授权）`)
+        assert.match(String(after.revoked_reason), new RegExp(expectCode), `${label}：隔离原因可追溯`)
+        assert.equal(Number(after.scope_version), Number(pre.scope_version) + 1, `${label}：隔离须 bump scope_version（旧游标失效）`)
+        assert.ok(after.revoked_at != null, `${label}：隔离须记录时间`)
+      }
+    } finally {
+      // 恢复：显式重授到**当前**学校实体（测试记录，非产品自动补值）
+      await prisma.openApiGrant.update({
+        where: { id: grantRow.id },
+        data: { status: 'active', ...good, revoked_at: null, revoked_reason: null },
+      })
+    }
+    const restored = await prisma.openApiGrant.findUnique({ where: { id: grantRow.id } })
+    assert.equal(restored.status, 'active')
+    assert.equal(restored.school_id, good.school_id)
+    assert.equal(Number(restored.school_generation), Number(good.school_generation))
+    const ok = await callStats({ school_code: TENANT_CODE, start: '2026-01-01', end: '2026-12-31' })
+    assert.equal(ok.statusCode, 200, '重授到当前实体后必须 200（有效授权路径保持可用）')
+    assert.ok(ok.body.data.total >= 0)
   })
 
   test.after(async () => {
@@ -231,13 +303,16 @@ if (enabled) {
     }
   })
 
-  test('oil 判定走显式枚举：已知等级按裁定，未识别等级回退 result 文本（不得默认合格）', async () => {
+  test('oil 判定走显式枚举：已知等级按裁定，未识别等级不计入合格（不得默认合格/回退 result）', async () => {
     const r = await callStats({ school_code: TENANT_CODE, start: '2026-01-15', end: '2026-01-31' })
     assert.equal(r.statusCode, 200)
     const oil = r.body.data.by_type.find((t) => t.test_type === 'oil')
     assert.ok(oil, '应包含 oil 分型')
     assert.equal(oil.scope_total, 3, '01-15 合格 / 01-25 深绿色+result合格 / 01-31 不合格')
-    assert.equal(oil.pass_count, 2, '合格 + （未识别等级回退 result=合格）→ 2 条；不合格不计入')
+    // P3-CONS-T01（总控裁决 P3-PARALLEL-R1_REVIEW.md / U1）：/v1/stats 的 oil 分支改调
+    // lib/conclusionVerdict.oilVerdictSql() 同一判定源后，未识别非空等级（深绿色）→ unknown，
+    // 不再经 result 文本回退为合格 → pass 2→1（按本次实测修正；RC-stats-4 即该场景）。
+    assert.equal(oil.pass_count, 1, '仅 01-15 合格计入 pass；01-25 深绿色（unknown）与 01-31 不合格均不计入')
   })
 
   /* ───────── ② 授权边界：授权范围外的记录数量不可推断（P1-1） ───────── */

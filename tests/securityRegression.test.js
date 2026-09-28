@@ -8,7 +8,10 @@
  *     成功后必须写入 user_all 吊销记录（revokeAllUserTokens，落 public.revoked_tokens）；
  *   - 全链路验证：降权/改密后，旧 access token 过 authenticateUser → 401（H2 即时失效）；
  *   - enableUser / adminUpdateUser 仅改资料 → 不吊销（防过度失效）；
- *   - 吊销写入失败 → 业务操作不回滚，落 SECURITY:REVOCATION_WRITE_FAILED 安全事件。
+ *   - 吊销写入失败 → **业务与 epoch 写在同一事务内整体回滚，错误上抛**（无半提交、无 epoch 行）。
+ *     【P3-CLOSE-T01 语义修订，溯源】原行为「业务操作不回滚 + 落 SECURITY:REVOCATION_WRITE_FAILED」
+ *     是 AUD-016 明确废除的旧语义（P3-W1-T01 / RC-02 改为同事务）；
+ *     本文件该用例的场景（吊销写失败）保留，仅断言随新语义更新（回滚证明改用可信事务替身）。
  *
  * IF-2（must_change_password 消费闭环）：
  *   - loginUser 返回 mustChangePassword 标志（顶层 + user 内）；
@@ -33,6 +36,8 @@ jest.mock('../backend/lib/tenantClient.js', () => ({
 import bcryptjs from 'bcryptjs';
 import { UserManager } from '../backend/modules/UserManager.js';
 import { createAuthMiddleware } from '../backend/middleware/authMiddleware.js';
+// P3-PUBLIC-INFRA-CHAIN-R1：形状契约（与链尾 migration 同形；stub 按它应答只读形状探针）
+import { REVOKED_TOKENS_SHAPE, REVOKED_TOKENS_INDEXES } from '../backend/lib/publicInfraShape.js';
 
 const SECRET = 'unit-test-secret-1234567890';
 const PASSWORD = 'Passw0rd123';
@@ -76,6 +81,16 @@ function makeStubPrisma({ user = null } = {}) {
       return 1;
     }),
     $queryRawUnsafe: jest.fn(async (sql, jti, userId, iat) => {
+      // P3-PUBLIC-INFRA-CHAIN-R1（受保护测试最小适配；**场景与断言不变**，逐项归因见该包 RESULT）：
+      // 吊销表结构移交链尾 migration 后，运行时改用 pg_catalog 只读形状断言（缺结构 → AUTH_INFRA_MISSING 503）。
+      // stub 按合规形状应答该探针；既有吊销语义分支不变。
+      // P3-PUBLIC-INFRA-FOLLOWUP-R1（最小适配，场景/断言不变）：探针增查 indisvalid/indisready/方法/谓词/表达式
+      // → 索引行补 `is_valid/is_ready/method/is_partial/expr_cols`（健康索引恒为真）。
+      if (/pg_index/.test(sql) && /indisprimary/.test(sql)) return [{ cols: ['jti'] }] // 主键探针（含 pg_attribute join，必须先于列探针判定）
+      if (/pg_index/.test(sql)) return REVOKED_TOKENS_INDEXES.map((i) => ({ name: i.name, is_unique: false, is_valid: true, is_ready: true, method: 'btree', is_partial: false, expr_cols: 0, cols: [...i.columns] }))
+      if (/pg_attribute/.test(sql)) {
+        return REVOKED_TOKENS_SHAPE.columns.map((c) => ({ name: c.name, type: c.type, not_null: c.notNull, default_expr: c.defaultExpr }));
+      }
       if (/FROM public\.revoked_tokens/i.test(sql)) {
         const hit = userAllRevocations.some(
           (r) => r.userId === userId && r.revokedAtSec >= iat
@@ -86,6 +101,92 @@ function makeStubPrisma({ user = null } = {}) {
     }),
   };
   return stub;
+}
+
+/**
+ * P3-CLOSE-T01：**可信事务替身**（只服务 AUD-016「整体回滚」证明用例）。
+ *
+ * 与 `makeStubPrisma` 的差异在于 `$transaction` 真实模拟事务语义，而不是"直接回调"：
+ *   · 业务写（tx.user.update）在事务内**确实执行并落地到存储**（可观测 status=disabled）；
+ *   · epoch 写失败（`failNextEpochWrite` 注入）→ 事务内已执行的写入按**撤销日志逆序回滚**，
+ *     存储复原为事务开始前状态，随后把原始错误上抛（与真实 DB 回滚语义一致）；
+ *   · 因此判定依据不是「user.update 未被调用」——回滚证明 = ①写入在事务内生效过
+ *     ②回滚后存储状态复原 ③无 epoch 行。epoch 写入行本身也进入撤销日志（成功即提交）。
+ */
+function makeTransactionalStubPrisma({ user = null } = {}) {
+  const state = { user: user ? { ...user } : null, revoked: new Map() };
+  const calls = { txUserUpdate: 0, epochWriteAttempts: 0, statusSeenInsideTx: null, rolledBack: false };
+  let epochFailure = null;
+
+  function runTransaction(cb) {
+    const undo = []; // 撤销日志（逆序执行 = 回滚）
+    const tx = {
+      user: {
+        update: jest.fn(async ({ data }) => {
+          const prev = state.user ? { ...state.user } : null;
+          state.user = { ...state.user, ...data };
+          calls.txUserUpdate += 1;
+          calls.statusSeenInsideTx = state.user.status;
+          undo.push(() => { state.user = prev });
+          return { ...state.user };
+        }),
+      },
+      $executeRawUnsafe: jest.fn(async (sql, ...params) => {
+        if (!/INSERT INTO public\.revoked_tokens/i.test(sql)) return 0;
+        calls.epochWriteAttempts += 1;
+        if (epochFailure) throw epochFailure; // epoch 写失败：本行不落地，交由回滚撤销业务写
+        const [jti, userId, schoolCode, reason] = params;
+        const prev = state.revoked.has(jti) ? state.revoked.get(jti) : null;
+        state.revoked.set(jti, {
+          jti, userId, schoolCode, reason,
+          type: /'school_epoch'/.test(sql) ? 'school_epoch' : 'user_all',
+        });
+        undo.push(() => { if (prev === null) state.revoked.delete(jti); else state.revoked.set(jti, prev) });
+        return 1;
+      }),
+    };
+    return (async () => {
+      try {
+        return await cb(tx);
+      } catch (e) {
+        for (let i = undo.length - 1; i >= 0; i -= 1) undo[i](); // 逆序回滚
+        calls.rolledBack = true;
+        throw e;
+      }
+    })();
+  }
+
+  const prisma = {
+    user: {
+      findUnique: jest.fn(async ({ where }) => {
+        if (!state.user) return null;
+        if (where.id !== undefined) return where.id === state.user.id ? { ...state.user } : null;
+        if (where.username !== undefined) return where.username === state.user.username ? { ...state.user } : null;
+        return null;
+      }),
+      update: jest.fn(async (args) => { state.user = { ...state.user, ...args.data }; return { ...state.user }; }),
+      delete: jest.fn(async () => ({ ...state.user })),
+      count: jest.fn(async () => 2),
+    },
+    testRecord: { count: jest.fn(async () => 0) },
+    auditLog: { create: jest.fn(async (args) => args), count: jest.fn(async () => 0) },
+    systemLog: { create: jest.fn(async (args) => args) },
+    $transaction: jest.fn((cb) => runTransaction(cb)),
+    $executeRawUnsafe: jest.fn(async () => 1),
+    // P3-PUBLIC-INFRA-CHAIN-R1（受保护测试最小适配，场景不变）：可信事务替身同样按合规形状应答
+    // 认证基础设施的 pg_catalog 只读形状探针（见 makeStubPrisma 注释；
+    // P3-PUBLIC-INFRA-FOLLOWUP-R1 起索引行还需 is_valid/is_ready/method/is_partial/expr_cols）。
+    $queryRawUnsafe: jest.fn(async (sql) => {
+      if (/pg_index/.test(sql) && /indisprimary/.test(sql)) return [{ cols: ['jti'] }]
+      if (/pg_index/.test(sql)) return REVOKED_TOKENS_INDEXES.map((i) => ({ name: i.name, is_unique: false, is_valid: true, is_ready: true, method: 'btree', is_partial: false, expr_cols: 0, cols: [...i.columns] }))
+      if (/pg_attribute/.test(sql)) {
+        return REVOKED_TOKENS_SHAPE.columns.map((c) => ({ name: c.name, type: c.type, not_null: c.notNull, default_expr: c.defaultExpr }))
+      }
+      return []
+    }),
+  };
+
+  return { prisma, state, calls, failNextEpochWrite: (e) => { epochFailure = e; } };
 }
 
 function mockRes() {
@@ -161,16 +262,32 @@ describe('IF-1 · 高危操作 → revokeAllUserTokens 写入 user_all 吊销', 
     expect(prisma._userAll).toHaveLength(0);
   });
 
-  test('吊销写入失败 → 业务操作不回滚，落 SECURITY:REVOCATION_WRITE_FAILED', async () => {
-    const prisma = makeStubPrisma({ user: makeUser() });
-    // 令 revoked_tokens 写入失败（业务 update 已成功）
-    prisma.$executeRawUnsafe.mockRejectedValue(new Error('db down'));
-    const um = new UserManager(prisma, SECRET);
-    const result = await um.disableUser('u1', managerActor);
-    expect(result.success).toBe(true);
-    // 安全事件落 SystemLog（SECURITY:REVOCATION_WRITE_FAILED）
-    const calls = prisma.systemLog.create.mock.calls.map(([a]) => a?.data?.message || '');
-    expect(calls.some((m) => m.includes('SECURITY:REVOCATION_WRITE_FAILED'))).toBe(true);
+  // 【P3-CLOSE-T01 修订（场景保留，断言随 AUD-016 新语义更新）】
+  // 原断言：result.success===true（业务不回滚）+ SECURITY:REVOCATION_WRITE_FAILED（吊销吞错）
+  //   —— 逐字编码 AUD-016 已废除的旧语义（见 evidence/P3-W1-T01/PROTECTED_CONFLICT.md）。
+  // 新语义（P3-W1-T01 / RC-02）：业务写与用户级 epoch 写同事务，epoch 写失败 ⇒ 整体回滚 + 错误上抛。
+  // 回滚证明用**可信事务替身**（makeTransactionalStubPrisma：事务内写入生效 → 失败逆序回滚），
+  // 不以「user.update 未被调用」代替回滚证明。
+  test('吊销写入失败 → 业务与 epoch 同事务整体回滚（无半提交、无 epoch 行、错误上抛）', async () => {
+    const store = makeTransactionalStubPrisma({ user: makeUser() });
+    store.failNextEpochWrite(new Error('db down')); // 令 epoch（user_all）写入失败
+    const um = new UserManager(store.prisma, SECRET);
+
+    await expect(um.disableUser('u1', managerActor)).rejects.toThrow(/db down/);
+
+    // ① 失败点就是 epoch 写（业务写与 epoch 写在同一事务内：epoch 写被尝试过）
+    expect(store.calls.epochWriteAttempts).toBe(1);
+    // ② 业务写确实在事务内执行并生效（"没调用 update" 不构成回滚证明）
+    expect(store.calls.txUserUpdate).toBeGreaterThanOrEqual(1);
+    expect(store.calls.statusSeenInsideTx).toBe('disabled');
+    // ③ 无半提交：事务失败后整体回滚 → 存储中的用户状态复原为 active
+    expect(store.calls.rolledBack).toBe(true);
+    expect(store.state.user.status).toBe('active');
+    // ④ 无 epoch 行（user_epoch:u1 / user_all 均未落地）
+    expect([...store.state.revoked.keys()]).toEqual([]);
+    // ⑤ 旧语义的「吞错 + 安全事件」不再出现
+    const calls = store.prisma.systemLog.create.mock.calls.map(([a]) => a?.data?.message || '');
+    expect(calls.some((m) => m.includes('SECURITY:REVOCATION_WRITE_FAILED'))).toBe(false);
   });
 });
 

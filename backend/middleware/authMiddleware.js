@@ -11,10 +11,31 @@
  *   - ensureRevocationInfra / isTokenRevoked / revokeToken / revokeAllUserTokens / cleanupExpiredRevocations
  *   窗口 2（角色变更/禁用/删除用户的写入调用点）应 import 这些函数写入吊销记录，
  *   本文件的 authenticateUser 负责校验（jti 精确吊销 + user_all 全量吊销）。
+ *
+ * 【P3-W1-T01（RC-02）统一失效模型】本文件是失效判定的**唯一执行点**：
+ *   - 判定 SQL 由 `lib/sessionEpoch.buildSessionValiditySql()` 提供，一条语句覆盖
+ *     jti 精确吊销 / user_all / user_epoch / school_epoch / School.status；
+ *   - 用户级 + 学校级 epoch 为唯一事实源（`lib/sessionEpoch`），认证只在此处比较一次；
+ *   - 两阶段兼容（`SESSION_LEGACY_TOKEN_MODE=compat|strict`）：compat（默认）接受无 jti 旧 token
+ *     （仍走 状态 + epoch 校验，安全等价），strict 一律拒绝；兼容期度量见 legacyTokenMetrics()；
+ *   - fail-soft 边界（AUD-014）：仅 GET/HEAD/OPTIONS 且在 AUTH_FAILSOFT_MAX_MS 窗口内降级，
+ *     写请求一律 fail-closed（503）。
  */
 
 import { randomUUID } from 'crypto'
 import { createTenantClient } from '../lib/tenantClient.js'
+import { revokedTokensShapeIssues, AUTH_INFRA_MISSING } from '../lib/publicInfraShape.js'
+import {
+  buildSessionValiditySql,
+  checkSessionValidity,
+  legacyTokenMode,
+  recordLegacyTokenDecision,
+  legacyTokenMetrics,
+  failSoftMayApply,
+  failSoftWindowMs,
+  sessionNow,
+  LEGACY_TOKEN_STRICT,
+} from '../lib/sessionEpoch.js'
 
 // ============================================================================
 // 令牌吊销存储（H2）—— public.revoked_tokens
@@ -31,33 +52,41 @@ import { createTenantClient } from '../lib/tenantClient.js'
 // 「状态变更/吊销生效延迟 ≤ 缓存 TTL（30s）」。禁止注入进程内 Map 实现。
 // ============================================================================
 
-const REVOKED_TOKENS_DDL = [
-  `CREATE TABLE IF NOT EXISTS public.revoked_tokens (
-     jti         TEXT PRIMARY KEY,
-     user_id     TEXT NOT NULL,
-     school_code TEXT,
-     token_type  TEXT NOT NULL DEFAULT 'access',
-     reason      TEXT,
-     revoked_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-     expires_at  TIMESTAMPTZ NOT NULL
-   )`,
-  `CREATE INDEX IF NOT EXISTS revoked_tokens_expires_at_idx ON public.revoked_tokens (expires_at)`,
-  `CREATE INDEX IF NOT EXISTS revoked_tokens_user_idx ON public.revoked_tokens (user_id, token_type, revoked_at)`,
-]
-
+// P3-PUBLIC-INFRA-CHAIN-R1（R9 §1）：**运行时 DDL 已撤出**（同一可审发布）。
+//   吊销表与 3 索引的结构事实源 = 链尾 migration
+//   `backend/prisma/migrations/20260926120100_public_infra_revoked_tokens/migration.sql`；
+//   本文件只做**只读形状断言**（pg_catalog）：缺表/缺列/缺索引/错形 → `AUTH_INFRA_MISSING`
+//   → authenticateUser 直接 503（**不进 fail-soft**，不得沿用旧权限或用"未吊销"兜底）。
+//   历史 `REVOKED_TOKENS_DDL` 已删除；形状契约见 `backend/lib/publicInfraShape.js`（与 migration 同形）。
 let _ensureInfraPromise = null
 
 /**
- * 幂等创建吊销表与索引（memoized，一个进程只真正执行一次）。
+ * 只读断言吊销基础设施（表 + 3 索引；不写库）。
+ * @returns {Promise<{ok:true, shape:'ok'}>}
+ * @throws {Error} code = `AUTH_INFRA_MISSING`（issues 附具体缺口）
+ */
+export async function assertRevocationInfra(prisma) {
+  const issues = await revokedTokensShapeIssues(prisma)
+  if (issues.length > 0) {
+    const err = new Error(
+      `AUTH_INFRA_MISSING: public.revoked_tokens 结构不符（${issues.join('；')}）→ 认证 fail-closed 503。` +
+      `结构由链尾 migration 管理（20260926120100_public_infra_revoked_tokens）：请先 prisma migrate deploy；` +
+      `运行时不再自动建表/建索引（P3-PUBLIC-INFRA-CHAIN-R1）。`)
+    err.code = AUTH_INFRA_MISSING
+    err.issues = issues
+    err.runtimeDdlWithdrawn = true
+    throw err
+  }
+  return { ok: true, shape: 'ok' }
+}
+
+/**
+ * 兼容旧名（启动/多个调用点）：语义已改为**只读形状断言**（不再 CREATE TABLE/INDEX）。
+ * memoized：形状通过后本进程不再重复查询；失败则清空 memo（允许 DB 恢复后重试）。
  */
 export function ensureRevocationInfra(prisma) {
   if (!_ensureInfraPromise) {
-    _ensureInfraPromise = (async () => {
-      for (const sql of REVOKED_TOKENS_DDL) {
-        await prisma.$executeRawUnsafe(sql)
-      }
-    })().catch((e) => {
-      // 失败后允许下次重试（例如 DB 暂不可用时启动）
+    _ensureInfraPromise = assertRevocationInfra(prisma).catch((e) => {
       _ensureInfraPromise = null
       throw e
     })
@@ -66,31 +95,28 @@ export function ensureRevocationInfra(prisma) {
 }
 
 /**
- * 校验令牌是否已被吊销：
- *   1) jti 精确命中吊销表（单令牌吊销 / refresh 轮转标记）；
- *   2) user_all 全量吊销：该用户存在吊销时间 >= 令牌签发时间(iat)+1s 的 user_all 记录
- *      （用于 refresh 重放触发的全会话吊销、以及窗口 2 的禁用/删除/改角色场景）。
+ * 校验令牌是否已被吊销（**统一失效模型单点校验**，P3-W1-T01/RC-02）：
+ *   判定 SQL 由 `lib/sessionEpoch.buildSessionValiditySql()` 提供，一条语句覆盖：
+ *     ① jti 精确命中（单令牌吊销 / refresh 轮转标记）
+ *     ② user_all 全量吊销（历史语义 + role-audit DB 触发器；revoked_at >= iat+1）
+ *     ③ user_epoch 用户级 epoch（改密/重置密码/降权/禁用/删除）
+ *     ④ school_epoch 学校级 epoch（停校 O(1)）
+ *     ⑤ School.status <> 'active'（学校当前状态的权威判定，覆盖历史停校数据）
  *
- * 精度边界（B-JWT-IAT）：JWT iat 为秒级（Math.floor），而 revoked_at 为 TIMESTAMPTZ
- * （微秒级）。若直接比较 revoked_at >= to_timestamp(iat)，则「吊销后同一秒内重新签发」
- * 的新 token（如改密后立即自动重登）会因 revoked_at(09:35:12.070) >= iat(09:35:12)
- * 被误判为已吊销 → 前端表现为「改密成功后闪退回登录页」。故比较基准取 iat + 1：
- * 吊销记录必须晚于签发时间的下一个整秒才命中，同一秒内新签发的 token 不受影响；
- * 而对改密前签发的旧 token（iat 至少早 1 秒）仍正确吊销，安全语义不变。
- * @returns {Promise<boolean>} true = 已吊销
+ * 精度边界（B-JWT-IAT / AUD-015）：JWT iat 为秒级（Math.floor），revoked_at 为微秒级。
+ * 若直接比较 revoked_at >= to_timestamp(iat)，「吊销后同一秒内重新签发」的新 token
+ * （如改密后立即自动重登）会被误判为已吊销 → 前端「改密成功闪退回登录页」。
+ * 故统一比较基准取 iat + 1：吊销/epoch 记录必须晚于签发时间的下一个整秒才命中，
+ * 同一秒内新签发的 token 不受影响；对旧 token（iat 至少早 1 秒）仍正确失效。
+ * 该边界由**固定时钟**用例钉死（backend/tests/session/）。
+ * @param {{jti?: string|null, userId?: string|null, iat: number, schoolCode?: string|null}} args
+ * @returns {Promise<boolean>} true = 已吊销/已失效
  */
-export async function isTokenRevoked(prisma, { jti, userId, iat }) {
-  const query = () => prisma.$queryRawUnsafe(
-    `SELECT 1 AS hit FROM public.revoked_tokens
-      WHERE jti = $1
-         OR (token_type = 'user_all' AND user_id = $2 AND revoked_at >= to_timestamp($3 + 1))
-      LIMIT 1`,
-    jti || '', userId || '', Math.floor(Number(iat) || 0)
-  )
+export async function isTokenRevoked(prisma, { jti, userId, iat, idt = null, schoolCode = null }) {
   try {
     await ensureRevocationInfra(prisma)
-    const rows = await query()
-    return rows.length > 0
+    const v = await checkSessionValidity(prisma, { jti: jti || null, userId: userId || null, iat, idt, schoolCode })
+    return v.invalid
   } catch (e) {
     // R2-03: 吊销表查询异常时不得静默降级为「未吊销」（fail-open），否则已吊销 token 会在
     // 吊销表单独故障时被放行。改为向上抛出，交由调用方统一决策：
@@ -102,31 +128,35 @@ export async function isTokenRevoked(prisma, { jti, userId, iat }) {
 }
 
 /**
- * 查询令牌的吊销原因（与 isTokenRevoked 同一判定口径）。
+ * 查询令牌不可用的原因（与 isTokenRevoked **同一判定 SQL**，单点口径）。
  * 供 authenticateUser / refresh-token 在返回 401 时附带 reason，让前端能区分
- * 「被吊销的具体原因」（如 role_change 权限被改 → 提示"权限已被超级管理员更改"）
+ * 「被吊销的具体原因」（role_change 权限被改 → 提示"权限已被超级管理员更改"）
  * 与普通过期，避免用户对强制登出感到困惑。
- * @returns {Promise<string|null>} reason（如 role_change_db_trigger / user_disable / refresh_replay），未吊销返回 null
+ * @returns {Promise<string|null>} reason（如 role_change_db_trigger / user_disable / password_change / refresh_replay），未失效返回 null
  */
-export async function getTokenRevocationReason(prisma, { jti, userId, iat }) {
-  const query = () => prisma.$queryRawUnsafe(
-    `SELECT reason FROM public.revoked_tokens
-      WHERE jti = $1
-         OR (token_type = 'user_all' AND user_id = $2 AND revoked_at >= to_timestamp($3 + 1))
-      ORDER BY revoked_at DESC
-      LIMIT 1`,
-    jti || '', userId || '', Math.floor(Number(iat) || 0)
-  )
+export async function getTokenRevocationReason(prisma, { jti, userId, iat, idt = null, schoolCode = null }) {
   try {
     await ensureRevocationInfra(prisma)
-    const rows = await query()
-    return rows.length ? (rows[0]?.reason || null) : null
+    const v = await checkSessionValidity(prisma, { jti: jti || null, userId: userId || null, iat, idt, schoolCode })
+    return v.invalid ? v.reason : null
   } catch (e) {
     // 与 isTokenRevoked 同口径：查询失败向上抛出，由调用方降级决策（不静默放行）
     console.error('❌ [revocation] 吊销原因查询失败（向上抛出）:', e.message)
     throw e
   }
 }
+
+/**
+ * 单点会话校验入口（路由/中间件统一调用；返回 source 便于解释与审计）。
+ * @returns {Promise<{invalid:boolean, reason:string|null, source:string|null}>}
+ */
+export async function verifySessionValidity(prisma, { jti = null, userId = null, iat, idt = null, schoolCode = null }) {
+  await ensureRevocationInfra(prisma)
+  return checkSessionValidity(prisma, { jti, userId, iat, idt, schoolCode })
+}
+
+/** 兼容期度量（阶段二切换决策用）：转发 sessionEpoch 的旧 token 处置计数。 */
+export { legacyTokenMetrics }
 
 /**
  * 写入单令牌吊销记录（幂等）。
@@ -217,23 +247,40 @@ export function setAuthStateCache(adapter) {
 // 折中：维护「进程级连续回查失败计数」，仅当连续失败次数达到阈值才 fail-closed（503），
 // 阈值内降级为 fail-soft（沿用 token 角色 + 告警），避免瞬时抖动误伤正常请求。
 // 注意：这是进程级计数，多实例各自独立；阈值取 3（约 3×单请求超时 ~30s，与既有 30s TTL 同量级）。
+//
+// 【P3-W1-T01 / AUD-014：fail-soft 边界收窄】降级不再是"任何请求都放行"：
+//   ① **仅可证明只读路径**（GET/HEAD/OPTIONS，见 sessionEpoch.failSoftMayApply）允许降级；
+//      POST/PUT/PATCH/DELETE 等写请求在回查失败时**一律 fail-closed（503）**——
+//      绝不在无法核验失效状态时沿用旧权限执行写入；
+//   ② **明确时限**：从首次降级起最多 AUTH_FAILSOFT_MAX_MS（默认 30s，见 sessionEpoch.failSoftWindowMs），
+//      超出窗口后即使只读也 fail-closed；
+//   ③ 只读降级仍只沿用 token 内角色（不提升权限），且计数/窗口可经 getRecheckFailState() 观测。
 const DB_RECHECK_FAIL_THRESHOLD = Number(process.env.AUTH_DB_RECHECK_FAIL_THRESHOLD || 3)
 let _consecutiveRecheckFails = 0
 let _recheckFailMetrics = { total: 0, lastError: null, lastAt: null }
+let _failSoftSince = null   // 首次进入降级的时刻（明确时限窗口起点）
 
-// 供测试 / 监控读取当前降级状态（无需重启即可观测是否处于 fail-closed 窗口）
+/** 供测试 / 监控读取当前降级状态（无需重启即可观测是否处于 fail-closed 窗口）。 */
 export function getRecheckFailState() {
+  const windowMs = failSoftWindowMs()
+  const elapsed = _failSoftSince === null ? 0 : Math.max(0, sessionNow() - _failSoftSince)
   return {
     consecutiveFails: _consecutiveRecheckFails,
     threshold: DB_RECHECK_FAIL_THRESHOLD,
     isFailClosed: _consecutiveRecheckFails >= DB_RECHECK_FAIL_THRESHOLD,
-    metrics: { ..._recheckFailMetrics }
+    metrics: { ..._recheckFailMetrics },
+    // P3-W1-T01（AUD-014）新增可观测字段（向后兼容的追加）
+    failSoftSince: _failSoftSince,
+    failSoftWindowMs: windowMs,
+    failSoftExpired: _failSoftSince !== null && elapsed > windowMs,
+    readOnlyOnly: true,
   }
 }
 
-// 仅供测试使用：重置连续失败计数，避免进程级状态跨用例污染
+// 仅供测试使用：重置连续失败计数与降级窗口，避免进程级状态跨用例污染。
 export function _resetRecheckFailStateForTest() {
   _consecutiveRecheckFails = 0
+  _failSoftSince = null
 }
 
 // H4-ext / #9：合法角色白名单（与 role-audit-trigger.sql 的 role CHECK 约束口径一致）。
@@ -259,6 +306,24 @@ function _onRecheckSuccess() {
     console.warn(`✅ [auth] DB 回查恢复（连续失败计数清零，此前 ${_consecutiveRecheckFails} 次）`)
   }
   _consecutiveRecheckFails = 0
+  _failSoftSince = null
+}
+
+/**
+ * P3-W1-T01（AUD-014）：回查失败时的统一降级决策（唯一点）。
+ * @returns {{allow:boolean, code:string, reason:string}}
+ */
+function _decideAuthDegradation(err, req) {
+  const failClosedByThreshold = _onRecheckFailure(err)
+  if (_failSoftSince === null) _failSoftSince = sessionNow()
+  const elapsed = Math.max(0, sessionNow() - _failSoftSince)
+  const withinWindow = elapsed <= failSoftWindowMs()
+  if (!failSoftMayApply(req)) {
+    return { allow: false, code: 'AUTH_WRITE_FAIL_CLOSED', reason: 'write-request-requires-verifiable-state' }
+  }
+  if (failClosedByThreshold) return { allow: false, code: 'AUTH_DEGRADED', reason: 'consecutive-fail-threshold' }
+  if (!withinWindow) return { allow: false, code: 'AUTH_DEGRADED', reason: 'fail-soft-window-expired' }
+  return { allow: true, code: 'AUTH_FAIL_SOFT', reason: 'read-only-within-window' }
 }
 
 // IF-2/M2: must_change_password=true（临时密码账号）时允许访问的接口白名单。
@@ -322,8 +387,9 @@ export function createAuthMiddleware(userManager, prisma) {
     try {
       if (u.role === 'guest') {
         // —— 访客令牌 ——
-        // quick-access 令牌无 DB 实体（userId='quick-access'，2h 短时效），跳过状态回查；
-        // 普通访客回查 Guest 表状态与有效期，并校验 user_all 全量吊销。
+        // quick-access 令牌无 DB 实体（userId='quick-access'，2h 短时效），跳过**用户状态**回查，
+        // 但仍走统一失效校验（jti/user_all/**学校级 epoch + 停校状态**）——停校必须同时失效访客会话。
+        // 普通访客另回查 Guest 表状态与有效期。
         if (!u.is_quick_access) {
           const db = createTenantClient(rootPrisma, u.schoolCode)
           const [guest, revoked] = await Promise.all([
@@ -331,13 +397,13 @@ export function createAuthMiddleware(userManager, prisma) {
               where: { id: u.userId },
               select: { status: true, valid_until: true }
             }),
-            isTokenRevoked(rootPrisma, { jti: u.jti, userId: u.userId, iat: u.iat })
+            isTokenRevoked(rootPrisma, { jti: u.jti, userId: u.userId, iat: u.iat, idt: u.idt || null, schoolCode: u.schoolCode || null })
           ])
           if (revoked) {
-            // REVOKED-REASON: 附带吊销原因，前端可区分「权限被改/禁用/删除」等强制登出场景并给用户明确提示
+            // REVOKED-REASON: 附带吊销原因，前端可区分「权限被改/禁用/删除/停校」等强制登出场景并给用户明确提示
             let reason = null
             try {
-              reason = await getTokenRevocationReason(rootPrisma, { jti: u.jti, userId: u.userId, iat: u.iat })
+              reason = await getTokenRevocationReason(rootPrisma, { jti: u.jti, userId: u.userId, iat: u.iat, idt: u.idt || null, schoolCode: u.schoolCode || null })
             } catch { /* 查询失败仅丢失提示信息，不影响吊销判定本身 */ }
             return res.status(401).json({ error: '❌ 会话已失效，请重新登录', code: 'REVOKED', reason })
           }
@@ -345,16 +411,38 @@ export function createAuthMiddleware(userManager, prisma) {
               (guest.valid_until && guest.valid_until < new Date())) {
             return res.status(401).json({ error: '❌ 访客账号已失效，请重新登录' })
           }
+        } else {
+          const revoked = await isTokenRevoked(rootPrisma, {
+            jti: u.jti, userId: u.userId, iat: u.iat, idt: u.idt || null, schoolCode: u.schoolCode || null
+          })
+          if (revoked) {
+            return res.status(401).json({ error: '❌ 会话已失效，请重新登录', code: 'REVOKED' })
+          }
         }
       } else {
         // —— 员工/管理员令牌 ——
-        // H2: 新签发的 access token 必带 jti；无 jti 的旧令牌无法参与吊销校验，直接拒绝
-        if (!u.jti) {
-          return res.status(401).json({ error: '❌ 登录已过期，请重新登录' })
+        // P3-W1-T01（RC-02 / AUD-012/015/016 共同前提）：**两阶段兼容窗口**
+        //   阶段一 compat（默认）：无 jti 的旧 token 仍被接受——jti 精确吊销不适用于它，
+        //     但统一失效校验（用户状态 + user_epoch + school_epoch + 停校状态）对时间维度
+        //     安全等价（epoch 比较基于 iat，无需 jti）；兼容期度量见 legacyTokenMetrics()。
+        //   阶段二 strict（SESSION_LEGACY_TOKEN_MODE=strict 显式运维开关）：无 jti 一律拒绝。
+        //   绝不默认全量强制重登（避免全员被登出）。
+        const legacyNoJti = !u.jti
+        if (legacyNoJti) {
+          if (legacyTokenMode() === LEGACY_TOKEN_STRICT) {
+            recordLegacyTokenDecision({ accepted: false })
+            return res.status(401).json({
+              error: '❌ 登录已过期，请重新登录',
+              code: 'LEGACY_TOKEN_REJECTED',
+              phase: 'strict'
+            })
+          }
+          recordLegacyTokenDecision({ accepted: true })
+          console.warn(`⚠️ [auth] 兼容阶段接受无 jti 旧 token（userId=${u.userId}）；阶段二切换：SESSION_LEGACY_TOKEN_MODE=strict`)
         }
 
         // 共享缓存命中（仅缓存"校验通过"的结果，TTL 内跳过 DB 回查）
-        const cacheKey = `auth:${u.userId}:${u.jti}`
+        const cacheKey = `auth:${u.userId}:${u.jti || 'legacy'}`
         let cached = null
         if (_authStateCache) {
           try { cached = await _authStateCache.get(cacheKey) } catch { /* 缓存故障降级直查 DB */ }
@@ -369,14 +457,15 @@ export function createAuthMiddleware(userManager, prisma) {
               // H1-ext: 同时回查当前角色，使后台调整角色后旧 token 能尽快生效（最大延迟=缓存 TTL）
               select: { status: true, school_code: true, must_change_password: true, role: true }
             }),
-            isTokenRevoked(rootPrisma, { jti: u.jti, userId: u.userId, iat: u.iat })
+            // 统一失效校验（单点）：jti / user_all / user_epoch / school_epoch / School.status
+            isTokenRevoked(rootPrisma, { jti: u.jti, userId: u.userId, iat: u.iat, idt: u.idt || null, schoolCode: u.schoolCode || null })
           ])
 
           if (revoked) {
-            // REVOKED-REASON: 附带吊销原因，前端可区分「权限被改/禁用/删除」等强制登出场景并给用户明确提示
+            // REVOKED-REASON: 附带吊销原因（含 epoch 来源 reason），前端可区分「权限被改/禁用/删除/停校」等强制登出场景
             let reason = null
             try {
-              reason = await getTokenRevocationReason(rootPrisma, { jti: u.jti, userId: u.userId, iat: u.iat })
+              reason = await getTokenRevocationReason(rootPrisma, { jti: u.jti, userId: u.userId, iat: u.iat, idt: u.idt || null, schoolCode: u.schoolCode || null })
             } catch { /* 查询失败仅丢失提示信息，不影响吊销判定本身 */ }
             return res.status(401).json({ error: '❌ 会话已被吊销，请重新登录', code: 'REVOKED', reason })
           }
@@ -421,17 +510,31 @@ export function createAuthMiddleware(userManager, prisma) {
         }
       }
     } catch (error) {
-      // H4-ext / #8: DB 回查异常降级策略（fail-soft → fail-closed 折中）。
-      // 历史实现为「一律 503」（fail-closed）：因 _authStateCache 默认 null，回查每次直连 DB，
-      // PG 瞬时抖动 / 连接池耗尽会触发全站认证 503 雪崩（可用性代价过高）。
-      // 现改为：连续失败达阈值才 fail-closed（503）；阈值内 fail-soft（沿用 token 角色 + 告警），
-      // 避免瞬时抖动误伤正常请求，同时连续故障仍快速 fail-closed。
-      const failClosed = _onRecheckFailure(error)
-      if (failClosed) {
-        return res.status(503).json({ error: '认证服务暂不可用，请稍后重试' })
+      // P3-PUBLIC-INFRA-CHAIN-R1（R9 §1 / R6 C2）：认证基础设施**缺失/错形**（AUTH_INFRA_MISSING）
+      // → **不进 fail-soft**：降级的前提是"能核验失效状态、仅 DB 瞬时抖动"；基础设施缺失意味着
+      // 吊销面完全不可证明 —— 即使 GET/HEAD 也必须 503（不得沿用旧权限放行）。
+      if (error && error.code === AUTH_INFRA_MISSING) {
+        console.error('❌ [auth] 认证基础设施缺失/错形 → fail-closed 503（不进 fail-soft）:', error.message)
+        return res.status(503).json({
+          error: '认证服务暂不可用，请稍后重试',
+          code: AUTH_INFRA_MISSING,
+          reason: 'revocation-infra-missing',
+        })
       }
-      // fail-soft：回查失败但连续失败未达阈值，沿用 token 内已认证身份继续（保守降级）
-      console.warn('⚠️ [auth] 回查失败未达阈值，按 fail-soft 放行（沿用 token 角色）')
+      // H4-ext / #8 + P3-W1-T01（AUD-014）：DB 回查异常的统一降级决策（唯一点，见 _decideAuthDegradation）。
+      // 历史实现为「一律 503」（fail-closed），后折中为「连续失败达阈值才 503」；
+      // 现进一步收窄：**仅可证明只读（GET/HEAD/OPTIONS）+ 明确时限窗口内**才允许 fail-soft，
+      // 写请求在无法核验失效状态时一律 fail-closed（绝不沿用旧权限执行写入）。
+      const decision = _decideAuthDegradation(error, req)
+      if (!decision.allow) {
+        return res.status(503).json({
+          error: '认证服务暂不可用，请稍后重试',
+          code: decision.code,
+          reason: decision.reason,
+        })
+      }
+      // fail-soft：只读请求 + 窗口内，沿用 token 内已认证身份继续（保守降级，不提升权限）
+      console.warn(`⚠️ [auth] 回查失败 → fail-soft 放行（${decision.reason}；沿用 token 角色，仅只读）`)
     }
 
     req.user = u

@@ -12,6 +12,9 @@ import {
 import { sanitizeFieldOptionsForClient, validateCustomizationPayload, HEX_COLOR_RE } from '../lib/customizationValidate.js'
 import { isSafeLogoUrl } from '../lib/securityGuards.js'
 import { writeAdminOpsLog } from '../lib/auditLog.js'
+// P3-W1-T01（RC-02 / AUD-010/016）：学校级 epoch（停校 O(1) 失效全校会话）+ 用户级 epoch
+// （停用/降权/删除该校用户），均与业务写**同事务**提交。
+import { bumpSchoolEpoch, bumpUserEpoch } from '../lib/sessionEpoch.js'
 
 // 定制配置的全部 JSON 列（与 schema.prisma SchoolCustomization 对齐）
 const CUSTOMIZATION_COLUMNS = [
@@ -67,8 +70,12 @@ const RECYCLE_BIN_DDL = [
      deleted_by    TEXT,
      deleted_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
      expires_at    TIMESTAMPTZ NOT NULL,
-     status        TEXT NOT NULL DEFAULT 'active'
+     status        TEXT NOT NULL DEFAULT 'active',
+     -- P3-LIFECYCLE-AB-R3（M1）：存档时的学校世代；恢复时 +1（旧 grant 的 school_generation 随之失效）
+     generation    INTEGER NOT NULL DEFAULT 1
    )`,
+  // 旧表（M1 迁移之前建立）补列：与迁移中的守卫语句双保险（哪边先跑都能补上）
+  `ALTER TABLE public."recycle_bin" ADD COLUMN IF NOT EXISTS "generation" INTEGER NOT NULL DEFAULT 1`,
   `CREATE INDEX IF NOT EXISTS recycle_bin_original_code_idx ON public."recycle_bin" (original_code)`,
   `CREATE INDEX IF NOT EXISTS recycle_bin_status_idx ON public."recycle_bin" (status)`,
 ]
@@ -410,10 +417,19 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
             }
             let updated
             try {
-                updated = await prisma.school.update({
-                    where: { code },
-                    data: { status },
-                    select: { code: true, name: true, status: true }
+                // P3-W1-T01（AUD-010/016）：停校与**学校级 epoch** 同事务——
+                // 停校 O(1) 失效该校全体会话（学生/教师/访客/快访问），禁止逐 token 吊销循环；
+                // 任一步失败整体回滚（不会出现"学校停了但会话仍有效"）。
+                updated = await prisma.$transaction(async (tx) => {
+                    const row = await tx.school.update({
+                        where: { code },
+                        data: { status },
+                        select: { code: true, name: true, status: true }
+                    })
+                    if (status !== 'active') {
+                        await bumpSchoolEpoch(tx, { schoolCode: code, reason: 'school_suspended' })
+                    }
+                    return row
                 })
             } catch (e) {
                 if (e?.code === 'P2025') return res.status(404).json({ error: '学校不存在' })
@@ -432,9 +448,16 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
             if (!isValidSchoolCode(code)) return res.status(400).json({ error: '非法学校代码' })
             // updateMany 保持原 SQL 的原子条件（status <> 'disabled'），防止并发重复禁用。
             // 注意：Prisma 的 updateMany 不会自动刷新 @updatedAt，需显式传 updated_at 以等价原 SQL 的 now()。
-            const result = await prisma.school.updateMany({
-                where: { code, status: { not: 'disabled' } },
-                data: { status: 'disabled', updated_at: new Date() }
+            // P3-W1-T01（AUD-010/016）：软删除（=停用）与学校级 epoch 同事务
+            const result = await prisma.$transaction(async (tx) => {
+                const r = await tx.school.updateMany({
+                    where: { code, status: { not: 'disabled' } },
+                    data: { status: 'disabled', updated_at: new Date() }
+                })
+                if (r.count > 0) {
+                    await bumpSchoolEpoch(tx, { schoolCode: code, reason: 'school_soft_delete' })
+                }
+                return r
             })
             if (result.count === 0) return res.status(404).json({ error: '学校不存在或已停用' })
             const updated = await prisma.school.findUnique({
@@ -460,7 +483,8 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
 
             const school = await prisma.school.findUnique({
                 where: { code },
-                select: { code: true, name: true, short_name: true, theme_color: true, logo_url: true, status: true }
+                // P3-LIFECYCLE-AB-R3（M1）：记录 generation（回收站存档；恢复时 +1 世代，旧 grant 不继承）
+                select: { code: true, name: true, short_name: true, theme_color: true, logo_url: true, status: true, generation: true }
             })
             if (!school) return res.status(404).json({ error: '学校不存在' })
             if (school.status !== 'disabled') {
@@ -486,18 +510,29 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
             const expiresAt = new Date(now.getTime() + RECYCLE_KEEP_DAYS * 24 * 3600 * 1000)
             const binId = crypto.randomUUID()
 
-            // 事务：RENAME schema + 删 School 行 + 写回收站记录
+            // 事务：RENAME schema + 删 School 行 + 写回收站记录 + **学校级 epoch**（AUD-010/016）
+            //        + **同事务撤销 OpenAPI 授权**（P3-LIFECYCLE-AB-R3 / M1：同 code 重建不继承旧 grant）
             await prisma.$transaction(async (tx) => {
                 await tx.$executeRawUnsafe(`ALTER SCHEMA "school_${code}" RENAME TO "${recycleSchema}"`)
                 await tx.school.delete({ where: { code } })
+                await bumpSchoolEpoch(tx, { schoolCode: code, reason: 'school_hard_delete' })
+                // M1：硬删即撤授权（disabled + revoked 痕迹 + scope_version+1 使旧客户端游标失效）
+                await tx.$executeRawUnsafe(
+                    `UPDATE public."OpenApiGrant"
+                        SET "status" = 'disabled', "revoked_at" = now(),
+                            "revoked_reason" = 'school_hard_delete', "scope_version" = "scope_version" + 1
+                      WHERE "school_code" = $1 AND "status" <> 'disabled'`,
+                    code
+                )
                 await tx.$executeRawUnsafe(
                     `INSERT INTO public."recycle_bin"
                      (id, original_code, original_schema, recycle_schema, name, short_name, theme_color, logo_url,
-                      customization, deleted_by, deleted_at, expires_at, status)
-                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'active')`,
+                      customization, deleted_by, deleted_at, expires_at, status, generation)
+                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'active',$13)`,
                     binId, code, `school_${code}`, recycleSchema, school.name, school.short_name,
                     school.theme_color, school.logo_url, customizationSnapshot,
-                    req.user?.username || req.user?.userId || 'unknown', now, expiresAt
+                    req.user?.username || req.user?.userId || 'unknown', now, expiresAt,
+                    Number(school.generation) || 1
                 )
             })
             res.json({ success: true, message: `学校 ${code} 已彻底删除，移入回收站（${RECYCLE_KEEP_DAYS} 天内可恢复）`, data: { id: binId, recycleSchema, expiresAt } })
@@ -571,6 +606,8 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
             await prisma.$transaction(async (tx) => {
                 await tx.$executeRawUnsafe(`ALTER SCHEMA "${bin.recycle_schema}" RENAME TO "${bin.original_schema}"`)
                 // 重建 School 行（id/created_at/updated_at 由 Prisma 默认值自动生成）
+                // P3-LIFECYCLE-AB-R3（M1）：恢复 ⇒ 新实体（新 id）+ generation+1 ——
+                // 旧 OpenAPI grant（旧 id/旧 generation）一律 fail-closed，**不自动重授**。
                 await tx.school.create({
                     data: {
                         code: bin.original_code,
@@ -578,9 +615,23 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
                         short_name: bin.short_name,
                         theme_color: bin.theme_color,
                         logo_url: bin.logo_url,
-                        status: 'active'
+                        status: 'active',
+                        generation: (Number(bin.generation) || 1) + 1
                     }
                 })
+                // 留痕：恢复不自动重授（人工/平台需显式重新授权后才恢复 OpenAPI 访问）
+                await tx.$executeRawUnsafe(
+                    `INSERT INTO public."SystemLog" ("id", "level", "message", "context", "created_at")
+                     VALUES ($1, 'warn', $2, $3::jsonb, now())`,
+                    crypto.randomUUID(),
+                    `[admin-audit] openapi_grants_restore_hold target=${bin.original_code}`,
+                    JSON.stringify({
+                        action_type: 'openapi_grants_restore_hold',
+                        target_school_code: bin.original_code,
+                        note: '学校恢复不自动重授 OpenAPI 授权；旧 grant 因 school_id/generation 不匹配而 fail-closed，需显式重新授权',
+                        actor: req.user?.username || req.user?.userId || null
+                    })
+                )
                 // 重建 SchoolCustomization（如有快照）
                 // 迁移 Model API：Json 字段直接传对象/数组，Prisma 自动序列化，
                 // 消除 ::jsonb cast 与 double-encode（FIX-08/R01/R15 的根因）。
@@ -968,10 +1019,18 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
                 return res.status(400).json({ error: '状态值无效（仅允许 active/disabled）' })
             }
             const tenantPrisma = createTenantClient(prisma, code)
-            const result = await tenantPrisma.$executeRawUnsafe(
-                `UPDATE "${schema}"."User" SET "status" = $2 WHERE "id" = $1`,
-                userId, newStatus
-            )
+            // P3-W1-T01（AUD-016）：停用与用户级 epoch 同事务（停用必须与全体会话失效同生同死）；
+            // 启用无需失效（epoch 只推进、不回退，停用期签发的 token 不存在）。
+            const result = await prisma.$transaction(async (tx) => {
+                const r = await tx.$executeRawUnsafe(
+                    `UPDATE "${schema}"."User" SET "status" = $2, "updated_at" = NOW() WHERE "id" = $1`,
+                    userId, newStatus
+                )
+                if (newStatus !== 'active') {
+                    await bumpUserEpoch(tx, { userId, schoolCode: code, reason: 'school_user_disable' })
+                }
+                return r
+            })
             if (!result) return res.status(404).json({ error: '用户不存在' })
             res.json({ success: true, message: `用户已${newStatus === 'active' ? '启用' : '停用'}` })
         } catch (error) {
@@ -1074,9 +1133,22 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
             }
             if (!sets.length) return res.status(400).json({ error: '没有需要更新的字段' })
             sets.push(`"updated_at"=NOW()`)
-            await tenantPrisma.$executeRawUnsafe(
-                `UPDATE "${schema}"."User" SET ${sets.join(',')} WHERE "id" = $1`, ...params
-            )
+            // P3-W1-T01（AUD-016）：角色/状态**实际变更**时，业务写与用户级 epoch 同事务
+            const roleChanged = role !== undefined && role !== current.role
+            const statusChanged = status !== undefined && status !== current.status
+            const needsRevocation = roleChanged || statusChanged
+            if (needsRevocation) {
+                await prisma.$transaction(async (tx) => {
+                    await tx.$executeRawUnsafe(
+                        `UPDATE "${schema}"."User" SET ${sets.join(',')} WHERE "id" = $1`, ...params
+                    )
+                    await bumpUserEpoch(tx, { userId, schoolCode: code, reason: 'school_user_update' })
+                })
+            } else {
+                await tenantPrisma.$executeRawUnsafe(
+                    `UPDATE "${schema}"."User" SET ${sets.join(',')} WHERE "id" = $1`, ...params
+                )
+            }
             res.json({ success: true, message: '用户更新成功' })
         } catch (error) {
             // FIX-14: 不再吞没异常。打印完整堆栈，并把真实错误信息透出。
@@ -1103,10 +1175,15 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
             if (cur[0].role !== 'admin') {
                 return res.status(409).json({ error: '该用户不是非法角色，无需降级', data: cur[0] })
             }
-            const updated = await tenantPrisma.$executeRawUnsafe(
-                `UPDATE "${schema}"."User" SET "role" = 'manager', "updated_at" = now() WHERE "id" = $1 AND "role" = 'admin'`,
-                userId
-            )
+            // P3-W1-T01（AUD-016）：降级与用户级 epoch 同事务（旧高权 token 立即失效）
+            const updated = await prisma.$transaction(async (tx) => {
+                const r = await tx.$executeRawUnsafe(
+                    `UPDATE "${schema}"."User" SET "role" = 'manager', "updated_at" = now() WHERE "id" = $1 AND "role" = 'admin'`,
+                    userId
+                )
+                await bumpUserEpoch(tx, { userId, schoolCode: code, reason: 'school_user_demote' })
+                return r
+            })
             res.json({ success: true, message: `已降级 ${cur[0].username} → manager`, demoted: updated })
         } catch (error) {
             console.error('❌ Error demoting admin user in school:', error)
@@ -1132,7 +1209,11 @@ export function createSchoolRoutes({ prisma, authenticateUser, clearGuestVisible
                 )
                 if (Number(cnt[0].c) <= 1) return res.status(409).json({ error: '该校仅剩一名在职主管，无法删除' })
             }
-            await tenantPrisma.$executeRawUnsafe(`DELETE FROM "${schema}"."User" WHERE "id" = $1`, userId)
+            // P3-W1-T01（AUD-016）：删除与用户级 epoch 同事务（已删除用户的旧 token 立即失效）
+            await prisma.$transaction(async (tx) => {
+                await tx.$executeRawUnsafe(`DELETE FROM "${schema}"."User" WHERE "id" = $1`, userId)
+                await bumpUserEpoch(tx, { userId, schoolCode: code, reason: 'school_user_delete' })
+            })
             // REG-4: 平台超管删除租户用户必须留痕。
             try {
                 await writeAdminOpsLog(prisma, {

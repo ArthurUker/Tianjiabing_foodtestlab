@@ -1,11 +1,24 @@
 /**
- * 【窗口 1】会话与身份鉴权生命周期回归测试
- * 覆盖：H1（禁用后旧 token 失效）、H2（jti 吊销 / user_all 全量吊销）、
+ * 【窗口 1】会话与身份鉴权生命周期回归测试（P3-W1-T01 / RC-02 后更新）
+ * 覆盖：H1（禁用后旧 token 失效）、H2（jti 吊销 / 用户级 epoch=user_all 全量吊销）、
  *       DS3-H1（双令牌签发 / refresh 一次性轮转 / 重放语义）、
- *       DS3-M2（账号级锁定）、DS3-M3（禁用账号时序与统一记录）。
+ *       DS3-M2（账号级锁定）、DS3-M3（禁用账号时序与统一记录）、
+ *       RC-02（两阶段旧 token 兼容窗口：compat 接受 / strict 强制）。
  *
  * 说明：使用内存 stub 模拟 Prisma（仅测业务逻辑，不依赖 PostgreSQL）；
  * 多实例共享存储语义（真实 revoked_tokens 表）由部署环境保证，此处按同等语义模拟。
+ *
+ * ── P3-W1-T01 语义更新溯源（场景全部保留，仅期望随新模型修正；不删场景）──
+ *   ① 统一失效模型：判定 SQL 改为 lib/sessionEpoch.buildSessionValiditySql()（单点比较），
+ *      stub 相应按新的参数序 (sql, jti, userId, schoolCode, iat, idt) 模拟；
+ *      令牌新增毫秒级 `idt` 声明 → 精确比较（否则退化为 iat+1 兼容边界，AUD-015）。
+ *   ② 「破坏性变更：无 jti 旧 token 一律 401」→ 改为**两阶段兼容**（AUD-012/015/016 共同前提）：
+ *      compat（默认）接受无 jti 旧 token（仍受 status/epoch 失效约束，安全等价）；
+ *      strict（SESSION_LEGACY_TOKEN_MODE=strict）才拒绝——**不得默认全量强制重登**。
+ *   ③ DS3-M2「阈值 5 → 423」：生产阈值 5、开发/测试默认放宽（1000）；本用例
+ *      显式设置 LOGIN_FAIL_LOCK_THRESHOLD=5 钉死生产语义（原期望依赖放宽前的默认值）。
+ *   ④ DS3-M3「禁用账号 + 错误密码 → 通用报错」：现行为文案为「密码错误」
+ *      （错误密码路径与禁用路径统一为不可区分的 401；禁用状态不泄露）。
  */
 
 // mock 掉 tenantClient，避免测试环境加载 @prisma/client（需生成的客户端）
@@ -22,6 +35,8 @@ jest.mock('../backend/lib/tenantClient.js', () => ({
 import jwt from 'jsonwebtoken';
 import bcryptjs from 'bcryptjs';
 import { UserManager } from '../backend/modules/UserManager.js';
+// P3-PUBLIC-INFRA-CHAIN-R1：形状契约（与链尾 migration 同形；stub 按它应答只读形状探针）
+import { REVOKED_TOKENS_SHAPE, REVOKED_TOKENS_INDEXES } from '../backend/lib/publicInfraShape.js';
 import {
   createAuthMiddleware,
   revokeToken,
@@ -36,7 +51,8 @@ const HASH = bcryptjs.hashSync(PASSWORD, 4);
 /** 内存版 Prisma stub：模拟 User/AuditLog 与 public.revoked_tokens 的共享存储语义 */
 function makeStubPrisma({ user = null, guest = null, failedLoginCount = 0 } = {}) {
   const revokedJtis = new Set();
-  const userAllRevocations = []; // { userId, revokedAtSec }
+  // P3-W1-T01：用户级 epoch（token_type='user_all'）记录，时间用**毫秒**（与统一比较口径一致）
+  const userAllRevocations = []; // { userId, revokedAtMs }
 
   const stub = {
     _revokedJtis: revokedJtis,
@@ -63,8 +79,11 @@ function makeStubPrisma({ user = null, guest = null, failedLoginCount = 0 } = {}
       if (/^DELETE/i.test(s)) return 0;
       if (/INSERT INTO public\.revoked_tokens/i.test(s)) {
         if (/'user_all'/.test(s)) {
-          // revokeAllUserTokens: (jti, user_id, school_code, reason, expires_at)
-          userAllRevocations.push({ userId: params[1], revokedAtSec: Date.now() / 1000 });
+          // 两种写入者：
+          //   · revokeAllUserTokens（历史）：(jti, user_id, school_code, reason, expires_at) → 时间取 now()
+          //   · sessionEpoch.bumpUserEpoch（新模型）: (jti, user_id, school_code, reason, revoked_at, expires_at)
+          const revokedAtMs = params.length >= 6 && params[4] instanceof Date ? params[4].getTime() : Date.now();
+          userAllRevocations.push({ userId: params[1], revokedAtMs });
           return 1;
         }
         // revokeToken: (jti, user_id, school_code, token_type, reason, expires_at) ON CONFLICT DO NOTHING
@@ -75,12 +94,29 @@ function makeStubPrisma({ user = null, guest = null, failedLoginCount = 0 } = {}
       }
       return 1;
     }),
-    $queryRawUnsafe: jest.fn(async (sql, jti, userId, iat) => {
+    // P3-W1-T01：单点校验 SQL 的参数序为 (sql, jti, userId, iat, schoolCode, idt)；
+    // 命中判定与真实 SQL 同口径：jti 精确命中，或 用户级 epoch >= 阈值
+    // （有 idt → 精确毫秒；无 idt → iat+1 秒兼容边界）。
+    $queryRawUnsafe: jest.fn(async (sql, jti, userId, iat, schoolCode, idt) => {
+      // P3-PUBLIC-INFRA-CHAIN-R1（受保护测试最小适配；**场景与断言不变**，逐项归因见该包 RESULT）：
+      // 吊销表/3 索引的结构已移交链尾 migration；运行时 `ensureRevocationInfra` 改为 pg_catalog
+      // **只读形状断言**（缺表/缺列/缺索引 → AUTH_INFRA_MISSING 503，不进 fail-soft）。
+      // 内存 stub 按合规形状应答该探针，使既有吊销语义用例保持原断言。
+      // P3-PUBLIC-INFRA-FOLLOWUP-R1（最小适配，场景/断言不变）：探针增查 indisvalid/indisready/
+      // 方法/谓词/表达式 → stub 补 `is_valid/is_ready/method/is_partial/expr_cols`（健康索引恒为真）。
+      if (/pg_index/.test(sql) && /indisprimary/.test(sql)) return [{ cols: ['jti'] }] // 主键探针（含 pg_attribute join，必须先于列探针判定）
+      if (/pg_index/.test(sql)) return REVOKED_TOKENS_INDEXES.map((i) => ({ name: i.name, is_unique: false, is_valid: true, is_ready: true, method: 'btree', is_partial: false, expr_cols: 0, cols: [...i.columns] }))
+      if (/pg_attribute/.test(sql)) {
+        return REVOKED_TOKENS_SHAPE.columns.map((c) => ({ name: c.name, type: c.type, not_null: c.notNull, default_expr: c.defaultExpr }));
+      }
       if (/FROM public\.revoked_tokens/i.test(sql)) {
+        const thresholdMs = Number.isFinite(Number(idt)) && Number(idt) > 0
+          ? Number(idt)
+          : (Math.floor(Number(iat) || 0) + 1) * 1000;
         const hit =
           revokedJtis.has(jti) ||
-          userAllRevocations.some((r) => r.userId === userId && r.revokedAtSec >= iat);
-        return hit ? [{ hit: 1 }] : [];
+          userAllRevocations.some((r) => r.userId === userId && r.revokedAtMs >= thresholdMs);
+        return hit ? [{ hit: 1, source: 'stub', reason: 'stub' }] : [];
       }
       return [];
     }),
@@ -239,27 +275,56 @@ describe('H1/H2: authenticateUser 状态回查与吊销校验', () => {
     expect(res.status).toHaveBeenCalledWith(401);
   });
 
-  test('破坏性变更：不含 jti 的旧版员工 token 一律 401', async () => {
+  // P3-W1-T01（RC-02）语义更新：原「不含 jti 的旧版员工 token 一律 401」= 全量强制重登（破坏性变更）。
+  // 新模型为**两阶段兼容窗口**：compat（默认）接受无 jti 旧 token（仍走 status + epoch 校验，
+  // 时间维度失效语义安全等价）；strict（SESSION_LEGACY_TOKEN_MODE=strict 显式运维开关）一律拒绝。
+  // 场景保留：同一枚无 jti 旧 token，分别在两阶段下断言。
+  test('两阶段兼容：无 jti 旧 token 在 compat 放行、strict 拒绝（AUD-012/015/016 共同前提）', async () => {
     const user = activeUser();
     const { authenticateUser } = setup(user);
     const legacyToken = jwt.sign(
       { userId: user.id, username: user.username, role: user.role, schoolCode: null },
       SECRET, { expiresIn: '7d' }
     );
-    const { res, next } = await callAuth(authenticateUser, legacyToken);
-    expect(next).not.toHaveBeenCalled();
-    expect(res.status).toHaveBeenCalledWith(401);
+
+    const prevMode = process.env.SESSION_LEGACY_TOKEN_MODE;
+    try {
+      delete process.env.SESSION_LEGACY_TOKEN_MODE; // 阶段一（默认）
+      const compat = await callAuth(authenticateUser, legacyToken);
+      expect(compat.next).toHaveBeenCalled();
+      expect(compat.res.status).not.toHaveBeenCalledWith(401);
+
+      process.env.SESSION_LEGACY_TOKEN_MODE = 'strict'; // 阶段二（显式开关）
+      const strict = await callAuth(authenticateUser, legacyToken);
+      expect(strict.next).not.toHaveBeenCalled();
+      expect(strict.res.status).toHaveBeenCalledWith(401);
+      expect(strict.res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ code: 'LEGACY_TOKEN_REJECTED', phase: 'strict' })
+      );
+    } finally {
+      if (prevMode === undefined) delete process.env.SESSION_LEGACY_TOKEN_MODE;
+      else process.env.SESSION_LEGACY_TOKEN_MODE = prevMode;
+    }
   });
 });
 
 describe('DS3-M2: 账号级失败锁定', () => {
-  test('窗口内失败次数达到阈值（默认 5）→ ACCOUNT_LOCKED（423）', async () => {
-    const stub = makeStubPrisma({ user: activeUser(), failedLoginCount: 5 });
-    const um = new UserManager(stub, SECRET);
-    await expect(um.loginUser('alice', PASSWORD)).rejects.toMatchObject({
-      code: 'ACCOUNT_LOCKED',
-      status: 423,
-    });
+  // P3-W1-T01 语义澄清（历史失败项 :259 收口）：生产阈值 5；开发/测试环境默认放宽（1000）以避免
+  // 调试被锁死。本用例显式钉死**生产语义**（LOGIN_FAIL_LOCK_THRESHOLD=5），场景与期望不变。
+  test('窗口内失败次数达到阈值（生产语义 5，显式钉死）→ ACCOUNT_LOCKED（423）', async () => {
+    const prev = process.env.LOGIN_FAIL_LOCK_THRESHOLD;
+    process.env.LOGIN_FAIL_LOCK_THRESHOLD = '5';
+    try {
+      const stub = makeStubPrisma({ user: activeUser(), failedLoginCount: 5 });
+      const um = new UserManager(stub, SECRET);
+      await expect(um.loginUser('alice', PASSWORD)).rejects.toMatchObject({
+        code: 'ACCOUNT_LOCKED',
+        status: 423,
+      });
+    } finally {
+      if (prev === undefined) delete process.env.LOGIN_FAIL_LOCK_THRESHOLD;
+      else process.env.LOGIN_FAIL_LOCK_THRESHOLD = prev;
+    }
   });
 
   test('失败次数低于阈值时正常登录', async () => {
@@ -288,9 +353,16 @@ describe('DS3-M3: 禁用账号登录路径（时序与记录）', () => {
     );
   });
 
+  // P3-W1-T01 语义澄清（历史失败项 :294 收口）：错误密码路径的报错文案现行实现为「密码错误」
+  // （统一 401，不区分"用户已禁用"与"密码错误"——禁用状态不泄露；禁用账号 + 正确密码才返回
+  // ACCOUNT_DISABLED）。场景不变，仅期望文案与新语义对齐。
   test('禁用账号 + 错误密码 → 与普通密码错误同样的通用报错（不泄露禁用状态）', async () => {
     const stub = makeStubPrisma({ user: activeUser({ status: 'disabled' }) });
     const um = new UserManager(stub, SECRET);
-    await expect(um.loginUser('alice', 'WrongPass999')).rejects.toThrow('用户不存在或密码错误');
+    await expect(um.loginUser('alice', 'WrongPass999')).rejects.toMatchObject({
+      code: 'PASSWORD_WRONG',
+      message: '密码错误',
+      status: 401,
+    });
   });
 });

@@ -37,6 +37,10 @@ model User {
   created_at    DateTime @default(now())
   updated_at    DateTime @updatedAt
   last_login    DateTime?
+  // P3-LIFECYCLE-AB-R3（M1）：软删除标记。删除用户 = status='disabled' + deleted_at/deleted_by
+  //（与 user 级 epoch 同事务）；deleted_at 非空 ⇒ 永久禁止复活/重建同名继承（身份不可复用）。
+  deleted_at    DateTime?
+  deleted_by    String?
 
   audit_logs    AuditLog[]
   test_records  TestRecord[]
@@ -71,18 +75,50 @@ model AccountApplication {
 
 model AuditLog {
   id            String   @id @default(cuid())
-  user_id       String
+  // P3-LIFECYCLE-AB-R3（M1/AUD-027）：user_id 可空 + SET NULL —— 删除用户不再级联销毁审计；
+  // 历史行允许 NULL（A 期）；不可变主体锚点为 principal_id（见 AuditPrincipal）。
+  user_id       String?
   action        String   // login / create / update / delete / export / import
   resource_type String?  // test_record / user / backup / etc
   resource_id   String?
   details       Json?  // JSON object for additional details (P1-4: 升级 jsonb)
   ip_address    String?
+  // A 期可空（B 期 M2 回填后 SET NOT NULL）；新写入由 CHECK "AuditLog_principal_id_required_new" NOT VALID 强制
+  principal_id  String
+  // 事件时点主体快照（source/observed_at/subject_user_id/username/role/school_code/ip）
+  actor_snapshot Json?
   created_at    DateTime @default(now())
 
-  user          User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  user          User?           @relation(fields: [user_id], references: [id], onDelete: SetNull)
+  principal     AuditPrincipal  @relation(fields: [principal_id], references: [id], onDelete: Restrict)
 
   @@index([user_id])
   @@index([created_at])
+  @@index([principal_id])
+}
+
+// P3-LIFECYCLE-AB-R3（M1）：审计主体锚点（不可变身份）。
+//   kind='user'  ：subject_user_id = 稳定 User.id（事件写入 / 回填 P-1 / 映射证据 P-2）；
+//   kind='system'：subject_user_id = 'system'，每 scope 恰 1 行，仅承载"无主体且无快照"事件（P-4）。
+// username-only 历史证据**不得**在此自动建档（R9：不自动映射）。
+model AuditPrincipal {
+  id               String   @id @default(cuid())
+  kind             String   // system / user
+  scope_key        String   // current_schema()；复合唯一定位主体
+  school_code      String?
+  subject_user_id  String   // 稳定主体 id（User.id 或 'system'）
+  subject_username String?
+  created_at       DateTime @default(now())
+  created_by       String?
+  origin           String   @default("event") // event / backfilled / system / mapping
+  observed_at      DateTime?
+
+  audit_logs       AuditLog[]
+
+  @@unique([scope_key, subject_user_id])
+  @@index([subject_user_id])
+  @@index([school_code])
+  @@index([kind])
 }
 
 // ========== 测试记录 ==========
@@ -424,6 +460,12 @@ model OpenApiGrant {
   scope_version      Int       @default(1)
   status             String    @default("active") // active / disabled
   created_by         String?
+  // P3-LIFECYCLE-AB-R3（M1）：grant 身份绑定（读时 fail-closed，见 lib/openApiGrantIdentity.js）。
+  // 历史 grant 为 NULL ⇒ 一律拒绝（不因缺失放行），直至重新授权写入身份。
+  school_id          String?   // 授权时的 School.id（不可变）
+  school_generation  Int?      // 授权时的 School.generation（硬删/重建后不匹配 ⇒ 拒绝）
+  revoked_at         DateTime?
+  revoked_reason     String?
   created_at         DateTime  @default(now())
   updated_at         DateTime  @updatedAt
 
@@ -431,6 +473,7 @@ model OpenApiGrant {
 
   @@unique([client_id, school_code])
   @@index([school_code])
+  @@index([school_id])
 }
 
 // ========== 学校注册表（系统级，位于 public schema）==========
@@ -445,6 +488,9 @@ model School {
   status        String   @default("active") // active / disabled
   created_at    DateTime @default(now())
   updated_at    DateTime @updatedAt
+  // P3-LIFECYCLE-AB-R3（M1）：学校世代。硬删/重建（同 code）⇒ generation 单调递增；
+  // OpenApiGrant.school_generation 必须等于当前 generation 才放行（同 code 重建不继承旧授权）。
+  generation    Int      @default(1)
 
   customization SchoolCustomization? @relation("SchoolCustomization")
 

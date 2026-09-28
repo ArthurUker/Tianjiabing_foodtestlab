@@ -13,6 +13,9 @@
 //
 // 前端离线日志（frontend/js/utils/AuditLogger.js 写 localStorage）属离线兜底，不进库，不在此收口。
 //
+// P3-LIFECYCLE-AB-R3（M1）：主体绑定见 lib/auditPrincipal.js（同事务绑定 + 无 username 猜测）。
+import { isValidSubjectId, resolvePrincipalForWrite, buildActorSnapshot } from './auditPrincipal.js'
+//
 // ─── 统一审计字段规范 v1（IF-3/REG-3）───────────────────────────────────────
 // 全量审计事件分布在两张表，canonical 字段映射如下：
 //
@@ -42,28 +45,99 @@
 
 /**
  * 写入租户级审计日志（落当前租户 schema 的 auditLog）。
- * @param {object} db 租户客户端（req.db 或 UserManager 的 this.prisma）
+ *
+ * P3-LIFECYCLE-AB-R3（M1）：主体绑定与本行写入在**同一事务**完成 ——
+ *   · 人类事件：绑定不可变主体（subject_user_id = 稳定 User.id），并落 actor_snapshot；
+ *   · **无主体且无快照** 的事件：绑定系统主体（kind='system'）；
+ *   · R9：username-only（有人类标识但无稳定 id）⇒ 显式拒绝写入（AUDIT_PRINCIPAL_SUBJECT_UNPROVABLE），
+ *     绝不猜测、绝不静默降级为系统主体；
+ *   · 新行 principal_id 非空 —— 由 M1 的 `CHECK ... NOT VALID` 在 DB 层强制（本门面保证满足）。
+ *
+ * @param {object} db 租户客户端（req.db 或 UserManager 的 this.prisma；也接受已在事务中的 tx 客户端）
  * @param {object} p
- * @param {string} p.actorId 操作人 user_id
+ * @param {string} [p.actorId] 操作人 user_id（稳定主体 id）
  * @param {string} p.action login|create|update|delete|export|import|login_failed
  * @param {string} [p.resourceType] test_record|user|backup|etc
  * @param {string} [p.resourceId]
  * @param {object|string} [p.details]
  * @param {string} [p.ip]
+ * @param {object} [p.actor] { username, role, schoolCode, subjectUserId }（仅用于快照/建档，不参与身份猜测）
+ * @param {string} [p.snapshotSource] 快照来源标记（默认 event）
  */
-export async function writeTenantAuditLog(db, { actorId, action, resourceType, resourceId, details, ip }) {
-  return db.auditLog.create({
-    data: {
-      user_id: actorId,
-      action,
-      resource_type: resourceType || null,
-      resource_id: resourceId || null,
-      // P1-4: details 列升级为 Json（jsonb），直接传对象（Prisma 自动序列化）。
-      // 兼容字符串入参：字符串原样存储（Prisma 存为 JSON 字符串），对象存为 JSON 对象。
-      details: details || null,
-      ip_address: ip || null,
-    },
-  })
+export async function writeTenantAuditLog(db, { actorId = null, action, resourceType, resourceId, details, ip, actor = null, snapshotSource = 'event' }) {
+  const run = async (client) => {
+    const effectiveSubject = isValidSubjectId(actorId)
+      ? actorId
+      : (actor && isValidSubjectId(actor.subjectUserId) ? actor.subjectUserId : null)
+    const actorUsername = actor && actor.username ? actor.username : null
+    const schoolCode = actor && actor.schoolCode ? actor.schoolCode : null
+
+    // R9 防线：有"人类标识"（username）但无稳定主体 id ⇒ 拒绝，不得冒充系统事件
+    if (!effectiveSubject && actorUsername) {
+      const err = new Error(
+        '审计主体不可证明：调用方提供了 username 但无稳定 subject_user_id。R9：username-only 不自动映射，' +
+        '拒绝写入（请传 actorId / actor.subjectUserId 稳定 id）。'
+      )
+      err.code = 'AUDIT_PRINCIPAL_SUBJECT_UNPROVABLE'
+      throw err
+    }
+
+    // 受限替身/受限连接（无 raw SQL 或模型替身无 auditPrincipal）：
+    // 无法执行 M1 主体绑定 —— 退化为**旧形状写入**并显式告警（不写 principal_id/actor_snapshot）。
+    // 生产租户客户端/事务客户端（tx）必然具备 raw SQL 与模型访问（否则 M1 的 DB 强门禁兜底）。
+    // 注意：**不要**用 `$transaction` 存在性做判据 —— tx 客户端本身没有 $transaction（会在事务内误降级）。
+    const canBindPrincipal = typeof client?.$queryRawUnsafe === 'function'
+      && client?.auditPrincipal && typeof client.auditPrincipal.upsert === 'function'
+    if (!canBindPrincipal) {
+      console.warn('[auditPrincipal] 客户端缺少主体绑定能力（测试替身/受限连接）→ 兼容写入（无 principal_id）')
+      return client.auditLog.create({
+        data: {
+          user_id: effectiveSubject,
+          action,
+          resource_type: resourceType || null,
+          resource_id: resourceId || null,
+          details: details || null,
+          ip_address: ip || null,
+        },
+      })
+    }
+
+    const snapshot = buildActorSnapshot({
+      source: snapshotSource,
+      userId: effectiveSubject,
+      username: actorUsername,
+      role: actor && actor.role ? actor.role : null,
+      schoolCode,
+      ip,
+    })
+    const principal = await resolvePrincipalForWrite(client, {
+      subjectUserId: effectiveSubject,
+      snapshot,
+      schoolCode,
+      subjectUsername: actorUsername,
+    })
+
+    return client.auditLog.create({
+      data: {
+        user_id: effectiveSubject,
+        action,
+        resource_type: resourceType || null,
+        resource_id: resourceId || null,
+        // P1-4: details 列升级为 Json（jsonb），直接传对象（Prisma 自动序列化）。
+        // 兼容字符串入参：字符串原样存储（Prisma 存为 JSON 字符串），对象存为 JSON 对象。
+        details: details || null,
+        ip_address: ip || null,
+        principal_id: principal.id,
+        // G3③：系统主体**不得**承载带 actor_snapshot 的行 —— 系统事件（无主体且无快照）**省略该字段**
+        //（写 SQL NULL；Prisma Json 字段传 `null` 会落 jsonb 'null'，语义上仍是"有值"，会误触门禁）。
+        // 快照非空即视为"可能的人类事件"，只有人类主体才允许携带（R5 §3.2）。
+        ...(principal.kind === 'system' ? {} : { actor_snapshot: snapshot }),
+      },
+    })
+  }
+  // 同一事务：主体 upsert 与审计行写入原子化（失败整体回滚；调用方"审计失败不回滚业务"边界不变）
+  if (db && typeof db.$transaction === 'function') return db.$transaction(run)
+  return run(db)
 }
 
 /**

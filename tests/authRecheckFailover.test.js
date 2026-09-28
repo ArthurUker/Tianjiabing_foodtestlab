@@ -24,6 +24,9 @@ jest.mock('../backend/lib/tenantClient.js', () => ({
 import bcryptjs from 'bcryptjs';
 import { UserManager } from '../backend/modules/UserManager.js';
 import { createAuthMiddleware, getRecheckFailState, _resetRecheckFailStateForTest } from '../backend/middleware/authMiddleware.js';
+// P3-PUBLIC-INFRA-FOLLOWUP-R1（测试层最小适配；**场景与业务断言不变**）：吊销表结构由链尾 migration 提供，
+// 认证侧只做 pg_catalog 只读形状探针（缺结构 → AUTH_INFRA_MISSING 503，不进 fail-soft）→ stub 按合规形状应答。
+import { REVOKED_TOKENS_SHAPE, REVOKED_TOKENS_INDEXES } from '../backend/lib/publicInfraShape.js';
 
 const SECRET = 'unit-test-secret-1234567890';
 const PASSWORD = 'Passw0rd123';
@@ -49,8 +52,9 @@ function mockRes() {
   return res;
 }
 
-// stub：user.findUnique 可配置为抛错或返回指定对象，isTokenRevoked 默认未吊销
-function makeStubPrisma({ user, findUniqueImpl }) {
+// stub：user.findUnique 可配置为抛错或返回指定对象，isTokenRevoked 默认未吊销；
+// `infraMissing: true` → 形状探针返回空（缺表/缺列/缺索引）→ 模拟"链尾 migration 未应用"（负例用）。
+function makeStubPrisma({ user, findUniqueImpl, infraMissing = false }) {
   const stub = {
     user: {
       findUnique:
@@ -63,7 +67,17 @@ function makeStubPrisma({ user, findUniqueImpl }) {
       update: jest.fn(async (args) => ({ ...user, ...args.data })),
       delete: jest.fn(async () => user),
     },
-    $queryRawUnsafe: jest.fn(async () => []), // isTokenRevoked 未命中
+    // P3-PUBLIC-INFRA-FOLLOWUP-R1：形状探针（pg_catalog）按合规形状应答；infraMissing → 缺表（fail-closed）；
+    // 其余查询返回空数组（isTokenRevoked 未命中，原语义不变）。
+    $queryRawUnsafe: jest.fn(async (sql) => {
+      if (infraMissing) return []
+      if (/pg_index/.test(sql) && /indisprimary/.test(sql)) return [{ cols: ['jti'] }] // 主键探针（先于列探针判定）
+      if (/pg_index/.test(sql)) return REVOKED_TOKENS_INDEXES.map((i) => ({ name: i.name, is_unique: false, is_valid: true, is_ready: true, method: 'btree', is_partial: false, expr_cols: 0, cols: [...i.columns] }))
+      if (/pg_attribute/.test(sql)) {
+        return REVOKED_TOKENS_SHAPE.columns.map((c) => ({ name: c.name, type: c.type, not_null: c.notNull, default_expr: c.defaultExpr }));
+      }
+      return [] // isTokenRevoked 未命中
+    }),
     $executeRawUnsafe: jest.fn(async () => 1),
   };
   return stub;
@@ -176,5 +190,30 @@ describe('#9 · 角色覆盖枚举校验（防 NULL/非法值绕过）', () => {
     const { req, next } = await passAuth(prisma, um, token);
     expect(next).toHaveBeenCalled();
     expect(req.user.role).toBe('manager');
+  });
+});
+
+// P3-PUBLIC-INFRA-FOLLOWUP-R1（授权负例；**不降低 503 边界**）：链尾 migration 未应用（补缺设施）时，
+// 认证必须 fail-closed 503 + `AUTH_INFRA_MISSING`，**不得**沿用 fail-soft 配额/旧权限/"未吊销"兜底。
+describe('#10 · 补缺设施（吊销基础设施缺失）→ 认证 fail-closed 503 AUTH_INFRA_MISSING', () => {
+  test('形状探针缺表：503 + code=AUTH_INFRA_MISSING + next 不调用 + 回查失败计数不变（不吃 fail-soft）', async () => {
+    jest.resetModules(); // 取全新模块实例：进程级 ensure memo 会缓存**成功**（失败不缓存）→ 负例必须绕开已缓存的成功
+    const fresh = await import('../backend/middleware/authMiddleware.js');
+    fresh._resetRecheckFailStateForTest();
+    const user = makeUser();
+    const prisma = makeStubPrisma({ user, infraMissing: true }); // 形状探针一律空 → table-missing
+    const um = new UserManager(prisma, SECRET);
+    const { token } = um.buildAccessToken(user);
+
+    const { authenticateUser } = fresh.createAuthMiddleware(um, prisma);
+    const req = { headers: { authorization: `Bearer ${token}` }, originalUrl: '/api/test-records', url: '/api/test-records' };
+    const res = mockRes();
+    const next = jest.fn();
+    await authenticateUser(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'AUTH_INFRA_MISSING', reason: 'revocation-infra-missing' }));
+    expect(next).not.toHaveBeenCalled(); // 不进 fail-soft（读请求也不行）
+    expect(fresh.getRecheckFailState().consecutiveFails).toBe(0); // 基础设施缺失 ≠ DB 回查抖动，不得占用配额
   });
 });

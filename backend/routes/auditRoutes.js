@@ -130,10 +130,16 @@ export function createAuditRoutes(userManager, prisma) {
             // 普通用户只能查看自己的日志，管理员可以查看所有
             let where = {}
 
+            // P3-LIFECYCLE-AB-R3（M1）：双来源过滤 —— 历史行 user_id 可能为 NULL（用户被硬删/迁移），
+            // 主体身份以 principal.subject_user_id 为准；两来源任一命中即返回（不得只按 user_id 漏行）。
+            const subjectFilter = (id) => [
+                { user_id: id },
+                { principal: { subject_user_id: id } },
+            ]
             if (req.user.role !== 'admin' && req.user.role !== 'manager') {
-                where.user_id = req.user.userId
+                where.OR = subjectFilter(req.user.userId)
             } else {
-                if (userId) where.user_id = userId
+                if (userId) where.OR = subjectFilter(userId)
                 if (username) where.user = { username }
             }
 
@@ -328,14 +334,28 @@ export function createAuditRoutes(userManager, prisma) {
             })
 
             // 审计中出现过、但用户已被删除的 user_id（补全历史记录可筛选项）
+            // P3-LIFECYCLE-AB-R3（M1）：双来源 —— 除 user_id 列外，还要覆盖"user_id 为 NULL 但主体锚点存在"
+            // 的历史行（主体 id 取自 principal.subject_user_id），否则软删/迁移用户会从下拉框消失。
             let deletedIds = []
             if (isAdmin) {
-                const groups = await req.db.auditLog.groupBy({ by: ['user_id'] })
                 const knownIds = new Set(users.map((u) => u.id))
-                deletedIds = groups
-                    .map((g) => g.user_id)
+                const groups = await req.db.auditLog.groupBy({ by: ['user_id'] })
+                const fromUserIds = groups.map((g) => g.user_id).filter((id) => id && !knownIds.has(id))
+                const principalGroups = await req.db.auditLog.groupBy({
+                    by: ['principal_id'],
+                    where: { user_id: null, principal_id: { not: null } },
+                })
+                const principalIds = principalGroups.map((g) => g.principal_id).filter(Boolean)
+                const principals = principalIds.length
+                    ? await req.db.auditPrincipal.findMany({
+                        where: { id: { in: principalIds }, kind: 'user' },
+                        select: { subject_user_id: true },
+                    })
+                    : []
+                const fromPrincipals = principals
+                    .map((p) => p.subject_user_id)
                     .filter((id) => id && !knownIds.has(id))
-                    .sort()
+                deletedIds = [...new Set([...fromUserIds, ...fromPrincipals])].sort()
             }
 
             res.json({ success: true, data: { users, deletedIds } })
@@ -373,7 +393,13 @@ export function createAuditRoutes(userManager, prisma) {
             const tenantDb = createTenantClient(prisma, schoolCode)
 
             let where = {}
-            if (userId) where.user_id = userId
+            // P3-LIFECYCLE-AB-R3（M1）：双来源过滤（与列表端点同口径）
+            if (userId) {
+                where.OR = [
+                    { user_id: userId },
+                    { principal: { subject_user_id: userId } },
+                ]
+            }
             if (username) where.user = { username }
             if (action) where.action = action
 
@@ -467,6 +493,14 @@ export function createAuditRoutes(userManager, prisma) {
                             full_name: true,
                             role: true
                         }
+                    },
+                    // P3-LIFECYCLE-AB-R3（M1）：详情权限的双来源判据（user_id 可能为 NULL）
+                    principal: {
+                        select: {
+                            id: true,
+                            kind: true,
+                            subject_user_id: true
+                        }
                     }
                 }
             })
@@ -476,7 +510,10 @@ export function createAuditRoutes(userManager, prisma) {
             }
 
             // 检查权限：仅能查看自己的日志或（管理员可查看所有）
-            if (req.user.role !== 'admin' && req.user.role !== 'manager' && log.user_id !== req.user.userId) {
+            // P3-LIFECYCLE-AB-R3（M1）：主体命中（principal.subject_user_id）与 user_id 任一即本人
+            const isSelf = log.user_id === req.user.userId
+                || (log.principal && log.principal.kind === 'user' && log.principal.subject_user_id === req.user.userId)
+            if (req.user.role !== 'admin' && req.user.role !== 'manager' && !isSelf) {
                 return res.status(403).json({ error: '❌ 权限不足' })
             }
 

@@ -11,6 +11,13 @@ import { writeTenantAuditLog, writeSystemLog } from '../lib/auditLog.js'
 // IF-1（窗口1↔窗口2 接线）：高危操作（禁用/删除/改角色/重置密码）后吊销目标用户全部会话。
 // 窗口1 实际导出名为 revokeAllUserTokens（此前 TODO 注释误写为 revokeUserTokens）。
 import { revokeAllUserTokens } from '../middleware/authMiddleware.js'
+// P3-W1-T01（RC-02 / AUD-016）：用户级 epoch（唯一失效源）+ 同事务执行器（业务写与吊销写同事务）。
+import {
+  runSessionSafeMutation,
+  bumpUserEpoch,
+  sessionNow,
+  schemaIdentForSchool,
+} from '../lib/sessionEpoch.js'
 
 /**
  * 解析 JWT 有效期表达式（如 '7d' / '12h' / '3600' / '30m'）为秒数。
@@ -88,7 +95,12 @@ export class UserManager {
             email: user.email,
             role: user.role,
             schoolCode: user.school_code || user.schoolCode || this.schoolCode || null,
-            jti: randomUUID()
+            jti: randomUUID(),
+            // P3-W1-T01（AUD-015）：毫秒级签发时刻声明。
+            // 统一失效校验优先用它做精确比较（闭合"同秒内先签发、后吊销"窗口），
+            // 同时保留"同秒内先吊销、后签发（改密后自动重登）"的新 token 有效。
+            // 旧 token 无此声明 → 退化为 iat+1s 兼容边界（见 lib/sessionEpoch）。
+            idt: sessionNow()
         }
         const expiry = normalizeExpiry(process.env.JWT_ACCESS_EXPIRE, '30m')
         const token = jwt.sign(payload, this.jwtSecret, { expiresIn: expiry })
@@ -115,7 +127,9 @@ export class UserManager {
             userId: user.id,
             schoolCode: user.school_code || user.schoolCode || this.schoolCode || null,
             type: 'refresh',
-            jti: randomUUID()
+            jti: randomUUID(),
+            // 与 access token 同一签名（毫秒签发时刻；统一失效比较用）
+            idt: sessionNow()
         }
         if (deviceId) payload.deviceId = String(deviceId).slice(0, 128)
         const expiry = normalizeExpiry(process.env.JWT_REFRESH_EXPIRE, '7d')
@@ -185,19 +199,64 @@ export class UserManager {
     }
 
     /**
-     * IF-1: 高危操作后吊销目标用户全部会话（access + refresh 立即失效）。
-     * 吊销落 public.revoked_tokens（共享存储），由 authenticateUser 的
-     * isTokenRevoked(user_all) 校验生效。
-     * 业务操作已提交后才调用本函数：吊销写入失败不回滚业务，但必须落
-     * SECURITY:REVOCATION_WRITE_FAILED 安全事件并高声告警（此时降权/改密
-     * 的即时失效退化为「access TTL（默认 30m）内自然过期」）。
+     * P3-W1-T01（RC-02 / AUD-016）**同事务失效写**：业务变更与用户级 epoch 在同一事务提交。
+     *
+     * 能力分层（显式，不静默降级）：
+     *   A. 客户端支持 `$transaction` + `$executeRawUnsafe`（生产 PrismaClient / 真实 PG）：
+     *      同一事务内执行「schema 限定 raw SQL 业务写 → 用户级 epoch upsert」；
+     *      任一步失败 → **整体回滚**（业务不落地、旧权限不保留），错误向上抛给调用方。
+     *   B. 仅支持 model API 的受限客户端（内存替身 / 受限连接，仅测试环境）：
+     *      业务写走 model API；epoch 写若客户端具备 raw SQL 能力则执行且**失败向上抛**（不吞错）；
+     *      完全不支持 raw SQL 时跳过并高声告警（无法写入任何共享存储）。
+     *
+     * @param {{userId:string, reason:string, schoolCode?:string|null, modelWrite:Function, sqlWrite:Function}} args
+     */
+    async _sessionSafeMutation({ userId, reason, schoolCode = null, modelWrite, modelWriteTx = null, sqlWrite }) {
+        const root = this.rootPrisma || this.prisma
+        const canTx = !!(root && typeof root.$transaction === 'function')
+        const canSql = !!(root && typeof root.$executeRawUnsafe === 'function')
+        const scope = schoolCode || null
+
+        if (canTx && canSql) {
+            return runSessionSafeMutation({
+                prisma: root,
+                schoolCode: scope,
+                userId,
+                reason,
+                mutate: ({ tx, schema }) => {
+                    if (schema !== schemaIdentForSchool(scope)) {
+                        throw new Error(`[sessionEpoch] schema 解析不一致（拒绝执行）: ${schema}`)
+                    }
+                    // platform/public 用户（school_code 为空）在根事务里的 model API 目标就是 public."User"，
+                    // 优先走 model API（保持既有写入路径/替身可观测性）；租户用户必须 schema 限定 raw SQL
+                    //（Prisma model API 只会写到 datasource 的 public schema）。
+                    if (!scope && typeof modelWriteTx === 'function') return modelWriteTx(tx)
+                    return sqlWrite({ tx, schema })
+                },
+            })
+        }
+
+        const result = await modelWrite()
+        if (canSql) {
+            // 无事务能力：仍执行 epoch 写，失败向上抛（绝不"业务成功 + 吊销吞错"）
+            await bumpUserEpoch(root, { userId, schoolCode: scope, reason })
+        } else {
+            console.warn(`⚠️ [sessionEpoch] 客户端不支持事务/raw SQL → 跳过 epoch 写入（reason=${reason}，仅限测试替身/受限连接）`)
+        }
+        return result
+    }
+
+    /**
+     * 兼容保留（旧调用点/脚本）：尽力吊销目标用户全部会话。
+     * ⚠️ 新路径**不得**使用本函数（它是"业务提交后再吊销"的旧模型，无法保证同事务）。
+     * 内部实现改用**用户级 epoch**（确定性键 upsert，与统一失效模型同源）。
      */
     async revokeUserSessions(userId, reason, actor = null) {
         try {
-            await revokeAllUserTokens(this.rootPrisma, {
+            await bumpUserEpoch(this.rootPrisma, {
                 userId,
                 schoolCode: this.schoolCode || null,
-                reason
+                reason,
             })
         } catch (error) {
             console.error(`❌ [revocation] 吊销用户 ${userId} 全部会话失败 (${reason}): ${error.message}`)
@@ -453,23 +512,36 @@ export class UserManager {
             // 4. 加密新密码
             const newPasswordHash = await bcryptjs.hash(newPassword, 10)
 
-            // 5. 更新密码（包 $transaction，保证读取-更新原子化，避免并发覆盖）
-            // IF-2/M2: 用户本人完成改密后清除 must_change_password（临时密码 → 正式密码）
-            await this.prisma.$transaction(async (tx) => {
-                await tx.user.update({
+            // 5. 更新密码 + **同事务**推进用户级 epoch（AUD-016）
+            //    IF-2/M2: 用户本人完成改密后清除 must_change_password（临时密码 → 正式密码）。
+            //    吊销与业务写同事务：任一步失败整体回滚（不出现"改了密码但吊销没落库"）。
+            //    注意：本操作也会使当前会话失效（除同秒内新签发），用户需重新登录（安全优先于体验）。
+            const schoolCode = user.school_code ?? this.schoolCode ?? null
+            await this._sessionSafeMutation({
+                userId,
+                reason: 'password_change',
+                schoolCode,
+                modelWrite: () => this.prisma.user.update({
                     where: { id: userId },
                     data: {
                         password_hash: newPasswordHash,
                         must_change_password: false,
                         updated_at: new Date()
                     }
-                })
+                }),
+                modelWriteTx: (tx) => tx.user.update({
+                    where: { id: userId },
+                    data: {
+                        password_hash: newPasswordHash,
+                        must_change_password: false,
+                        updated_at: new Date()
+                    }
+                }),
+                sqlWrite: ({ tx, schema }) => tx.$executeRawUnsafe(
+                    `UPDATE "${schema}"."User" SET "password_hash" = $2, "must_change_password" = false, "updated_at" = NOW() WHERE "id" = $1`,
+                    userId, newPasswordHash
+                ),
             })
-
-            // IF-1: 用户自行改密后吊销全部旧会话（与 resetPassword 一致），
-            // 防止密码泄露后被盗用的旧 token 在 access TTL（默认 30m）窗口内继续有效。
-            // 注意：本操作也会使当前会话失效，用户需重新登录（安全优先于体验）。
-            await this.revokeUserSessions(userId, 'password_change', { userId })
 
             console.log(`✅ 用户 ${userId} 密码已更新`)
 
@@ -656,16 +728,34 @@ export class UserManager {
             // 加密新密码
             const passwordHash = await bcryptjs.hash(newPassword, 10)
 
-            // 更新密码
+            // 更新密码 + **同事务**推进用户级 epoch（AUD-016）
             // M1/M2: 管理员重置属于"临时密码"场景，置 must_change_password=true，
             // 首登强制改密的登录侧拦截由窗口1在 login/token 链路实现。
-            await this.prisma.user.update({
-                where: { id: userId },
-                data: {
-                    password_hash: passwordHash,
-                    must_change_password: true,
-                    updated_at: new Date()
-                }
+            const schoolCode = target.school_code ?? this.schoolCode ?? null
+            await this._sessionSafeMutation({
+                userId,
+                reason: 'password_reset',
+                schoolCode,
+                modelWrite: () => this.prisma.user.update({
+                    where: { id: userId },
+                    data: {
+                        password_hash: passwordHash,
+                        must_change_password: true,
+                        updated_at: new Date()
+                    }
+                }),
+                modelWriteTx: (tx) => tx.user.update({
+                    where: { id: userId },
+                    data: {
+                        password_hash: passwordHash,
+                        must_change_password: true,
+                        updated_at: new Date()
+                    }
+                }),
+                sqlWrite: ({ tx, schema }) => tx.$executeRawUnsafe(
+                    `UPDATE "${schema}"."User" SET "password_hash" = $2, "must_change_password" = true, "updated_at" = NOW() WHERE "id" = $1`,
+                    userId, passwordHash
+                ),
             })
 
             // H4: 强制服务端审计（绝不记录密码明文/哈希）
@@ -673,9 +763,6 @@ export class UserManager {
                 targetUserId: target.id,
                 targetUsername: target.username
             })
-
-            // IF-1: 密码被管理员重置后，被盗/旧 token 立即失效（不再等 access TTL 自然过期）
-            await this.revokeUserSessions(userId, 'password_reset', actor)
 
             console.log(`✅ 用户 ${userId} 密码已重置`)
 
@@ -819,9 +906,24 @@ export class UserManager {
             // M3: 最后一名可用 manager 不允许禁用
             await this.assertNotLastActiveManager(target, '禁用')
 
-            await this.prisma.user.update({
-                where: { id: userId },
-                data: { status: 'disabled', disabled_reason: 'manual' }
+            // 禁用 + **同事务**推进用户级 epoch（AUD-016）：禁用必须与全体会话失效同生同死
+            const schoolCode = target.school_code ?? this.schoolCode ?? null
+            await this._sessionSafeMutation({
+                userId,
+                reason: 'user_disable',
+                schoolCode,
+                modelWrite: () => this.prisma.user.update({
+                    where: { id: userId },
+                    data: { status: 'disabled', disabled_reason: 'manual' }
+                }),
+                modelWriteTx: (tx) => tx.user.update({
+                    where: { id: userId },
+                    data: { status: 'disabled', disabled_reason: 'manual' }
+                }),
+                sqlWrite: ({ tx, schema }) => tx.$executeRawUnsafe(
+                    `UPDATE "${schema}"."User" SET "status" = 'disabled', "disabled_reason" = 'manual' WHERE "id" = $1`,
+                    userId
+                ),
             })
 
             // H4: 强制服务端审计
@@ -831,9 +933,6 @@ export class UserManager {
                 oldStatus: target.status,
                 newStatus: 'disabled'
             })
-
-            // IF-1: 禁用后吊销全部会话（与 authenticateUser 的 status 回查双保险）
-            await this.revokeUserSessions(userId, 'user_disable', actor)
 
             console.log(`✅ 用户 ${userId} 已禁用`)
 
@@ -852,6 +951,12 @@ export class UserManager {
             const target = await this.prisma.user.findUnique({ where: { id: userId } })
             if (!target) {
                 throw this.httpError(404, '用户不存在')
+            }
+
+            // P3-LIFECYCLE-AB-R3（M1）：已删除（软删）账号**禁止复活**（身份不可复用；
+            // 旧账号的审计/主体锚点不得被重新激活后继承）。
+            if (target.deleted_at) {
+                throw this.httpError(409, '用户已被删除，不能重新启用（身份不可复用）')
             }
 
             await this.prisma.user.update({
@@ -899,9 +1004,25 @@ export class UserManager {
                 await this.assertNotLastActiveManager(target, '降权')
             }
 
-            await this.prisma.user.update({
-                where: { id: userId },
-                data: { role: newRole }
+            // 角色变更 + **同事务**推进用户级 epoch（AUD-016，H2 关键路径）：
+            // 降权的即时失效与角色写同生同死——旧 token 持旧 role 的窗口从 ≤30m 收敛为 0。
+            const schoolCode = target.school_code ?? this.schoolCode ?? null
+            await this._sessionSafeMutation({
+                userId,
+                reason: 'role_change',
+                schoolCode,
+                modelWrite: () => this.prisma.user.update({
+                    where: { id: userId },
+                    data: { role: newRole }
+                }),
+                modelWriteTx: (tx) => tx.user.update({
+                    where: { id: userId },
+                    data: { role: newRole }
+                }),
+                sqlWrite: ({ tx, schema }) => tx.$executeRawUnsafe(
+                    `UPDATE "${schema}"."User" SET "role" = $2 WHERE "id" = $1`,
+                    userId, newRole
+                ),
             })
 
             // H4: 强制服务端审计（记录 oldRole → newRole）
@@ -911,11 +1032,6 @@ export class UserManager {
                 oldRole: target.role,
                 newRole
             })
-
-            // IF-1（H2 关键路径）：角色变更后立即吊销全部会话。
-            // authenticateUser 只回查 status 不刷新 role（req.user 取自 token payload），
-            // 降权的即时失效完全依赖这里的吊销——旧 token 持旧 role 的窗口从 ≤30m 收敛为 0。
-            await this.revokeUserSessions(userId, 'role_change', actor)
 
             console.log(`✅ 用户 ${userId} 角色已更改为 ${newRole}`)
 
@@ -947,23 +1063,44 @@ export class UserManager {
             // M3: 最后一名可用 manager 不允许删除
             await this.assertNotLastActiveManager(target, '删除')
 
-            await this.prisma.user.delete({
-                where: { id: userId }
+            // 删除 + **同事务**推进用户级 epoch（AUD-016）：
+            // 与 authenticateUser 的 !dbUser 回查双保险；同时使 refresh token 立即失效，
+            // 防止已删除用户用 refresh 换新 token 的竞态。
+            //
+            // P3-LIFECYCLE-AB-R3（M1）：删除 = **软删除**（status='disabled' + deleted_at/deleted_by），
+            // 与 epoch 同一事务；审计行不再被级联销毁（M1 已把 AuditLog.user_id FK 重建为 SET NULL）。
+            // deleted_at 非空 ⇒ 永久禁止复活（见 enableUser），防身份复用。
+            const schoolCode = target.school_code ?? this.schoolCode ?? null
+            const deletedBy = (actor && actor.userId) ? actor.userId : null
+            const softDeleteData = {
+                status: 'disabled',
+                disabled_reason: 'deleted',
+                deleted_at: new Date(),
+                deleted_by: deletedBy,
+            }
+            await this._sessionSafeMutation({
+                userId,
+                reason: 'user_delete',
+                schoolCode,
+                modelWrite: () => this.prisma.user.update({ where: { id: userId }, data: softDeleteData }),
+                modelWriteTx: (tx) => tx.user.update({ where: { id: userId }, data: softDeleteData }),
+                sqlWrite: ({ tx, schema }) => tx.$executeRawUnsafe(
+                    `UPDATE "${schema}"."User" SET "status" = 'disabled', "disabled_reason" = 'deleted', "deleted_at" = now(), "deleted_by" = $2 WHERE "id" = $1`,
+                    userId,
+                    deletedBy
+                ),
             })
 
-            // H4: 强制服务端审计（目标用户已删除，快照写入 details）
+            // H4: 强制服务端审计（目标用户已软删除，快照写入 details）
             await this.logAdminAction('user_delete', actor, {
                 targetUserId: target.id,
                 targetUsername: target.username,
                 targetRole: target.role,
-                targetStatus: target.status
+                targetStatus: target.status,
+                softDeleted: true,
             })
 
-            // IF-1: 删除后吊销全部会话（与 authenticateUser 的 !dbUser 回查双保险；
-            // 同时使 refresh token 立即失效，防止已删除用户用 refresh 换新 token 的竞态）
-            await this.revokeUserSessions(userId, 'user_delete', actor)
-
-            console.log(`✅ 用户 ${userId} 已删除`)
+            console.log(`✅ 用户 ${userId} 已软删除（deleted_at 置位；审计保留）`)
 
             return {
                 success: true,
@@ -1034,21 +1171,47 @@ export class UserManager {
 
             filteredUpdates.updated_at = new Date()
 
-            const updatedUser = await this.prisma.user.update({
-                where: { id: userId },
-                data: filteredUpdates,
-                select: {
-                    id: true,
-                    username: true,
-                    phone: true,
-                    email: true,
-                    full_name: true,
-                    role: true,
-                    status: true,
-                    created_at: true,
-                    last_login: true
-                }
-            })
+            // 仅当角色/状态**实际变更**时才需要推进 epoch（只改 full_name/email 等资料不吊销，避免过度失效）
+            const needsRevocation = !!(filteredUpdates.role || filteredUpdates.status)
+            const schoolCode = target.school_code ?? this.schoolCode ?? null
+            let updatedUser
+            if (needsRevocation) {
+                // 角色/状态变更：业务写 + epoch 同事务（AUD-016）
+                await this._sessionSafeMutation({
+                    userId,
+                    reason: 'admin_update_user',
+                    schoolCode,
+                    modelWrite: () => this.prisma.user.update({ where: { id: userId }, data: filteredUpdates }),
+                    modelWriteTx: (tx) => tx.user.update({ where: { id: userId }, data: filteredUpdates }),
+                    sqlWrite: async ({ tx, schema }) => {
+                        // 字段受控白名单（同 filteredUpdates 键集），逐字段参数化更新
+                        const cols = Object.keys(filteredUpdates).filter((k) => k !== 'updated_at')
+                        const sets = cols.map((k, i) => `"${k}" = $${i + 2}`).join(', ')
+                        await tx.$executeRawUnsafe(
+                            `UPDATE "${schema}"."User" SET ${sets}, "updated_at" = NOW() WHERE "id" = $1`,
+                            userId, ...cols.map((k) => filteredUpdates[k])
+                        )
+                    },
+                })
+                updatedUser = { ...target, ...filteredUpdates }
+            } else {
+                // 仅资料字段：无需失效，保持既有 Prisma 写与返回投影
+                updatedUser = await this.prisma.user.update({
+                    where: { id: userId },
+                    data: filteredUpdates,
+                    select: {
+                        id: true,
+                        username: true,
+                        phone: true,
+                        email: true,
+                        full_name: true,
+                        role: true,
+                        status: true,
+                        created_at: true,
+                        last_login: true
+                    }
+                })
+            }
 
             // H4: 强制服务端审计（记录变更前后关键字段）
             const changedFields = {}
@@ -1061,11 +1224,6 @@ export class UserManager {
                 targetUsername: target.username,
                 changes: changedFields
             })
-
-            // IF-1: 仅当角色/状态实际变更时吊销（只改 full_name/email 等资料不吊销，避免过度失效）
-            if (filteredUpdates.role || filteredUpdates.status) {
-                await this.revokeUserSessions(userId, 'admin_update_user', actor)
-            }
 
             console.log(`✅ 管理员已更新用户 ${userId}`)
 
