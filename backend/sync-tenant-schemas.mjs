@@ -36,6 +36,7 @@ import {
   provisionSchool, parseDbUrl, buildBaselineProof, baselineTenantFromProof,
   readTenantMigrationLedger, migrationClassificationRegistry, buildTenantProjection, chainManifest as _chain,
   listTenantMigrationLocks, readTenantMigrationLock, forceReleaseTenantMigrationLock, sqlExecutorInFlight,
+  resolveBaselineSchoolTarget,
 } from './lib/tenantProvisioner.js'
 import { ensureFieldOptionSeeds } from './lib/fieldOptionService.js'
 
@@ -133,52 +134,91 @@ try {
     exitCode = EXIT_SYNC_FAILED
   } else if (BASELINE_PLAN_CODE) {
     // ── 离线受控 baseline：**只读**证明计划（结构+默认值+约束+索引+未知对象+数据语义）──
-    const code = BASELINE_PLAN_CODE
-    const schema = `school_${String(code).replace(/-/g, '_')}`
-    const proof = await buildBaselineProof({ prisma, schema })
-    const ledgerInfo = await readTenantMigrationLedger(prisma, schema)
-    const plan = {
-      kind: 'tenant-baseline-plan', at: new Date().toISOString(), school: code, schema,
-      ledgerExists: ledgerInfo.exists, ledgerRows: ledgerInfo.rows.length,
-      proofOk: proof.ok, proofDigest: proof.proofDigest, counts: proof.counts,
-      checks: proof.checks,
-      instructions: [
-        '人工核对下列不通过项并按 REPAIR_RUNBOOK.md 修复（或备份后经审批重建 schema）。',
-        '修复后重新生成计划：node backend/sync-tenant-schemas.mjs --baseline-plan <code>',
-        '证明全部通过且摘要一致后：node backend/sync-tenant-schemas.mjs --baseline-apply <code> --evidence <plan.json>',
-      ],
+    // B2：位置参数必须是**经校验的 School.code**（schema 形态 / 未知 code / staging 一律拒绝）。
+    const target = await resolveBaselineSchoolTarget({ prisma, raw: BASELINE_PLAN_CODE })
+    if (!target.ok) {
+      console.error(`❌ --baseline-plan 目标不合法：${target.reason}`)
+      console.error(`   ${target.hint}`)
+      exitCode = EXIT_SYNC_FAILED
+    } else {
+      const { code, schema } = target
+      // B1：缺契约表时**仍产出完整计划**（proofOk=false + 明确的不通过项），不崩溃、不写任何东西。
+      const proof = await buildBaselineProof({ prisma, schema })
+      const ledgerInfo = await readTenantMigrationLedger(prisma, schema)
+      const plan = {
+        kind: 'tenant-baseline-plan', at: new Date().toISOString(), school: code, schema,
+        ledgerExists: ledgerInfo.exists, ledgerRows: ledgerInfo.rows.length,
+        proofOk: proof.ok, proofDigest: proof.proofDigest, counts: proof.counts,
+        checks: proof.checks,
+        instructions: [
+          '人工核对下列不通过项并按 REPAIR_RUNBOOK.md 修复（或备份后经审批重建 schema）。',
+          `修复后重新生成计划：node backend/sync-tenant-schemas.mjs --baseline-plan ${code}`,
+          `证明全部通过且摘要一致后：node backend/sync-tenant-schemas.mjs --baseline-apply ${code} --evidence <plan.json>`,
+        ],
+      }
+      const outPath = argAfter('--out') || null
+      if (outPath) { fs.writeFileSync(outPath, JSON.stringify(plan, null, 2)); console.log(`计划已写入 ${outPath}`) }
+      console.log(`—— baseline 证明：${schema}（school.code=${code}；ledger=${ledgerInfo.exists ? `${ledgerInfo.rows.length} 行` : '缺失'}）——`)
+      for (const c of proof.checks) console.log(`  ${c.ok ? '✅' : '❌'} ${c.id}${c.detail ? ` — ${c.detail}` : ''}`)
+      console.log(`  proofDigest=${String(proof.proofDigest).slice(0, 24)}…  counts=${JSON.stringify(proof.counts)}`)
+      if (proof.ok) { console.log('✅ 证明通过：可执行 --baseline-apply（人工动作；不执行迁移 SQL、不改结构/数据）'); exitCode = EXIT_OK }
+      else { console.error('❌ 证明未通过：按上面不通过项修复后再行（当前状态**不得**记 baseline）'); exitCode = EXIT_SYNC_FAILED }
     }
-    const outPath = argAfter('--out') || null
-    if (outPath) { fs.writeFileSync(outPath, JSON.stringify(plan, null, 2)); console.log(`计划已写入 ${outPath}`) }
-    console.log(`—— baseline 证明：${schema}（ledger=${ledgerInfo.exists ? `${ledgerInfo.rows.length} 行` : '缺失'}）——`)
-    for (const c of proof.checks) console.log(`  ${c.ok ? '✅' : '❌'} ${c.id}${c.detail ? ` — ${c.detail}` : ''}`)
-    console.log(`  proofDigest=${String(proof.proofDigest).slice(0, 24)}…  counts=${JSON.stringify(proof.counts)}`)
-    if (proof.ok) { console.log('✅ 证明通过：可执行 --baseline-apply（人工动作；不执行迁移 SQL、不改结构/数据）'); exitCode = EXIT_OK }
-    else { console.error('❌ 证明未通过：按上面不通过项修复后再行（当前状态**不得**记 baseline）'); exitCode = EXIT_SYNC_FAILED }
   } else if (BASELINE_APPLY_CODE) {
     // ── 离线受控 baseline：**显式人工动作**（要求证明文件；现场重算且摘要一致才落台账）──
-    const code = BASELINE_APPLY_CODE
-    const schema = `school_${String(code).replace(/-/g, '_')}`
-    if (!EVIDENCE_PATH || !fs.existsSync(EVIDENCE_PATH)) {
-      console.error('❌ --baseline-apply 需要 --evidence <plan.json>（由 --baseline-plan 生成）→ 拒绝（fail-closed）')
-      process.exit(EXIT_SYNC_FAILED)
+    const target = await resolveBaselineSchoolTarget({ prisma, raw: BASELINE_APPLY_CODE })
+    if (!target.ok) {
+      console.error(`❌ --baseline-apply 目标不合法：${target.reason}`)
+      console.error(`   ${target.hint}`)
+      exitCode = EXIT_SYNC_FAILED
+    } else {
+      const { code, schema } = target
+      if (!EVIDENCE_PATH || !fs.existsSync(EVIDENCE_PATH)) {
+        console.error('❌ --baseline-apply 需要 --evidence <plan.json>（由 --baseline-plan 生成）→ 拒绝（fail-closed）')
+        exitCode = EXIT_SYNC_FAILED
+      } else {
+        let plan = null
+        try {
+          plan = JSON.parse(fs.readFileSync(EVIDENCE_PATH, 'utf8'))
+        } catch (e) {
+          console.error(`❌ 计划文件无法解析（${EVIDENCE_PATH}）：${String(e.message).slice(0, 160)} → 拒绝`)
+        }
+        // 计划门禁：来源/目标一致 + **证明必须通过且摘要齐备**（不通过或过期的计划不得落台账）
+        if (!plan) {
+          exitCode = EXIT_SYNC_FAILED
+        } else if (plan.kind !== 'tenant-baseline-plan' || plan.schema !== schema || (plan.school != null && plan.school !== code)) {
+          console.error(`❌ 计划文件与目标不匹配（kind=${plan.kind} school=${plan.school} schema=${plan.schema}；目标 school=${code} schema=${schema}）→ 拒绝`)
+          exitCode = EXIT_SYNC_FAILED
+        } else if (plan.proofOk !== true || !plan.proofDigest) {
+          console.error('❌ 计划为"证明未通过"（proofOk=false）或缺少 proofDigest → 拒绝记 baseline（须先修复后重新生成计划）')
+          exitCode = EXIT_SYNC_FAILED
+        } else {
+          // 现场重算：不通过或摘要不一致（计划过期/结构已漂移）→ 拒绝
+          const live = await buildBaselineProof({ prisma, schema })
+          if (!live.ok) {
+            console.error('❌ 现场证明未通过（结构与数据语义未达标）→ 拒绝记 baseline')
+            for (const c of live.checks.filter((c) => !c.ok)) console.error(`   ❌ ${c.id} — ${c.detail}`)
+            exitCode = EXIT_SYNC_FAILED
+          } else if (live.proofDigest !== plan.proofDigest) {
+            console.error('❌ 计划已过期（现场摘要与计划摘要不一致）→ 拒绝记 baseline；请重新生成计划')
+            exitCode = EXIT_SYNC_FAILED
+          } else {
+            const conn = parseDbUrl(String(process.env.DATABASE_URL).split('?')[0])
+            if (!conn) { console.error('❌ DATABASE_URL 解析失败'); exitCode = EXIT_CONFIG_MISSING } else {
+              // R6 ④：**先证明、后写台账**（不再预先建台账）；证明与全链写入在同一把迁移锁 + 同一事务内完成，
+              // **提交前**失败 → 整体回滚（不会留下半套 baselined）；**提交后**复证失败 → 已提交（不可回滚）→ 标记 failed 待人工复核。
+              const r = await baselineTenantFromProof({ prisma, conn, schema, expectedProofDigest: plan.proofDigest, log: (m) => console.log(m) })
+              console.log(`✅ 离线 baseline 完成：${schema}（${r.baselined.length} 条 baselined；proof=${String(r.proofDigest).slice(0, 16)}…；指纹=${String(r.fingerprint).slice(0, 12)}…；postcheck=${r.postcheck}；锁=${r.lockOwner}#${r.fencingToken}）`)
+              console.log('   语义：**提交前**（会话互斥 + 事务内结构指纹 + 前置断言）任一步失败 → 整体回滚、台账零写入；')
+              console.log('        **提交后**复证通过 → 才把非终态 baseline_pending **提升**为 baselined（唯一放开阻断的写入）；')
+              console.log('        复证失败或提升失败 → 台账已提交（不可回滚）且保持非终态 → 该校按 TENANT_MIGRATIONS_PENDING 持续阻断（与失败留痕是否写入无关）。')
+              console.log('   后续：`--check` 复核；结构演进仍走版本化链（本条只声明"当前结构与链末一致"）。')
+              exitCode = EXIT_OK
+            }
+          }
+        }
+      }
     }
-    const plan = JSON.parse(fs.readFileSync(EVIDENCE_PATH, 'utf8'))
-    if (plan.kind !== 'tenant-baseline-plan' || plan.schema !== schema) {
-      console.error(`❌ 计划文件与目标不匹配（kind=${plan.kind} schema=${plan.schema}）→ 拒绝`)
-      process.exit(EXIT_SYNC_FAILED)
-    }
-    const conn = parseDbUrl(String(process.env.DATABASE_URL).split('?')[0])
-    if (!conn) { console.error('❌ DATABASE_URL 解析失败'); process.exit(EXIT_CONFIG_MISSING) }
-    // R6 ④：**先证明、后写台账**（不再预先建台账）；证明与全链写入在同一把迁移锁 + 同一事务内完成，
-    // **提交前**失败 → 整体回滚（不会留下半套 baselined）；**提交后**复证失败 → 已提交（不可回滚）→ 标记 failed 待人工复核。
-    const r = await baselineTenantFromProof({ prisma, conn, schema, expectedProofDigest: plan.proofDigest, log: (m) => console.log(m) })
-    console.log(`✅ 离线 baseline 完成：${schema}（${r.baselined.length} 条 baselined；proof=${String(r.proofDigest).slice(0, 16)}…；指纹=${String(r.fingerprint).slice(0, 12)}…；postcheck=${r.postcheck}；锁=${r.lockOwner}#${r.fencingToken}）`)
-    console.log('   语义：**提交前**（会话互斥 + 事务内结构指纹 + 前置断言）任一步失败 → 整体回滚、台账零写入；')
-    console.log('        **提交后**复证通过 → 才把非终态 baseline_pending **提升**为 baselined（唯一放开阻断的写入）；')
-    console.log('        复证失败或提升失败 → 台账已提交（不可回滚）且保持非终态 → 该校按 TENANT_MIGRATIONS_PENDING 持续阻断（与失败留痕是否写入无关）。')
-    console.log('   后续：`--check` 复核；结构演进仍走版本化链（本条只声明"当前结构与链末一致"）。')
-    exitCode = EXIT_OK
   } else if (FORCE_UNLOCK_CODE) {
     // ── 人工清除崩溃锁（R6 ③ 通道；R7 ② 改为 owner+fencing **CAS**）──
     const code = FORCE_UNLOCK_CODE

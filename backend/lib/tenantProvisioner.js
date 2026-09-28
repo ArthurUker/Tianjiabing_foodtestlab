@@ -1064,6 +1064,108 @@ export async function structureFingerprint({ prisma, schema }) {
   return rows[0]?.fp ?? null
 }
 
+// ───────────────────────── 学校标识解析 / baseline 目标校验（B2） ─────────────────────────
+
+/**
+ * 恢复流程的**临时 staging schema** 判据（与 restoreService 的 `<target>_stg_<token>` 命名一致）。
+ *
+ * staging schema 不是"可接入的正式学校"：它没有可执行的正式学校命令，
+ * 也不得对其记 baseline（应先修复可复用的源 schema 或使用新备份重建）。
+ */
+export function isRestoreStagingSchema(schema) {
+  const s = String(schema || '')
+  return /_stg_/.test(s) || /_restore$/.test(s)
+}
+
+/** 由 schema 反推学校 code（`school_a_b` → `a-b`）；非 `school_` 形态返回 null。 */
+export function schoolCodeFromSchema(schema) {
+  const s = String(schema || '')
+  if (!/^school_/.test(s)) return null
+  const code = s.slice('school_'.length).replace(/_/g, '-')
+  return code || null
+}
+
+/** staging schema 的固定指引（不给出无法执行的正式学校命令）。 */
+export const BASELINE_STAGING_GUIDANCE =
+  '该 schema 是恢复流程的临时 staging schema：不存在可执行的正式学校命令，也不得对其记 baseline；' +
+  '请先修复**可复用的源 schema**（或使用新备份重建），再对正式学校走受控接入。'
+
+/**
+ * 解析 `--baseline-plan` / `--baseline-apply` 的位置参数（B2）。
+ *
+ * 契约：**只接受 `School.code`**（如 `zhsy`）；schema 形态（`school_zhsy`）必须被明确拒绝，
+ * 不得再派生出 `school_school_zhsy` 这类无效目标。
+ *
+ * @returns {{ok:true, code:string, schema:string} | {ok:false, code:string|null, reason:string, hint:string}}
+ */
+export function interpretBaselineTargetArg(raw) {
+  const arg = String(raw ?? '').trim()
+  if (!arg) {
+    return { ok: false, code: null, reason: '缺少学校标识', hint: '用法：--baseline-plan <School.code>（示例：--baseline-plan zhsy）' }
+  }
+  const lower = arg.toLowerCase()
+  if (isRestoreStagingSchema(lower)) {
+    return { ok: false, code: null, reason: `"${arg}" 是恢复流程的临时 staging schema 标识`, hint: BASELINE_STAGING_GUIDANCE }
+  }
+  if (/^school_/.test(lower)) {
+    return {
+      ok: false, code: null,
+      reason: `"${arg}" 是 schema 名（school_<code>），不是学校代码（School.code）`,
+      hint: '参数必须是 School.code：`--baseline-plan zhsy` 才寻址 schema `school_zhsy`；传 schema 名会被拒绝（否则会派生出 school_school_zhsy）。',
+    }
+  }
+  const schema = schemaNameOf(lower)
+  if (!schema) {
+    return { ok: false, code: null, reason: `非法学校代码 "${arg}"`, hint: '学校代码仅允许字母/数字/连字符（示例：zhsy、school-a）' }
+  }
+  if (isRestoreStagingSchema(schema)) {
+    return { ok: false, code: null, reason: `"${arg}" 派生出的 schema（${schema}）是临时 staging schema`, hint: BASELINE_STAGING_GUIDANCE }
+  }
+  return { ok: true, code: lower, schema }
+}
+
+/**
+ * 校验 baseline 目标：**参数 → School.code → 派生 schema** 三者一致（B2）。
+ * 只接受可复用源的正式学校；staging schema / 已删除学校 / schema 形态参数一律拒绝。
+ */
+export async function resolveBaselineSchoolTarget({ prisma, raw }) {
+  const parsed = interpretBaselineTargetArg(raw)
+  if (!parsed.ok) return parsed
+  const row = await prisma.school
+    .findUnique({ where: { code: parsed.code }, select: { code: true, status: true } })
+    .catch(() => null)
+  if (!row) {
+    return {
+      ok: false, code: parsed.code,
+      reason: `public."School" 中不存在 code=${parsed.code} 的学校（或已被删除/回收）`,
+      hint: '--baseline-plan/--baseline-apply 只接受可复用源的正式学校；已删除学校请以新备份重建。',
+    }
+  }
+  const schema = schemaNameOf(row.code)
+  if (!schema || schema !== parsed.schema) {
+    return {
+      ok: false, code: row.code,
+      reason: `School.code=${row.code} 与其派生 schema 不一致（期望 ${parsed.schema}）`,
+      hint: '请核对 School.code 与 schema 命名（`school_<code>`，`-`→`_`）。',
+    }
+  }
+  if (isRestoreStagingSchema(schema)) {
+    return { ok: false, code: row.code, reason: `School.code=${row.code} 派生出临时 staging schema（${schema}）`, hint: BASELINE_STAGING_GUIDANCE }
+  }
+  return { ok: true, code: row.code, schema, status: row.status }
+}
+
+/**
+ * fail-closed 的受控接入提示（B2 修复）：使用**经校验的 School.code**，
+ * staging schema 则给出 staging 指引（绝不给出无法执行的正式学校命令）。
+ */
+export function baselineAdmissionGuidance(schema, { schoolCode = null } = {}) {
+  if (isRestoreStagingSchema(schema)) return `受控接入路径：${BASELINE_STAGING_GUIDANCE}`
+  const code = schoolCode || schoolCodeFromSchema(schema) || '<School.code>'
+  return `受控接入路径：① \`node backend/sync-tenant-schemas.mjs --baseline-plan ${code}\` 生成离线证明计划（结构+默认值+约束+索引+未知对象+数据语义）；` +
+    `② 人工按计划 repair（或备份后按 runbook 重建）；③ 证明通过后用 \`--baseline-apply ${code} --evidence <plan.json>\` 记录 baseline。`
+}
+
 // ───────────────────────── 离线受控 baseline 的完整证明（R5 ②） ─────────────────────────
 
 /**
@@ -1076,6 +1178,13 @@ export async function structureFingerprint({ prisma, schema }) {
  *   ⑤ 触发器/函数/物化视图/未归属序列 → 任何"未知对象"都必须为零（否则人工分类）；
  *   ⑥ 额外对象（表/列/索引/约束双向差集）→ 必须为零；
  *   ⑦ 数据语义：NOT NULL 列无 NULL；外键无孤儿；唯一索引无重复。
+ * B1/B3 硬化（本函数只读、永不建对象）：
+ *   · 缺契约表 → `tables.contract.present=false`；其上的 NOT NULL / 外键 / 唯一索引扫描
+ *     **不查询不存在的表**，改记"未扫描/未证明"并令 `data.semantics=false`（不得算通过）；
+ *   · 索引有效性：`indisvalid/indisready` 任一为假 → `indexes.valid=false`（无效索引不维护唯一性）；
+ *   · 唯一索引按真实语义检查：默认 NULLS DISTINCT（含 NULL 的键组不构成冲突）、
+ *     `NULLS NOT DISTINCT`（PG15+）纳入 NULL、部分索引按谓词限定、表达式索引按键表达式；
+ *     键表达式不可读 / 扫描失败 → 记"未证明"（fail-closed）。
  * @returns {Promise<{ok:boolean, checks:Array<{id:string,ok:boolean,detail:string}>, proofDigest:string, counts:object}>}
  */
 export async function buildBaselineProof({ prisma, schema, referenceSchema = 'public' }) {
@@ -1116,17 +1225,36 @@ export async function buildBaselineProof({ prisma, schema, referenceSchema = 'pu
   push('constraints.validated', unvalidated.length === 0, `未验证（NOT VALID）约束 ${unvalidated.length}${unvalidated.length ? `；例：${unvalidated[0]}` : ''}`)
 
   // ③ 全部索引（唯一 + 非唯一）
+  // B3：数据语义扫描需要**真实索引语义**（键表达式/谓词/NULLS 语义/有效性），
+  //     因此这里一次性取回目录事实（结构比较仍按规范化定义，语义不变）。
+  const pgNum = Number((await prisma.$queryRawUnsafe(`SELECT current_setting('server_version_num')::int AS v`))[0]?.v || 0)
+  const nullsNotDistinctExpr = pgNum >= 150000 ? 'i.indnullsnotdistinct' : 'false::boolean'
   const loadIdx = async (sch) => prisma.$queryRawUnsafe(
-    `SELECT t.relname AS table_name, i.indisunique AS is_unique, pg_get_indexdef(i.indexrelid) AS def
+    `SELECT t.relname AS table_name,
+            i.indexrelid::regclass::text AS index_name,
+            i.indisunique AS is_unique,
+            i.indisvalid AS is_valid,
+            i.indisready AS is_ready,
+            ${nullsNotDistinctExpr} AS nulls_not_distinct,
+            pg_get_expr(i.indpred, i.indrelid) AS predicate,
+            (SELECT array_agg(pg_get_indexdef(i.indexrelid, k.k, false) ORDER BY k.k)
+               FROM generate_series(1, i.indnkeyatts) AS k(k)) AS keys,
+            pg_get_indexdef(i.indexrelid) AS def
        FROM pg_index i JOIN pg_class t ON t.oid = i.indrelid JOIN pg_namespace n ON n.oid = t.relnamespace
       WHERE n.nspname = $1::text AND t.relname = ANY($2::text[])`, sch, tables)
   const idxKey = (i) => `${i.table_name}|u=${i.is_unique}|${normalizeConstraintDef(i.def)}`
   const refIdxSet = new Set((await loadIdx(referenceSchema)).map(idxKey))
-  const curIdxSet = new Set((await loadIdx(schema)).map(idxKey))
+  const curIdxRows = await loadIdx(schema)
+  const curIdxSet = new Set(curIdxRows.map(idxKey))
   const missingIdx = [...refIdxSet].filter((x) => !curIdxSet.has(x))
   const extraIdx = [...curIdxSet].filter((x) => !refIdxSet.has(x))
   push('indexes.all', missingIdx.length === 0 && extraIdx.length === 0,
     `缺失 ${missingIdx.length}，额外 ${extraIdx.length}${missingIdx.length ? `；例：${missingIdx[0]}` : ''}${extraIdx.length ? `；例：${extraIdx[0]}` : ''}`)
+
+  // ③b 索引有效性（B3）：定义相同但**无效/未就绪**的索引不维护唯一性 → 不算证明通过
+  const invalidIdx = curIdxRows.filter((i) => !i.is_valid || !i.is_ready)
+  push('indexes.valid', invalidIdx.length === 0,
+    `无效/未就绪索引 ${invalidIdx.length}${invalidIdx.length ? `：${invalidIdx.slice(0, 4).map((i) => i.index_name).join(', ')}` : ''}`)
 
   // ④ 未知对象（视图/物化视图/触发器/函数/未归属于本 schema 表的序列）
   const loadUnknown = async (sch) => prisma.$queryRawUnsafe(
@@ -1143,43 +1271,80 @@ export async function buildBaselineProof({ prisma, schema, referenceSchema = 'pu
   const unknowns = await loadUnknown(schema)
   push('no.unknown.objects', unknowns.length === 0, `未知对象 ${unknowns.length}${unknowns.length ? `；例：${unknowns.slice(0, 4).map((u) => `${u.kind}:${u.name}`).join(', ')}` : ''}`)
 
-  // ⑤ 额外表（非契约表；台账/白名单除外）
+  // ⑤ 表集合：缺失契约表（B1）与额外表（台账/白名单除外）
   const tenantTables = (await prisma.$queryRawUnsafe(
     `SELECT table_name FROM information_schema.tables WHERE table_schema = $1::text AND table_type='BASE TABLE'`, schema))
     .map((t) => t.table_name)
+  const presentTables = new Set(tenantTables)
+  const missingTables = tables.filter((t) => !presentTables.has(t))
+  push('tables.contract.present', missingTables.length === 0,
+    `缺失契约表 ${missingTables.length}${missingTables.length ? `：${missingTables.slice(0, 6).join(', ')}` : ''}`)
   const extraTables = tenantTables.filter((t) => !expected.tables.has(t) && !TENANT_LEDGER_WHITELIST.has(t))
   push('no.extra.tables', extraTables.length === 0, `额外表 ${extraTables.length}${extraTables.length ? `：${extraTables.slice(0, 6).join(', ')}` : ''}`)
 
-  // ⑥ 数据语义（只读扫描；失败即"未证明"）
+  // ⑥ 数据语义（只读扫描；**缺失表/无法证明一律记不通过，绝不跳过算通过**）
   const dataChecks = []
-  const notNullCols = refCols.filter((c) => c.is_nullable === 'NO')
-  for (const c of notNullCols.slice(0, 60)) {
-    const rows = await prisma.$queryRawUnsafe(
-      `SELECT count(*)::int AS n FROM "${schema}"."${c.table_name}" WHERE "${c.column_name}" IS NULL`)
-    if (Number(rows[0]?.n) > 0) dataChecks.push(`NOT NULL 列含 NULL: ${c.table_name}.${c.column_name}(${rows[0].n})`)
+  const notProven = []
+  const presentCols = new Set(curCols.map((c) => `${c.table_name}.${c.column_name}`))
+  try {
+    const notNullCols = refCols.filter((c) => c.is_nullable === 'NO')
+    for (const c of notNullCols.slice(0, 60)) {
+      if (!presentTables.has(c.table_name)) { notProven.push(`NOT NULL未扫描:${c.table_name}`); continue }
+      if (!presentCols.has(`${c.table_name}.${c.column_name}`)) { notProven.push(`NOT NULL未扫描:${c.table_name}.${c.column_name}(列缺失)`); continue }
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT count(*)::int AS n FROM "${schema}"."${c.table_name}" WHERE "${c.column_name}" IS NULL`)
+      if (Number(rows[0]?.n) > 0) dataChecks.push(`NOT NULL 列含 NULL: ${c.table_name}.${c.column_name}(${rows[0].n})`)
+    }
+    for (const fk of refCons.filter((c) => c.contype === 'f').slice(0, 40)) {
+      const m = String(fk.def).match(/FOREIGN KEY \(([^)]+)\) REFERENCES (?:[^.\s"]+\.)?"?([A-Za-z_][A-Za-z0-9_]*)"?\(([^)]+)\)/i)
+      if (!m) continue
+      const [, childCols, parentTable, parentCols] = m
+      if (!presentTables.has(fk.table_name) || !presentTables.has(parentTable)) {
+        notProven.push(`外键未扫描:${fk.table_name}→${parentTable}`); continue
+      }
+      const child = childCols.split(',').map((s) => s.trim().replace(/"/g, ''))
+      const parent = parentCols.split(',').map((s) => s.trim().replace(/"/g, ''))
+      if (child.some((cc) => !presentCols.has(`${fk.table_name}.${cc}`)) || parent.some((pc) => !presentCols.has(`${parentTable}.${pc}`))) {
+        notProven.push(`外键未扫描:${fk.table_name}→${parentTable}(列缺失)`); continue
+      }
+      const join = child.map((cc, i) => `c."${cc}" = p."${parent[i]}"`).join(' AND ')
+      const notNull = child.map((cc) => `c."${cc}" IS NOT NULL`).join(' AND ')
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT count(*)::int AS n FROM "${schema}"."${fk.table_name}" c
+          LEFT JOIN "${schema}"."${parentTable}" p ON ${join}
+          WHERE ${notNull} AND p."${parent[0]}" IS NULL`)
+      if (Number(rows[0]?.n) > 0) dataChecks.push(`外键孤儿: ${fk.table_name}→${parentTable}(${rows[0].n})`)
+    }
+    // 唯一索引：按**真实 PostgreSQL 语义**检查（B3）——
+    //   · 默认 NULLS DISTINCT：任一键列为 NULL 的组不构成冲突（不得报重复）；
+    //   · NULLS NOT DISTINCT（PG15+）：NULL 视为相等，必须纳入检查；
+    //   · 部分索引：只在谓词命中行内检查；表达式索引：按目录中的键表达式检查；
+    //   · 无效/未就绪索引、键表达式不可读、扫描失败 → 记为"未证明"（fail-closed，不算通过）。
+    const uniqIdx = curIdxRows.filter((i) => i.is_unique)
+    for (const idx of uniqIdx.slice(0, 40)) {
+      if (!presentTables.has(idx.table_name)) { notProven.push(`唯一索引未扫描:${idx.index_name}(表缺失)`); continue }
+      if (!idx.is_valid || !idx.is_ready) { notProven.push(`唯一索引未扫描:${idx.index_name}(无效/未就绪)`); continue }
+      const keyExprs = Array.isArray(idx.keys) ? idx.keys.map((k) => String(k ?? '').trim()) : []
+      if (!keyExprs.length || keyExprs.some((k) => !k)) { notProven.push(`唯一索引未扫描:${idx.index_name}(键表达式不可读)`); continue }
+      const keyNotNull = keyExprs.map((k) => `(${k}) IS NOT NULL`).join(' AND ')
+      const whereSql = [idx.nulls_not_distinct ? 'TRUE' : keyNotNull, idx.predicate ? `(${idx.predicate})` : 'TRUE'].join(' AND ')
+      const dupSql =
+        `SELECT count(*)::int AS n FROM (SELECT 1 FROM "${schema}"."${idx.table_name}" ` +
+        `WHERE ${whereSql} GROUP BY ${keyExprs.join(', ')} HAVING count(*) > 1) d`
+      let rows
+      try {
+        rows = await prisma.$queryRawUnsafe(dupSql)
+      } catch (e) {
+        notProven.push(`唯一索引无法证明:${idx.index_name}(${redactSecrets(e.message).slice(0, 80)})`); continue
+      }
+      if (Number(rows[0]?.n) > 0) dataChecks.push(`唯一索引重复值: ${idx.table_name}(${keyExprs.join(',')})`)
+    }
+  } catch (e) {
+    // 扫描异常 = 未证明（fail-closed；绝不当成通过）
+    dataChecks.push(`数据语义扫描异常（未证明）: ${redactSecrets(e.message).slice(0, 120)}`)
   }
-  for (const fk of refCons.filter((c) => c.contype === 'f').slice(0, 40)) {
-    const m = String(fk.def).match(/FOREIGN KEY \(([^)]+)\) REFERENCES (?:[^.\s"]+\.)?"?([A-Za-z_][A-Za-z0-9_]*)"?\(([^)]+)\)/i)
-    if (!m) continue
-    const [, childCols, parentTable, parentCols] = m
-    const child = childCols.split(',').map((s) => s.trim().replace(/"/g, ''))
-    const parent = parentCols.split(',').map((s) => s.trim().replace(/"/g, ''))
-    const join = child.map((cc, i) => `c."${cc}" = p."${parent[i]}"`).join(' AND ')
-    const notNull = child.map((cc) => `c."${cc}" IS NOT NULL`).join(' AND ')
-    const rows = await prisma.$queryRawUnsafe(
-      `SELECT count(*)::int AS n FROM "${schema}"."${fk.table_name}" c
-        LEFT JOIN "${schema}"."${parentTable}" p ON ${join}
-        WHERE ${notNull} AND p."${parent[0]}" IS NULL`)
-    if (Number(rows[0]?.n) > 0) dataChecks.push(`外键孤儿: ${fk.table_name}→${parentTable}(${rows[0].n})`)
-  }
-  const uniqIdx = (await loadIdx(schema)).filter((i) => i.is_unique)
-  for (const idx of uniqIdx.slice(0, 40)) {
-    const cols = (String(idx.def).match(/\(([^)]*)\)/) || [])[1]
-    if (!cols || /\(|\)/.test(cols.replace(/"/g, ''))) continue   // 表达式索引跳过（结构比较已覆盖）
-    const colList = cols.split(',').map((s) => s.trim().replace(/"/g, ''))
-    const rows = await prisma.$queryRawUnsafe(
-      `SELECT count(*)::int AS n FROM (SELECT 1 FROM "${schema}"."${idx.table_name}" GROUP BY ${colList.map((c) => `"${c}"`).join(', ')} HAVING count(*) > 1) d`)
-    if (Number(rows[0]?.n) > 0) dataChecks.push(`唯一索引重复值: ${idx.table_name}(${colList.join(',')})`)
+  if (notProven.length) {
+    dataChecks.push(`未扫描/未证明 ${notProven.length} 项（不通过）：${notProven.slice(0, 3).join('；')}`)
   }
   push('data.semantics', dataChecks.length === 0, `数据级问题 ${dataChecks.length}${dataChecks.length ? `；${dataChecks.slice(0, 3).join(' | ')}` : ''}`)
 
@@ -1412,11 +1577,12 @@ export async function ensureTenantLedger({ conn, schema, log = () => {}, guardSq
  *   · 失败：记台账 `failed`（脱敏原因）并上抛；不自动重试（`retryFailed` 显式）。
  *
  * @param {{prisma:object, conn:object, schema:string, chainFiles:Array<{name:string,file?:string,checksum:string,sql?:string}>,
- *          retryFailed?:boolean, log?:Function, lock?:boolean, lockOwner?:string, staleLockMs?:number}} opts
+ *          retryFailed?:boolean, log?:Function, lock?:boolean, lockOwner?:string, staleLockMs?:number,
+ *          schoolCode?:string|null}} opts  `schoolCode` 仅用于 fail-closed 提示中的**正式学校命令**（B2）
  */
 export async function applyTenantChain({
   prisma, conn, schema, chainFiles, retryFailed = false, log = () => {},
-  lock = true, lockOwner = `pid-${process.pid}`, staleLockMs = 30 * 60 * 1000,
+  lock = true, lockOwner = `pid-${process.pid}`, staleLockMs = 30 * 60 * 1000, schoolCode = null,
 }) {
   assertSafeSchemaName(schema)
   if (!Array.isArray(chainFiles) || !chainFiles.length) throw new Error('迁移链为空：拒绝在无版本化来源时修改租户结构（RC-04）')
@@ -1465,8 +1631,8 @@ export async function applyTenantChain({
         const err = new Error(
           `${schema}: 台账缺失且存在既有结构 → 无法证明历史迁移状态，拒绝写入（RC-04 fail-closed）。` +
           `见证（仅诊断，不作为 baseline 依据）：${state.holds.map((h) => `${h.name.slice(0, 14)}=${h.holds ? '1' : '0'}`).join(' ')}。` +
-          `受控接入路径：① \`node backend/sync-tenant-schemas.mjs --baseline-plan ${schema}\` 生成离线证明计划（结构+默认值+约束+索引+未知对象+数据语义）；` +
-          `② 人工按计划 repair（或备份后按 runbook 重建）；③ 证明通过后用 \`--baseline-apply --evidence <plan.json>\` 记录 baseline。` +
+          // B2：提示必须使用**经校验的 School.code**（不是 schema 名）；staging schema 给 staging 指引。
+          baselineAdmissionGuidance(schema, { schoolCode }) +
           `不得 db push / 不盲目 resolve / 不由引擎自动 baseline。`)
         err.code = 'TENANT_MIGRATION_STATE_UNPROVABLE'
         err.schema = schema
@@ -1630,11 +1796,11 @@ export async function recordTenantFailureRow({ prisma, conn, schema, name, sql, 
  * 生产入口：以**真实链文件**（`prisma/migrations/*`）调用引擎。
  * @param {{prisma:object, conn:object, schema:string, retryFailed?:boolean, log?:Function}} opts
  */
-export async function applyTenantMigrations({ prisma, conn, schema, retryFailed = false, log = () => {} }) {
+export async function applyTenantMigrations({ prisma, conn, schema, retryFailed = false, log = () => {}, schoolCode = null }) {
   const chainFiles = listMigrationFiles().map((f) => ({
     name: f.name, file: f.file, checksum: crypto.createHash('sha256').update(fs.readFileSync(f.file)).digest('hex'),
   }))
-  return applyTenantChain({ prisma, conn, schema, chainFiles, retryFailed, log })
+  return applyTenantChain({ prisma, conn, schema, chainFiles, retryFailed, log, schoolCode })
 }
 
 export function normalizeConstraintDef(def) {
@@ -1814,6 +1980,7 @@ export async function provisionSchool({
     prisma, conn, schema,
     retryFailed: acceptDataLossOpt === true, // 历史签名兼容：显式 true 视为"允许重试失败迁移"
     log: (m) => log(`  [${schema}] ${m}`),
+    schoolCode: code, // B2：fail-closed 提示使用正式 School.code
   })
   log(`✅ ${schema} 迁移台账推进完成（status=${migration.status}；baselined=${migration.baselined.length} applied=${migration.applied.length} pending=${migration.pending.length}）`)
 
@@ -1963,6 +2130,8 @@ export async function alignTenantSchema({ code, schema, log = console.log, accep
       prisma: client, conn, schema: targetSchema,
       retryFailed: retryFailedOpt === true,
       log: (m) => log(`  [${targetSchema}] ${m}`),
+      // B2：显式给了 code（正式学校）才作为提示依据；影子恢复的 staging schema 不带 code
+      schoolCode: code || null,
     })
     log(`✅ ${targetSchema} 迁移台账推进完成（status=${r.status}；baselined=${r.baselined.length} applied=${r.applied.length} pending=${r.pending.length}）`)
     return targetSchema
