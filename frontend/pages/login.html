@@ -229,10 +229,78 @@
             font: inherit;
             color: #6b7280;
             cursor: pointer;
+            white-space: nowrap;
             text-decoration: underline dotted;
             text-underline-offset: 3px;
         }
         .friendly-links__bar-more:hover { color: #2563eb; }
+
+        /* 全部友情链接弹层（条数超出底栏直显上限时由「全部 N 条」打开）。
+           为什么用弹层：登录页是"门面"，链接再多也不能把登录卡下方撑成一大段文字；
+           弹层内滚动展示全部（按分组），登录页本体始终只占一行。 */
+        body.fl-all-open { overflow: hidden; }
+        .fl-all-mask {
+            position: fixed;
+            inset: 0;
+            z-index: 9998;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px 16px;
+            background: rgba(15, 23, 42, 0.45);
+            backdrop-filter: blur(3px);
+            -webkit-backdrop-filter: blur(3px);
+        }
+        .fl-all-panel {
+            display: flex;
+            flex-direction: column;
+            width: min(100%, 460px);
+            max-height: min(78vh, 640px);
+            background: #fff;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 24px 60px rgba(15, 23, 42, 0.3);
+        }
+        .fl-all-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 14px 18px;
+            border-bottom: 1px solid #eef2f7;
+        }
+        .fl-all-title { display: flex; align-items: center; font-size: 15px; font-weight: 600; color: #1f2937; }
+        .fl-all-title i { margin-right: 8px; color: #2563eb; }
+        .fl-all-close { border: 0; background: none; padding: 0 2px; font-size: 20px; line-height: 1; color: #9ca3af; cursor: pointer; }
+        .fl-all-close:hover { color: #4b5563; }
+        .fl-all-body { flex: 1; overflow-y: auto; padding: 6px 6px 12px; }
+        .fl-all-group { padding: 10px 12px 4px; font-size: 11.5px; color: #9ca3af; letter-spacing: 0.04em; }
+        .fl-all-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            text-decoration: none;
+            color: inherit;
+            transition: background 0.15s ease;
+        }
+        .fl-all-item:hover { background: #f1f5f9; }
+        .fl-all-item .fl-icon {
+            flex: 0 0 32px;
+            width: 32px;
+            height: 32px;
+            border-radius: 9px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #eff6ff;
+            color: #2563eb;
+            font-size: 14px;
+        }
+        .fl-all-item .fl-name { font-size: 13.5px; color: #1f2937; }
+        .fl-all-item .fl-desc { margin-top: 2px; font-size: 12px; color: #6b7280; line-height: 1.5; overflow-wrap: anywhere; }
+        .fl-all-foot { padding: 10px 18px; border-top: 1px solid #eef2f7; font-size: 11.5px; color: #9ca3af; }
     </style>
 </head>
 <body>

@@ -580,6 +580,7 @@ if (guestEnterBtn) {
             url: url,
             description: String(raw.description || ''),
             icon: String(raw.icon || '').trim(),
+            groupName: String(raw.groupName || '').trim(),
             openInNewTab: raw.openInNewTab !== false,
         };
     }
@@ -622,9 +623,21 @@ if (guestEnterBtn) {
         return a;
     }
 
+    /** 底栏内的单个链接（名称纯文本写入，不拼 innerHTML）。 */
+    function buildBarItem(item) {
+        const a = document.createElement('a');
+        a.href = item.url;
+        applyTarget(a, item);
+        a.title = item.description || item.name;
+        a.textContent = item.name;
+        bindVisit(a, item.id);
+        return a;
+    }
+
     /**
      * 多条：合并为**一条底栏**（统一「友情链接」标签 + 竖线分隔的名称列表）。
-     * 名称过长时自然换行、不截断；超过 MAX_VISIBLE 条折叠为「+N」，点击就地展开。
+     * 名称过长时自然换行、不截断；直显前 MAX_VISIBLE 条，其余**不在页面上就地展开**
+     * （展开 20 条会把登录卡下方撑成一大段文字），改由「全部 N 条」打开弹层承接。
      */
     function buildBar(items) {
         const bar = document.createElement('div');
@@ -640,34 +653,117 @@ if (guestEnterBtn) {
 
         const box = document.createElement('span');
         box.className = 'friendly-links__bar-items';
-
-        function paint(expanded) {
-            box.textContent = '';
-            const shown = expanded ? items : items.slice(0, MAX_VISIBLE);
-            shown.forEach(function (item) {
-                const a = document.createElement('a');
-                a.href = item.url;
-                applyTarget(a, item);
-                a.title = item.description || item.name;
-                a.textContent = item.name;   // 纯文本写入（不拼 innerHTML）
-                bindVisit(a, item.id);
-                box.appendChild(a);
-            });
-            if (!expanded && items.length > MAX_VISIBLE) {
-                const more = document.createElement('button');
-                more.type = 'button';
-                more.className = 'friendly-links__bar-more';
-                more.textContent = '+' + (items.length - MAX_VISIBLE);
-                more.title = '展开全部友情链接';
-                more.addEventListener('click', function () { paint(true); });
-                box.appendChild(more);
-            }
+        items.slice(0, MAX_VISIBLE).forEach(function (item) { box.appendChild(buildBarItem(item)); });
+        if (items.length > MAX_VISIBLE) {
+            const more = document.createElement('button');
+            more.type = 'button';
+            more.className = 'friendly-links__bar-more';
+            more.textContent = '全部 ' + items.length + ' 条';
+            more.title = '查看全部友情链接';
+            more.addEventListener('click', function () { openAllLinks(items); });
+            box.appendChild(more);
         }
-        paint(false);
 
         bar.appendChild(label);
         bar.appendChild(box);
         return bar;
+    }
+
+    /**
+     * 全部友情链接弹层：按分组（groupName）分区，逐条展示图标 + 名称 + 描述，内容区可滚动。
+     * 关闭：遮罩点击 / ✕ / Esc；打开时锁滚动并聚焦关闭按钮，关闭后焦点还原（可访问性）。
+     */
+    function openAllLinks(items) {
+        const prevFocus = document.activeElement;
+        const mask = document.createElement('div');
+        mask.className = 'fl-all-mask';
+
+        const panel = document.createElement('div');
+        panel.className = 'fl-all-panel';
+        panel.setAttribute('role', 'dialog');
+        panel.setAttribute('aria-modal', 'true');
+        panel.setAttribute('aria-label', '全部友情链接');
+
+        const head = document.createElement('div');
+        head.className = 'fl-all-head';
+        const title = document.createElement('div');
+        title.className = 'fl-all-title';
+        const titleIcon = document.createElement('i');
+        titleIcon.className = DEFAULT_ICON;
+        titleIcon.setAttribute('aria-hidden', 'true');
+        title.appendChild(titleIcon);
+        title.appendChild(document.createTextNode('友情链接'));
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'fl-all-close';
+        closeBtn.textContent = '×';
+        closeBtn.setAttribute('aria-label', '关闭');
+        head.appendChild(title);
+        head.appendChild(closeBtn);
+
+        const body = document.createElement('div');
+        body.className = 'fl-all-body';
+        let lastGroup = null;
+        items.forEach(function (item) {
+            if (item.groupName && item.groupName !== lastGroup) {
+                const gh = document.createElement('div');
+                gh.className = 'fl-all-group';
+                gh.textContent = item.groupName;   // 分组名同样纯文本
+                body.appendChild(gh);
+            }
+            if (item.groupName) lastGroup = item.groupName;
+
+            const a = document.createElement('a');
+            a.className = 'fl-all-item';
+            a.href = item.url;
+            applyTarget(a, item);
+            const iconWrap = document.createElement('span');
+            iconWrap.className = 'fl-icon';
+            const icon = document.createElement('i');
+            icon.className = (ICON_RE.test(item.icon) ? item.icon : DEFAULT_ICON);
+            icon.setAttribute('aria-hidden', 'true');
+            iconWrap.appendChild(icon);
+            const meta = document.createElement('span');
+            const name = document.createElement('span');
+            name.className = 'fl-name';
+            name.textContent = item.name;
+            meta.appendChild(name);
+            if (item.description) {
+                const desc = document.createElement('span');
+                desc.className = 'fl-desc';
+                desc.textContent = item.description;
+                meta.appendChild(desc);
+            }
+            a.appendChild(iconWrap);
+            a.appendChild(meta);
+            bindVisit(a, item.id);
+            body.appendChild(a);
+        });
+
+        const foot = document.createElement('div');
+        foot.className = 'fl-all-foot';
+        foot.textContent = '共 ' + items.length + ' 个链接';
+
+        panel.appendChild(head);
+        panel.appendChild(body);
+        panel.appendChild(foot);
+        mask.appendChild(panel);
+
+        function closeModal() {
+            document.removeEventListener('keydown', onKey);
+            document.body.classList.remove('fl-all-open');
+            mask.remove();
+            try { if (prevFocus && prevFocus.focus) prevFocus.focus(); } catch (e) { /* 焦点还原失败忽略 */ }
+        }
+        function onKey(ev) { if (ev.key === 'Escape') closeModal(); }
+
+        closeBtn.addEventListener('click', closeModal);
+        mask.addEventListener('click', function (ev) { if (ev.target === mask) closeModal(); });
+        document.addEventListener('keydown', onKey);
+
+        document.body.classList.add('fl-all-open');
+        document.body.appendChild(mask);
+        try { closeBtn.focus(); } catch (e) { /* 聚焦失败忽略 */ }
     }
 
     fetch('/api/public/friendly-links', { headers: { Accept: 'application/json' } })
