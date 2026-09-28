@@ -1,85 +1,101 @@
 // tests/integration/pg-bootstrap.js
 //
-// 并发竞态集成测试的 PostgreSQL 引导模块。
-// 负责：解析连接串 / 创建多租户 schema / 建表 / 写入可区分的种子行。
-// 真实 PostgreSQL 才能复现 search_path 事务级隔离与连接池竞态，故本模块只用于
-// 需要 live PG 的集成测试（jest 默认单测套件不会加载本文件）。
+// P3-W0-T02A-R1 — 门禁化 PG/Prisma 引导（连接来源仅来自共享门禁）。
+//
+// 与 T02A 初版的区别（闭合复审 R1）：
+//   * Prisma 业务连接也在**同一 interactive transaction client** 上先做共享只读核验，再执行
+//     业务 SELECT/INSERT；不再让 pg Client 的验证结果给 Prisma 连接作担保。
+//   * 不复制校验规则：Prisma tx 经薄适配（`$queryRawUnsafe` → `{rows}`）调用同一
+//     `verifyRuntimeIdentity`；不修改生产模块、仍使用真实 `createTenantClient`。
+//   * 登记改用结构化任务行键（`createRegistry(cfg).addTaskRow`），清理只按登记项。
 
 import pg from 'pg'
-import { resolveSchemaName } from '../../backend/lib/tenantClient.js'
-const { Pool } = pg
+import { resolveSchemaName, createTenantClient } from '../../backend/lib/tenantClient.js'
+import gate from '../helpers/db-isolation.js'
 
-// 测试用租户学校代码。真实 schema 名由生产的 resolveSchemaName 推导（school_<code>），
-// 确保测试与生产走同一套命名逻辑（单一事实源）。
-export const TENANTS = ['school-a', 'school-b', 'school-c']
+const { Client } = pg
 
-// 学校代码 → 真实 schema 名（复用生产逻辑）
+/** 学校代码 → 真实 schema 名（复用生产逻辑）。 */
 export const schemaOf = (code) => resolveSchemaName(code)
 
-export function getDatabaseUrl() {
-  // 允许通过环境变量注入真实连接串；缺省使用本机 brew 安装的 PG 默认参数
-  return (
-    process.env.DATABASE_URL ||
-    'postgresql://postgres:postgres@127.0.0.1:5432/foodsentinel_test'
-  )
+/** 读取并校验隔离配置（连接前；失败抛错 → 不建立任何连接）。 */
+export function loadIsolationConfig() {
+  return gate.assertIsolationConfigOrThrow(process.env)
 }
 
-export function createPool() {
-  return new Pool({ connectionString: getDatabaseUrl() })
+/** 由任务 runId 派生租户 code 与 schema（与门禁契约同源）。 */
+export function tenantCodesFor(cfg) {
+  const derived = gate.derivedNamespace(cfg.runId)
+  return { ...derived.tenants, schemas: { ...derived.schemas } }
 }
 
-// 在数据库内建立测试用的多租户结构：
-//   public.messages  +  school-a.messages / school-b.messages / school-c.messages
-// 每个 schema 的 messages 表含 tenant_tag 列，用于断言"某次查询只返回本租户数据"。
-export async function bootstrapTenants(pool) {
-  const client = await pool.connect()
-  try {
-    await client.query('CREATE SCHEMA IF NOT EXISTS public')
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS public.messages (
-        id serial PRIMARY KEY,
-        tenant_tag text NOT NULL,
-        body text NOT NULL
-      )
-    `)
+/** 一致性断言：门禁派生 schema 必须与生产 resolveSchemaName 完全一致（单一事实源的交叉核对）。 */
+export function assertSchemaDerivationMatches(cfg) {
+  const derived = gate.derivedNamespace(cfg.runId)
+  const mismatches = []
+  for (const slot of Object.keys(derived.schemas)) {
+    const viaProduction = resolveSchemaName(derived.tenants[slot])
+    if (viaProduction !== derived.schemas[slot]) mismatches.push({ slot, viaProduction, derived: derived.schemas[slot] })
+  }
+  if (mismatches.length > 0) throw new Error(`[SCHEMA_DERIVATION_MISMATCH] ${JSON.stringify(mismatches)}`)
+  return true
+}
 
-    for (const t of TENANTS) {
-      const schema = schemaOf(t)
-      await client.query(`CREATE SCHEMA IF NOT EXISTS "${schema}"`)
-      await client.query(`
-        CREATE TABLE IF NOT EXISTS "${schema}".messages (
-          id serial PRIMARY KEY,
-          tenant_tag text NOT NULL,
-          body text NOT NULL
-        )
-      `)
-      // 清空后写入「仅属于该租户」的可区分行，便于泄露检测
-      await client.query(`TRUNCATE TABLE "${schema}".messages`)
-      await client.query(
-        `INSERT INTO "${schema}".messages (tenant_tag, body) VALUES ($1, $2)`,
-        [t, `data-of-${t}`]
-      )
-    }
-    // public 也放一行，确保「回落到 public」的查询不会误命中租户数据
-    await client.query('TRUNCATE TABLE public.messages')
-    await client.query(
-      'INSERT INTO public.messages (tenant_tag, body) VALUES ($1, $2)',
-      ['public', 'data-of-public']
-    )
-  } finally {
-    client.release()
+/**
+ * 受控受限角色 pg 连接：连接后**先**在**同一连接**上做只读身份核验（含 expectedSchema）。
+ * 校验与后续操作绑定同一连接。
+ */
+export async function connectAsRestricted(cfg, expectedSchema = 'public') {
+  const { client, verified } = await gate.connectGuarded(cfg, { Client, expectedSchema })
+  return { client, verified }
+}
+
+/** Prisma transaction client 的薄适配（仅接口转换，不含任何校验规则）。 */
+export function prismaTxAsQueryClient(tx) {
+  return {
+    async query(sql, params = []) {
+      const rows = await tx.$queryRawUnsafe(sql, ...(Array.isArray(params) ? params : [params]))
+      return { rows: Array.isArray(rows) ? rows : [] }
+    },
   }
 }
 
-// 彻底清理测试结构（测试套件结束后调用）
-export async function teardownTenants(pool) {
-  const client = await pool.connect()
-  try {
-    for (const t of TENANTS) {
-      await client.query(`DROP SCHEMA IF EXISTS "${schemaOf(t)}" CASCADE`)
-    }
-    await client.query('DROP TABLE IF EXISTS public.messages')
-  } finally {
-    client.release()
+/**
+ * 在**新的事务**上：先共享核验，再执行业务（同一 transaction client）。
+ *
+ * R2 强化：
+ *   * **前置拒绝（在创建客户端/事务之前）**：当前 DATABASE_URL 必须等于冻结 cfg.url；tenantCode 必须在
+ *     runId 派生集合内；`opts.expectedSchema` **不能**把目标关系改写为越界对象（不接受覆写）。
+ *   * 每次调用都重新核验（不以缓存结果跨物理连接放行）。
+ *   * `opts.hooks` 仅用于测试计数（clientFactory / transaction / businessCallback），默认无副作用。
+ */
+export async function withVerifiedTenantTx(basePrisma, cfg, tenantCode, fn, opts = {}) {
+  const hooks = opts.hooks || {}
+  if (opts.expectedSchema !== undefined && opts.expectedSchema !== null) {
+    throw new Error('[EXPECTED_SCHEMA_OVERRIDE_FORBIDDEN] expectedSchema is derived from the tenant code and cannot be overridden by callers')
   }
+  // ── 前置检查（在 createTenantClient / transaction 之前）──
+  const pre = gate.assertTargetAllowed(cfg, { tenantCode, expectedSchema: null, url: process.env.DATABASE_URL })
+  const expectedSchema = pre.expectedSchema
+  if (hooks.beforeFactory) await hooks.beforeFactory()
+  const db = createTenantClient(basePrisma, tenantCode)
+  if (hooks.afterFactory) await hooks.afterFactory()
+  return db.$transaction(async (tx) => {
+    if (hooks.afterTransactionStart) await hooks.afterTransactionStart(tx) // 传真实 tx（测试可用于在真实事务内改写 search_path 等）
+    const adapter = prismaTxAsQueryClient(tx)
+    await gate.verifyRuntimeIdentity(adapter, cfg, { expectedSchema })
+    if (hooks.beforeBusiness) await hooks.beforeBusiness()
+    const result = await fn(tx, expectedSchema)
+    if (hooks.afterBusiness) await hooks.afterBusiness()
+    return result
+  }, { timeout: opts.timeout || 30000 })
 }
+
+/** 供测试断言"前置关系"的可读错误码集合。 */
+export const TARGET_REFUSAL_CODES = ['TARGET_URL_DRIFT', 'TARGET_CODE_NOT_ALLOWED', 'SCHEMA_NOT_ALLOWED']
+
+/** 由结构化登记表清理任务行（只清登记项）。 */
+export const createRegistry = (cfg) => gate.createRegistry(cfg)
+export const cleanupRegistered = gate.cleanupRegistered
+export const settleAll = gate.settleAll
+export const verifyRuntimeIdentity = gate.verifyRuntimeIdentity
