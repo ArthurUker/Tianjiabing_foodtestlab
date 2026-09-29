@@ -369,3 +369,36 @@ SRV-101/102/103/104/105 路由级反例 · SRV-128/135 隔离验证 · SRV-111/1
 **补齐计划（本轮不做修复）**：R8-A 覆盖矩阵 + `backend/lib` 剩余/`UserManager`/middleware → R8-B **全部 17 个 migration SQL** → R8-C `frontend/js/modules` 45 个 + `utils` 21 个（按"写入路径/统计口径/XSS sink/离线队列"四类专项扫）→ R8-D 测试体系 111 个（专查假绿：skip/only、弱断言、mock 掉真实依赖）→ R8-E scripts/deploy/html/css/jest 配置 → R8-F **R7 的 40 条候选逐条回读复核**（转为 CONFIRMED / REJECTED / 下调）。
 
 **诚实结论口径（建议固定使用）**："全仓 **100% 被扫过（候选级）**、**X% 逐行坐实**"，而非笼统的"已审完"。
+
+### R8 执行结果 · 全量深审完成（2026-09-29）— **新登记 SRV-241 … SRV-352**
+
+执行方式：11 路并行只读探查（后端 lib a–l / lib m–z + modules / middleware + 根文件 / 17 个迁移 SQL / 前端模块前半 / 后半 / core+services+utils+html+css / backend/tests / 根 tests+配置 / scripts+deploy / R7 候选复核），全部结论已回读源码坐实行号。**本轮仍不做任何修复。**
+
+**覆盖率（R8 后，按逐文件标签，总数 308）**：① 逐行坐实 **37（12%）**；② 候选级扫过 **266（86%）**；③ 未触达 **5（2%）**——仅 `frontend/vendor/**` 第三方压缩产物。标签已逐文件回填至 `R8_FILE_INVENTORY_20260929.md`。
+
+**总数**：新增 **P0×1、P1×14、P2×58、P3×39**；另有 7 条与既有条目重复已合并（SRV-211/214/217/228/232/235 等）。**R8-F 复核 R7 的 40 条候选 → CONFIRMED 23 / DOWNGRADED 17 / REJECTED 0**，无一条升级为 P0；并纠偏 4 处行号/引用漂移（SRV-203 的 668/693 与 1179 引用有误；SRV-233/225 路径补全；SRV-240③ 证实 `tests/frontend` 目录不存在）。
+
+**P0/P1 速查（完整证据见 `R8_FULL_DEEP_AUDIT_20260929.md`）**：
+
+| ID | 级别 | 结论 | 关键位置 |
+| --- | --- | --- | --- |
+| SRV-231 | **P0** | 餐具/病原体存储型 XSS 全链成立（写入只清键不清值 + 渲染直拼 `innerHTML`） | `frontend/js/modules/Tableware.js:971-999,1646-1695`、`Pathogen.js:783-786,1399-1402`、`backend/lib/sanitize.js:7-16` |
+| SRV-241 | P1 | `BACKUP_KEEP_DAYS=0/负值` 静默改 7 天，清理照常删备份（含 meta） | `backend/lib/backupService.js:66-69,671,682` |
+| SRV-262 | P1 | 租户就绪门禁可被请求体 `schoolCode` 旁路 | `backend/server.js:314-320,361-369` |
+| SRV-274 | P1 | 租户回放裸名 + `public` 兜底 × `DROP` 无 `IF EXISTS`（可波及 public） | `backend/lib/tenantProvisioner.js:1717`、`20260814000000/migration.sql:8-15` |
+| SRV-275 | P1 | `20260814040000` 扫全库改所有非 public schema（含回滚点/回收站），坏行即全平台阻断 | `20260814040000_json_fields_to_jsonb/migration.sql:40-52` |
+| SRV-277 | P1 | M1 的 `CHECK ... NOT VALID` 对新写入立即生效 → 发布窗口审计写入失败 | `20260927130000_lifecycle_audit_principal_expand/migration.sql:64-70` |
+| SRV-278 | P1 | M2 大批量回填塞进迁移、残量硬 RAISE、`SET NOT NULL` 不可逆 | `20260927140000_lifecycle_audit_principal_enforce/migration.sql:39-47,100-111` |
+| SRV-296 | P1 | 测试任务面板重复 `id` → 结论与证据错位（追加式写入不可撤回） | `frontend/js/modules/adminSchools/views/testReports/tasksView.js:276,281-283,298-302` |
+| SRV-297 | P1 | 切校 `await` 后未校验当前学校 → 跨校定制串写并 PUT 到错校 | `adminSchools/views/schoolDetailView.js:62-64`、`customization/loadSave.js:25-26,46` |
+| SRV-308 | P1 | 仅持 guest_token 的访客会话 60 秒后被强制登出 | `frontend/js/core/Router.js:429-432,516-517`、`main.js:154-155` |
+| SRV-319 | P1 | 关键回归用例被条件断言包住 → 字段被删时"自动通过" | `backend/tests/http/openapi-http.integration.test.mjs:415-421` |
+| SRV-331 | P1 | `npm test` 串行把 unit 面绑死在真库门禁上 → 缺配环境 28 个 unit 文件 0 执行 | `package.json:8`、`jest.db.config.cjs:16-22`、`tests/helpers/db-isolation-setup.cjs:14-27` |
+| SRV-332 | P1 | 大量套件不在 `npm test` 内（integration/isolation/backend/cypress）；`tests/frontend` 目录不存在 | `jest.config.cjs:33` 等 |
+| SRV-333 | P1 | 仓库没有任何会跑测试的 CI（唯一 workflow 只查 `deploy/**` diff） | `.github/workflows/guard-client-branch.yml` |
+| SRV-343 | P1 | PG 数据目录迁移在复制失败时仍 `rm -rf` 原目录 | `deploy/deploy.sh:88-92` |
+| SRV-344 | P1 | 两段发布 b1 在仓库根跑 `migrate deploy` 且默认服务名错 → 入口不可用 | `backend/scripts/b-release-two-phase.sh:40,56-58,72` |
+
+**待证实（10 项，须隔离环境实测，不得据此定级）**：越界写链(SRV-247)・表名注入可控性(SRV-258)・fail-soft 回落 public(SRV-273)・写屏障是否被 `?school=` 兜住(SRV-263)・端口直连可达性(SRV-264/266)・`CREATE TABLE IF NOT EXISTS` 在 public 已有同名表时租户侧是否仍建表・PG14 `SET NOT NULL` 是否免扫・"租户缺 `Backup` 且该迁移仍 pending"组合・各 XSS 触发字段文本自由度・测试并发度。
+
+**边界**：全部为静态审查，动态结论未做运行时验证；未改产品源码/数据库/服务；不含任何口令、连接串、token、API Key、`BACKUP_MASTER_KEY` 或真实个人信息。
