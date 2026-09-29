@@ -229,3 +229,43 @@
 **汇总裁决**：13 条 = **12 属实 + 1 部分属实，0 证伪**；SRV-124–136 **全部脱离"待验证"状态**（但证据级别仅为静态/替身）。建议下一轮用隔离栈补：SRV-127、SRV-135 的最小反例，以及第 1 轮遗留的 SRV-111/110/106 与 SRV-137 反例。
 
 **本轮 NOT_RUN**：SRV-102/103/104/105 最小反例；SRV-127/135 隔离复现；SRV-111/110/106、SRV-137 反例；ONLINE_CHECKS 项 4/5（事故后仍未重做）；发布脚本沙盒实跑；`.env` `EACCES` 观察项定位。
+
+### R6 · 第 3 轮（隔离实例动态复证；详见 `R6_VERIFICATION_ROUND3_20260929.md`）
+
+**开工状态（09-29 10:18）**：本地 `e964544` / 远端 `4f6bcf1`（多 1 文档提交）· 工作区 clean · 服务 `MainPID=1673914` 启动于 09-28 16:45:51 未重启 · `find backend -newermt` 无改动 ⇒ **运行后端代码 = 工作区**（前端另有 2 个提交，由 Caddy 服务）· **另一窗口活跃**（`FETCH_HEAD` mtime 10:18:21）。`readyz=200` 不作为冻结基线。
+
+#### G0（硬门禁）— **定位完成，并修正上一轮的观察项**
+
+- `Schema Env Error` 字符串**只来自 Prisma 自身运行时**（`@prisma/client/runtime/library.js`、`prisma/build/index.js`），**非项目代码**。
+- 项目代码内 `/opt/foodsentinel` 命中**全部是注释中的运行示例**；`envFilePath` 仅 `lib/jwtSecretResolve.js:26,39,48,51` 的定义，**无调用方**。
+- **决定性证据**：`node_modules/.prisma/client/index.js` 内嵌生成时的绝对路径 `/opt/foodsentinel/backend/prisma/schema.prisma`（及 `/opt/foodsentinel/backend/node_modules/`）。
+- **根因**：上一轮把隔离副本的 `backend/node_modules` 做成了**指向生产的软链** → Prisma 按内嵌 schema 路径在生产目录做 `.env` 发现 → 读 `/opt/foodsentinel/backend/.env` → EACCES。**属隔离搭建不彻底，非产品缺陷**（并被"权限恰好拒绝"掩盖）。
+- **新增隔离成立判据**：`grep -ao "/opt/foodsentinel[^\"']*" <副本>/backend/node_modules/.prisma/client/index.js` **必须为空**；`node_modules` 必须**复制**（或在副本内 `prisma generate`）；另需专用 DB 角色（`REVOKE CONNECT … FROM <role>`）、`server.js:598` 为全接口绑定故需显式回环绑定。
+
+#### G1 / G2 / G3 — **NOT_RUN**（技术原因，非"结论为假"）
+
+未完成隔离搭建（复制 `node_modules` + 隔离 client + 专用角色 + 回环绑定）→ 不满足"写操作前证明目标非生产库"的前置条件，故**未执行任何动态测试、未产生任何指向生产库的写操作**。各配方已写入报告 §2 供下一轮直接复用。
+
+#### G3 的**结构性下调**（本轮可确定的结论）
+
+- 代码：`tenantProvisioner.js:1258`（`curIdxRows` 完整）· `:1266-1268`（`indexes.valid` **无上限**）· `:1257-1263`（`indexes.all` **无上限**）· `:1335`（仅数据级重复扫描 `slice(0,40)`）。
+- 论证：**有效（`indisvalid && indisready`）的唯一索引在 PostgreSQL 中不可能存在重复值**；要产生重复必先使索引无效或改其定义/谓词，而这两类均被**无上限**的 `indexes.valid` / `indexes.all` 捕获。
+- 裁决：**SRV-137 由 P2 下调为 P3（潜在/代码异味）**，保留"截断余量不计入 `notProven`"的代码缺陷描述。SRV-108 维持 P3。
+
+#### 重新定级
+
+| ID | 本轮定级 | 说明 |
+| --- | --- | --- |
+| **SRV-137** | **↓ P3** | 结构性下调（见上） |
+| SRV-111 | **P1 维持** | 仍为静态；本轮 **NOT_RUN**（无隔离 HTTP 证据） |
+| SRV-110 | **P2 维持** | 同上；"闸门绕过"与"业务越权"须分开裁定 |
+| SRV-106 | **P2 维持** | 同上；不得仅凭 Session 行状态判定 |
+
+#### 本轮 NOT_RUN 汇总
+
+G1（SRV-111）、G2（SRV-110 / SRV-106 / SRV-107 负例）、G3 的动态反例、SRV-101–105 路由级反例、SRV-127/128/135 隔离验证、发布脚本沙盒实跑、ONLINE_CHECKS 项 4/5。
+
+#### SRV-121 / SRV-114 验收条件（供后续修复轮）
+
+- **SRV-121/122**：隔离副本中"旧进程运行期新增迁移"不得再影响运行实例；真实 pending/failed/checksum 不一致/结构漂移/额外对象**仍须 503**（不得退化为告警放行）；发布脚本 b1/b2 沙盒 rc=0 且失败即中止；恢复路径明确且有记录。
+- **SRV-114**：合成在用校（`x-old-2` ⇒ `school_xsyn_old_2`）不进入待删清单；真实旧备份点仍可清理；`--dry-run` 输出判定依据（OID/台账/在用性）；保留窗口不被误删。
