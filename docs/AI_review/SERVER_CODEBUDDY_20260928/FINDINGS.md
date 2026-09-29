@@ -269,3 +269,42 @@ G1（SRV-111）、G2（SRV-110 / SRV-106 / SRV-107 负例）、G3 的动态反�
 
 - **SRV-121/122**：隔离副本中"旧进程运行期新增迁移"不得再影响运行实例；真实 pending/failed/checksum 不一致/结构漂移/额外对象**仍须 503**（不得退化为告警放行）；发布脚本 b1/b2 沙盒 rc=0 且失败即中止；恢复路径明确且有记录。
 - **SRV-114**：合成在用校（`x-old-2` ⇒ `school_xsyn_old_2`）不进入待删清单；真实旧备份点仍可清理；`--dry-run` 输出判定依据（OID/台账/在用性）；保留窗口不被误删。
+
+### R6 · 第 4 轮（离线可判项 + G0 结论修正；详见 `R6_VERIFICATION_ROUND4_20260929.md`）
+
+**开工**：本地=远端=`e212621`（**无 R4 计划文件**）· 工作区 clean · 服务 PID 1673914 未重启 · 另一窗口 `FETCH_HEAD` mtime 10:32:46（活跃）。本轮**未连任何数据库、未建隔离环境、未在生产工作区写文件**。
+
+#### S1 · SRV-109 已实跑坐实（offline，零连库）
+
+脚本 `:38` 先 `cd "$REPO_ROOT"`，故"仓库根"即其真实 cwd；在不设 `DATABASE_URL` 下直接执行它要执行的两条命令：
+
+| 步骤 | 前置事实 | 实际 | rc |
+| --- | --- | --- | --- |
+| b1-① 仓库根 `prisma migrate deploy`（= 脚本 `:58`） | `ls -d prisma` → 不存在；`grep -c '"prisma"' package.json` → **0** | `Error: Could not find Prisma Schema …`（`schema.prisma` / `prisma/schema.prisma` 均 file not found） | **rc=1** |
+| b1-② `006_audit_principal_gate.mjs`（= `gate_pass` 第 2 条，`:50`） | 脚本内**无任何 `.env` 加载** | `需要 DATABASE_URL（只读门禁）` | **rc=2** |
+
+⇒ b1 段两处必然失败；**SRV-109 维持 P2**（发布通道不可用）。
+
+#### S2 · SRV-127 已坐实分叉，但**需业务定性**
+
+- 导出 `frontend/js/services/ExportService.js:997`：`const baseQualified = (r.result?.includes('合格') && !r.result?.includes('不合格')) || r.colorLevel === '合格';`
+- 后端/看板同源 `backend/lib/conclusionVerdict.js:31` + `frontend/js/core/conclusionVerdict.js:17,41,58-60`：`OIL_COLOR_PASS = {合格, 警戒}` → 警戒 = PASS。
+- ⇒ 油品 `colorLevel='警戒'` 且 `result` 为空：**导出计不合格、看板计合格**。
+- ⚠️ 导出侧 `:994-996` 有**明文业务裁定**（"2026-07-02业务方裁定：仅'合格'计为合格……请勿改为宽松匹配"）⇒ **两侧均有背书，属口径未统一**，处置应为"业务裁决 + 单点收敛"，**不得**直接改导出表达式。
+- 餐具 `atpPoints` 回退差异：**NOT_RUN**（未逐行排除上游分支）。
+
+#### 🔧 修正第 3 轮 G0 结论（重要）
+
+在生产目录、真实 `node_modules`、ubuntu 用户下执行 `006` **再次复现**同一 EACCES；而 `006` **既不 import dotenv 也不读 `.env`** ⇒ 读取由 **Prisma 运行时**触发，路径 = schema 父目录（`backend/prisma/schema.prisma` → `backend/.env`）。
+
+1. 该 EACCES 是 **Prisma 在本仓的固有行为**，与软链无关，**被 Prisma 静默忽略**（非致命）。
+2. 第 3 轮配方**不充分**：**复制 `node_modules` 不够**——生成客户端内嵌的仍是生产 schema 绝对路径，Prisma 仍会去生产目录找 `.env`。
+3. **修正后要求**：隔离副本必须**在副本内 `prisma generate`**；隔离成立判据升级为"内嵌路径必须不含 `/opt/foodsentinel`"；并**不得**把"生产 `.env` 恰好不可读"当隔离保证。
+
+#### 本轮 NOT_RUN
+
+SRV-101/102/103/104/105 路由级反例 · SRV-128/135 隔离验证 · SRV-111/110/106/107 · 发布脚本端到端沙盒（本轮只覆盖 b1 段两处失败点） · 餐具 `atpPoints` 子项 · ONLINE_CHECKS 项 4/5。
+
+#### 定级
+
+**SRV-109 P2 维持（已坐实）** · **SRV-127 P2 维持（已坐实分叉，需业务定性）** · SRV-137 P3（第 3 轮下调）· SRV-111/110/106 维持 P1/P2/P2 且仍 NOT_RUN。
