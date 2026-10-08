@@ -1,0 +1,307 @@
+{
+  "plan_status": "PLAN_READY",
+  "date": "2026-10-08",
+  "timezone": "Asia/Shanghai",
+  "repository_path": "/Users/renkang/VS Code/Tianjiabing_foodtestlab",
+  "baseline_sha": "d708db8718906db3c71b9364a6a719237ecf0a3e",
+  "branch": "Product_tencent_CVM",
+  "intake_git_status": "CLEAN_BEFORE_PLAN_ARTIFACTS",
+  "baseline_enumeration": "git ls-files -z; paths sorted; worktree content SHA-256; generated plan files are not part of the baseline",
+  "baseline_file_count": 460,
+  "all_inventory_review_states": "UNREVIEWED",
+  "all_dynamic_states": "NOT_RUN",
+  "top_level_counts": {
+    ".github": 1,
+    ".vscode": 1,
+    "[root]": 14,
+    "backend": 204,
+    "cypress": 4,
+    "deploy": 6,
+    "docs": 52,
+    "frontend": 111,
+    "scripts": 12,
+    "tests": 55
+  },
+  "category_counts": {
+    "AUTHORED_CODE": 160,
+    "AUTHORED_STYLE": 5,
+    "BUILD_DEPLOY_OR_OPS_SCRIPT": 38,
+    "CONFIGURATION": 19,
+    "DATABASE_MIGRATION": 17,
+    "DATABASE_MODEL_OR_SQL": 3,
+    "DEPENDENCY_LOCK": 2,
+    "DOCUMENTATION": 57,
+    "GENERATED_RESOURCE": 1,
+    "HTML_TEMPLATE": 6,
+    "TEST_AND_FIXTURE": 138,
+    "THIRD_PARTY_RESOURCE": 14
+  },
+  "primary_package_counts": {
+    "WP00": 52,
+    "WP01": 5,
+    "WP02": 17,
+    "WP03": 10,
+    "WP04": 10,
+    "WP05": 14,
+    "WP06": 13,
+    "WP07": 17,
+    "WP08": 25,
+    "WP09": 36,
+    "WP10": 16,
+    "WP11": 8,
+    "WP12": 22,
+    "WP13": 143,
+    "WP14": 51,
+    "WP15": 21
+  },
+  "package_ids": [
+    "WP00",
+    "WP01",
+    "WP02",
+    "WP03",
+    "WP04",
+    "WP05",
+    "WP06",
+    "WP07",
+    "WP08",
+    "WP09",
+    "WP10",
+    "WP11",
+    "WP12",
+    "WP13",
+    "WP14",
+    "WP15"
+  ],
+  "code_shape": {
+    "route_files": 18,
+    "prisma_models": 23,
+    "migration_sql_files": 17,
+    "backend_test_directory_files": 79,
+    "backend_runner_static_entry_files": 49,
+    "frontend_html_files": 6
+  },
+  "filesystem_name_check": {
+    "roots": [
+      "backend",
+      "frontend",
+      "scripts",
+      "deploy",
+      "tests",
+      "cypress",
+      ".github"
+    ],
+    "untracked_nonignored_files_before_plan": 0,
+    "additional_codelike_paths_after_exclusions": 0,
+    "excluded_names": [
+      ".git",
+      "node_modules",
+      "dist",
+      "dist.tmp",
+      "dist.old",
+      "build",
+      "coverage",
+      "pgsql",
+      ".cache",
+      "tmp",
+      "temp",
+      "backups",
+      "uploads",
+      ".export-jobs",
+      ".npm",
+      ".codebuddy",
+      ".ssh",
+      "screenshots"
+    ],
+    "note": "Path inventory only; no credentials or runtime data inspected; root/docs ignored files and server filesystem not certified"
+  },
+  "depth_semantics": {
+    "FULL_CONTENT_AND_CALL_CHAIN": "planned full semantic reading and crosschecking; metadata enumeration is not completion",
+    "PROVENANCE_VERSION_LICENSE_AND_USAGE": "specialized review for third-party resources, separate denominator",
+    "GENERATION_REPRODUCIBILITY_AND_USAGE": "generated resource specialized review, separate denominator",
+    "DEPENDENCY_GRAPH_INTEGRITY_AND_LIFECYCLE": "dependency lock specialized review, no install authorization",
+    "DOCUMENT_CONTRACT_HISTORY_AND_OPERATIONAL_SAFETY": "documentation and historical context, not source-code deep-reading percentage"
+  },
+  "planning_actions_performed": [
+    "Read-only repository structure and key-entry survey",
+    "Historical audit asset reconciliation",
+    "Tracked-file metadata/hash census",
+    "New planning artifacts only"
+  ],
+  "not_performed": [
+    "Application tests",
+    "Application start/import execution",
+    "Build",
+    "Dependency install",
+    "Database connection or migration",
+    "Browser/product acceptance",
+    "Production access",
+    "Product-code changes",
+    "Git stage/commit/push",
+    "Messages to external parties"
+  ],
+  "coverage_file_sha256": "305b149bdf17e78ff6047455c5a1c95a7e8d709b04a06b8515af7d8ad03e4c26",
+  "drift_policy": "Re-freeze before execution; register added/deleted/changed files with SHA and coverage delta; do not reuse current denominator or dynamic PASS across versions",
+  "planned_deliverables": [
+    "README.md",
+    "REVIEW_PLAN.md",
+    "WORK_PACKAGES.md",
+    "EXECUTOR_PROMPTS.md",
+    "coverage-plan.tsv",
+    "baseline-manifest.json"
+  ],
+  "package_capacity": {
+    "WP00": {
+      "primary_files": 52,
+      "full_content_files": 0,
+      "full_content_text_lines": 0,
+      "specialized_files": 52,
+      "dynamic_scenario_count": "TBD_AT_P0"
+    },
+    "WP01": {
+      "primary_files": 5,
+      "full_content_files": 5,
+      "full_content_text_lines": 1414,
+      "specialized_files": 0,
+      "dynamic_scenario_count": "TBD_AT_P0"
+    },
+    "WP02": {
+      "primary_files": 17,
+      "full_content_files": 17,
+      "full_content_text_lines": 7901,
+      "specialized_files": 0,
+      "dynamic_scenario_count": "TBD_AT_P0"
+    },
+    "WP03": {
+      "primary_files": 10,
+      "full_content_files": 10,
+      "full_content_text_lines": 5151,
+      "specialized_files": 0,
+      "dynamic_scenario_count": "TBD_AT_P0"
+    },
+    "WP04": {
+      "primary_files": 10,
+      "full_content_files": 10,
+      "full_content_text_lines": 4753,
+      "specialized_files": 0,
+      "dynamic_scenario_count": "TBD_AT_P0"
+    },
+    "WP05": {
+      "primary_files": 14,
+      "full_content_files": 14,
+      "full_content_text_lines": 8699,
+      "specialized_files": 0,
+      "dynamic_scenario_count": "TBD_AT_P0"
+    },
+    "WP06": {
+      "primary_files": 13,
+      "full_content_files": 13,
+      "full_content_text_lines": 6685,
+      "specialized_files": 0,
+      "dynamic_scenario_count": "TBD_AT_P0"
+    },
+    "WP07": {
+      "primary_files": 17,
+      "full_content_files": 17,
+      "full_content_text_lines": 7534,
+      "specialized_files": 0,
+      "dynamic_scenario_count": "TBD_AT_P0"
+    },
+    "WP08": {
+      "primary_files": 25,
+      "full_content_files": 25,
+      "full_content_text_lines": 2701,
+      "specialized_files": 0,
+      "dynamic_scenario_count": "TBD_AT_P0"
+    },
+    "WP09": {
+      "primary_files": 36,
+      "full_content_files": 36,
+      "full_content_text_lines": 9598,
+      "specialized_files": 0,
+      "dynamic_scenario_count": "TBD_AT_P0"
+    },
+    "WP10": {
+      "primary_files": 16,
+      "full_content_files": 16,
+      "full_content_text_lines": 4967,
+      "specialized_files": 0,
+      "dynamic_scenario_count": "TBD_AT_P0"
+    },
+    "WP11": {
+      "primary_files": 8,
+      "full_content_files": 8,
+      "full_content_text_lines": 3161,
+      "specialized_files": 0,
+      "dynamic_scenario_count": "TBD_AT_P0"
+    },
+    "WP12": {
+      "primary_files": 22,
+      "full_content_files": 22,
+      "full_content_text_lines": 8070,
+      "specialized_files": 0,
+      "dynamic_scenario_count": "TBD_AT_P0"
+    },
+    "WP13": {
+      "primary_files": 143,
+      "full_content_files": 143,
+      "full_content_text_lines": 29000,
+      "specialized_files": 0,
+      "dynamic_scenario_count": "TBD_AT_P0"
+    },
+    "WP14": {
+      "primary_files": 51,
+      "full_content_files": 46,
+      "full_content_text_lines": 5975,
+      "specialized_files": 5,
+      "dynamic_scenario_count": "TBD_AT_P0"
+    },
+    "WP15": {
+      "primary_files": 21,
+      "full_content_files": 4,
+      "full_content_text_lines": 125,
+      "specialized_files": 17,
+      "dynamic_scenario_count": "TBD_AT_P0"
+    }
+  },
+  "full_content_text_line_count": 105734,
+  "capacity_estimate": {
+    "effective_hours_per_person_day": 6,
+    "package_person_days_range": [
+      23,
+      38
+    ],
+    "environment_and_reproduction_buffer_person_days": 2,
+    "first_pass_budget_person_days_range": [
+      25,
+      40
+    ],
+    "independent_control_person_days_range": [
+      2,
+      4
+    ],
+    "parallel_reviewers": 3,
+    "independent_controller": 1,
+    "elapsed_workdays_range": [
+      12,
+      18
+    ],
+    "note": "Estimate only; P0 recalibrates actual package load, scenario counts and environment readiness; illustrative day sequences describe dependencies"
+  },
+  "planning_validation": {
+    "status": "PASS",
+    "date": "2026-10-08",
+    "checks": [
+      "460 unique baseline paths exactly equal git tracked set",
+      "460 current file SHA-256 values match",
+      "All file and package/category counts consistent",
+      "Coverage SHA-256 matches manifest",
+      "All coverage states remain UNREVIEWED/NOT_RUN",
+      "All 16 packages assigned and all 12 chains have one lead",
+      "All 8 local Markdown links resolve",
+      "Markdown fences and trailing whitespace checks pass",
+      "Current HEAD unchanged; tracked and staged product diff empty"
+    ],
+    "product_tests": "NOT_RUN",
+    "plan_artifact_count": 6
+  }
+}
