@@ -37,7 +37,43 @@ backend/.export-jobs/
 # Local audit workpapers and raw evidence (archive separately from deployable source)
 docs/AI_review/*
 !docs/AI_review/SERVER_CODEBUDDY_20260928/
-docs/reviews/global-audit-20260924/
+# Published historical reports; raw runtime evidence stays local.
+docs/reviews/global-audit-20260924/*
+!docs/reviews/global-audit-20260924/README.md
+!docs/reviews/global-audit-20260924/SERVER_HANDOFF.md
+!docs/reviews/global-audit-20260924/PUBLICATION_MANIFEST.json
+!docs/reviews/global-audit-20260924/REFERENCE_AVAILABILITY.tsv
+!docs/reviews/global-audit-20260924/SHA256SUMS
+!docs/reviews/global-audit-20260924/ISSUE_INVENTORY.md
+!docs/reviews/global-audit-20260924/issues.json
+!docs/reviews/global-audit-20260924/VERIFICATION.md
+!docs/reviews/global-audit-20260924/coverage.tsv
+!docs/reviews/global-audit-20260924/repository-map.json
+!docs/reviews/global-audit-20260924/probes.mjs
+!docs/reviews/global-audit-20260924/probe-results.json
+!docs/reviews/global-audit-20260924/phase2/
+docs/reviews/global-audit-20260924/phase2/*
+!docs/reviews/global-audit-20260924/phase2/*.md
+!docs/reviews/global-audit-20260924/phase2/*.json
+!docs/reviews/global-audit-20260924/phase2/*.mjs
+!docs/reviews/global-audit-20260924/phase3/
+docs/reviews/global-audit-20260924/phase3/*
+!docs/reviews/global-audit-20260924/phase3/*.md
+!docs/reviews/global-audit-20260924/phase3/*INPUT_MANIFEST.json
+!docs/reviews/global-audit-20260924/phase3/AUDIT_EVIDENCE_MANIFEST.json
+
+# Review documents required by the published historical read order.
+!docs/AI_review/REVIEW_CONTINUITY_HANDOFF.md
+!docs/AI_review/ORGANIZATION_MAP.json
+!docs/AI_review/Codex-GPT6/
+docs/AI_review/Codex-GPT6/*
+!docs/AI_review/Codex-GPT6/*.md
+!docs/AI_review/GPT6-Astra/
+docs/AI_review/GPT6-Astra/*
+!docs/AI_review/GPT6-Astra/*.md
+!docs/AI_review/Kimi-K3/
+docs/AI_review/Kimi-K3/*
+!docs/AI_review/Kimi-K3/*.md
 docs/reviews/REVIEW_CONTINUITY_HANDOFF.md
 
 # Local handoff / context notes (not for repo)

@@ -1,0 +1,127 @@
+{
+  "phase": "2.5",
+  "name": "NF candidate remediation-scope decision",
+  "baseline": "f08e72e3e74d188b4555e0bee16280b3dd0d622b",
+  "generated_at": "2026-09-24",
+  "audit_only": true,
+  "reaudited": false,
+  "application_code_changed": false,
+  "purpose": "Decide only whether each selected NF candidate alters the architecture remediation boundary; do not add issues",
+  "decision_vocabulary": ["ALTERS_REMEDIATION_SCOPE", "DOES_NOT_ALTER_REMEDIATION_SCOPE", "NEEDS_SEPARATE_FINDING"],
+  "decisions": [
+    {
+      "nf_id": "NF-A-02",
+      "title": "Process-local idempotency store (per-instance Map)",
+      "decision": "ALTERS_REMEDIATION_SCOPE",
+      "affects_issues": ["AUD-002"],
+      "affects_root_causes": ["RC-01"],
+      "boundary_delta": "AUD-002 fix scope expands from 'key binding + middleware order' to include 'explicit declaration of the single-instance correctness assumption + migration trigger condition when scaling out'.",
+      "why_not_does_not_alter": "The correctness premise changes from in-process semantics to deployment-topology semantics; without the declaration, horizontal scaling silently breaks idempotency and AUD-002 acceptance (no cross-subject hits) cannot detect it.",
+      "evidence": [
+        "backend/middleware/idempotencyMiddleware.js:1-2 (self-note: memory store only suitable for single instance; Redis recommended for production)",
+        "backend/middleware/idempotencyMiddleware.js:6 (module-level const store = new Map())",
+        "deploy/README.md:20-21 (systemd single process; PostgreSQL single instance)",
+        "deploy/README.md:106-112 (existing precedent: 'known limitations before switching to multi-instance' section for the security-alert scanner)",
+        "Same process-level state family: authMiddleware.js:220-221 (recheck fail counter), :483 (guestVisibleTypesCache), :205 (auth state cache injection point)"
+      ],
+      "constraints_for_remediation": [
+        "AUD-002 acceptance adds: document how idempotency behaves under multi-instance deployment (extend the existing README known-limitations list; no new chapter required)",
+        "Recommended cross-issue documentation deliverable: one consolidated 'single-instance assumptions' checklist listing all process-level state and the triggers requiring change",
+        "If horizontal scaling is planned within ~6 months, escalate to a storage-backend decision (Redis/DB) and align with AUD-001/021/022 client-queue changes in the same wave"
+      ],
+      "needs_separate_finding": false
+    },
+    {
+      "nf_id": "NF-B-01",
+      "title": "Disabled school re-enabled after schema evolution breaks with P2022",
+      "decision": "ALTERS_REMEDIATION_SCOPE",
+      "affects_issues": ["AUD-008", "AUD-009"],
+      "affects_root_causes": ["RC-04"],
+      "boundary_delta": "RC-04 target architecture must add a 'school enable/disable schema-alignment path'; the scenario must be part of AUD-008/009 acceptance, otherwise the AUD-009 downgrade (self-heal to check-and-alert) creates a new gap.",
+      "why_not_does_not_alter": "This is not an implementation detail but a missing branch of the evolution-discipline target architecture (schema state machine across the school lifecycle). Leaving it outside 008/009 would make the AUD-009 fix appear to introduce a regression.",
+      "evidence": [
+        "backend/lib/tenantSync.js:174-179 (only status:'active' schools are synced)",
+        "backend/routes/schoolRoutes.js:404-422 (status PATCH performs no provision/align call)",
+        "Reusable capability already exists: tenantProvisioner.js:244-272 alignTenantSchema (not invoked on enable)"
+      ],
+      "constraints_for_remediation": [
+        "AUD-008/009 acceptance must explicitly include: 'disable school -> schema.prisma evolves (new column) -> re-enable -> business endpoints usable'; absence of this check means the AUD-009 fix is incomplete",
+        "The 'check' phase must also cover disabled schools (otherwise the branch is unobservable); alignment must be an explicit action on the enable path (or an optional deep check without destructive flags)",
+        "Not a separate issue; if Astra requires a traceable entry, split as P2 but keep the fix inside the RC-04 batch"
+      ],
+      "needs_separate_finding": false,
+      "separate_finding_note": "Only candidate in this batch that could optionally be split as a P2 entry (see constraints)"
+    },
+    {
+      "nf_id": "NF-B-02",
+      "title": "Plaintext full-dump SQL written to shared /tmp during restore",
+      "decision": "DOES_NOT_ALTER_REMEDIATION_SCOPE",
+      "affects_issues": ["AUD-004", "AUD-005"],
+      "affects_root_causes": ["RC-03"],
+      "boundary_delta": "None at the architecture level (task ledger, staging namespace exclusivity, ownership checks, mutual exclusion/write barrier remain the design). Adds one implementation-specification item: private directory + streaming (or encrypted temp) + crash-residue cleanup.",
+      "why_does_not_alter": "The restore engine is being refactored for AUD-004/005 anyway; the temp-file location/lifetime is naturally included in that refactor and introduces no extra architectural decision, schema change, or deployment dependency.",
+      "evidence": [
+        "backend/lib/restoreService.js:127-133 (os.tmpdir() + mode 0600 + finally unlink; residue possible on crash)",
+        "Existing private-directory precedent: backupService.js:330-331 (backup dir chmod 0700)"
+      ],
+      "constraints_for_remediation": [
+        "RC-03 implementation spec: plaintext must not land in shared /tmp; prefer streaming into psql; if disk is required, use the backup private directory and integrate residue cleanup with the restore task ledger",
+        "Optional acceptance: after an injected restore interruption, no plaintext residue readable by other local users"
+      ],
+      "needs_separate_finding": false
+    },
+    {
+      "nf_id": "NF-C-01 + NF-C-02",
+      "title": "Second-batch injection sinks (detail modals) + 8 divergent escapeHtml implementations",
+      "decision": "ALTERS_REMEDIATION_SCOPE",
+      "affects_issues": ["AUD-003"],
+      "affects_root_causes": ["RC-05"],
+      "boundary_delta": "AUD-003 upgrades from 'escape the known sinks' to 'establish a unified safe-rendering abstraction + enumerate and close ALL sinks'; the 8 divergent escapeHtml implementations must be consolidated first and become a prerequisite.",
+      "why_not_does_not_alter": "This is a solution-level change (point-fix vs building an abstraction); NF-C-02 is the structural cause of NF-C-01 recurrence (8 implementations mean each new module can create another sink).",
+      "evidence": [
+        "Independent sinks proven: Pathogen.js:1181 and GenericTest.js:350-352 (detail/logs) vs GenericTest.js:1332/1345-1347 (list); probe confirmed img[onerror] and div[onmouseover]",
+        "8 escapeHtml implementations (read-only recount this phase): utils/schoolCustomization/shared.js, modules/backupManager.js, modules/AuditLog.js, modules/adminSchools/ui.js, modules/adminSchools/sidebar.js, modules/adminSchools/views/diskView.js, modules/adminSchools/views/backupView.js, modules/adminSchools/views/openApiView.js",
+        "Partial mitigation to preserve: ExportService.js:688 already escapes table cells via _escapeHtml"
+      ],
+      "constraints_for_remediation": [
+        "Produce a sink census (innerHTML / insertAdjacentHTML / document.write / attribute context title=\"${...}\" / export preview / print) before implementation; close items against the census, not against 'list fixed'",
+        "Consolidate the 8 helpers into one shared implementation as a prerequisite; do not patch modules in parallel (divergence and inconsistent escaping semantics would grow)",
+        "Not a separate issue: C-01/C-02 are scope and prerequisite of AUD-003"
+      ],
+      "needs_separate_finding": false
+    }
+  ],
+  "placement_confirmed_no_boundary_change": [
+    {
+      "nf_id": "NF-A-01",
+      "placed_with": "auth/error-handling refactor in RC-02 batch (together with AUD-014)",
+      "boundary_note": "Error-handling detail of the auth degradation path; defined together with the fail-soft boundary"
+    },
+    {
+      "nf_id": "NF-B-03",
+      "placed_with": "AUD-008 deployment fix (already in its remediation list)",
+      "boundary_note": "Deployment diagnosability item; no RC-04 boundary change"
+    },
+    {
+      "nf_id": "NF-C-03",
+      "placed_with": "AUD-020 completeness contract",
+      "boundary_note": "The three-way contract (pagination / streaming / explicit rejection) inherently covers over-limit semantics"
+    }
+  ],
+  "summary": {
+    "ALTERS_REMEDIATION_SCOPE": 3,
+    "DOES_NOT_ALTER_REMEDIATION_SCOPE": 1,
+    "NEEDS_SEPARATE_FINDING": 0,
+    "issues_added": 0,
+    "boundary_deliverables_added": [
+      "AUD-002: single-instance assumption declaration + multi-instance trigger condition (optionally a consolidated assumptions checklist)",
+      "RC-04 (AUD-008/009): school enable/disable schema-alignment path + acceptance scenario for re-enable after evolution",
+      "AUD-003: sink census + unified safe-rendering abstraction (8 helpers consolidated first)"
+    ]
+  },
+  "next": "Astra Final Arbitration (6 severity PENDING items + AUD-027 P1_REVIEW + the 3 boundary extensions above), then Phase 3 remediation waves per REMEDIATION_DEPENDENCY_GRAPH.md",
+  "artifacts": {
+    "report": "docs/reviews/global-audit-20260924/phase2/PHASE2_5_NF_SCOPE_DECISION.md",
+    "json": "docs/reviews/global-audit-20260924/phase2/phase2-5-nf-scope-decision.json"
+  }
+}

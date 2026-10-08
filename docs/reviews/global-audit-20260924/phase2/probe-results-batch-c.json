@@ -1,0 +1,86 @@
+{
+  "baseline": "f08e72e3e74d188b4555e0bee16280b3dd0d622b",
+  "probes": 16,
+  "results": [
+    {
+      "id": "AUD-003",
+      "kind": "DOM_INJECTION_CONFIRMED",
+      "detail": "列表 innerHTML 渲染出 img[onerror] 与 div[onmouseover]（remark 属性闭合生效）；未触发事件、未执行脚本"
+    },
+    {
+      "id": "AUD-003",
+      "kind": "SINK_SURVEY",
+      "detail": "列表/详情路径未转义（GenericTest:1332/1346、Pathogen:1181）；导出表格单元格已用 _escapeHtml；报告预览 reportPreview.innerHTML 为独立 sink"
+    },
+    {
+      "id": "AUD-003",
+      "kind": "GUARD_REVIEW",
+      "detail": "页面级 CSP 不存在（仅 /api/* 有 CSP；Caddy 无 CSP；X-XSS-Protection 已废弃）→ CSP 不构成 XSS 保护；写入需 editor+ 账号"
+    },
+    {
+      "id": "AUD-020",
+      "kind": "TRUNCATION_CONFIRMED",
+      "detail": "2501 条（fake）场景：Storage 只发 1 次 limit=1000 请求 → 缓存 1000 条；total=2501 被忽略，无 offset 翻页"
+    },
+    {
+      "id": "AUD-020",
+      "kind": "EXPORT_CONFIRMED",
+      "detail": "导出：一次性 limit=10000 → 后端 cap 2000（recordRoutes.js:13/251）→ 报告“总检测记录数”取本地截断条数（ExportService.js:596），无“数据不完整”提示"
+    },
+    {
+      "id": "AUD-020",
+      "kind": "LIMITS_ORIGIN",
+      "detail": "1000=Storage.maxSyncRows(Storage.js:15)；2000=后端 MAX_RECORDS_LIMIT(recordRoutes.js:13,251,263返回total)；10000=ExportService.js:353 请求值被 cap"
+    },
+    {
+      "id": "AUD-021",
+      "kind": "SCENARIO_A",
+      "detail": "离线新建→编辑→重连：排队类型=[\"create\",\"update_temp\"]；POST 到服务端 result=合格（编辑未上传=true）；本地最终 result=合格（本地编辑也被覆盖=true）"
+    },
+    {
+      "id": "AUD-021",
+      "kind": "SCENARIO_A_MECHANISM",
+      "detail": "_handleUpdateTemp 只在队列中还残留 create 请求时合并（Storage.js:725-735）；create 已被 _removeRequestFromQueue（:362）后 update_temp 变为 no-op"
+    },
+    {
+      "id": "AUD-021",
+      "kind": "SCENARIO_B",
+      "detail": "离线新建→删除：删除后本地仍有该行=true（_updateLocalCache 的 pending merge 把 temp 行推回，Storage.js:577-592）；create 任务被清除=true（_cleanupTempRequests，:186）"
+    },
+    {
+      "id": "AUD-021",
+      "kind": "SCENARIO_B_CONSEQUENCE",
+      "detail": "幽灵行持久留在 localStorage（刷新仍在），服务端未创建记录 → UI 与服务端意图不一致；再次删除会再次复活"
+    },
+    {
+      "id": "AUD-021",
+      "kind": "SCENARIO_C_D",
+      "detail": "create 在途或已出队后再编辑：均落入 _handleUpdateTemp 的 no-op 分支（队列中已无 create 请求）→ 编辑仅存在于本地缓存，且随后被服务端权威响应覆盖（_replaceTempIdInCache forceServer）"
+    },
+    {
+      "id": "AUD-022",
+      "kind": "LOST_UPDATE_REPRODUCED",
+      "detail": "fake HTTP server：A v1→v2(remark=A的新内容)；B stale v1 → 409(serverVersion=2) → 客户端只改 version 重试 → 最终 remark=原始内容（A 的更新丢失）"
+    },
+    {
+      "id": "AUD-022",
+      "kind": "CONTRACT",
+      "detail": "分类=LOST_UPDATE：客户端重放 stale 全量对象 + 服务端 replace 语义 → B 覆盖 A；非 SAFE_RETRY、非 MANUAL_CONFLICT"
+    },
+    {
+      "id": "AUD-025",
+      "kind": "SEMANTIC_REPRODUCED",
+      "detail": "SQL 语义复刻：colorLevel='foo' 且 result='不合格' → 计入合格（fail-open）；'不合格' 正常排除；'警戒' 计入合格（有意裁定）"
+    },
+    {
+      "id": "AUD-025",
+      "kind": "REACHABILITY",
+      "detail": "写入路径（POST/PUT/bulk-upsert/sync）均无 colorLevel 枚举校验 → API 直调或导入可写入未知值；UI 路径受控件限制"
+    },
+    {
+      "id": "AUD-027",
+      "kind": "STATIC_CONFIRMED",
+      "detail": "被删用户的 AuditLog（登录/用户管理等）随 User 行级联删除；SystemLog（登录失败/安全事件）独立保留；删除行为本身以 actor 身份留痕；TestRecord 归属用户不可删除（前置拒绝）"
+    }
+  ]
+}

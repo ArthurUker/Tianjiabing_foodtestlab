@@ -1,0 +1,61 @@
+{
+  "baseline": "f08e72e3e74d188b4555e0bee16280b3dd0d622b",
+  "probes": 11,
+  "results": [
+    {
+      "id": "AUD-004",
+      "kind": "REPRODUCED",
+      "detail": "schemaNameOf('alpha')+'_restore' === schemaNameOf('alpha-restore') === 'school_alpha_restore'；code 白名单允许 -restore 后缀"
+    },
+    {
+      "id": "AUD-004",
+      "kind": "STATIC_CONFIRMED",
+      "detail": "runRestore 两处 DROP 均只按名字删除，无 ownership / School 注册表交叉检查"
+    },
+    {
+      "id": "AUD-004",
+      "kind": "REACHABILITY",
+      "detail": "危险序列成立：先创建学校 alpha-restore（合法 code，schema 正常）→ 恢复 alpha → DROP school_alpha_restore CASCADE 误删该校"
+    },
+    {
+      "id": "AUD-005",
+      "kind": "STATIC_CONFIRMED",
+      "detail": "无 per-school 锁/维护态/排空/写屏障；READONLY_MODE 需人工预设且恢复不联动；学校 manager 可并发触发两次恢复（共享同一 school_<code>_restore 暂存名）"
+    },
+    {
+      "id": "AUD-006",
+      "kind": "STATIC_CONFIRMED",
+      "detail": "collectTableCounts（Prisma 逐表 count）→ collectSchemaSnapshot → 独立 pg_dump 进程：三阶段无共享快照（无 --snapshot / 无包裹事务）"
+    },
+    {
+      "id": "AUD-007",
+      "kind": "CONFIRMED",
+      "detail": "baseName 仅含 scope/schema+秒级 ts（无熵）：同秒同 scope 两次启动 → 相同 tmpGz/aes/meta；本地实测同秒两次生成一致=true；失败路径互删 .aes/.tmp"
+    },
+    {
+      "id": "AUD-008",
+      "kind": "ROOT_CAUSE",
+      "detail": "列引入走运行时 DDL/db push（tenantSync ADD COLUMN IF NOT EXISTS），未沉淀进 migration；baseline 生成时点(07-26)无 visible_menu_items，8-14 的 unify/revert 假设其存在 → 空库回放断裂（第一遍独立 PG 实测 P3018/42703 复核一致）"
+    },
+    {
+      "id": "AUD-008",
+      "kind": "DEPLOY_PATH",
+      "detail": "deploy.sh：migrate deploy 失败被吞错后，首部署回退 db push（留下 failed 记录）→ 下次部署非首 → fail；生产库若未执行过 resolve --applied baseline，重部署同样会因 CREATE TABLE 已存在而失败"
+    },
+    {
+      "id": "AUD-009",
+      "kind": "STATIC_CONFIRMED",
+      "detail": "默认生产启动必然执行（非 opt-in）；租户同步走 db push --accept-data-loss ×2；单校失败被吞、db:sync 退出码 0、部署继续"
+    },
+    {
+      "id": "AUD-039",
+      "kind": "STATIC_CONFIRMED",
+      "detail": "pg-bootstrap：DATABASE_URL 直用 + 固定 schema + DROP SCHEMA CASCADE/TRUNCATE/public DROP TABLE；roleAuditTrigger 默认 school_tjb；p0Prov 经 PrismaClient 自动读 backend/.env 直连业务库"
+    },
+    {
+      "id": "AUD-044",
+      "kind": "STATIC_CONFIRMED",
+      "detail": "示例值 \"please-run-openssl...\" 不在弱密钥列表且无强度校验；仅手工部署路径暴露（deploy.sh 自动生成，示例 conf 留空）"
+    }
+  ]
+}

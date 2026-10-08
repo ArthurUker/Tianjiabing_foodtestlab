@@ -1,0 +1,1255 @@
+[
+  {
+    "id": "AUD-001",
+    "priority": "P1",
+    "title": "浏览器记录缓存和离线队列未按学校、账号隔离",
+    "evidence": [
+      {
+        "path": "frontend/js/core/Storage.js",
+        "line": 61
+      },
+      {
+        "path": "frontend/js/core/Storage.js",
+        "line": 225
+      },
+      {
+        "path": "frontend/js/services/AuthService.js",
+        "line": 880
+      }
+    ],
+    "trigger": "同一浏览器同源访问 A 校后切换 B 校，或退出后换账号；cache_<table>、pending_<table> 等键保持不变，发送时才读取当前 token。",
+    "impact": "新账号可看到旧账号缓存；A 校待提交的记录可能被以 B 校凭据写入 B 校。服务器 schema 隔离无法补救客户端选错归属。",
+    "fix": "缓存与队列键包含不可变租户及主体标识；任务保存创建时的归属，身份切换暂停不匹配任务，明确处理旧缓存迁移。",
+    "acceptance": "A 离线创建→切 B→恢复网络：B 不显示、不上传 A 数据；同校换账号及退出重登也覆盖。",
+    "verification": "最小复现通过",
+    "status": "open"
+  },
+  {
+    "id": "AUD-002",
+    "priority": "P1",
+    "title": "幂等缓存跨租户、跨主体命中，且先于写权限检查",
+    "evidence": [
+      {
+        "path": "backend/middleware/idempotencyMiddleware.js",
+        "line": 39
+      },
+      {
+        "path": "backend/routes/recordRoutes.js",
+        "line": 20
+      },
+      {
+        "path": "backend/server.js",
+        "line": 338
+      }
+    ],
+    "trigger": "已认证用户知道或复用相同 Idempotency-Key 和请求体；全局缓存键仅由 key 与 body hash 组成，不含主体、租户、method、path。",
+    "impact": "B 校 guest 可命中 A 校写请求的原始成功响应，跳过编辑权限检查并得到未脱敏字段。生产前置 /api 认证仍存在，因此不将其描述为匿名绕过。",
+    "fix": "先认证、授权和解析租户，再查缓存；键绑定租户、主体、方法、规范化路由及请求摘要；缓存脱敏后的主体专属响应。",
+    "acceptance": "相同 key/body 的跨校、跨账号、跨路由请求不能共享响应；guest 重放 operator 写请求应 403。",
+    "verification": "真实路由最小复现通过",
+    "status": "open"
+  },
+  {
+    "id": "AUD-003",
+    "priority": "P1",
+    "title": "检测记录字段进入 innerHTML，存在存储型 XSS",
+    "evidence": [
+      {
+        "path": "frontend/js/modules/GenericTest.js",
+        "line": 1332
+      },
+      {
+        "path": "frontend/js/modules/GenericTest.js",
+        "line": 1347
+      },
+      {
+        "path": "frontend/js/modules/GenericTest.js",
+        "line": 350
+      },
+      {
+        "path": "frontend/js/modules/Pathogen.js",
+        "line": 1181
+      }
+    ],
+    "trigger": "有写入权限的账号保存 HTML/属性闭合字符串到 vegetableType、remark、inspector 等业务字段，其他用户打开列表或详情。",
+    "impact": "字段被解析为元素和事件属性；可在查看者同源上下文运行脚本，影响会话及跨页面操作。后端去除危险 JSON 键不等于 HTML 输出转义。",
+    "fix": "文本使用 textContent；属性用 DOM 属性赋值；必须保留富文本时使用明确白名单净化，并统一复核各模块表格、详情、导出预览的输出上下文。",
+    "acceptance": "保存带 img/onerror、引号和 textarea 闭合的字段，列表、详情均仅显示文本，不产生攻击节点。",
+    "verification": "真实渲染方法的 DOM 复现通过；未执行恶意脚本",
+    "status": "open"
+  },
+  {
+    "id": "AUD-004",
+    "priority": "P1",
+    "title": "恢复暂存 schema 可与另一所合法学校重名并被 DROP",
+    "evidence": [
+      {
+        "path": "backend/lib/restoreService.js",
+        "line": 85
+      },
+      {
+        "path": "backend/lib/restoreService.js",
+        "line": 110
+      },
+      {
+        "path": "backend/lib/restoreService.js",
+        "line": 242
+      },
+      {
+        "path": "backend/lib/tenantClient.js",
+        "line": 58
+      }
+    ],
+    "trigger": "合法学校 alpha 与 alpha-restore 共存；恢复 alpha 时暂存名固定为 school_alpha_restore。",
+    "impact": "准备阶段及失败清理中的 DROP SCHEMA ... CASCADE 会作用于另一学校真实 schema。学校经理恢复入口也调用该服务。",
+    "fix": "使用不属于租户命名空间的随机工作 schema，校验所有权；绝不对未由本次任务创建的对象执行清理。",
+    "acceptance": "两校共存时恢复及故意失败均不得更改另一校；工作 schema 必须唯一并可追溯任务归属。",
+    "verification": "名称碰撞纯函数复现通过；未执行破坏性恢复",
+    "status": "open"
+  },
+  {
+    "id": "AUD-005",
+    "priority": "P1",
+    "title": "在线恢复缺少同校互斥和写入暂停机制",
+    "evidence": [
+      {
+        "path": "backend/lib/restoreService.js",
+        "line": 81
+      },
+      {
+        "path": "backend/lib/restoreService.js",
+        "line": 110
+      },
+      {
+        "path": "backend/lib/restoreService.js",
+        "line": 196
+      },
+      {
+        "path": "backend/middleware/readOnlyMiddleware.js",
+        "line": 19
+      }
+    ],
+    "trigger": "同校两个恢复请求并行，或正常业务在备份恢复准备期间继续写入；服务没有 per-school 锁、请求排空或写入屏障。",
+    "impact": "恢复任务会清理彼此同名暂存 schema；切换到旧备份时，期间已返回成功的新写入不在当前 schema 中。原子 RENAME 只保证名称切换，不保证业务一致性。",
+    "fix": "持久化恢复状态、同校排他锁和服务端写屏障；排空在途写入后切换并重建租户连接；失败恢复明确状态。",
+    "acceptance": "并发恢复只有一个获得执行权；维护期间所有写入口（包括同步）一致拒绝；切换前后无已确认写入静默丢失。",
+    "verification": "代码确认",
+    "status": "open"
+  },
+  {
+    "id": "AUD-006",
+    "priority": "P1",
+    "title": "备份元数据行数与 pg_dump 不共享数据库快照",
+    "evidence": [
+      {
+        "path": "backend/lib/backupService.js",
+        "line": 357
+      },
+      {
+        "path": "backend/lib/backupService.js",
+        "line": 375
+      },
+      {
+        "path": "backend/lib/restoreService.js",
+        "line": 175
+      }
+    ],
+    "trigger": "先 collectTableCounts，再采集结构，最后启动 pg_dump；两阶段之间发生记录、会话或审计写入。",
+    "impact": "备份可以生成成功，但恢复按旧 tableCounts 严格校验新 dump，产生行数不一致并拒绝恢复。",
+    "fix": "在同一可重复读快照下收集计数并向 pg_dump 传递 snapshot，或从实际 dump 生成可信计数。",
+    "acceptance": "持续写入期间连续备份，再隔离恢复，每个备份的计数均与其内容一致。",
+    "verification": "代码确认",
+    "status": "open"
+  },
+  {
+    "id": "AUD-007",
+    "priority": "P1",
+    "title": "同秒同范围备份共享文件名，存在覆盖和互相清理竞态",
+    "evidence": [
+      {
+        "path": "backend/lib/backupService.js",
+        "line": 364
+      },
+      {
+        "path": "backend/lib/backupService.js",
+        "line": 392
+      },
+      {
+        "path": "backend/lib/backupService.js",
+        "line": 397
+      }
+    ],
+    "trigger": "管理员、学校经理或定时任务在同一秒备份相同 scope；文件名只有 scope/schema 与秒级时间。",
+    "impact": "两个任务写同一个 .tmp/.aes/.meta，可能覆盖已生成内容；任一失败清理会删除另一个任务的产物。",
+    "fix": "每任务使用随机 ID 与专属临时目录，独占创建文件，完成后原子发布；必要时加同范围任务锁。",
+    "acceptance": "固定时钟并发执行两个同范围任务，产物互不覆盖；一个失败不能删除另一个成功备份。",
+    "verification": "代码确认",
+    "status": "open"
+  },
+  {
+    "id": "AUD-008",
+    "priority": "P1",
+    "title": "全新数据库无法从已提交 migration 链部署",
+    "evidence": [
+      {
+        "path": "backend/prisma/migrations/20260726000000_baseline/migration.sql",
+        "line": 1
+      },
+      {
+        "path": "backend/prisma/migrations/20260814020000_unify_school_customization_text/migration.sql",
+        "line": 15
+      },
+      {
+        "path": "deploy/deploy.sh",
+        "line": 512
+      }
+    ],
+    "trigger": "对空 PostgreSQL 执行 prisma migrate deploy。baseline 尚未创建 visible_menu_items，后续 migration 直接 ALTER 该列。",
+    "impact": "实测 P3018 / PostgreSQL 42703 中断；db push 回退不能证明 migration 链正确，也不会自动解决失败 migration 的历史状态。",
+    "fix": "设计兼容已有实例的迁移修复方案，补齐缺失对象与状态处理；把空库升级、已有库升级和全部租户升级纳入部署门禁。角色触发器/约束也应进入自动安装路径。",
+    "acceptance": "空库 migrate deploy 全通过；从受支持旧版数据库升级全通过；检查 public 与租户实际结构和约束。",
+    "verification": "独立临时 PostgreSQL 实测失败",
+    "status": "open"
+  },
+  {
+    "id": "AUD-009",
+    "priority": "P1",
+    "title": "启动自愈默认执行可丢数据的 schema push，且租户失败仍汇总成功",
+    "evidence": [
+      {
+        "path": "backend/server.js",
+        "line": 372
+      },
+      {
+        "path": "backend/lib/tenantProvisioner.js",
+        "line": 150
+      },
+      {
+        "path": "backend/lib/tenantProvisioner.js",
+        "line": 272
+      },
+      {
+        "path": "backend/lib/tenantSync.js",
+        "line": 183
+      }
+    ],
+    "trigger": "启动时 AUTO_SYNC_TENANTS 未置 false，或部署调用租户同步；模型有破坏性差异或某校同步失败。",
+    "impact": "--accept-data-loss 允许未审批的列/类型变更在运行中执行；单校异常被吞掉，函数最后宣告全体对齐，部署调用方可能继续发布。",
+    "fix": "将结构变更移到显式迁移阶段，启动只检查；为租户返回成功/失败汇总，任何必需租户失败令发布失败；对破坏性迁移单独设计数据转换。",
+    "acceptance": "删列差异不能由普通启动自动应用；注入一校失败时进程/部署检查明确失败且健康状态不冒充就绪。",
+    "verification": "代码确认",
+    "status": "open"
+  },
+  {
+    "id": "AUD-010",
+    "priority": "P1",
+    "title": "停用学校未阻断内部登录和已签发 token",
+    "evidence": [
+      {
+        "path": "backend/routes/schoolRoutes.js",
+        "line": 404
+      },
+      {
+        "path": "backend/modules/UserManager.js",
+        "line": 313
+      },
+      {
+        "path": "backend/middleware/authMiddleware.js",
+        "line": 367
+      },
+      {
+        "path": "backend/routes/guestRoutes.js",
+        "line": 88
+      }
+    ],
+    "trigger": "将 public.School.status 改为非 active；该校 User/Guest 仍 active。内部登录和认证回查主要检查主体，不检查 School.status。",
+    "impact": "停校后仍可登录或继续访问、修改该校数据；与 OpenAPI 已实施的学校状态检查不一致。",
+    "fix": "所有学校身份签发、刷新、受保护请求集中检查学校状态，停用时失效相关访问能力。",
+    "acceptance": "停用前后的用户、访客、refresh token 和 OpenAPI 一致拒绝访问；重新启用策略明确。",
+    "verification": "代码确认",
+    "status": "open"
+  },
+  {
+    "id": "AUD-011",
+    "priority": "P2",
+    "title": "关闭访客入口只影响新 token，现有访客继续有效",
+    "evidence": [
+      {
+        "path": "backend/routes/schoolRoutes.js",
+        "line": 386
+      },
+      {
+        "path": "backend/routes/guestRoutes.js",
+        "line": 93
+      },
+      {
+        "path": "backend/middleware/authMiddleware.js",
+        "line": 330
+      }
+    ],
+    "trigger": "访客获得 token 后，管理员将 guest_enabled 设为 false；认证仅核验 Guest.status/valid_until。",
+    "impact": "关闭访客访问无法即时停止已有访客读取，直到其凭据到期或另行吊销。",
+    "fix": "认证同时检查学校访客开关，或关闭时增加学校访客会话版本/吊销已有访客。",
+    "acceptance": "已有访客 token 在关闭后下一次请求即失效；再开启是否需要重领凭据由明确策略控制。",
+    "verification": "代码确认",
+    "status": "open"
+  },
+  {
+    "id": "AUD-012",
+    "priority": "P1",
+    "title": "退出及远程会话撤销没有绑定 JWT 有效性",
+    "evidence": [
+      {
+        "path": "backend/routes/userRoutes.js",
+        "line": 192
+      },
+      {
+        "path": "backend/routes/sessionRoutes.js",
+        "line": 70
+      },
+      {
+        "path": "backend/middleware/authMiddleware.js",
+        "line": 367
+      },
+      {
+        "path": "frontend/js/services/SessionManager.js",
+        "line": 1
+      }
+    ],
+    "trigger": "调用 logout，或在会话界面把 Session.status 改为 revoked；JWT 没有用于认证回查的 sessionId 绑定。",
+    "impact": "界面显示已退出/撤销，但保存的 access token 仍可使用；会话表状态也不会阻断相应 refresh 能力。",
+    "fix": "令牌绑定服务端会话 ID/版本；logout 原子撤销 access/refresh 会话族；认证和刷新都核验会话。",
+    "acceptance": "保留退出前 token，logout/远程撤销后读取与刷新均被拒绝，其他会话按所选策略保留。",
+    "verification": "logout 无任何吊销接口仍返回成功的最小复现通过；其余链路代码确认",
+    "status": "open"
+  },
+  {
+    "id": "AUD-013",
+    "priority": "P2",
+    "title": "会话注册 upsert 可更新另一用户的 Session",
+    "evidence": [
+      {
+        "path": "backend/routes/sessionRoutes.js",
+        "line": 30
+      }
+    ],
+    "trigger": "已登录用户提交其已知的另一用户 sessionId；upsert where 仅使用 id，update 未限定 user_id。",
+    "impact": "可恢复/修改受害者会话记录并读取返回的会话元数据。此项不等同于直接取得受害者 JWT；需已知目标 ID。",
+    "fix": "由服务端生成会话 ID，更新绑定当前主体；返回字段最小化；跨主体 ID 使用统一拒绝响应。",
+    "acceptance": "A 提交 B 的 sessionId 返回 403/404，不改变 B 的状态、地址或时间。",
+    "verification": "真实会话路由最小复现通过",
+    "status": "open"
+  },
+  {
+    "id": "AUD-014",
+    "priority": "P1",
+    "title": "认证数据库故障时默认先放行两次请求",
+    "evidence": [
+      {
+        "path": "backend/middleware/authMiddleware.js",
+        "line": 367
+      },
+      {
+        "path": "backend/middleware/authMiddleware.js",
+        "line": 417
+      }
+    ],
+    "trigger": "JWT 签名有效，但当前角色、状态或吊销信息的数据库回查失败；进程级失败阈值默认 3。",
+    "impact": "前两次请求使用 token 中旧权限继续执行；成功请求会影响全局失败计数，不能保证故障账号及时进入拒绝状态。",
+    "fix": "无法确认当前授权即返回 503；如确有离线容错需求，必须设计明确时限、只读能力和已验证状态，不回退高权限旧声明。",
+    "acceptance": "第一笔数据库认证失败请求即不可执行受保护业务；多用户交错请求不能重新打开失败主体的访问。",
+    "verification": "最小复现实测 HTTP 200 / 200 / 503",
+    "status": "open"
+  },
+  {
+    "id": "AUD-015",
+    "priority": "P1",
+    "title": "iat + 1 比较永久漏吊销同秒签发的旧 token",
+    "evidence": [
+      {
+        "path": "backend/middleware/authMiddleware.js",
+        "line": 82
+      },
+      {
+        "path": "backend/middleware/authMiddleware.js",
+        "line": 111
+      }
+    ],
+    "trigger": "token 在某秒前段签发，同一秒后段写入 user_all 吊销；判断条件为 revoked_at >= to_timestamp(iat + 1)。",
+    "impact": "这枚旧 token 不匹配该条吊销记录，等待一秒也不会改变判断；直到 token 到期或后续新的吊销才失效。refresh token 也受此逻辑影响。",
+    "fix": "使用事务化 session/token epoch 或精确签发序号；不要用扩大旧 token 豁免区间解决改密后重新登录问题。",
+    "acceptance": "固定时钟覆盖同秒先签发后吊销、先吊销后签发两种顺序，前者失效、后者按策略有效。",
+    "verification": "代码确认及临时 PostgreSQL 比较表达式验证",
+    "status": "open"
+  },
+  {
+    "id": "AUD-016",
+    "priority": "P1",
+    "title": "密码变更与会话吊销非原子，吊销失败仍返回成功",
+    "evidence": [
+      {
+        "path": "backend/modules/UserManager.js",
+        "line": 195
+      },
+      {
+        "path": "backend/modules/UserManager.js",
+        "line": 458
+      },
+      {
+        "path": "backend/modules/UserManager.js",
+        "line": 472
+      },
+      {
+        "path": "backend/modules/UserManager.js",
+        "line": 678
+      }
+    ],
+    "trigger": "修改/重置密码提交后，写 revoked_tokens 失败；revokeUserSessions 捕获并记录错误但不向调用方抛出。",
+    "impact": "密码操作成功返回，旧凭据能力未可靠撤销；故障恢复后旧 token 仍可能继续使用。告警不能代替安全状态更新。",
+    "fix": "在同一数据库事务更新密码和会话版本/吊销状态；不能原子完成时返回明确失败并提供可靠补偿。",
+    "acceptance": "注入吊销写失败：不能得到密码已变更且旧凭据仍有效的成功状态；恢复后结果可追溯。",
+    "verification": "代码确认",
+    "status": "open"
+  },
+  {
+    "id": "AUD-017",
+    "priority": "P1",
+    "title": "全局测试报告接口对任意已登录身份开放读写",
+    "evidence": [
+      {
+        "path": "backend/routes/testResultRoutes.js",
+        "line": 71
+      },
+      {
+        "path": "backend/routes/testResultRoutes.js",
+        "line": 183
+      },
+      {
+        "path": "backend/routes/testResultRoutes.js",
+        "line": 301
+      },
+      {
+        "path": "backend/server.js",
+        "line": 334
+      }
+    ],
+    "trigger": "普通 operator/viewer/guest 直接调用 /api/test-results；路由只使用 authenticateUser，数据使用 public 全局 Prisma。",
+    "impact": "可访问全局测试执行/证据，并调用关闭问题、标记修复等管理操作；学校开启快速访客时获取这种身份门槛更低。",
+    "fix": "生产测试报告后台限制为平台角色；如确需学校测试协作，建立显式参与者授权和租户/任务范围，按读写能力拆分。",
+    "acceptance": "guest/viewer/无任务授权用户不能读写全局报告；授权测试员只能操作分配范围。",
+    "verification": "代码确认",
+    "status": "open"
+  },
+  {
+    "id": "AUD-018",
+    "priority": "P2",
+    "title": "测试证据上传 case_id 可使写入目录逃逸",
+    "evidence": [
+      {
+        "path": "backend/routes/testResultRoutes.js",
+        "line": 400
+      },
+      {
+        "path": "backend/routes/testResultRoutes.js",
+        "line": 425
+      }
+    ],
+    "trigger": "有接口访问权限的用户将 case_id 设为 ../../scripts；验证只有字符串/长度，path.join 未检查根目录包含关系和用例归属。",
+    "impact": "图片会写到证据根目录之外。文件名仍由服务端随机生成且为图片后缀，本轮未证明任意文件名覆盖或 RCE。",
+    "fix": "case_id 按受控 ID 格式且必须对应可访问用例；resolve 后检查目录包含关系；验证实际图片内容及配额。",
+    "acceptance": "../、绝对路径、编码变体及不存在/无权用例全部拒绝；合法证据只能落在指定目录。",
+    "verification": "路径运算最小复现通过；未向越界目录写文件",
+    "status": "open"
+  },
+  {
+    "id": "AUD-019",
+    "priority": "P2",
+    "title": "访客限制未覆盖频次和同步状态聚合接口",
+    "evidence": [
+      {
+        "path": "backend/routes/frequencyRoutes.js",
+        "line": 107
+      },
+      {
+        "path": "backend/routes/syncRoutes.js",
+        "line": 330
+      },
+      {
+        "path": "backend/server.js",
+        "line": 343
+      }
+    ],
+    "trigger": "guest 访问频次 overview 或 sync/status；这些路径未套用记录路由的 guest 类型过滤。",
+    "impact": "可获取包含 pathogen 等未开放模块的统计数量；主记录接口的过滤不能阻止聚合侧信道。",
+    "fix": "在服务端复用同一可见类型策略，应用于聚合、计数、状态和导出，而非仅列表。",
+    "acceptance": "访客配置不含 pathogen 时，所有列表及聚合响应均不包含其存在性/数量信息。",
+    "verification": "代码确认",
+    "status": "open"
+  },
+  {
+    "id": "AUD-020",
+    "priority": "P1",
+    "title": "列表缓存与报告导出静默截断历史记录",
+    "evidence": [
+      {
+        "path": "frontend/js/core/Storage.js",
+        "line": 15
+      },
+      {
+        "path": "frontend/js/core/Storage.js",
+        "line": 255
+      },
+      {
+        "path": "frontend/js/services/ExportService.js",
+        "line": 353
+      },
+      {
+        "path": "backend/routes/recordRoutes.js",
+        "line": 251
+      }
+    ],
+    "trigger": "某类型记录超过 1000/2000：Storage 单次取前 1000 条；导出请求 limit=10000，但后端最多 2000，均未按 total 翻页。",
+    "impact": "历史记录从本地完整视图中消失；较早日期报告可能为空或不完整，却仍按正常报告导出。导出的本地行数保护无法识别服务器已截断的数据。",
+    "fix": "列表明确分页和总数；导出按筛选条件在服务端分页/流式获取完整集合，或明确拒绝超限而不宣称完整。",
+    "acceptance": "准备 2501 条跨日期数据，导出旧日期范围及全量，数量、总数与数据库一致；网络失败明确标注失败/不完整。",
+    "verification": "代码确认",
+    "status": "open"
+  },
+  {
+    "id": "AUD-021",
+    "priority": "P1",
+    "title": "离线临时记录在创建、编辑、删除转换中丢失变更",
+    "evidence": [
+      {
+        "path": "frontend/js/core/Storage.js",
+        "line": 159
+      },
+      {
+        "path": "frontend/js/core/Storage.js",
+        "line": 176
+      },
+      {
+        "path": "frontend/js/core/Storage.js",
+        "line": 693
+      },
+      {
+        "path": "frontend/js/core/Storage.js",
+        "line": 725
+      }
+    ],
+    "trigger": "临时记录尚未上传即编辑；创建任务应答先替换临时 ID 并出队，后续 updateTemp 只尝试合并已不存在的 create。删除临时记录又被 dirty cache 合并保留。",
+    "impact": "修改被静默丢弃；删除后出现无上传任务的幽灵记录。用户所见和实际持久化状态不一致。",
+    "fix": "对每条本地记录建立明确状态机和 temp→server ID 映射；创建期间的编辑合并或在获 ID 后发送，删除取消创建或随后删除服务器行。",
+    "acceptance": "离线创建→多次修改→联网、创建在途→修改/删除、失败重试等时序最终与用户最后操作一致。",
+    "verification": "真实 Storage 方法最小复现通过",
+    "status": "open"
+  },
+  {
+    "id": "AUD-022",
+    "priority": "P1",
+    "title": "版本冲突重试只换 version，可能覆盖他人的新内容",
+    "evidence": [
+      {
+        "path": "frontend/js/core/AdaptiveUploadQueue.js",
+        "line": 166
+      },
+      {
+        "path": "backend/routes/recordRoutes.js",
+        "line": 535
+      }
+    ],
+    "trigger": "两人从 v1 编辑同一记录；A 写成 v2，B 收到 409，队列把旧完整 payload 的 version 改成服务端版本再提交。",
+    "impact": "乐观锁被客户端自动绕过；B 的旧字段可能覆盖 A 的新值，且没有冲突提示或合并过程。",
+    "fix": "409 后保留双方版本，按字段基线进行合并或请用户确认；仅对可证明交换安全的操作自动重试。",
+    "acceptance": "A 改字段 X、B 改字段 Y 后两者保留；同时改 X 必须呈现冲突，不得静默覆盖。",
+    "verification": "真实队列 409 分支最小复现通过；覆盖后果由 PUT 契约确认",
+    "status": "open"
+  },
+  {
+    "id": "AUD-023",
+    "priority": "P2",
+    "title": "内部写入接受不存在的业务日期，统计转换可能报 500",
+    "evidence": [
+      {
+        "path": "backend/lib/recordNormalize.js",
+        "line": 124
+      },
+      {
+        "path": "backend/lib/recordNormalize.js",
+        "line": 299
+      },
+      {
+        "path": "backend/routes/recordRoutes.js",
+        "line": 175
+      }
+    ],
+    "trigger": "内部写入 testDate=2026-02-30 等正则合法但日历非法值；内部统计再将文本 cast 为 PostgreSQL date。",
+    "impact": "脏记录能够持久化，并使相关统计失败；OpenAPI 的安全日期处理与内部接口口径不同。",
+    "fix": "所有写入入口调用同一严格日历校验；历史坏值有清理和统计兼容策略。",
+    "acceptance": "各写入口拒绝非真实日期；历史脏日期不拖垮统计；闰年边界与正确日期通过。",
+    "verification": "normalizeWriteJson 接受非法日期的最小复现通过",
+    "status": "open"
+  },
+  {
+    "id": "AUD-024",
+    "priority": "P2",
+    "title": "更新未传 status 时重置为 completed",
+    "evidence": [
+      {
+        "path": "backend/lib/recordNormalize.js",
+        "line": 322
+      },
+      {
+        "path": "backend/routes/recordRoutes.js",
+        "line": 429
+      },
+      {
+        "path": "backend/routes/recordRoutes.js",
+        "line": 543
+      }
+    ],
+    "trigger": "更新 archived/pending 记录的普通字段，请求省略 status；共享构造函数使用创建默认值 completed。",
+    "impact": "状态被无意推进或重新打开，破坏状态保持语义；局部更新调用方尤其容易触发。",
+    "fix": "创建时应用默认状态；更新时只有显式且合法的 status 才写入，必要时校验状态转换。",
+    "acceptance": "每种旧状态省略 status 更新后均不变；显式合法/非法状态分别成功/拒绝。",
+    "verification": "真实构造函数最小复现通过",
+    "status": "open"
+  },
+  {
+    "id": "AUD-025",
+    "priority": "P1",
+    "title": "内部油脂统计把任意非“不合格”颜色当作合格",
+    "evidence": [
+      {
+        "path": "backend/routes/recordRoutes.js",
+        "line": 177
+      },
+      {
+        "path": "backend/routes/guestRoutes.js",
+        "line": 221
+      },
+      {
+        "path": "backend/lib/openApiScope.js",
+        "line": 245
+      }
+    ],
+    "trigger": "油脂结果含未识别的非空 colorLevel（例如 foo），同时 result 为不合格；内部统计优先用 colorLevel NOT LIKE 不合格。",
+    "impact": "记录可能在内部/访客统计中计为合格，和明细及 OpenAPI 显式颜色映射不一致，影响检测报告可信度。",
+    "fix": "所有视图复用一个经过业务确认的结论归一函数；未知值不推定合格，明确回退或返回待判定。",
+    "acceptance": "合法颜色、未知颜色、冲突 result、空值逐项对照，列表、内部统计、访客统计、OpenAPI 与导出保持一致。",
+    "verification": "代码确认",
+    "status": "open"
+  },
+  {
+    "id": "AUD-026",
+    "priority": "P2",
+    "title": "旧记录与同步写入口绕过服务端记录审计",
+    "evidence": [
+      {
+        "path": "backend/routes/recordRoutes.js",
+        "line": 57
+      },
+      {
+        "path": "backend/routes/recordRoutes.js",
+        "line": 824
+      },
+      {
+        "path": "backend/routes/syncRoutes.js",
+        "line": 1
+      }
+    ],
+    "trigger": "直接使用仍挂载的 /api/test-records 或同步写接口，而非有 writeTenantAuditLog 的主记录路径。",
+    "impact": "同一业务数据可被修改却不产生等价服务端审计；前端自报日志可省略，不能作为可信替代。",
+    "fix": "将写入与审计放入共同服务/事务，覆盖所有入口；不再使用的接口显式退役。",
+    "acceptance": "逐一调用所有写路由，每笔成功变更恰有可关联审计，失败事务不留下伪成功审计。",
+    "verification": "代码确认",
+    "status": "open"
+  },
+  {
+    "id": "AUD-027",
+    "priority": "P1",
+    "title": "删除无检测记录用户会级联删除其审计历史",
+    "evidence": [
+      {
+        "path": "backend/prisma/schema.prisma",
+        "line": 82
+      },
+      {
+        "path": "backend/modules/UserManager.js",
+        "line": 950
+      }
+    ],
+    "trigger": "用户没有阻止删除的 TestRecord，但有登录、用户管理等 AuditLog；User 删除触发 onDelete: Cascade。",
+    "impact": "审计历史随主体物理删除，违反仓库约定的审计保留目标，破坏事后追溯。",
+    "fix": "用户软删除或审计主体保留不可变快照；去掉审计外键级联删除并设计历史兼容迁移。",
+    "acceptance": "删除/停用一个只有审计历史的用户，其历史数量、操作者快照和可查询性保持不变。",
+    "verification": "代码确认",
+    "status": "open"
+  },
+  {
+    "id": "AUD-028",
+    "priority": "P2",
+    "title": "最后一位经理保护存在并发检查与写入竞态",
+    "evidence": [
+      {
+        "path": "backend/modules/UserManager.js",
+        "line": 1116
+      },
+      {
+        "path": "backend/modules/UserManager.js",
+        "line": 822
+      },
+      {
+        "path": "backend/modules/UserManager.js",
+        "line": 902
+      },
+      {
+        "path": "backend/modules/UserManager.js",
+        "line": 950
+      }
+    ],
+    "trigger": "两位活跃 manager 被并行停用/降级/删除；每个请求先独立 count，再在非共同串行事务中修改。",
+    "impact": "两个请求都看到仍有另一位经理，最终可能剩零位，学校失去本地管理能力。",
+    "fix": "在同校排他锁或可串行化事务内完成检查及变更，并对 serialization failure 重试。",
+    "acceptance": "并发删除/降级最后两位经理，只能成功一个；覆盖混合操作入口。",
+    "verification": "代码确认",
+    "status": "open"
+  },
+  {
+    "id": "AUD-029",
+    "priority": "P2",
+    "title": "已拒绝的账号申请不能按现有流程重新提交",
+    "evidence": [
+      {
+        "path": "backend/modules/UserManager.js",
+        "line": 1371
+      },
+      {
+        "path": "backend/modules/UserManager.js",
+        "line": 1380
+      },
+      {
+        "path": "backend/prisma/schema.prisma",
+        "line": 52
+      }
+    ],
+    "trigger": "同一 username 的 rejected 申请仍在表内；检查仅阻止 pending/approved，随后却 create 新行。",
+    "impact": "username 唯一约束触发 P2002，允许重申请的前置逻辑与存储约束矛盾。",
+    "fix": "明确重申请状态转换，更新同一申请或采用申请历史表与独立用户名约束；不要先放行后撞唯一键。",
+    "acceptance": "拒绝→修改资料→重新申请成功进入 pending，同时旧审核历史可追溯。",
+    "verification": "代码确认",
+    "status": "open"
+  },
+  {
+    "id": "AUD-030",
+    "priority": "P2",
+    "title": "账号申请审批不是原子状态转换",
+    "evidence": [
+      {
+        "path": "backend/modules/UserManager.js",
+        "line": 1432
+      },
+      {
+        "path": "backend/modules/UserManager.js",
+        "line": 1462
+      },
+      {
+        "path": "backend/modules/UserManager.js",
+        "line": 1476
+      },
+      {
+        "path": "backend/modules/UserManager.js",
+        "line": 1488
+      }
+    ],
+    "trigger": "approve 先创建 User，再更新申请；中间失败，或 approve 与 reject 并行读取同一 pending。",
+    "impact": "可能出现账号已可用但申请仍 pending/最终 rejected；重复审批也可能产生不一致错误。",
+    "fix": "在同一事务中以 pending 条件原子认领申请，再创建账号和记录审计；冲突返回已处理。",
+    "acceptance": "在两写之间注入失败不留下账号；并发批准/拒绝只完成一次合法终态。",
+    "verification": "代码确认",
+    "status": "open"
+  },
+  {
+    "id": "AUD-031",
+    "priority": "P2",
+    "title": "字段选项允许自引用、环和跨模块父节点",
+    "evidence": [
+      {
+        "path": "backend/lib/fieldOptionService.js",
+        "line": 279
+      },
+      {
+        "path": "backend/prisma/schema.prisma",
+        "line": 330
+      }
+    ],
+    "trigger": "更新 parent_option_id 为自身、后代或其他模块选项；服务只更新外键，没有树结构不变量校验。",
+    "impact": "闭环节点从根树视图消失，自引用也会干扰子项删除检查；字段级联配置失真。",
+    "fix": "校验父子模块/字段关系并拒绝自身和后代；树修改在事务内保证一致。",
+    "acceptance": "自引用、二节点环、深层环及跨模块父节点全部拒绝；合法移动正常显示和删除。",
+    "verification": "自引用更新最小复现通过",
+    "status": "open"
+  },
+  {
+    "id": "AUD-032",
+    "priority": "P2",
+    "title": "根字段选项的 nullable 联合唯一约束不能防重",
+    "evidence": [
+      {
+        "path": "backend/prisma/schema.prisma",
+        "line": 339
+      },
+      {
+        "path": "backend/lib/fieldOptionService.js",
+        "line": 193
+      },
+      {
+        "path": "backend/lib/fieldOptionService.js",
+        "line": 251
+      }
+    ],
+    "trigger": "parent_option_id 为 NULL 的根选项重复导入或并行创建；PostgreSQL 普通 UNIQUE 允许多个含 NULL 的同值组合。",
+    "impact": "先查询后创建的应用检查无法保护并发；字段选项产生同值根节点和不稳定级联。",
+    "fix": "针对根节点建立部分唯一索引，或采用合适的 NULLS NOT DISTINCT 约束；批量替换也应校验重复。",
+    "acceptance": "两连接同时创建同值根节点最终只有一个；批量输入重复值返回可理解的冲突。",
+    "verification": "代码确认",
+    "status": "open"
+  },
+  {
+    "id": "AUD-033",
+    "priority": "P2",
+    "title": "学校删除和磁盘工具未使用统一 schema 名称归一",
+    "evidence": [
+      {
+        "path": "backend/routes/schoolRoutes.js",
+        "line": 495
+      },
+      {
+        "path": "backend/routes/schoolRoutes.js",
+        "line": 502
+      },
+      {
+        "path": "backend/routes/adminDiskRoutes.js",
+        "line": 296
+      },
+      {
+        "path": "backend/lib/tenantClient.js",
+        "line": 58
+      }
+    ],
+    "trigger": "学校代码包含连字符或历史 school- 前缀；真实 schema 经 schemaNameOf 归一，但这些路径直接拼 school_${code}。",
+    "impact": "合法学校的硬删除/恢复元数据或磁盘统计、日志处理操作指向不存在/错误的 schema，返回失败或错误结果。",
+    "fix": "所有 schema 使用同一规范函数；持久化原始 schema 也从规范函数生成，迁移检查历史回收记录。",
+    "acceptance": "对 alpha-beta、school-alpha 及普通代码完成创建→统计→删除→恢复的闭环。",
+    "verification": "代码确认",
+    "status": "open"
+  },
+  {
+    "id": "AUD-034",
+    "priority": "P2",
+    "title": "检测日历清空后被 GET 自动重新填充默认值",
+    "evidence": [
+      {
+        "path": "backend/routes/frequencyRoutes.js",
+        "line": 95
+      },
+      {
+        "path": "backend/routes/frequencyRoutes.js",
+        "line": 245
+      }
+    ],
+    "trigger": "PUT calendar 传 items=[] 删除所有日程；下一次读取发现零行，ensureSeed 再次插入默认值。",
+    "impact": "空日历无法持久保存，关闭检测安排后默认任务再次出现；读接口同时承担无明确版本的写入职责。",
+    "fix": "将首次初始化和合法空配置区分，种子只在明确迁移/首次配置阶段运行。",
+    "acceptance": "清空后反复读取、重启仍为空；全新学校只初始化一次，多个首次请求不产生冲突。",
+    "verification": "代码确认",
+    "status": "open"
+  },
+  {
+    "id": "AUD-035",
+    "priority": "P2",
+    "title": "全局异常处理把请求解析 400/413 统一改成 500",
+    "evidence": [
+      {
+        "path": "backend/server.js",
+        "line": 183
+      },
+      {
+        "path": "backend/server.js",
+        "line": 357
+      }
+    ],
+    "trigger": "发送损坏 JSON 或超过 express.json 限制的请求；body parser 携带 status/statusCode 的错误进入最后处理器。",
+    "impact": "客户端错误被标为服务故障，错误恢复、监控告警与限额反馈均失真。",
+    "fix": "统一错误映射保留可信 4xx，分别处理解析失败、大小限制、业务冲突与未知 5xx，并返回稳定错误码。",
+    "acceptance": "损坏 JSON 得 400、超限得 413、未知内部异常得脱敏 500，均符合接口契约。",
+    "verification": "代码确认",
+    "status": "open"
+  },
+  {
+    "id": "AUD-036",
+    "priority": "P2",
+    "title": "上传界面、Express 与 Caddy 的大小限制互相矛盾",
+    "evidence": [
+      {
+        "path": "backend/server.js",
+        "line": 183
+      },
+      {
+        "path": "backend/routes/adminBackupRoutes.js",
+        "line": 1
+      },
+      {
+        "path": "deploy/deploy.sh",
+        "line": 878
+      }
+    ],
+    "trigger": "反馈/证据允许 25/30 MB 请求，备份导入允许更大文件，但普通 Express JSON 和部署 Caddy 均有 8 MB 限制；base64 还增加约三分之一体积。",
+    "impact": "合法界面输入到代理或解析器就被拒绝，较大备份无法通过提供的导入入口。",
+    "fix": "统一各路径的原始文件/编码请求限额，优先流式 multipart 上传；代理、后端、UI 同步配置并一致提示。",
+    "acceptance": "逐路径通过略小于限制的文件并拒绝略大文件；通过真实 Caddy 链路验证而非只测 Express。",
+    "verification": "代码确认",
+    "status": "open"
+  },
+  {
+    "id": "AUD-037",
+    "priority": "P2",
+    "title": "识别队列无容量/结果回收且状态查询缺少任务归属",
+    "evidence": [
+      {
+        "path": "backend/modules/recognitionQueue.js",
+        "line": 34
+      },
+      {
+        "path": "backend/modules/recognitionQueue.js",
+        "line": 112
+      },
+      {
+        "path": "backend/modules/recognitionQueue.js",
+        "line": 129
+      },
+      {
+        "path": "backend/routes/recognitionRoutes.js",
+        "line": 53
+      }
+    ],
+    "trigger": "持续提交识别任务或查询其他 jobId；全局 queue/jobs 无容量、TTL 清理，ID 为时间和递增序号，status 不核验学校/用户。",
+    "impact": "积压图片与永久结果导致内存增长；超时只改变查询结果，不取消任务；已知/猜中的其他任务结果可能跨主体读取。",
+    "fix": "任务保存主体并授权查询，随机 ID；队列按租户/全局限额，完成与失败结果有 TTL，超时取消；将重 CPU 解码/识别隔离到可终止的工作进程。",
+    "acceptance": "A 不能读取 B 任务；持续压测内存有界；超时任务实际停止或被丢弃，不在后台无限排队。",
+    "verification": "代码确认",
+    "status": "open"
+  },
+  {
+    "id": "AUD-038",
+    "priority": "P2",
+    "title": "健康检查不能反映数据库和租户结构就绪状态",
+    "evidence": [
+      {
+        "path": "backend/server.js",
+        "line": 246
+      },
+      {
+        "path": "backend/server.js",
+        "line": 387
+      },
+      {
+        "path": "deploy/deploy.sh",
+        "line": 908
+      }
+    ],
+    "trigger": "数据库不可用或租户自愈尚未完成/失败；HTTP 已监听，health 固定返回正常。",
+    "impact": "部署健康门禁仍可能通过，而业务请求持续失败；不能用该接口证明发布可用。",
+    "fix": "分离 liveness 与 readiness；就绪检查数据库连通、必需版本/租户迁移完成状态，发布使用 readiness。",
+    "acceptance": "切断数据库或注入迁移失败时 readiness 非 2xx；进程存活检查保持其独立含义。",
+    "verification": "代码确认",
+    "status": "open"
+  },
+  {
+    "id": "AUD-039",
+    "priority": "P1",
+    "title": "旧测试使用普通 DATABASE_URL 并执行跨范围破坏性清理",
+    "evidence": [
+      {
+        "path": "tests/integration/pg-bootstrap.js",
+        "line": 14
+      },
+      {
+        "path": "tests/integration/pg-bootstrap.js",
+        "line": 22
+      },
+      {
+        "path": "tests/integration/pg-bootstrap.js",
+        "line": 79
+      },
+      {
+        "path": "tests/p0ProvNoAdminInSchool.test.js",
+        "line": 143
+      },
+      {
+        "path": "tests/integration/roleAuditTrigger.test.js",
+        "line": 24
+      }
+    ],
+    "trigger": "在已有业务环境直接运行 npm test/test:integration；旧测试没有统一强制隔离门禁，接收普通 DATABASE_URL，部分使用固定 schema/用户名。",
+    "impact": "可 DROP 固定 school_a/b/c schema、修改默认 school_tjb/test 角色，或通过 purgeInvalidAdminInSchools 修改连接库所有学校的 admin。随机测试学校不能限制全库 purge 的作用范围。",
+    "fix": "全部数据库测试使用独立显式测试 URL 与唯一 namespace，启动时拒绝非测试数据库；所有清理限于本次拥有对象，禁止全库 purge 指向业务实例。",
+    "acceptance": "生产样式 URL 和固定业务 schema 在任何 DDL 前被拒绝；测试失败后的清理也不会影响外部对象。",
+    "verification": "代码确认；本轮所有数据库测试仅指向自建临时实例",
+    "status": "open"
+  },
+  {
+    "id": "AUD-040",
+    "priority": "P2",
+    "title": "默认测试和 CI 未覆盖主要后端套件，基线仍有失败",
+    "evidence": [
+      {
+        "path": "package.json",
+        "line": 10
+      },
+      {
+        "path": "jest.config.cjs",
+        "line": 11
+      },
+      {
+        "path": "jest.config.cjs",
+        "line": 30
+      },
+      {
+        "path": "backend/package.json",
+        "line": 20
+      },
+      {
+        "path": ".github/workflows/guard-client-branch.yml",
+        "line": 1
+      }
+    ],
+    "trigger": "默认 Jest 只匹配 .test.js，不执行 backend 的 .test.mjs；test:backend 指向不存在的另一种扩展，backend test 脚本直接失败；唯一 workflow 只检查 deploy/** 分支范围。",
+    "impact": "178 项后端测试不在默认发布保护内；覆盖率只采集一个实际存在的业务文件和一个不存在路径，不能代表全仓。根测试在准备好数据库后仍有两项陈旧断言失败。",
+    "fix": "建立明确 unit/http/db/e2e 脚本与 PR/发布门禁；纳入 mjs 套件并修复陈旧断言；覆盖率聚焦真正关键路径而非误导总百分比。",
+    "acceptance": "单一文档化命令能运行所需套件；故意破坏后端授权测试能阻断 CI；已知断言失败全部解决。",
+    "verification": "根 Jest 249/251 通过；后端 178/178 通过；集成 13/13 通过",
+    "status": "open"
+  },
+  {
+    "id": "AUD-041",
+    "priority": "P2",
+    "title": "lint 配置路径陈旧且扫描生成/第三方文件，当前不能作为门禁",
+    "evidence": [
+      {
+        "path": "package.json",
+        "line": 25
+      },
+      {
+        "path": ".eslintrc.cjs",
+        "line": 85
+      },
+      {
+        "path": ".eslintrc.cjs",
+        "line": 119
+      }
+    ],
+    "trigger": "运行 npm run lint；旧 overrides 仍指向 lib/tenantClient.js、prisma/**，实际代码已位于 backend；eslint . 也包含 dist/vendor。",
+    "impact": "实测 214 errors，含合法租户工厂、Node crypto API 和第三方/构建代码误报；大量噪声掩盖真实问题。不能把 214 条自动输出等同 214 个产品缺陷。",
+    "fix": "按实际目录修正规则和环境，忽略生成/第三方内容，保留必要安全规则并逐项处理真正违规。",
+    "acceptance": "干净 checkout 构建前后 lint 均通过；加入真实禁止模式能精确失败，Node 合法 API 不误报。",
+    "verification": "构建后实测 214 errors / 0 warnings",
+    "status": "open"
+  },
+  {
+    "id": "AUD-042",
+    "priority": "P2",
+    "title": "CSS 在复制到 dist 后才构建，发布可包含旧样式",
+    "evidence": [
+      {
+        "path": "package.json",
+        "line": 29
+      },
+      {
+        "path": "scripts/build-static.js",
+        "line": 1
+      },
+      {
+        "path": "deploy/deploy.sh",
+        "line": 606
+      }
+    ],
+    "trigger": "npm run build 先复制静态目录，再 build:css 更新源码；deploy 仅调用 build-static。新 UI 依赖新 Tailwind 类时触发。",
+    "impact": "构建显示成功，dist 的 CSS 仍是旧文件；源码目录还被构建改写，发布结果不完全由构建过程生成。",
+    "fix": "先生成 CSS 再组装 dist，或直接输出到 dist；部署统一调用同一个完整构建命令。",
+    "acceptance": "加入只在新页面出现的 utility 类，单次干净构建后的 dist 包含它；部署产物与本地构建一致。",
+    "verification": "构建成功及执行顺序确认；生成的源码 CSS 已还原",
+    "status": "open"
+  },
+  {
+    "id": "AUD-043",
+    "priority": "P2",
+    "title": "学校基本信息先写库再验证定制字段，失败返回仍有部分变更",
+    "evidence": [
+      {
+        "path": "backend/routes/schoolRoutes.js",
+        "line": 305
+      },
+      {
+        "path": "backend/routes/schoolRoutes.js",
+        "line": 323
+      },
+      {
+        "path": "backend/routes/schoolRoutes.js",
+        "line": 359
+      },
+      {
+        "path": "backend/routes/schoolRoutes.js",
+        "line": 386
+      }
+    ],
+    "trigger": "同一更新请求提交合法 name 与非法 logoStyle/canteens/guestEnabled；School 更新发生在后续字段验证之前。",
+    "impact": "请求返回 400，但名称等基础资料已经持久化；用户重试和跨标签页状态产生歧义。",
+    "fix": "先完整验证所有字段，再在同一事务提交 School 与 SchoolCustomization。",
+    "acceptance": "混合合法/非法字段的失败请求使所有字段保持原值；成功请求一次性更新并记录审计。",
+    "verification": "代码确认",
+    "status": "open"
+  },
+  {
+    "id": "AUD-044",
+    "priority": "P1",
+    "title": "示例 JWT_SECRET 是已知固定字符串，却未被启动保护拒绝",
+    "evidence": [
+      {
+        "path": ".env.example",
+        "line": 33
+      },
+      {
+        "path": "backend/server.js",
+        "line": 76
+      }
+    ],
+    "trigger": "复制示例环境后配置数据库但未替换 JWT_SECRET；示例值不在 KNOWN_WEAK_SECRETS 列表，也没有足够强度校验。",
+    "impact": "服务接受公开可知的签名密钥，攻击者可构造签名有效的凭据；实际影响仍取决于数据库主体/权限回查。未声称现网使用此配置。",
+    "fix": "示例留空并在初始化生成随机密钥；启动拒绝全部占位值，部署验证足够长度/格式且不打印秘密。",
+    "acceptance": "原样示例密钥必定启动失败；安全生成值启动成功；刷新令牌密钥也检查占位值。",
+    "verification": "代码确认；部署条件型问题",
+    "status": "open"
+  },
+  {
+    "id": "AUD-045",
+    "priority": "P2",
+    "title": "服务监听全部网卡，却固定信任一跳代理",
+    "evidence": [
+      {
+        "path": "backend/server.js",
+        "line": 150
+      },
+      {
+        "path": "backend/server.js",
+        "line": 387
+      },
+      {
+        "path": ".env.example",
+        "line": 15
+      }
+    ],
+    "trigger": "后端端口因主机/云防火墙配置可被直接访问；app.listen 未指定回环 host，trust proxy=1 接受最近一跳转发头。",
+    "impact": "直连者可自设 X-Forwarded-For，影响基于 req.ip 的白名单、限流及审计。是否可达需要检查真实网络，本轮未验证现网暴露。",
+    "fix": "按部署拓扑显式绑定回环地址或可信接口，并精确配置可信代理来源；同时限制后端网络入口。",
+    "acceptance": "外部无法直连 API 端口，或直连伪造头不能改变安全决策 IP；代理路径仍识别真实来源。",
+    "verification": "代码确认；利用依赖部署可达性",
+    "status": "open"
+  },
+  {
+    "id": "AUD-046",
+    "priority": "P2",
+    "title": "KMS 备份依赖未声明，标准安装无法运行已配置的 KMS 模式",
+    "evidence": [
+      {
+        "path": "backend/lib/backupKms.js",
+        "line": 41
+      },
+      {
+        "path": "backend/package.json",
+        "line": 33
+      },
+      {
+        "path": "scripts/setup-backup-kms.sh",
+        "line": 1
+      }
+    ],
+    "trigger": "通过提供的配置脚本启用腾讯 KMS 后，在标准 npm ci 安装上创建备份；代码动态 import 未列入依赖的 SDK。",
+    "impact": "ERR_MODULE_NOT_FOUND 阻断备份；手工安装到 node_modules 的临时补救无法可靠跨部署复现。",
+    "fix": "将支持的 SDK 及版本纳入依赖/锁文件，或把可选后端作为明确安装包并在启用时做 readiness 检查。",
+    "acceptance": "全新 checkout 按文档安装配置后，KMS 客户端可初始化；缺依赖在部署检查阶段明确失败。",
+    "verification": "依赖清单与 import 代码确认；未调用云 KMS",
+    "status": "open"
+  },
+  {
+    "id": "AUD-047",
+    "priority": "P1",
+    "title": "学校删除后 OpenAPI 授权残留，可重新附着到同代码新学校",
+    "evidence": [
+      {
+        "path": "backend/routes/schoolRoutes.js",
+        "line": 495
+      },
+      {
+        "path": "backend/prisma/schema.prisma",
+        "line": 412
+      },
+      {
+        "path": "backend/routes/openApiRoutes.js",
+        "line": 150
+      }
+    ],
+    "trigger": "平台删除学校，之后以同 code 创建新的学校；OpenApiGrant 以 school_code 文本关联，没有学校外键/生命周期处理，删除路径未撤销这些 grant。",
+    "impact": "旧对接方仍持有 active grant，学校重新 active 后可读取新学校在相同代码下的数据。需要发生代码复用，删除后立即访问仍会被 school 检查拒绝。",
+    "fix": "授权关联不可复用的学校 ID/世代；删除时撤销并递增范围版本，重建必须重新授权；明确回收站恢复与新建的区别。",
+    "acceptance": "授权→删除→同 code 新建后旧 key 无权读取；合法回收站恢复是否保留授权按显式策略测试。",
+    "verification": "代码确认",
+    "status": "open"
+  },
+  {
+    "id": "AUD-048",
+    "priority": "P2",
+    "title": "恢复 schema 名替换同时改写业务字符串",
+    "evidence": [
+      {
+        "path": "backend/lib/restoreSqlUtils.js",
+        "line": 14
+      },
+      {
+        "path": "backend/lib/restoreService.js",
+        "line": 124
+      }
+    ],
+    "trigger": "dump 中 COPY/JSON/文本值包含 school_alpha. 或带引号的 schema 前缀；rewriteSchemaNames 对整段 SQL 执行 replaceAll。",
+    "impact": "恢复把原始业务字符串改成暂存 schema 前缀，内容校验仅比行数无法发现；最终 schema 改名也不会修正数据值。",
+    "fix": "使用 pg_restore 等结构化 schema 处理或词法解析，只改 SQL 标识符，不改字符串、COPY 数据和函数体中的非标识符内容。",
+    "acceptance": "备份包含 schema 前缀的备注/JSON、引号、换行，恢复后逐字段哈希一致，仅对象归属变化。",
+    "verification": "真实 rewriteSchemaNames 最小复现通过",
+    "status": "open"
+  },
+  {
+    "id": "AUD-049",
+    "priority": "P2",
+    "title": "安全告警仅用时间戳游标，批次边界会漏事件",
+    "evidence": [
+      {
+        "path": "backend/lib/securityAlerts.js",
+        "line": 78
+      },
+      {
+        "path": "backend/lib/securityAlerts.js",
+        "line": 88
+      },
+      {
+        "path": "backend/lib/securityAlerts.js",
+        "line": 118
+      }
+    ],
+    "trigger": "超过 200 条事件具有相同 created_at；首批取 200 条后，下一轮 created_at > lastScanAt 排除剩余同时间戳事件。低于一批时推进到 now 也存在查询期间新写入窗口。",
+    "impact": "安全事件仍在数据库，但不会进入该进程后续告警；此外 webhook HTTP 错误状态未检查，投递失败不会重试。",
+    "fix": "使用 (created_at,id) 稳定复合游标，基于已确认处理记录推进；投递失败与扫描状态分离并进行有限重试。",
+    "acceptance": "201 条同时间戳事件均被处理一次；扫描中插入和 webhook 500/超时不会静默丢告警。",
+    "verification": "201 条同时间戳事件的最小复现通过",
+    "status": "open"
+  }
+]

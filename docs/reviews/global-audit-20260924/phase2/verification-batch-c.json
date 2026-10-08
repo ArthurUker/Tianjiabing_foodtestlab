@@ -1,0 +1,363 @@
+{
+  "phase": 2,
+  "batch": "C",
+  "theme": "data integrity / browser state / output safety",
+  "mode": "independent_adversarial_verification",
+  "baseline": "f08e72e3e74d188b4555e0bee16280b3dd0d622b",
+  "generated_at": "2026-09-24",
+  "audit_only": true,
+  "application_code_changed": false,
+  "stage1": "semi-blind (id/title/claim/trigger only) then independent full-chain tracing (UI -> cache -> queue -> API -> normalization -> persistence -> render/export)",
+  "environment": {
+    "node": "v24.15.0",
+    "database_used": "none",
+    "probes": "JSDOM + in-memory localStorage + local fake HTTP server (127.0.0.1, in-memory); real frontend modules; no external network"
+  },
+  "issues": [
+    {
+      "id": "AUD-003",
+      "title": "检测记录字段进入 innerHTML，存在存储型 XSS",
+      "original_claim": "有写入权限的账号保存 HTML/属性闭合字符串到 vegetableType、remark、inspector 等字段，其他用户打开列表或详情时被解析为元素与事件属性。",
+      "validity": "CONFIRMED",
+      "injection_level": "DOM injection confirmed; script execution NOT demonstrated (no RCE claim)",
+      "reachability": "REALISTIC_PRECONDITION",
+      "data_consequence": "SERVER_STATE (dangerous payload persisted awaiting render) + render-layer DOM corruption",
+      "call_path": [
+        "write: POST/PUT /api/records/:tableName with requireEditorOrAbove (recordRoutes.js:24,280,505)",
+        "backend: sanitizeObjectKeys strips dangerous KEYS only, no HTML escaping (sanitize.js:7-13); validateRecordPayload checks only testDate/canteen/inspector (recordNormalize.js:349-362)",
+        "render: GenericTest.render tbody.innerHTML (GenericTest.js:1332) with unescaped vegetableType/batchNo/meatType/testDate/canteen/oilTemp (1352-1370) and remark in ATTRIBUTE context title=\"${r.remark}\" (1345-1347)",
+        "detail modal renderLogs unescaped log.user/time/action/content (350,352)",
+        "Pathogen.js:1181 modal.innerHTML with unescaped title/sampleId/testDate",
+        "export: ExportService.generateReportHTML -> reportPreview.innerHTML (503) but table cells escape via _escapeHtml (688)"
+      ],
+      "guards_found": {
+        "page_csp": "none (server.js:205-207 CSP applies to /api/* only; deploy.sh:836-841 Caddy headers have no CSP)",
+        "xss_header": "X-XSS-Protection deprecated/no-op in modern browsers",
+        "backend_escaping": "none (sanitizeObjectKeys is key-name sanitization only)",
+        "write_permission": "editor+ required (not anonymous)"
+      },
+      "reproduction": {
+        "method": "real GenericTestModule.render in JSDOM with malicious record",
+        "observed": "img[onerror] node created from vegetableType; div[onmouseover] created via remark attribute breakout; no event triggered, no script executed",
+        "artifact": "phase2/probes-batch-c.mjs"
+      },
+      "seven_questions": {
+        "internal_incorrect_state": "attacker-controlled DOM nodes with event attributes in render output",
+        "user_visible_consequence": "any viewer (incl. manager/admin/guest) renders injected nodes",
+        "server_persisted_consequence": "malicious string stored as-is in TestRecord fields",
+        "silent": true,
+        "detectable_recoverable": "field cleanup possible; consequences of any executed script would be irreversible (not demonstrated)",
+        "cross_user_impact": "yes (act as victim in same-origin context)",
+        "ui_or_db": "DB stores by design; defect is missing output encoding"
+      },
+      "state_corruption": "YES",
+      "persistent_corruption": "NO",
+      "silent": "YES",
+      "recoverable": "PARTIAL",
+      "first_pass_comparison": {
+        "missed_guard": false,
+        "trigger_reachable": true,
+        "impact_overstated": false,
+        "reproducer_faithful": true,
+        "note": "first pass did not claim script execution or RCE; phase-2 additionally confirmed CSP absence at both layers and that export table cells are escaped (partial mitigation)"
+      },
+      "severity_recommendation": "P1",
+      "severity_rationale": "write-permission-only trigger, affects all viewers incl. admins, no effective CSP, cross-page impact; wording must stay 'DOM injection confirmed, execution not demonstrated'"
+    },
+    {
+      "id": "AUD-020",
+      "title": "列表缓存与报告导出静默截断历史记录",
+      "original_claim": "某类型记录超过 1000/2000 时，Storage 单次取前 1000 条、导出请求 limit=10000 但后端最多 2000，均未按 total 翻页。",
+      "validity": "CONFIRMED",
+      "reachability": "REALISTIC_PRECONDITION",
+      "data_consequence": "LOCAL_STATE / UI_ONLY (server data complete)",
+      "limits_origin": {
+        "1000": "Storage.js:15 maxSyncRows (frontend single-fetch)",
+        "2000": "recordRoutes.js:13 MAX_RECORDS_LIMIT applied at :251; total returned at :263",
+        "10000": "ExportService.js:353 request value, capped to 2000 by backend"
+      },
+      "call_path": [
+        "GET /api/records/:tableName returns {success,data,total,limit,offset} (recordRoutes.js:243-278)",
+        "Storage._syncFromApi fixed ?limit=1000&offset=0 (Storage.js:255), consumes response.data only (:267), ignores total, no offset loop",
+        "_updateLocalCache used as complete dataset (:311)",
+        "export syncDataFromServer limit=10000 (ExportService.js:353) -> cap 2000",
+        "generateReportHTML prints '总检测记录数: N 条' from local count (ExportService.js:596) with no completeness warning"
+      ],
+      "reproduction": {
+        "method": "2501 fake records + fake fetch mirroring backend cap",
+        "observed": "exactly 1 request (limit=1000), cache holds 1000 rows, total=2501 ignored, no pagination; export math min(10000,2000)=2000 < 2501",
+        "artifact": "phase2/probes-batch-c.mjs"
+      },
+      "seven_questions": {
+        "internal_incorrect_state": "local cache treated as the complete dataset",
+        "user_visible_consequence": "older records missing from lists; reports for old ranges incomplete or empty",
+        "server_persisted_consequence": "none (server data and total are intact)",
+        "silent": true,
+        "detectable_recoverable": "hard to notice; fully recoverable by re-query / fixing read path",
+        "cross_user_impact": false,
+        "ui_or_db": "DB complete; reading/export incomplete"
+      },
+      "state_corruption": "YES",
+      "persistent_corruption": "NO",
+      "silent": "YES",
+      "recoverable": "YES",
+      "first_pass_comparison": {
+        "missed_guard": false,
+        "trigger_reachable": true,
+        "impact_overstated": false,
+        "reproducer_faithful": true,
+        "note": "first-pass impact wording accurate; acceptance test (2501 rows) matches this round"
+      },
+      "severity_recommendation": "P1",
+      "severity_rationale": "silent incompleteness in compliance-oriented reports claiming N records; trigger thresholds already approached by historical data volumes"
+    },
+    {
+      "id": "AUD-021",
+      "title": "离线临时记录在创建、编辑、删除转换中丢失变更",
+      "original_claim": "临时记录未上传即编辑时，创建应答先替换临时 ID 并出队，后续 updateTemp 只尝试合并已不存在的 create；删除临时记录又被 dirty cache 合并保留。",
+      "validity": "CONFIRMED",
+      "reachability": "REALISTIC_PRECONDITION",
+      "data_consequence": "LOCAL_STATE + server MISSING user-intended data (loss, not wrong data)",
+      "state_machine_observed": {
+        "scenario_A_offline_create_edit_reconnect": "queue [create, update_temp] -> create processed and removed (:362) -> _handleUpdateTemp (:725-735) finds no create -> no-op; POST body = {\"result\":\"合格\"} (edit '不合格' never uploaded); queue ends empty; local row replaced by server-authoritative response (_replaceTempIdInCache forceServer) -> edit lost on BOTH sides",
+        "scenario_B_offline_create_delete": "delete() splices local row then _updateLocalCache pending-merge re-adds isTemp row (:577-592) -> ghost row persists in localStorage; _cleanupTempRequests removes create -> server not created",
+        "scenario_C_inflight_edit": "same no-op branch as A",
+        "scenario_D_create_ok_update_fail": "same mechanism"
+      },
+      "reproduction": {
+        "method": "real StorageService with real _processQueuedRequests + fake fetch; debug output shows posts=1 body without edit value, remainingQueue=[]",
+        "artifact": "phase2/probes-batch-c.mjs"
+      },
+      "seven_questions": {
+        "internal_incorrect_state": "local cache/queue no longer represents the user's last operation",
+        "user_visible_consequence": "edits silently vanish; deleted temp records still listed",
+        "server_persisted_consequence": "server lacks the edit the user believed was saved",
+        "silent": true,
+        "detectable_recoverable": "edits unrecoverable (must redo); ghost row fixable by cache clear (PARTIAL)",
+        "cross_user_impact": false,
+        "ui_or_db": "local state wrong + server missing data"
+      },
+      "state_corruption": "YES",
+      "persistent_corruption": "NO",
+      "silent": "YES",
+      "recoverable": "NO (edit content) / PARTIAL (ghost row)",
+      "first_pass_comparison": {
+        "missed_guard": false,
+        "trigger_reachable": true,
+        "impact_overstated": false,
+        "reproducer_faithful": true,
+        "note": "first-pass probe conclusions reproduced with additional POST-payload-level evidence; _cleanupTempRequests explains why scenario B has no server-side side effect"
+      },
+      "severity_recommendation": "P1",
+      "severity_rationale": "silent loss of explicitly saved edits plus ghost rows undermining delete trust"
+    },
+    {
+      "id": "AUD-022",
+      "title": "版本冲突重试只换 version，可能覆盖他人的新内容",
+      "original_claim": "两人从 v1 编辑同一记录；A 写成 v2，B 收到 409，队列把旧完整 payload 的 version 改成服务端版本再提交。",
+      "validity": "CONFIRMED",
+      "reachability": "REALISTIC_PRECONDITION",
+      "data_consequence": "SERVER_STATE (persistent overwrite of another user's content)",
+      "concurrency_contract": {
+        "server_409_body": "{error, serverVersion, clientVersion} (recordRoutes.js:588-592); 'stale' marker on P2025 (:606-608); no latest object / ETag / field metadata",
+        "client_409_handler": "payload = {...payload, version: latestVersion} keeping stale content, auto-retry maxRetries=2 (AdaptiveUploadQueue.js:166-172; Storage.js:380-388)",
+        "server_put_semantics": "resultDataMode default 'replace' (recordRoutes.js:538) full-object replacement; PROTECTED_FIELDS self-heal (:570-581) only fills empty incoming values"
+      },
+      "reproduction": {
+        "method": "local fake HTTP server with version CAS + real AdaptiveUploadQueue",
+        "observed": "PUT v1 'A的新内容' -> v2; PUT v1 '原始内容' -> 409(serverVersion=2); retry PUT v2 '原始内容' -> 200; final server content = '原始内容' (A's update lost)",
+        "artifact": "phase2/probes-batch-c.mjs"
+      },
+      "outcome_classification": "LOST_UPDATE",
+      "seven_questions": {
+        "internal_incorrect_state": "client treats a stale snapshot as the latest submission",
+        "user_visible_consequence": "A's just-saved change disappears; no conflict notice to either side",
+        "server_persisted_consequence": "server content regressed to stale values and persisted",
+        "silent": true,
+        "detectable_recoverable": "only manual history comparison; content not auto-recoverable",
+        "cross_user_impact": "yes (cross-user overwrite)",
+        "ui_or_db": "real database corruption"
+      },
+      "state_corruption": "YES",
+      "persistent_corruption": "YES",
+      "silent": "YES",
+      "recoverable": "NO",
+      "first_pass_comparison": {
+        "missed_guard": false,
+        "trigger_reachable": true,
+        "impact_overstated": false,
+        "reproducer_faithful": true,
+        "note": "first-pass 'may overwrite' upgraded to end-to-end proof; PROTECTED_FIELDS does not protect non-empty stale values"
+      },
+      "severity_recommendation": "P1",
+      "severity_rationale": "cross-user silent persistent overwrite (integrity); fix requires client-side merge semantics beyond server changes"
+    },
+    {
+      "id": "AUD-025",
+      "title": "内部油脂统计把任意非“不合格”颜色当作合格",
+      "original_claim": "油脂结果含未识别的非空 colorLevel（例如 foo）且 result 为不合格时，内部统计优先用 colorLevel NOT LIKE '%不合格%' 判为合格。",
+      "validity": "CONFIRMED",
+      "reachability": "RARE_PRECONDITION",
+      "data_consequence": "UI_ONLY (statistics output; DB intact)",
+      "judgement_domain": {
+        "合格": "counts as pass (intended business rule, same as Dashboard.isOilQualified)",
+        "警戒": "counts as pass (intended)",
+        "不合格": "fail (correct)",
+        "empty": "falls back to result rule (correct)",
+        "unknown_nonempty": "counts as PASS (fail-open defect)"
+      },
+      "call_path": [
+        "internal stats SQL: recordRoutes.js:177-184 CASE WHEN colorLevel<>'' THEN colorLevel NOT LIKE '%不合格%' ELSE result-rule END",
+        "guest stats same rule: guestRoutes.js:221-226",
+        "OpenAPI uses explicit enum mapping (unknown -> unknown, not pass) -> inconsistency",
+        "frontend Dashboard.isOilQualified same fail-open semantic (Dashboard.js:948-954)"
+      ],
+      "write_reachability": "validateRecordPayload (recordNormalize.js:349-362) does not validate colorLevel; POST/PUT/bulk-upsert/sync accept arbitrary values; UI uses restricted radio/select (GenericTest.js:753) so non-UI path (API/import/history) required",
+      "reproduction": {
+        "method": "SQL semantic-equivalence replay in JS + source assertions on write paths",
+        "observed": "passBySql('foo','不合格') === true; '不合格' -> false; '警戒' -> true",
+        "artifact": "phase2/probes-batch-c.mjs"
+      },
+      "seven_questions": {
+        "internal_incorrect_state": "numerator counts unknown values as pass",
+        "user_visible_consequence": "inflated pass rate in dashboards/reports",
+        "server_persisted_consequence": "none (read-time computation)",
+        "silent": true,
+        "detectable_recoverable": "recoverable by fixing the rule and recomputing",
+        "cross_user_impact": false,
+        "ui_or_db": "UI/output layer"
+      },
+      "state_corruption": "NO",
+      "persistent_corruption": "NO",
+      "silent": "YES",
+      "recoverable": "YES",
+      "first_pass_comparison": {
+        "missed_guard": false,
+        "trigger_reachable": "RARE (requires bypassing the restricted UI to store an unknown value)",
+        "impact_overstated": false,
+        "reproducer_faithful": true,
+        "note": "first pass used 'may' and flagged inconsistency with OpenAPI; both hold"
+      },
+      "severity_recommendation": "P2 (downgrade, contested)",
+      "severity_rationale": "no persistent corruption and recomputable, but requires non-UI write path; P1 defensible if pass-rate integrity is treated as compliance-critical"
+    },
+    {
+      "id": "AUD-027",
+      "title": "删除无检测记录用户会级联删除其审计历史",
+      "original_claim": "用户没有阻止删除的 TestRecord，但有登录、用户管理等 AuditLog；User 删除触发 onDelete: Cascade。",
+      "validity": "CONFIRMED",
+      "reachability": "REALISTIC_PRECONDITION",
+      "data_consequence": "SERVER_STATE / AUDIT_INTEGRITY",
+      "call_path": [
+        "schema.prisma AuditLog.user relation onDelete: Cascade; user_id String (NOT NULL)",
+        "UserManager.deleteUser: testRecord.count({created_by: userId})>0 -> reject; assertNotLastActiveManager; prisma.user.delete() -> cascades AuditLog",
+        "after delete: logAdminAction('user_delete', actor, snapshot) writes a new audit row under the ACTOR; revokeUserSessions(user_delete)",
+        "SystemLog (public, schema.prisma:346-355) has NO User FK -> unaffected"
+      ],
+      "boundaries": {
+        "application_audit_trail": "deleted (AuditLog per-subject rows)",
+        "security_system_log": "preserved (SystemLog, no FK)",
+        "business_record_attribution": "protected by pre-delete TestRecord count check"
+      },
+      "reproduction": {
+        "method": "schema + delete-path source assertions (no runtime DB)",
+        "artifact": "phase2/probes-batch-c.mjs"
+      },
+      "seven_questions": {
+        "internal_incorrect_state": "subject-scoped audit history physically removed with the subject",
+        "user_visible_consequence": "audit queries for that user return nothing",
+        "server_persisted_consequence": "AuditLog rows deleted",
+        "silent": true,
+        "detectable_recoverable": "unrecoverable without a full backup; SystemLog covers only a subset",
+        "cross_user_impact": false,
+        "ui_or_db": "real database deletion"
+      },
+      "state_corruption": "YES",
+      "persistent_corruption": "YES",
+      "silent": "YES",
+      "recoverable": "NO",
+      "first_pass_comparison": {
+        "missed_guard": false,
+        "trigger_reachable": true,
+        "impact_overstated": false,
+        "reproducer_faithful": true,
+        "note": "first pass did not claim 'all audits disappear'; SystemLog/actor-row/TestRecord-check boundaries confirmed this round"
+      },
+      "severity_recommendation": "P1 (contested)",
+      "severity_rationale": "irrecoverable audit loss (compliance), but gated by no-test-records + not-last-manager + admin action; P2 defensible if AuditLog is viewed as operational log"
+    }
+  ],
+  "summary": {
+    "CONFIRMED": 6,
+    "PARTIALLY_CONFIRMED": 0,
+    "FALSE_POSITIVE": 0,
+    "NOT_REPRODUCIBLE": 0,
+    "NEEDS_RUNTIME_VERIFICATION": 0,
+    "severity_downgrade_recommendations": ["AUD-025 P1->P2"],
+    "severity_arbitration_candidates": ["AUD-025", "AUD-027", "AUD-003 wording", "AUD-020 fix scope"]
+  },
+  "server_persisted_error_data": [
+    "AUD-022 (only confirmed case of wrong content on the server: stale overwrite persisted, no notice)",
+    "AUD-027 (audit rows physically deleted)",
+    "AUD-003 (dangerous payload persisted pending render; execution not demonstrated)",
+    "AUD-021 (server MISSING user-saved edits - loss type)"
+  ],
+  "ui_or_local_only": ["AUD-020 (DB complete, cache/export incomplete)", "AUD-025 (statistics output only)"],
+  "silent_data_loss_ranked": [
+    "AUD-022 overwrite (unrecoverable)",
+    "AUD-027 audit deletion (backup needed)",
+    "AUD-021 edit loss (redo needed)",
+    "AUD-020 export incompleteness (re-query)",
+    "AUD-025 statistics distortion (recompute)",
+    "AUD-003 injection (field cleanup; any executed-script aftermath irreversible)"
+  ],
+  "root_causes": [
+    "output encoding missing (AUD-003): inline innerHTML + 7+ divergent escapeHtml implementations + no page-level CSP; backend only sanitizes key names",
+    "client local-first state machine and version coordination missing (AUD-021 + AUD-022, same Storage/AdaptiveUploadQueue path): temp-ID lifecycle has no explicit state machine and 409 handling lacks merge semantics",
+    "read path lacks pagination contract (AUD-020): single-limit fetch + total ignored, cache treated as complete",
+    "conclusion normalization and audit lifecycle lack a single source of truth (AUD-025 + AUD-027): pass/fail rule duplicated in 4 places with fail-open default; audit rows hard-bound to User with CASCADE"
+  ],
+  "arbitration_needed": [
+    "AUD-025 final severity and whether to introduce one normalizeConclusion() shared by internal stats / OpenAPI / frontend",
+    "AUD-027 audit retention policy: soft delete vs immutable subject snapshot vs removing CASCADE (schema migration required)",
+    "AUD-020 fix path: server pagination passthrough vs streaming export vs explicit over-limit rejection (what the report may claim)",
+    "AUD-003 remediation scope and regression cost: full textContent conversion + single escape helper vs whitelist sanitization for rich-text fields"
+  ],
+  "remediation_dependencies": [
+    "AUD-021 + AUD-022 must ship together (same Storage/AdaptiveUploadQueue path; fixing one without the other leaves the other loss mode active)",
+    "AUD-003 and AUD-020 independent; unify escape helper before touching modules to stop divergence growth",
+    "AUD-025 weakly coupled with AUD-003 (same 'consistent representation across outputs' theme)",
+    "AUD-027 depends on AUD-008 migration discipline (new schema change must be replayable from an empty database)",
+    "AUD-020 pagination change should be coordinated with AUD-002 cache-key work (shared read-contract surface)"
+  ],
+  "new_findings_candidates": [
+    {
+      "id": "NF-C-01",
+      "description": "Detail-modal render paths (Pathogen.js:1181, GenericTest renderLogs :350-352) are separate injection points from the list rendering; fixing lists alone leaves detail views exposed",
+      "severity_hint": "medium (tracked within AUD-003 scope)"
+    },
+    {
+      "id": "NF-C-02",
+      "description": "7+ divergent escapeHtml implementations across modules is the structural cause of AUD-003 recurrence",
+      "severity_hint": "low (engineering debt)"
+    },
+    {
+      "id": "NF-C-03",
+      "description": "ExportService limit=10000 has no over-limit warning and no total check; a future backend MAX_RECORDS_LIMIT change silently shifts the truncation point",
+      "severity_hint": "low (same root as AUD-020)"
+    }
+  ],
+  "artifacts": {
+    "report": "docs/reviews/global-audit-20260924/phase2/BATCH-C-VERIFICATION.md",
+    "probe_script": "docs/reviews/global-audit-20260924/phase2/probes-batch-c.mjs",
+    "probe_results": "docs/reviews/global-audit-20260924/phase2/probe-results-batch-c.json",
+    "rerun_command": "node docs/reviews/global-audit-20260924/phase2/probes-batch-c.mjs"
+  },
+  "not_executed": [
+    "real database usage",
+    "external network",
+    "event dispatch / script execution for AUD-003",
+    "Cypress / browser e2e",
+    "any destructive operation"
+  ]
+}

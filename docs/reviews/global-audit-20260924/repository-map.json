@@ -1,0 +1,4690 @@
+{
+  "commit": "f08e72e3e74d188b4555e0bee16280b3dd0d622b",
+  "tracked_files": 310,
+  "route_literals": [
+    {
+      "file": "README.md",
+      "line": 98,
+      "method": "use",
+      "path": "/api"
+    },
+    {
+      "file": "README.md",
+      "line": 99,
+      "method": "use",
+      "path": "/api/admin/disk"
+    },
+    {
+      "file": "README.md",
+      "line": 773,
+      "method": "use",
+      "path": "/api/admin/disk"
+    },
+    {
+      "file": "backend/routes/adminBackupRoutes.js",
+      "line": 54,
+      "method": "get",
+      "path": "/"
+    },
+    {
+      "file": "backend/routes/adminBackupRoutes.js",
+      "line": 140,
+      "method": "post",
+      "path": "/run"
+    },
+    {
+      "file": "backend/routes/adminBackupRoutes.js",
+      "line": 173,
+      "method": "get",
+      "path": "/:id/meta"
+    },
+    {
+      "file": "backend/routes/adminBackupRoutes.js",
+      "line": 200,
+      "method": "get",
+      "path": "/:id/download"
+    },
+    {
+      "file": "backend/routes/adminBackupRoutes.js",
+      "line": 247,
+      "method": "post",
+      "path": "/:id/verify"
+    },
+    {
+      "file": "backend/routes/adminBackupRoutes.js",
+      "line": 292,
+      "method": "post",
+      "path": "/restore-from-upload"
+    },
+    {
+      "file": "backend/routes/adminBackupRoutes.js",
+      "line": 545,
+      "method": "post",
+      "path": "/:id/restore-batch"
+    },
+    {
+      "file": "backend/routes/adminBackupRoutes.js",
+      "line": 616,
+      "method": "post",
+      "path": "/:id/restore"
+    },
+    {
+      "file": "backend/routes/adminDiskRoutes.js",
+      "line": 94,
+      "method": "get",
+      "path": "/overview"
+    },
+    {
+      "file": "backend/routes/adminDiskRoutes.js",
+      "line": 183,
+      "method": "post",
+      "path": "/journal/vacuum"
+    },
+    {
+      "file": "backend/routes/adminDiskRoutes.js",
+      "line": 202,
+      "method": "post",
+      "path": "/logs/delete"
+    },
+    {
+      "file": "backend/routes/adminDiskRoutes.js",
+      "line": 231,
+      "method": "post",
+      "path": "/backups/delete-day"
+    },
+    {
+      "file": "backend/routes/adminDiskRoutes.js",
+      "line": 338,
+      "method": "get",
+      "path": "/audit-logs/usage"
+    },
+    {
+      "file": "backend/routes/adminDiskRoutes.js",
+      "line": 379,
+      "method": "get",
+      "path": "/audit-logs/stats"
+    },
+    {
+      "file": "backend/routes/adminDiskRoutes.js",
+      "line": 414,
+      "method": "post",
+      "path": "/audit-logs/export"
+    },
+    {
+      "file": "backend/routes/adminDiskRoutes.js",
+      "line": 461,
+      "method": "get",
+      "path": "/audit-logs/download"
+    },
+    {
+      "file": "backend/routes/adminDiskRoutes.js",
+      "line": 479,
+      "method": "post",
+      "path": "/audit-logs/delete"
+    },
+    {
+      "file": "backend/routes/adminOpenApiRoutes.js",
+      "line": 3,
+      "method": "use",
+      "path": "/api/admin/open-api"
+    },
+    {
+      "file": "backend/routes/adminOpenApiRoutes.js",
+      "line": 128,
+      "method": "get",
+      "path": "/clients"
+    },
+    {
+      "file": "backend/routes/adminOpenApiRoutes.js",
+      "line": 196,
+      "method": "post",
+      "path": "/clients"
+    },
+    {
+      "file": "backend/routes/adminOpenApiRoutes.js",
+      "line": 221,
+      "method": "patch",
+      "path": "/clients/:id"
+    },
+    {
+      "file": "backend/routes/adminOpenApiRoutes.js",
+      "line": 265,
+      "method": "post",
+      "path": "/clients/:id/credentials"
+    },
+    {
+      "file": "backend/routes/adminOpenApiRoutes.js",
+      "line": 300,
+      "method": "post",
+      "path": "/clients/:id/credentials/:cid/revoke"
+    },
+    {
+      "file": "backend/routes/adminOpenApiRoutes.js",
+      "line": 322,
+      "method": "put",
+      "path": "/clients/:id/grants"
+    },
+    {
+      "file": "backend/routes/adminOpenApiRoutes.js",
+      "line": 396,
+      "method": "get",
+      "path": "/clients/:id/preview"
+    },
+    {
+      "file": "backend/routes/adminOpenApiRoutes.js",
+      "line": 453,
+      "method": "get",
+      "path": "/clients/:id/dict"
+    },
+    {
+      "file": "backend/routes/adminOpenApiRoutes.js",
+      "line": 494,
+      "method": "get",
+      "path": "/clients/:id/samples"
+    },
+    {
+      "file": "backend/routes/adminOpenApiRoutes.js",
+      "line": 545,
+      "method": "get",
+      "path": "/clients/:id/guide"
+    },
+    {
+      "file": "backend/routes/adminOpenApiRoutes.js",
+      "line": 603,
+      "method": "get",
+      "path": "/clients/:id/package"
+    },
+    {
+      "file": "backend/routes/adminOpenApiRoutes.js",
+      "line": 830,
+      "method": "get",
+      "path": "/export"
+    },
+    {
+      "file": "backend/routes/adminOpenApiRoutes.js",
+      "line": 848,
+      "method": "post",
+      "path": "/import"
+    },
+    {
+      "file": "backend/routes/auditRoutes.js",
+      "line": 77,
+      "method": "post",
+      "path": "/"
+    },
+    {
+      "file": "backend/routes/auditRoutes.js",
+      "line": 126,
+      "method": "get",
+      "path": "/"
+    },
+    {
+      "file": "backend/routes/auditRoutes.js",
+      "line": 195,
+      "method": "get",
+      "path": "/stats/summary"
+    },
+    {
+      "file": "backend/routes/auditRoutes.js",
+      "line": 258,
+      "method": "get",
+      "path": "/export"
+    },
+    {
+      "file": "backend/routes/auditRoutes.js",
+      "line": 321,
+      "method": "get",
+      "path": "/users"
+    },
+    {
+      "file": "backend/routes/auditRoutes.js",
+      "line": 360,
+      "method": "get",
+      "path": "/school/:schoolCode"
+    },
+    {
+      "file": "backend/routes/auditRoutes.js",
+      "line": 417,
+      "method": "get",
+      "path": "/school/:schoolCode/date-range"
+    },
+    {
+      "file": "backend/routes/auditRoutes.js",
+      "line": 458,
+      "method": "get",
+      "path": "/:logId"
+    },
+    {
+      "file": "backend/routes/feedbackRoutes.js",
+      "line": 161,
+      "method": "post",
+      "path": "/"
+    },
+    {
+      "file": "backend/routes/feedbackRoutes.js",
+      "line": 257,
+      "method": "get",
+      "path": "/evidence/:file"
+    },
+    {
+      "file": "backend/routes/frequencyRoutes.js",
+      "line": 107,
+      "method": "get",
+      "path": "/overview"
+    },
+    {
+      "file": "backend/routes/frequencyRoutes.js",
+      "line": 195,
+      "method": "get",
+      "path": "/thresholds"
+    },
+    {
+      "file": "backend/routes/frequencyRoutes.js",
+      "line": 209,
+      "method": "put",
+      "path": "/thresholds"
+    },
+    {
+      "file": "backend/routes/frequencyRoutes.js",
+      "line": 230,
+      "method": "get",
+      "path": "/calendar"
+    },
+    {
+      "file": "backend/routes/frequencyRoutes.js",
+      "line": 245,
+      "method": "put",
+      "path": "/calendar"
+    },
+    {
+      "file": "backend/routes/frequencyRoutes.js",
+      "line": 277,
+      "method": "get",
+      "path": "/today"
+    },
+    {
+      "file": "backend/routes/guestRoutes.js",
+      "line": 58,
+      "method": "post",
+      "path": "/register"
+    },
+    {
+      "file": "backend/routes/guestRoutes.js",
+      "line": 63,
+      "method": "post",
+      "path": "/verify-token"
+    },
+    {
+      "file": "backend/routes/guestRoutes.js",
+      "line": 75,
+      "method": "post",
+      "path": "/quick-access"
+    },
+    {
+      "file": "backend/routes/guestRoutes.js",
+      "line": 190,
+      "method": "get",
+      "path": "/stats"
+    },
+    {
+      "file": "backend/routes/openApiRoutes.js",
+      "line": 3,
+      "method": "use",
+      "path": "/api/open"
+    },
+    {
+      "file": "backend/routes/openApiRoutes.js",
+      "line": 137,
+      "method": "use",
+      "path": "/v1"
+    },
+    {
+      "file": "backend/routes/openApiRoutes.js",
+      "line": 197,
+      "method": "get",
+      "path": "/v1/ping"
+    },
+    {
+      "file": "backend/routes/openApiRoutes.js",
+      "line": 206,
+      "method": "get",
+      "path": "/v1/profile"
+    },
+    {
+      "file": "backend/routes/openApiRoutes.js",
+      "line": 246,
+      "method": "get",
+      "path": "/v1/schools"
+    },
+    {
+      "file": "backend/routes/openApiRoutes.js",
+      "line": 265,
+      "method": "get",
+      "path": "/v1/dict"
+    },
+    {
+      "file": "backend/routes/openApiRoutes.js",
+      "line": 333,
+      "method": "get",
+      "path": "/v1/samples"
+    },
+    {
+      "file": "backend/routes/openApiRoutes.js",
+      "line": 384,
+      "method": "get",
+      "path": "/v1/test-records"
+    },
+    {
+      "file": "backend/routes/openApiRoutes.js",
+      "line": 511,
+      "method": "get",
+      "path": "/v1/sync/manifest"
+    },
+    {
+      "file": "backend/routes/openApiRoutes.js",
+      "line": 566,
+      "method": "get",
+      "path": "/v1/stats"
+    },
+    {
+      "file": "backend/routes/recognitionRoutes.js",
+      "line": 27,
+      "method": "post",
+      "path": "/recognize"
+    },
+    {
+      "file": "backend/routes/recognitionRoutes.js",
+      "line": 56,
+      "method": "get",
+      "path": "/recognize/status/:jobId"
+    },
+    {
+      "file": "backend/routes/recordRoutes.js",
+      "line": 20,
+      "method": "use",
+      "path": "/api/test-records"
+    },
+    {
+      "file": "backend/routes/recordRoutes.js",
+      "line": 21,
+      "method": "use",
+      "path": "/api/records"
+    },
+    {
+      "file": "backend/routes/recordRoutes.js",
+      "line": 24,
+      "method": "post",
+      "path": "/api/test-records"
+    },
+    {
+      "file": "backend/routes/recordRoutes.js",
+      "line": 102,
+      "method": "get",
+      "path": "/api/test-records"
+    },
+    {
+      "file": "backend/routes/recordRoutes.js",
+      "line": 161,
+      "method": "get",
+      "path": "/api/test-records/stats"
+    },
+    {
+      "file": "backend/routes/recordRoutes.js",
+      "line": 243,
+      "method": "get",
+      "path": "/api/records/:tableName"
+    },
+    {
+      "file": "backend/routes/recordRoutes.js",
+      "line": 280,
+      "method": "post",
+      "path": "/api/records/:tableName"
+    },
+    {
+      "file": "backend/routes/recordRoutes.js",
+      "line": 361,
+      "method": "post",
+      "path": "/api/records/:tableName/bulk-upsert"
+    },
+    {
+      "file": "backend/routes/recordRoutes.js",
+      "line": 505,
+      "method": "put",
+      "path": "/api/records/:tableName/:id"
+    },
+    {
+      "file": "backend/routes/recordRoutes.js",
+      "line": 631,
+      "method": "delete",
+      "path": "/api/records/:tableName/:id"
+    },
+    {
+      "file": "backend/routes/recordRoutes.js",
+      "line": 674,
+      "method": "get",
+      "path": "/api/records/:tableName/:id"
+    },
+    {
+      "file": "backend/routes/recordRoutes.js",
+      "line": 705,
+      "method": "get",
+      "path": "/api/test-records/:id"
+    },
+    {
+      "file": "backend/routes/recordRoutes.js",
+      "line": 756,
+      "method": "put",
+      "path": "/api/test-records/:id"
+    },
+    {
+      "file": "backend/routes/recordRoutes.js",
+      "line": 844,
+      "method": "delete",
+      "path": "/api/test-records/:id"
+    },
+    {
+      "file": "backend/routes/schoolBackupRoutes.js",
+      "line": 126,
+      "method": "get",
+      "path": "/"
+    },
+    {
+      "file": "backend/routes/schoolBackupRoutes.js",
+      "line": 208,
+      "method": "post",
+      "path": "/run"
+    },
+    {
+      "file": "backend/routes/schoolBackupRoutes.js",
+      "line": 239,
+      "method": "get",
+      "path": "/:id/download"
+    },
+    {
+      "file": "backend/routes/schoolBackupRoutes.js",
+      "line": 289,
+      "method": "post",
+      "path": "/:id/verify"
+    },
+    {
+      "file": "backend/routes/schoolBackupRoutes.js",
+      "line": 349,
+      "method": "post",
+      "path": "/:id/restore"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 112,
+      "method": "get",
+      "path": "/api/school/config"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 154,
+      "method": "get",
+      "path": "/api/schools/:schoolCode/config"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 208,
+      "method": "get",
+      "path": "/api/admin/schools"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 222,
+      "method": "post",
+      "path": "/api/admin/schools"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 264,
+      "method": "put",
+      "path": "/api/admin/schools/:code"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 404,
+      "method": "patch",
+      "path": "/api/admin/schools/:code/status"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 429,
+      "method": "delete",
+      "path": "/api/admin/schools/:code"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 456,
+      "method": "delete",
+      "path": "/api/admin/schools/:code/hard"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 511,
+      "method": "get",
+      "path": "/api/admin/recycle-bin"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 549,
+      "method": "post",
+      "path": "/api/admin/recycle-bin/:id/restore"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 606,
+      "method": "post",
+      "path": "/api/admin/recycle-bin/:id/purge"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 631,
+      "method": "delete",
+      "path": "/api/admin/recycle-bin/:id/archive"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 651,
+      "method": "get",
+      "path": "/api/admin/schools/:code/customization"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 675,
+      "method": "put",
+      "path": "/api/admin/schools/:code/customization"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 787,
+      "method": "get",
+      "path": "/api/admin/schools/:code/field-options"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 802,
+      "method": "post",
+      "path": "/api/admin/schools/:code/field-options"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 818,
+      "method": "put",
+      "path": "/api/admin/schools/:code/field-options"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 835,
+      "method": "patch",
+      "path": "/api/admin/schools/:code/field-options/:id"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 851,
+      "method": "delete",
+      "path": "/api/admin/schools/:code/field-options/:id"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 868,
+      "method": "get",
+      "path": "/api/admin/schools/:code/users"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 905,
+      "method": "post",
+      "path": "/api/admin/schools/:code/reprovision"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 937,
+      "method": "post",
+      "path": "/api/admin/schools/:code/users/:userId/reset-password"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 961,
+      "method": "patch",
+      "path": "/api/admin/schools/:code/users/:userId/status"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 984,
+      "method": "post",
+      "path": "/api/admin/schools/:code/users"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 1026,
+      "method": "put",
+      "path": "/api/admin/schools/:code/users/:userId"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 1093,
+      "method": "post",
+      "path": "/api/admin/schools/:code/users/:userId/demote-from-admin"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 1118,
+      "method": "delete",
+      "path": "/api/admin/schools/:code/users/:userId"
+    },
+    {
+      "file": "backend/routes/sessionRoutes.js",
+      "line": 23,
+      "method": "post",
+      "path": "/"
+    },
+    {
+      "file": "backend/routes/sessionRoutes.js",
+      "line": 55,
+      "method": "get",
+      "path": "/"
+    },
+    {
+      "file": "backend/routes/sessionRoutes.js",
+      "line": 70,
+      "method": "delete",
+      "path": "/others"
+    },
+    {
+      "file": "backend/routes/sessionRoutes.js",
+      "line": 94,
+      "method": "delete",
+      "path": "/:id"
+    },
+    {
+      "file": "backend/routes/sessionRoutes.js",
+      "line": 117,
+      "method": "post",
+      "path": "/event"
+    },
+    {
+      "file": "backend/routes/syncRoutes.js",
+      "line": 65,
+      "method": "post",
+      "path": "/records"
+    },
+    {
+      "file": "backend/routes/syncRoutes.js",
+      "line": 210,
+      "method": "post",
+      "path": "/batch"
+    },
+    {
+      "file": "backend/routes/syncRoutes.js",
+      "line": 330,
+      "method": "get",
+      "path": "/status"
+    },
+    {
+      "file": "backend/routes/syncRoutes.js",
+      "line": 357,
+      "method": "delete",
+      "path": "/queue"
+    },
+    {
+      "file": "backend/routes/testResultRoutes.js",
+      "line": 77,
+      "method": "get",
+      "path": "/defs"
+    },
+    {
+      "file": "backend/routes/testResultRoutes.js",
+      "line": 92,
+      "method": "get",
+      "path": "/me"
+    },
+    {
+      "file": "backend/routes/testResultRoutes.js",
+      "line": 107,
+      "method": "get",
+      "path": "/cases"
+    },
+    {
+      "file": "backend/routes/testResultRoutes.js",
+      "line": 181,
+      "method": "get",
+      "path": "/cases/:id/history"
+    },
+    {
+      "file": "backend/routes/testResultRoutes.js",
+      "line": 203,
+      "method": "post",
+      "path": "/executions"
+    },
+    {
+      "file": "backend/routes/testResultRoutes.js",
+      "line": 301,
+      "method": "post",
+      "path": "/cases/close"
+    },
+    {
+      "file": "backend/routes/testResultRoutes.js",
+      "line": 333,
+      "method": "post",
+      "path": "/cases/mark-fixed"
+    },
+    {
+      "file": "backend/routes/testResultRoutes.js",
+      "line": 355,
+      "method": "get",
+      "path": "/summary"
+    },
+    {
+      "file": "backend/routes/testResultRoutes.js",
+      "line": 398,
+      "method": "post",
+      "path": "/upload"
+    },
+    {
+      "file": "backend/routes/testResultRoutes.js",
+      "line": 433,
+      "method": "get",
+      "path": "/evidence/:caseId/:file"
+    },
+    {
+      "file": "backend/routes/userRoutes.js",
+      "line": 84,
+      "method": "post",
+      "path": "/register"
+    },
+    {
+      "file": "backend/routes/userRoutes.js",
+      "line": 106,
+      "method": "post",
+      "path": "/login"
+    },
+    {
+      "file": "backend/routes/userRoutes.js",
+      "line": 134,
+      "method": "post",
+      "path": "/super-admin/login"
+    },
+    {
+      "file": "backend/routes/userRoutes.js",
+      "line": 161,
+      "method": "post",
+      "path": "/verify-token"
+    },
+    {
+      "file": "backend/routes/userRoutes.js",
+      "line": 192,
+      "method": "post",
+      "path": "/logout"
+    },
+    {
+      "file": "backend/routes/userRoutes.js",
+      "line": 202,
+      "method": "post",
+      "path": "/refresh-token"
+    },
+    {
+      "file": "backend/routes/userRoutes.js",
+      "line": 342,
+      "method": "get",
+      "path": "/me"
+    },
+    {
+      "file": "backend/routes/userRoutes.js",
+      "line": 356,
+      "method": "put",
+      "path": "/me"
+    },
+    {
+      "file": "backend/routes/userRoutes.js",
+      "line": 382,
+      "method": "get",
+      "path": "/super-admin"
+    },
+    {
+      "file": "backend/routes/userRoutes.js",
+      "line": 393,
+      "method": "post",
+      "path": "/super-admin"
+    },
+    {
+      "file": "backend/routes/userRoutes.js",
+      "line": 408,
+      "method": "delete",
+      "path": "/super-admin/:id"
+    },
+    {
+      "file": "backend/routes/userRoutes.js",
+      "line": 421,
+      "method": "put",
+      "path": "/super-admin/:id"
+    },
+    {
+      "file": "backend/routes/userRoutes.js",
+      "line": 451,
+      "method": "post",
+      "path": "/super-admin/:id/reset-password"
+    },
+    {
+      "file": "backend/routes/userRoutes.js",
+      "line": 473,
+      "method": "post",
+      "path": "/change-password"
+    },
+    {
+      "file": "backend/routes/userRoutes.js",
+      "line": 510,
+      "method": "get",
+      "path": "/list"
+    },
+    {
+      "file": "backend/routes/userRoutes.js",
+      "line": 522,
+      "method": "post",
+      "path": "/:userId/disable"
+    },
+    {
+      "file": "backend/routes/userRoutes.js",
+      "line": 532,
+      "method": "post",
+      "path": "/:userId/enable"
+    },
+    {
+      "file": "backend/routes/userRoutes.js",
+      "line": 542,
+      "method": "post",
+      "path": "/:userId/role"
+    },
+    {
+      "file": "backend/routes/userRoutes.js",
+      "line": 558,
+      "method": "post",
+      "path": "/:userId/reset-password"
+    },
+    {
+      "file": "backend/routes/userRoutes.js",
+      "line": 574,
+      "method": "post",
+      "path": "/reset-password/:userId"
+    },
+    {
+      "file": "backend/routes/userRoutes.js",
+      "line": 590,
+      "method": "put",
+      "path": "/:userId"
+    },
+    {
+      "file": "backend/routes/userRoutes.js",
+      "line": 610,
+      "method": "delete",
+      "path": "/:userId"
+    },
+    {
+      "file": "backend/routes/userRoutes.js",
+      "line": 638,
+      "method": "post",
+      "path": "/application"
+    },
+    {
+      "file": "backend/routes/userRoutes.js",
+      "line": 655,
+      "method": "get",
+      "path": "/applications/pending"
+    },
+    {
+      "file": "backend/routes/userRoutes.js",
+      "line": 666,
+      "method": "post",
+      "path": "/application/:id/approve"
+    },
+    {
+      "file": "backend/routes/userRoutes.js",
+      "line": 682,
+      "method": "post",
+      "path": "/application/:id/reject"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 183,
+      "method": "use",
+      "path": "/api/test-results/upload"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 185,
+      "method": "use",
+      "path": "/api/feedback"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 212,
+      "method": "get",
+      "path": "/favicon.ico"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 249,
+      "method": "get",
+      "path": "/health"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 250,
+      "method": "get",
+      "path": "/api/health"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 267,
+      "method": "use",
+      "path": "/"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 271,
+      "method": "use",
+      "path": "/api/user"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 275,
+      "method": "get",
+      "path": "/api/user/me"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 288,
+      "method": "use",
+      "path": "/api/audit-logs"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 292,
+      "method": "use",
+      "path": "/api/session"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 296,
+      "method": "use",
+      "path": "/api/guest"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 301,
+      "method": "use",
+      "path": "/api/feedback"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 305,
+      "method": "use",
+      "path": "/api/sync"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 309,
+      "method": "use",
+      "path": "/api/admin/backups"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 313,
+      "method": "use",
+      "path": "/api/admin/disk"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 319,
+      "method": "use",
+      "path": "/api/school/backups"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 322,
+      "method": "use",
+      "path": "/api"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 329,
+      "method": "use",
+      "path": "/api/admin/open-api"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 331,
+      "method": "use",
+      "path": "/api/open"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 335,
+      "method": "use",
+      "path": "/api/test-results"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 339,
+      "method": "use",
+      "path": "/api"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 343,
+      "method": "use",
+      "path": "/api/frequency"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 347,
+      "method": "use",
+      "path": "/"
+    },
+    {
+      "file": "backend/tests/http/internal-write-http.integration.test.mjs",
+      "line": 111,
+      "method": "use",
+      "path": "/api/user"
+    },
+    {
+      "file": "backend/tests/http/internal-write-http.integration.test.mjs",
+      "line": 112,
+      "method": "post",
+      "path": "/api/records/:tableName"
+    },
+    {
+      "file": "backend/tests/http/internal-write-http.integration.test.mjs",
+      "line": 120,
+      "method": "use",
+      "path": "/api/sync"
+    },
+    {
+      "file": "backend/tests/http/openapi-http.integration.test.mjs",
+      "line": 108,
+      "method": "use",
+      "path": "/api/open"
+    },
+    {
+      "file": "backend/tests/http/openapi-http.integration.test.mjs",
+      "line": 111,
+      "method": "use",
+      "path": "/api/admin/open-api"
+    },
+    {
+      "file": "docs/archive/README.new.md",
+      "line": 19,
+      "method": "use",
+      "path": "/api"
+    },
+    {
+      "file": "docs/archive/README_DIFF.md",
+      "line": 37,
+      "method": "use",
+      "path": "/api"
+    },
+    {
+      "file": "docs/archive/README_DIFF.md",
+      "line": 44,
+      "method": "use",
+      "path": "/api/guest-export-request"
+    },
+    {
+      "file": "tests/auditUnificationRegression.test.js",
+      "line": 287,
+      "method": "delete",
+      "path": "/api/admin/schools/:code/users/:userId"
+    },
+    {
+      "file": "tests/auditUnificationRegression.test.js",
+      "line": 351,
+      "method": "put",
+      "path": "/api/admin/schools/:code/customization"
+    },
+    {
+      "file": "tests/auditUserFilter.test.js",
+      "line": 67,
+      "method": "use",
+      "path": "/api/audit-logs"
+    },
+    {
+      "file": "tests/idempotencyConcurrency.test.js",
+      "line": 25,
+      "method": "post",
+      "path": "/api/test"
+    },
+    {
+      "file": "tests/refreshConcurrencyBackend.test.js",
+      "line": 109,
+      "method": "use",
+      "path": "/api/user"
+    },
+    {
+      "file": "tests/superAdminRoutes.test.js",
+      "line": 56,
+      "method": "use",
+      "path": "/api/user"
+    },
+    {
+      "file": "tests/userLoginErrorMapping.test.js",
+      "line": 46,
+      "method": "use",
+      "path": "/api/user"
+    },
+    {
+      "file": "tests/window2AdminAudit.test.js",
+      "line": 270,
+      "method": "use",
+      "path": "/api/audit-logs"
+    }
+  ],
+  "prisma_models": [
+    {
+      "model": "User",
+      "file": "backend/prisma/schema.prisma",
+      "line": 19
+    },
+    {
+      "model": "AccountApplication",
+      "file": "backend/prisma/schema.prisma",
+      "line": 50
+    },
+    {
+      "model": "AuditLog",
+      "file": "backend/prisma/schema.prisma",
+      "line": 72
+    },
+    {
+      "model": "TestRecord",
+      "file": "backend/prisma/schema.prisma",
+      "line": 90
+    },
+    {
+      "model": "TestItem",
+      "file": "backend/prisma/schema.prisma",
+      "line": 120
+    },
+    {
+      "model": "Attachment",
+      "file": "backend/prisma/schema.prisma",
+      "line": 136
+    },
+    {
+      "model": "Guest",
+      "file": "backend/prisma/schema.prisma",
+      "line": 156
+    },
+    {
+      "model": "GuestExportRequest",
+      "file": "backend/prisma/schema.prisma",
+      "line": 186
+    },
+    {
+      "model": "BackupRun",
+      "file": "backend/prisma/schema.prisma",
+      "line": 211
+    },
+    {
+      "model": "TestCase",
+      "file": "backend/prisma/schema.prisma",
+      "line": 243
+    },
+    {
+      "model": "TestExecution",
+      "file": "backend/prisma/schema.prisma",
+      "line": 267
+    },
+    {
+      "model": "Session",
+      "file": "backend/prisma/schema.prisma",
+      "line": 289
+    },
+    {
+      "model": "FieldOption",
+      "file": "backend/prisma/schema.prisma",
+      "line": 323
+    },
+    {
+      "model": "SystemLog",
+      "file": "backend/prisma/schema.prisma",
+      "line": 346
+    },
+    {
+      "model": "OpenApiClient",
+      "file": "backend/prisma/schema.prisma",
+      "line": 369
+    },
+    {
+      "model": "OpenApiCredential",
+      "file": "backend/prisma/schema.prisma",
+      "line": 388
+    },
+    {
+      "model": "OpenApiGrant",
+      "file": "backend/prisma/schema.prisma",
+      "line": 412
+    },
+    {
+      "model": "School",
+      "file": "backend/prisma/schema.prisma",
+      "line": 438
+    },
+    {
+      "model": "SchoolCustomization",
+      "file": "backend/prisma/schema.prisma",
+      "line": 456
+    },
+    {
+      "model": "FrequencyThreshold",
+      "file": "backend/prisma/schema.prisma",
+      "line": 495
+    },
+    {
+      "model": "DetectionCalendar",
+      "file": "backend/prisma/schema.prisma",
+      "line": 507
+    }
+  ],
+  "imports": [
+    {
+      "file": "backend/lib/backupKms.js",
+      "line": 21,
+      "target": "node:crypto"
+    },
+    {
+      "file": "backend/lib/backupKms.js",
+      "line": 41,
+      "target": "tencentcloud-sdk-nodejs"
+    },
+    {
+      "file": "backend/lib/backupService.js",
+      "line": 19,
+      "target": "node:child_process"
+    },
+    {
+      "file": "backend/lib/backupService.js",
+      "line": 20,
+      "target": "node:fs"
+    },
+    {
+      "file": "backend/lib/backupService.js",
+      "line": 21,
+      "target": "node:fs/promises"
+    },
+    {
+      "file": "backend/lib/backupService.js",
+      "line": 22,
+      "target": "node:path"
+    },
+    {
+      "file": "backend/lib/backupService.js",
+      "line": 23,
+      "target": "node:zlib"
+    },
+    {
+      "file": "backend/lib/backupService.js",
+      "line": 24,
+      "target": "node:crypto"
+    },
+    {
+      "file": "backend/lib/backupService.js",
+      "line": 25,
+      "target": "node:stream"
+    },
+    {
+      "file": "backend/lib/backupService.js",
+      "line": 26,
+      "target": "node:url"
+    },
+    {
+      "file": "backend/lib/backupService.js",
+      "line": 27,
+      "target": "./tenantClient.js"
+    },
+    {
+      "file": "backend/lib/backupService.js",
+      "line": 28,
+      "target": "./backupKms.js"
+    },
+    {
+      "file": "backend/lib/backupService.js",
+      "line": 29,
+      "target": "./auditLog.js"
+    },
+    {
+      "file": "backend/lib/backupService.js",
+      "line": 305,
+      "target": "@prisma/client"
+    },
+    {
+      "file": "backend/lib/backupVerify.js",
+      "line": 11,
+      "target": "node:fs"
+    },
+    {
+      "file": "backend/lib/backupVerify.js",
+      "line": 12,
+      "target": "node:zlib"
+    },
+    {
+      "file": "backend/lib/backupVerify.js",
+      "line": 13,
+      "target": "node:crypto"
+    },
+    {
+      "file": "backend/lib/backupVerify.js",
+      "line": 14,
+      "target": "./backupKms.js"
+    },
+    {
+      "file": "backend/lib/customizationValidate.js",
+      "line": 2,
+      "target": "./sanitize.js"
+    },
+    {
+      "file": "backend/lib/customizationValidate.js",
+      "line": 3,
+      "target": "./securityGuards.js"
+    },
+    {
+      "file": "backend/lib/customizationValidate.js",
+      "line": 6,
+      "target": "./fieldOptionService.js"
+    },
+    {
+      "file": "backend/lib/fieldOptionService.js",
+      "line": 15,
+      "target": "./tenantClient.js"
+    },
+    {
+      "file": "backend/lib/fieldOptionService.js",
+      "line": 16,
+      "target": "./fieldOptionSeeds.js"
+    },
+    {
+      "file": "backend/lib/openApiFieldSchema.js",
+      "line": 10,
+      "target": "node:crypto"
+    },
+    {
+      "file": "backend/lib/openApiFieldSchema.js",
+      "line": 11,
+      "target": "./openApiScope.js"
+    },
+    {
+      "file": "backend/lib/openApiKeys.js",
+      "line": 11,
+      "target": "node:crypto"
+    },
+    {
+      "file": "backend/lib/openApiScope.js",
+      "line": 13,
+      "target": "node:crypto"
+    },
+    {
+      "file": "backend/lib/openApiScope.js",
+      "line": 14,
+      "target": "./recordNormalize.js"
+    },
+    {
+      "file": "backend/lib/recordNormalize.js",
+      "line": 2,
+      "target": "crypto"
+    },
+    {
+      "file": "backend/lib/recordNormalize.js",
+      "line": 3,
+      "target": "./sanitize.js"
+    },
+    {
+      "file": "backend/lib/recordNormalize.js",
+      "line": 4,
+      "target": "./auditLog.js"
+    },
+    {
+      "file": "backend/lib/restoreService.js",
+      "line": 16,
+      "target": "node:child_process"
+    },
+    {
+      "file": "backend/lib/restoreService.js",
+      "line": 17,
+      "target": "node:fs"
+    },
+    {
+      "file": "backend/lib/restoreService.js",
+      "line": 18,
+      "target": "node:fs/promises"
+    },
+    {
+      "file": "backend/lib/restoreService.js",
+      "line": 19,
+      "target": "node:path"
+    },
+    {
+      "file": "backend/lib/restoreService.js",
+      "line": 20,
+      "target": "node:os"
+    },
+    {
+      "file": "backend/lib/restoreService.js",
+      "line": 21,
+      "target": "node:url"
+    },
+    {
+      "file": "backend/lib/restoreService.js",
+      "line": 22,
+      "target": "./tenantClient.js"
+    },
+    {
+      "file": "backend/lib/restoreService.js",
+      "line": 23,
+      "target": "./backupVerify.js"
+    },
+    {
+      "file": "backend/lib/restoreService.js",
+      "line": 24,
+      "target": "./auditLog.js"
+    },
+    {
+      "file": "backend/lib/restoreService.js",
+      "line": 25,
+      "target": "./restoreSqlUtils.js"
+    },
+    {
+      "file": "backend/lib/restoreService.js",
+      "line": 26,
+      "target": "./tenantProvisioner.js"
+    },
+    {
+      "file": "backend/lib/restoreService.js",
+      "line": 27,
+      "target": "./schemaCompatibility.js"
+    },
+    {
+      "file": "backend/lib/restoreService.js",
+      "line": 74,
+      "target": "@prisma/client"
+    },
+    {
+      "file": "backend/lib/schemaCompatibility.js",
+      "line": 7,
+      "target": "./tenantClient.js"
+    },
+    {
+      "file": "backend/lib/schoolAdminPurge.js",
+      "line": 24,
+      "target": "./tenantClient.js"
+    },
+    {
+      "file": "backend/lib/schoolAdminPurge.js",
+      "line": 32,
+      "target": "@prisma/client"
+    },
+    {
+      "file": "backend/lib/tenantClient.js",
+      "line": 21,
+      "target": "@prisma/client"
+    },
+    {
+      "file": "backend/lib/tenantProvisioner.js",
+      "line": 13,
+      "target": "bcryptjs"
+    },
+    {
+      "file": "backend/lib/tenantProvisioner.js",
+      "line": 14,
+      "target": "node:child_process"
+    },
+    {
+      "file": "backend/lib/tenantProvisioner.js",
+      "line": 15,
+      "target": "node:path"
+    },
+    {
+      "file": "backend/lib/tenantProvisioner.js",
+      "line": 16,
+      "target": "node:url"
+    },
+    {
+      "file": "backend/lib/tenantProvisioner.js",
+      "line": 17,
+      "target": "./tenantClient.js"
+    },
+    {
+      "file": "backend/lib/tenantProvisioner.js",
+      "line": 61,
+      "target": "@prisma/client"
+    },
+    {
+      "file": "backend/lib/tenantSync.js",
+      "line": 23,
+      "target": "node:child_process"
+    },
+    {
+      "file": "backend/lib/tenantSync.js",
+      "line": 24,
+      "target": "node:path"
+    },
+    {
+      "file": "backend/lib/tenantSync.js",
+      "line": 25,
+      "target": "node:url"
+    },
+    {
+      "file": "backend/lib/tenantSync.js",
+      "line": 26,
+      "target": "./tenantProvisioner.js"
+    },
+    {
+      "file": "backend/lib/tenantSync.js",
+      "line": 27,
+      "target": "./tenantClient.js"
+    },
+    {
+      "file": "backend/lib/tenantSync.js",
+      "line": 28,
+      "target": "./fieldOptionService.js"
+    },
+    {
+      "file": "backend/lib/tenantSync.js",
+      "line": 30,
+      "target": "tenantSync.js"
+    },
+    {
+      "file": "backend/lib/tenantSync.js",
+      "line": 32,
+      "target": "./y.js"
+    },
+    {
+      "file": "backend/lib/tenantSync.js",
+      "line": 34,
+      "target": "./schoolAdminPurge.js"
+    },
+    {
+      "file": "backend/lib/tenantSync.js",
+      "line": 162,
+      "target": "@prisma/client"
+    },
+    {
+      "file": "backend/middleware/authMiddleware.js",
+      "line": 7,
+      "target": "../middleware/authMiddleware.js"
+    },
+    {
+      "file": "backend/middleware/authMiddleware.js",
+      "line": 16,
+      "target": "crypto"
+    },
+    {
+      "file": "backend/middleware/authMiddleware.js",
+      "line": 17,
+      "target": "../lib/tenantClient.js"
+    },
+    {
+      "file": "backend/middleware/idempotencyMiddleware.js",
+      "line": 4,
+      "target": "crypto"
+    },
+    {
+      "file": "backend/middleware/openApiAuth.js",
+      "line": 19,
+      "target": "../lib/openApiKeys.js"
+    },
+    {
+      "file": "backend/middleware/openApiAuth.js",
+      "line": 20,
+      "target": "../lib/auditLog.js"
+    },
+    {
+      "file": "backend/middleware/tenantMiddleware.js",
+      "line": 7,
+      "target": "../lib/tenantClient.js"
+    },
+    {
+      "file": "backend/middleware/tenantMiddleware.js",
+      "line": 11,
+      "target": "@prisma/client"
+    },
+    {
+      "file": "backend/modules/UserManager.js",
+      "line": 6,
+      "target": "crypto"
+    },
+    {
+      "file": "backend/modules/UserManager.js",
+      "line": 7,
+      "target": "bcryptjs"
+    },
+    {
+      "file": "backend/modules/UserManager.js",
+      "line": 8,
+      "target": "jsonwebtoken"
+    },
+    {
+      "file": "backend/modules/UserManager.js",
+      "line": 9,
+      "target": "../lib/tenantClient.js"
+    },
+    {
+      "file": "backend/modules/UserManager.js",
+      "line": 10,
+      "target": "../lib/auditLog.js"
+    },
+    {
+      "file": "backend/modules/UserManager.js",
+      "line": 13,
+      "target": "../middleware/authMiddleware.js"
+    },
+    {
+      "file": "backend/modules/recognitionQueue.js",
+      "line": 10,
+      "target": "@techstark/opencv-js"
+    },
+    {
+      "file": "backend/modules/recognitionQueue.js",
+      "line": 11,
+      "target": "node:fs"
+    },
+    {
+      "file": "backend/modules/recognitionQueue.js",
+      "line": 12,
+      "target": "node:os"
+    },
+    {
+      "file": "backend/modules/recognitionQueue.js",
+      "line": 13,
+      "target": "node:path"
+    },
+    {
+      "file": "backend/modules/recognitionQueue.js",
+      "line": 14,
+      "target": "pngjs"
+    },
+    {
+      "file": "backend/modules/recognitionQueue.js",
+      "line": 18,
+      "target": "../../frontend/js/opencv/recognizer.js"
+    },
+    {
+      "file": "backend/prisma/dedupe-test-records.js",
+      "line": 1,
+      "target": "@prisma/client"
+    },
+    {
+      "file": "backend/prisma/dedupe-test-records.js",
+      "line": 2,
+      "target": "crypto"
+    },
+    {
+      "file": "backend/prisma/provision-tenants.js",
+      "line": 12,
+      "target": "@prisma/client"
+    },
+    {
+      "file": "backend/prisma/provision-tenants.js",
+      "line": 13,
+      "target": "../lib/tenantProvisioner.js"
+    },
+    {
+      "file": "backend/prisma/seed.js",
+      "line": 1,
+      "target": "@prisma/client"
+    },
+    {
+      "file": "backend/prisma/seed.js",
+      "line": 2,
+      "target": "bcryptjs"
+    },
+    {
+      "file": "backend/prisma/syncBootstrapPasswords.js",
+      "line": 9,
+      "target": "@prisma/client"
+    },
+    {
+      "file": "backend/prisma/syncBootstrapPasswords.js",
+      "line": 10,
+      "target": "bcryptjs"
+    },
+    {
+      "file": "backend/prisma/syncBootstrapPasswords.js",
+      "line": 11,
+      "target": "../lib/tenantClient.js"
+    },
+    {
+      "file": "backend/routes/adminBackupRoutes.js",
+      "line": 15,
+      "target": "express"
+    },
+    {
+      "file": "backend/routes/adminBackupRoutes.js",
+      "line": 16,
+      "target": "node:path"
+    },
+    {
+      "file": "backend/routes/adminBackupRoutes.js",
+      "line": 17,
+      "target": "node:fs"
+    },
+    {
+      "file": "backend/routes/adminBackupRoutes.js",
+      "line": 18,
+      "target": "node:fs/promises"
+    },
+    {
+      "file": "backend/routes/adminBackupRoutes.js",
+      "line": 19,
+      "target": "node:os"
+    },
+    {
+      "file": "backend/routes/adminBackupRoutes.js",
+      "line": 20,
+      "target": "node:crypto"
+    },
+    {
+      "file": "backend/routes/adminBackupRoutes.js",
+      "line": 21,
+      "target": "../lib/backupService.js"
+    },
+    {
+      "file": "backend/routes/adminBackupRoutes.js",
+      "line": 22,
+      "target": "../lib/backupVerify.js"
+    },
+    {
+      "file": "backend/routes/adminBackupRoutes.js",
+      "line": 23,
+      "target": "../lib/restoreService.js"
+    },
+    {
+      "file": "backend/routes/adminBackupRoutes.js",
+      "line": 24,
+      "target": "../lib/schemaCompatibility.js"
+    },
+    {
+      "file": "backend/routes/adminBackupRoutes.js",
+      "line": 25,
+      "target": "../lib/auditLog.js"
+    },
+    {
+      "file": "backend/routes/adminBackupRoutes.js",
+      "line": 234,
+      "target": "../lib/backupKms.js"
+    },
+    {
+      "file": "backend/routes/adminBackupRoutes.js",
+      "line": 401,
+      "target": "../lib/backupKms.js"
+    },
+    {
+      "file": "backend/routes/adminDiskRoutes.js",
+      "line": 20,
+      "target": "express"
+    },
+    {
+      "file": "backend/routes/adminDiskRoutes.js",
+      "line": 21,
+      "target": "node:child_process"
+    },
+    {
+      "file": "backend/routes/adminDiskRoutes.js",
+      "line": 22,
+      "target": "node:fs"
+    },
+    {
+      "file": "backend/routes/adminDiskRoutes.js",
+      "line": 23,
+      "target": "node:fs/promises"
+    },
+    {
+      "file": "backend/routes/adminDiskRoutes.js",
+      "line": 24,
+      "target": "node:path"
+    },
+    {
+      "file": "backend/routes/adminDiskRoutes.js",
+      "line": 25,
+      "target": "../lib/auditLog.js"
+    },
+    {
+      "file": "backend/routes/adminOpenApiRoutes.js",
+      "line": 19,
+      "target": "express"
+    },
+    {
+      "file": "backend/routes/adminOpenApiRoutes.js",
+      "line": 20,
+      "target": "../lib/auditLog.js"
+    },
+    {
+      "file": "backend/routes/adminOpenApiRoutes.js",
+      "line": 21,
+      "target": "../lib/openApiKeys.js"
+    },
+    {
+      "file": "backend/routes/adminOpenApiRoutes.js",
+      "line": 22,
+      "target": "../lib/tenantClient.js"
+    },
+    {
+      "file": "backend/routes/adminOpenApiRoutes.js",
+      "line": 23,
+      "target": "../lib/recordNormalize.js"
+    },
+    {
+      "file": "backend/routes/adminOpenApiRoutes.js",
+      "line": 24,
+      "target": "../lib/openApiScope.js"
+    },
+    {
+      "file": "backend/routes/adminOpenApiRoutes.js",
+      "line": 25,
+      "target": "../lib/openApiFieldSchema.js"
+    },
+    {
+      "file": "backend/routes/adminOpenApiRoutes.js",
+      "line": 38,
+      "target": "../lib/openApiGuide.js"
+    },
+    {
+      "file": "backend/routes/auditRoutes.js",
+      "line": 6,
+      "target": "express"
+    },
+    {
+      "file": "backend/routes/auditRoutes.js",
+      "line": 7,
+      "target": "jsonwebtoken"
+    },
+    {
+      "file": "backend/routes/auditRoutes.js",
+      "line": 8,
+      "target": "../middleware/authMiddleware.js"
+    },
+    {
+      "file": "backend/routes/auditRoutes.js",
+      "line": 9,
+      "target": "../lib/auditLog.js"
+    },
+    {
+      "file": "backend/routes/auditRoutes.js",
+      "line": 10,
+      "target": "../lib/tenantClient.js"
+    },
+    {
+      "file": "backend/routes/feedbackRoutes.js",
+      "line": 30,
+      "target": "express"
+    },
+    {
+      "file": "backend/routes/feedbackRoutes.js",
+      "line": 31,
+      "target": "node:crypto"
+    },
+    {
+      "file": "backend/routes/feedbackRoutes.js",
+      "line": 32,
+      "target": "node:path"
+    },
+    {
+      "file": "backend/routes/feedbackRoutes.js",
+      "line": 33,
+      "target": "node:fs"
+    },
+    {
+      "file": "backend/routes/feedbackRoutes.js",
+      "line": 34,
+      "target": "node:url"
+    },
+    {
+      "file": "backend/routes/frequencyRoutes.js",
+      "line": 3,
+      "target": "express"
+    },
+    {
+      "file": "backend/routes/guestRoutes.js",
+      "line": 21,
+      "target": "express"
+    },
+    {
+      "file": "backend/routes/guestRoutes.js",
+      "line": 22,
+      "target": "jsonwebtoken"
+    },
+    {
+      "file": "backend/routes/guestRoutes.js",
+      "line": 23,
+      "target": "../lib/tenantClient.js"
+    },
+    {
+      "file": "backend/routes/guestRoutes.js",
+      "line": 24,
+      "target": "../lib/tenantProvisioner.js"
+    },
+    {
+      "file": "backend/routes/guestRoutes.js",
+      "line": 25,
+      "target": "../middleware/authMiddleware.js"
+    },
+    {
+      "file": "backend/routes/guestRoutes.js",
+      "line": 26,
+      "target": "../middleware/validationMiddleware.js"
+    },
+    {
+      "file": "backend/routes/openApiRoutes.js",
+      "line": 23,
+      "target": "express"
+    },
+    {
+      "file": "backend/routes/openApiRoutes.js",
+      "line": 24,
+      "target": "../middleware/openApiAuth.js"
+    },
+    {
+      "file": "backend/routes/openApiRoutes.js",
+      "line": 25,
+      "target": "../lib/tenantClient.js"
+    },
+    {
+      "file": "backend/routes/openApiRoutes.js",
+      "line": 45,
+      "target": "../lib/openApiScope.js"
+    },
+    {
+      "file": "backend/routes/openApiRoutes.js",
+      "line": 46,
+      "target": "../lib/openApiScope.js"
+    },
+    {
+      "file": "backend/routes/openApiRoutes.js",
+      "line": 47,
+      "target": "../lib/openApiFieldSchema.js"
+    },
+    {
+      "file": "backend/routes/recognitionRoutes.js",
+      "line": 12,
+      "target": "express"
+    },
+    {
+      "file": "backend/routes/recognitionRoutes.js",
+      "line": 13,
+      "target": "../modules/recognitionQueue.js"
+    },
+    {
+      "file": "backend/routes/recognitionRoutes.js",
+      "line": 14,
+      "target": "../middleware/authMiddleware.js"
+    },
+    {
+      "file": "backend/routes/recordRoutes.js",
+      "line": 3,
+      "target": "express"
+    },
+    {
+      "file": "backend/routes/recordRoutes.js",
+      "line": 4,
+      "target": "../lib/recordNormalize.js"
+    },
+    {
+      "file": "backend/routes/recordRoutes.js",
+      "line": 5,
+      "target": "../lib/sanitize.js"
+    },
+    {
+      "file": "backend/routes/recordRoutes.js",
+      "line": 6,
+      "target": "../lib/securityGuards.js"
+    },
+    {
+      "file": "backend/routes/schoolBackupRoutes.js",
+      "line": 17,
+      "target": "express"
+    },
+    {
+      "file": "backend/routes/schoolBackupRoutes.js",
+      "line": 18,
+      "target": "node:path"
+    },
+    {
+      "file": "backend/routes/schoolBackupRoutes.js",
+      "line": 19,
+      "target": "node:fs"
+    },
+    {
+      "file": "backend/routes/schoolBackupRoutes.js",
+      "line": 20,
+      "target": "../lib/backupService.js"
+    },
+    {
+      "file": "backend/routes/schoolBackupRoutes.js",
+      "line": 21,
+      "target": "../lib/backupVerify.js"
+    },
+    {
+      "file": "backend/routes/schoolBackupRoutes.js",
+      "line": 22,
+      "target": "../lib/restoreService.js"
+    },
+    {
+      "file": "backend/routes/schoolBackupRoutes.js",
+      "line": 23,
+      "target": "../lib/auditLog.js"
+    },
+    {
+      "file": "backend/routes/schoolBackupRoutes.js",
+      "line": 24,
+      "target": "../lib/schemaCompatibility.js"
+    },
+    {
+      "file": "backend/routes/schoolBackupRoutes.js",
+      "line": 25,
+      "target": "../lib/tenantClient.js"
+    },
+    {
+      "file": "backend/routes/schoolBackupRoutes.js",
+      "line": 276,
+      "target": "../lib/backupKms.js"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 3,
+      "target": "express"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 4,
+      "target": "crypto"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 5,
+      "target": "bcryptjs"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 6,
+      "target": "../lib/tenantProvisioner.js"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 7,
+      "target": "../lib/tenantClient.js"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 11,
+      "target": "../lib/fieldOptionService.js"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 12,
+      "target": "../lib/customizationValidate.js"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 13,
+      "target": "../lib/securityGuards.js"
+    },
+    {
+      "file": "backend/routes/schoolRoutes.js",
+      "line": 14,
+      "target": "../lib/auditLog.js"
+    },
+    {
+      "file": "backend/routes/sessionRoutes.js",
+      "line": 14,
+      "target": "express"
+    },
+    {
+      "file": "backend/routes/sessionRoutes.js",
+      "line": 15,
+      "target": "../middleware/authMiddleware.js"
+    },
+    {
+      "file": "backend/routes/sessionRoutes.js",
+      "line": 16,
+      "target": "../lib/auditLog.js"
+    },
+    {
+      "file": "backend/routes/syncRoutes.js",
+      "line": 16,
+      "target": "express"
+    },
+    {
+      "file": "backend/routes/syncRoutes.js",
+      "line": 17,
+      "target": "../middleware/authMiddleware.js"
+    },
+    {
+      "file": "backend/routes/syncRoutes.js",
+      "line": 18,
+      "target": "../lib/securityGuards.js"
+    },
+    {
+      "file": "backend/routes/syncRoutes.js",
+      "line": 19,
+      "target": "../lib/sanitize.js"
+    },
+    {
+      "file": "backend/routes/syncRoutes.js",
+      "line": 20,
+      "target": "../lib/recordNormalize.js"
+    },
+    {
+      "file": "backend/routes/testResultRoutes.js",
+      "line": 24,
+      "target": "express"
+    },
+    {
+      "file": "backend/routes/testResultRoutes.js",
+      "line": 25,
+      "target": "node:path"
+    },
+    {
+      "file": "backend/routes/testResultRoutes.js",
+      "line": 26,
+      "target": "node:fs"
+    },
+    {
+      "file": "backend/routes/testResultRoutes.js",
+      "line": 27,
+      "target": "node:crypto"
+    },
+    {
+      "file": "backend/routes/testResultRoutes.js",
+      "line": 28,
+      "target": "../middleware/authMiddleware.js"
+    },
+    {
+      "file": "backend/routes/testResultRoutes.js",
+      "line": 29,
+      "target": "../lib/testCaseDefs.js"
+    },
+    {
+      "file": "backend/routes/testResultRoutes.js",
+      "line": 30,
+      "target": "node:url"
+    },
+    {
+      "file": "backend/routes/userRoutes.js",
+      "line": 6,
+      "target": "express"
+    },
+    {
+      "file": "backend/routes/userRoutes.js",
+      "line": 7,
+      "target": "../middleware/authMiddleware.js"
+    },
+    {
+      "file": "backend/routes/userRoutes.js",
+      "line": 8,
+      "target": "../middleware/validationMiddleware.js"
+    },
+    {
+      "file": "backend/routes/userRoutes.js",
+      "line": 9,
+      "target": "../lib/tenantProvisioner.js"
+    },
+    {
+      "file": "backend/scripts/003_backup-now.mjs",
+      "line": 14,
+      "target": "@prisma/client"
+    },
+    {
+      "file": "backend/scripts/003_backup-now.mjs",
+      "line": 15,
+      "target": "../lib/backupService.js"
+    },
+    {
+      "file": "backend/scripts/003_backup-now.mjs",
+      "line": 16,
+      "target": "../lib/backupKms.js"
+    },
+    {
+      "file": "backend/scripts/003_backup-now.mjs",
+      "line": 17,
+      "target": "../lib/tenantClient.js"
+    },
+    {
+      "file": "backend/scripts/004_backup-verify.mjs",
+      "line": 11,
+      "target": "../lib/backupVerify.js"
+    },
+    {
+      "file": "backend/scripts/004_backup-verify.mjs",
+      "line": 12,
+      "target": "../lib/backupKms.js"
+    },
+    {
+      "file": "backend/scripts/005_cleanup-old-schemas.mjs",
+      "line": 20,
+      "target": "@prisma/client"
+    },
+    {
+      "file": "backend/scripts/README.md",
+      "line": 72,
+      "target": "@prisma/client"
+    },
+    {
+      "file": "backend/scripts/backup-delete.mjs",
+      "line": 17,
+      "target": "node:fs"
+    },
+    {
+      "file": "backend/scripts/backup-delete.mjs",
+      "line": 18,
+      "target": "@prisma/client"
+    },
+    {
+      "file": "backend/scripts/diag-aruco.mjs",
+      "line": 3,
+      "target": "@techstark/opencv-js"
+    },
+    {
+      "file": "backend/scripts/diag-perid.mjs",
+      "line": 3,
+      "target": "@techstark/opencv-js"
+    },
+    {
+      "file": "backend/scripts/diag-perid.mjs",
+      "line": 4,
+      "target": "../../frontend/js/opencv/recognizer.js"
+    },
+    {
+      "file": "backend/scripts/fix-canteen-from-location.mjs",
+      "line": 21,
+      "target": "@prisma/client"
+    },
+    {
+      "file": "backend/scripts/import-backup-local.mjs",
+      "line": 18,
+      "target": "@prisma/client"
+    },
+    {
+      "file": "backend/scripts/import-backup-local.mjs",
+      "line": 19,
+      "target": "fs"
+    },
+    {
+      "file": "backend/scripts/import-tjb-backup.mjs",
+      "line": 28,
+      "target": "@prisma/client"
+    },
+    {
+      "file": "backend/scripts/import-tjb-backup.mjs",
+      "line": 29,
+      "target": "fs"
+    },
+    {
+      "file": "backend/scripts/import-tjb-backup.mjs",
+      "line": 30,
+      "target": "crypto"
+    },
+    {
+      "file": "backend/scripts/import-tjb-sqlite.mjs",
+      "line": 27,
+      "target": "@prisma/client"
+    },
+    {
+      "file": "backend/scripts/import-tjb-sqlite.mjs",
+      "line": 28,
+      "target": "fs"
+    },
+    {
+      "file": "backend/scripts/import-zhyz-backup.mjs",
+      "line": 23,
+      "target": "@prisma/client"
+    },
+    {
+      "file": "backend/scripts/import-zhyz-backup.mjs",
+      "line": 24,
+      "target": "fs"
+    },
+    {
+      "file": "backend/scripts/import-zhyz-backup.mjs",
+      "line": 25,
+      "target": "crypto"
+    },
+    {
+      "file": "backend/scripts/verify-backend.mjs",
+      "line": 4,
+      "target": "../modules/recognitionQueue.js"
+    },
+    {
+      "file": "backend/scripts/verify-backend.mjs",
+      "line": 5,
+      "target": "../../frontend/js/opencv/recognizer.js"
+    },
+    {
+      "file": "backend/scripts/verify-backend.mjs",
+      "line": 6,
+      "target": "node:fs"
+    },
+    {
+      "file": "backend/scripts/verify-backend.mjs",
+      "line": 7,
+      "target": "pngjs"
+    },
+    {
+      "file": "backend/scripts/verify-grid-full.mjs",
+      "line": 2,
+      "target": "@techstark/opencv-js"
+    },
+    {
+      "file": "backend/scripts/verify-grid-v2.mjs",
+      "line": 3,
+      "target": "@techstark/opencv-js"
+    },
+    {
+      "file": "backend/scripts/verify-manual.mjs",
+      "line": 2,
+      "target": "module"
+    },
+    {
+      "file": "backend/scripts/verify-manual.mjs",
+      "line": 3,
+      "target": "path"
+    },
+    {
+      "file": "backend/scripts/verify-manual.mjs",
+      "line": 4,
+      "target": "url"
+    },
+    {
+      "file": "backend/scripts/verify-manual.mjs",
+      "line": 21,
+      "target": "../../frontend/js/opencv/recognizer.js"
+    },
+    {
+      "file": "backend/scripts/verify-marker.mjs",
+      "line": 3,
+      "target": "@techstark/opencv-js"
+    },
+    {
+      "file": "backend/scripts/verify-opencv.mjs",
+      "line": 4,
+      "target": "@techstark/opencv-js"
+    },
+    {
+      "file": "backend/scripts/verify-recognize.mjs",
+      "line": 3,
+      "target": "@techstark/opencv-js"
+    },
+    {
+      "file": "backend/scripts/verify-recognize.mjs",
+      "line": 4,
+      "target": "../../frontend/js/opencv/recognizer.js"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 7,
+      "target": "express"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 8,
+      "target": "cors"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 9,
+      "target": "dotenv"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 10,
+      "target": "path"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 11,
+      "target": "url"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 12,
+      "target": "crypto"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 13,
+      "target": "@prisma/client"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 14,
+      "target": "./modules/UserManager.js"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 15,
+      "target": "./routes/userRoutes.js"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 16,
+      "target": "./routes/auditRoutes.js"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 17,
+      "target": "./routes/sessionRoutes.js"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 18,
+      "target": "./routes/guestRoutes.js"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 19,
+      "target": "./routes/feedbackRoutes.js"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 20,
+      "target": "./middleware/validationMiddleware.js"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 21,
+      "target": "./middleware/idempotencyMiddleware.js"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 22,
+      "target": "./middleware/authMiddleware.js"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 23,
+      "target": "./middleware/tenantMiddleware.js"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 24,
+      "target": "./routes/syncRoutes.js"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 25,
+      "target": "./routes/adminBackupRoutes.js"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 26,
+      "target": "./routes/adminDiskRoutes.js"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 27,
+      "target": "./routes/schoolBackupRoutes.js"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 28,
+      "target": "./routes/testResultRoutes.js"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 29,
+      "target": "./routes/recognitionRoutes.js"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 30,
+      "target": "./routes/schoolRoutes.js"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 31,
+      "target": "./routes/recordRoutes.js"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 32,
+      "target": "./routes/frequencyRoutes.js"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 33,
+      "target": "./routes/openApiRoutes.js"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 34,
+      "target": "./routes/adminOpenApiRoutes.js"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 35,
+      "target": "./lib/tenantClient.js"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 36,
+      "target": "./lib/tenantSync.js"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 37,
+      "target": "./lib/securityAlerts.js"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 39,
+      "target": "./lib/securityGuards.js"
+    },
+    {
+      "file": "backend/server.js",
+      "line": 190,
+      "target": "./middleware/readOnlyMiddleware.js"
+    },
+    {
+      "file": "backend/sync-tenant-schemas.mjs",
+      "line": 19,
+      "target": "@prisma/client"
+    },
+    {
+      "file": "backend/sync-tenant-schemas.mjs",
+      "line": 20,
+      "target": "dotenv"
+    },
+    {
+      "file": "backend/sync-tenant-schemas.mjs",
+      "line": 21,
+      "target": "path"
+    },
+    {
+      "file": "backend/sync-tenant-schemas.mjs",
+      "line": 22,
+      "target": "url"
+    },
+    {
+      "file": "backend/sync-tenant-schemas.mjs",
+      "line": 23,
+      "target": "./lib/tenantSync.js"
+    },
+    {
+      "file": "backend/tests/_isolation.mjs",
+      "line": 15,
+      "target": "node:module"
+    },
+    {
+      "file": "backend/tests/http/internal-write-http.integration.test.mjs",
+      "line": 14,
+      "target": "node:test"
+    },
+    {
+      "file": "backend/tests/http/internal-write-http.integration.test.mjs",
+      "line": 15,
+      "target": "node:assert/strict"
+    },
+    {
+      "file": "backend/tests/http/internal-write-http.integration.test.mjs",
+      "line": 16,
+      "target": "node:crypto"
+    },
+    {
+      "file": "backend/tests/http/internal-write-http.integration.test.mjs",
+      "line": 17,
+      "target": "../_isolation.mjs"
+    },
+    {
+      "file": "backend/tests/http/internal-write-http.integration.test.mjs",
+      "line": 37,
+      "target": "@prisma/client"
+    },
+    {
+      "file": "backend/tests/http/internal-write-http.integration.test.mjs",
+      "line": 38,
+      "target": "express"
+    },
+    {
+      "file": "backend/tests/http/internal-write-http.integration.test.mjs",
+      "line": 39,
+      "target": "bcryptjs"
+    },
+    {
+      "file": "backend/tests/http/internal-write-http.integration.test.mjs",
+      "line": 40,
+      "target": "../../modules/UserManager.js"
+    },
+    {
+      "file": "backend/tests/http/internal-write-http.integration.test.mjs",
+      "line": 41,
+      "target": "../../routes/userRoutes.js"
+    },
+    {
+      "file": "backend/tests/http/internal-write-http.integration.test.mjs",
+      "line": 42,
+      "target": "../../middleware/authMiddleware.js"
+    },
+    {
+      "file": "backend/tests/http/internal-write-http.integration.test.mjs",
+      "line": 43,
+      "target": "../../middleware/tenantMiddleware.js"
+    },
+    {
+      "file": "backend/tests/http/internal-write-http.integration.test.mjs",
+      "line": 44,
+      "target": "../../routes/recordRoutes.js"
+    },
+    {
+      "file": "backend/tests/http/internal-write-http.integration.test.mjs",
+      "line": 45,
+      "target": "../../routes/syncRoutes.js"
+    },
+    {
+      "file": "backend/tests/http/openapi-http.integration.test.mjs",
+      "line": 18,
+      "target": "node:test"
+    },
+    {
+      "file": "backend/tests/http/openapi-http.integration.test.mjs",
+      "line": 19,
+      "target": "node:assert/strict"
+    },
+    {
+      "file": "backend/tests/http/openapi-http.integration.test.mjs",
+      "line": 20,
+      "target": "node:crypto"
+    },
+    {
+      "file": "backend/tests/http/openapi-http.integration.test.mjs",
+      "line": 21,
+      "target": "../_isolation.mjs"
+    },
+    {
+      "file": "backend/tests/http/openapi-http.integration.test.mjs",
+      "line": 37,
+      "target": "@prisma/client"
+    },
+    {
+      "file": "backend/tests/http/openapi-http.integration.test.mjs",
+      "line": 38,
+      "target": "express"
+    },
+    {
+      "file": "backend/tests/http/openapi-http.integration.test.mjs",
+      "line": 39,
+      "target": "../../routes/openApiRoutes.js"
+    },
+    {
+      "file": "backend/tests/http/openapi-http.integration.test.mjs",
+      "line": 40,
+      "target": "../../routes/adminOpenApiRoutes.js"
+    },
+    {
+      "file": "backend/tests/openapi/admin-guide-render.test.mjs",
+      "line": 10,
+      "target": "node:test"
+    },
+    {
+      "file": "backend/tests/openapi/admin-guide-render.test.mjs",
+      "line": 11,
+      "target": "node:assert/strict"
+    },
+    {
+      "file": "backend/tests/openapi/admin-guide-render.test.mjs",
+      "line": 12,
+      "target": "node:fs"
+    },
+    {
+      "file": "backend/tests/openapi/admin-guide-render.test.mjs",
+      "line": 13,
+      "target": "../../lib/openApiGuide.js"
+    },
+    {
+      "file": "backend/tests/openapi/contract.test.mjs",
+      "line": 8,
+      "target": "node:test"
+    },
+    {
+      "file": "backend/tests/openapi/contract.test.mjs",
+      "line": 9,
+      "target": "node:assert/strict"
+    },
+    {
+      "file": "backend/tests/openapi/contract.test.mjs",
+      "line": 16,
+      "target": "../../lib/openApiFieldSchema.js"
+    },
+    {
+      "file": "backend/tests/openapi/contract.test.mjs",
+      "line": 31,
+      "target": "../../lib/openApiScope.js"
+    },
+    {
+      "file": "backend/tests/openapi/db-readonly-checks.mjs",
+      "line": 10,
+      "target": "@prisma/client"
+    },
+    {
+      "file": "backend/tests/openapi/db-readonly-checks.mjs",
+      "line": 194,
+      "target": "../../lib/openApiScope.js"
+    },
+    {
+      "file": "backend/tests/openapi/f6-upgrade.test.mjs",
+      "line": 15,
+      "target": "node:test"
+    },
+    {
+      "file": "backend/tests/openapi/f6-upgrade.test.mjs",
+      "line": 16,
+      "target": "node:assert/strict"
+    },
+    {
+      "file": "backend/tests/openapi/f6-upgrade.test.mjs",
+      "line": 17,
+      "target": "node:crypto"
+    },
+    {
+      "file": "backend/tests/openapi/f6-upgrade.test.mjs",
+      "line": 18,
+      "target": "../../../docs/examples/openapi-sync-client.mjs"
+    },
+    {
+      "file": "backend/tests/openapi/f6-upgrade.test.mjs",
+      "line": 23,
+      "target": "../../lib/openApiScope.js"
+    },
+    {
+      "file": "backend/tests/openapi/package-contract.test.mjs",
+      "line": 11,
+      "target": "node:test"
+    },
+    {
+      "file": "backend/tests/openapi/package-contract.test.mjs",
+      "line": 12,
+      "target": "node:assert/strict"
+    },
+    {
+      "file": "backend/tests/openapi/package-contract.test.mjs",
+      "line": 17,
+      "target": "../../lib/openApiFieldSchema.js"
+    },
+    {
+      "file": "backend/tests/openapi/package-contract.test.mjs",
+      "line": 18,
+      "target": "../../lib/openApiScope.js"
+    },
+    {
+      "file": "backend/tests/openapi/package-contract.test.mjs",
+      "line": 19,
+      "target": "../../routes/adminOpenApiRoutes.js"
+    },
+    {
+      "file": "backend/tests/openapi/package-contract.test.mjs",
+      "line": 294,
+      "target": "node:fs"
+    },
+    {
+      "file": "backend/tests/openapi/projection-contract.test.mjs",
+      "line": 9,
+      "target": "node:test"
+    },
+    {
+      "file": "backend/tests/openapi/projection-contract.test.mjs",
+      "line": 10,
+      "target": "node:assert/strict"
+    },
+    {
+      "file": "backend/tests/openapi/projection-contract.test.mjs",
+      "line": 17,
+      "target": "../../lib/openApiFieldSchema.js"
+    },
+    {
+      "file": "backend/tests/openapi/projection-contract.test.mjs",
+      "line": 18,
+      "target": "../../lib/openApiScope.js"
+    },
+    {
+      "file": "backend/tests/openapi/sample-schema-conformance.test.mjs",
+      "line": 17,
+      "target": "node:test"
+    },
+    {
+      "file": "backend/tests/openapi/sample-schema-conformance.test.mjs",
+      "line": 18,
+      "target": "node:assert/strict"
+    },
+    {
+      "file": "backend/tests/openapi/sample-schema-conformance.test.mjs",
+      "line": 19,
+      "target": "../../lib/openApiFieldSchema.js"
+    },
+    {
+      "file": "backend/tests/openapi/sample-schema-conformance.test.mjs",
+      "line": 20,
+      "target": "../../lib/openApiScope.js"
+    },
+    {
+      "file": "backend/tests/openapi/stats-date.integration.test.mjs",
+      "line": 16,
+      "target": "node:test"
+    },
+    {
+      "file": "backend/tests/openapi/stats-date.integration.test.mjs",
+      "line": 17,
+      "target": "node:assert/strict"
+    },
+    {
+      "file": "backend/tests/openapi/stats-date.integration.test.mjs",
+      "line": 20,
+      "target": "../_isolation.mjs"
+    },
+    {
+      "file": "backend/tests/openapi/stats-date.integration.test.mjs",
+      "line": 41,
+      "target": "@prisma/client"
+    },
+    {
+      "file": "backend/tests/openapi/stats-date.integration.test.mjs",
+      "line": 42,
+      "target": "../../routes/openApiRoutes.js"
+    },
+    {
+      "file": "backend/tests/openapi/stats-date.integration.test.mjs",
+      "line": 43,
+      "target": "../../lib/openApiScope.js"
+    },
+    {
+      "file": "backend/tests/openapi/sync-client.test.mjs",
+      "line": 9,
+      "target": "node:test"
+    },
+    {
+      "file": "backend/tests/openapi/sync-client.test.mjs",
+      "line": 10,
+      "target": "node:assert/strict"
+    },
+    {
+      "file": "backend/tests/openapi/sync-client.test.mjs",
+      "line": 11,
+      "target": "../../../docs/examples/openapi-sync-client.mjs"
+    },
+    {
+      "file": "backend/tests/records/db-integration.test.mjs",
+      "line": 9,
+      "target": "node:test"
+    },
+    {
+      "file": "backend/tests/records/db-integration.test.mjs",
+      "line": 10,
+      "target": "node:assert/strict"
+    },
+    {
+      "file": "backend/tests/records/db-integration.test.mjs",
+      "line": 11,
+      "target": "../_isolation.mjs"
+    },
+    {
+      "file": "backend/tests/records/db-integration.test.mjs",
+      "line": 25,
+      "target": "@prisma/client"
+    },
+    {
+      "file": "backend/tests/records/db-integration.test.mjs",
+      "line": 26,
+      "target": "../../lib/recordNormalize.js"
+    },
+    {
+      "file": "backend/tests/records/db-integration.test.mjs",
+      "line": 27,
+      "target": "../../lib/openApiScope.js"
+    },
+    {
+      "file": "backend/tests/records/db-integration.test.mjs",
+      "line": 28,
+      "target": "../../lib/openApiFieldSchema.js"
+    },
+    {
+      "file": "backend/tests/records/db-integration.test.mjs",
+      "line": 29,
+      "target": "../../routes/syncRoutes.js"
+    },
+    {
+      "file": "backend/tests/records/db-integration.test.mjs",
+      "line": 30,
+      "target": "../../routes/recordRoutes.js"
+    },
+    {
+      "file": "backend/tests/records/isolation-gate.test.mjs",
+      "line": 6,
+      "target": "node:test"
+    },
+    {
+      "file": "backend/tests/records/isolation-gate.test.mjs",
+      "line": 7,
+      "target": "node:assert/strict"
+    },
+    {
+      "file": "backend/tests/records/isolation-gate.test.mjs",
+      "line": 8,
+      "target": "../_isolation.mjs"
+    },
+    {
+      "file": "backend/tests/records/partial-update.integration.test.mjs",
+      "line": 15,
+      "target": "node:test"
+    },
+    {
+      "file": "backend/tests/records/partial-update.integration.test.mjs",
+      "line": 16,
+      "target": "node:assert/strict"
+    },
+    {
+      "file": "backend/tests/records/partial-update.integration.test.mjs",
+      "line": 19,
+      "target": "../_isolation.mjs"
+    },
+    {
+      "file": "backend/tests/records/partial-update.integration.test.mjs",
+      "line": 32,
+      "target": "@prisma/client"
+    },
+    {
+      "file": "backend/tests/records/partial-update.integration.test.mjs",
+      "line": 33,
+      "target": "../../routes/syncRoutes.js"
+    },
+    {
+      "file": "backend/tests/records/partial-update.integration.test.mjs",
+      "line": 34,
+      "target": "../../routes/recordRoutes.js"
+    },
+    {
+      "file": "backend/tests/records/partial-update.integration.test.mjs",
+      "line": 324,
+      "target": "../../lib/recordNormalize.js"
+    },
+    {
+      "file": "backend/tests/records/record-normalize.test.mjs",
+      "line": 11,
+      "target": "node:test"
+    },
+    {
+      "file": "backend/tests/records/record-normalize.test.mjs",
+      "line": 12,
+      "target": "node:assert/strict"
+    },
+    {
+      "file": "backend/tests/records/record-normalize.test.mjs",
+      "line": 22,
+      "target": "../../lib/recordNormalize.js"
+    },
+    {
+      "file": "backend/tests/records/route-write-paths.test.mjs",
+      "line": 9,
+      "target": "node:test"
+    },
+    {
+      "file": "backend/tests/records/route-write-paths.test.mjs",
+      "line": 10,
+      "target": "node:assert/strict"
+    },
+    {
+      "file": "backend/tests/records/route-write-paths.test.mjs",
+      "line": 11,
+      "target": "../../routes/syncRoutes.js"
+    },
+    {
+      "file": "backend/tests/records/route-write-paths.test.mjs",
+      "line": 12,
+      "target": "../../routes/recordRoutes.js"
+    },
+    {
+      "file": "backend/tests/records/route-write-paths.test.mjs",
+      "line": 13,
+      "target": "../../lib/openApiFieldSchema.js"
+    },
+    {
+      "file": "cypress.config.cjs",
+      "line": 13,
+      "target": "cypress"
+    },
+    {
+      "file": "docs/deployment/backup-module.md",
+      "line": 147,
+      "target": "node:fs"
+    },
+    {
+      "file": "docs/deployment/backup-module.md",
+      "line": 147,
+      "target": "./lib/backupKms.js"
+    },
+    {
+      "file": "docs/examples/openapi-acceptance-kit.mjs",
+      "line": 18,
+      "target": "node:process"
+    },
+    {
+      "file": "docs/examples/openapi-sync-client.mjs",
+      "line": 27,
+      "target": "node:process"
+    },
+    {
+      "file": "docs/fix/待修复问题深度分析-20260817.md",
+      "line": 361,
+      "target": "./docs/test-results/latest/snapshot.json"
+    },
+    {
+      "file": "frontend/js/core/Auth.js",
+      "line": 6,
+      "target": "../utils/schoolCode.js"
+    },
+    {
+      "file": "frontend/js/core/Auth.js",
+      "line": 9,
+      "target": "../utils/UINotification.js"
+    },
+    {
+      "file": "frontend/js/core/Router.js",
+      "line": 6,
+      "target": "../services/AuthService.js"
+    },
+    {
+      "file": "frontend/js/core/Router.js",
+      "line": 7,
+      "target": "../services/PermissionService.js"
+    },
+    {
+      "file": "frontend/js/core/Router.js",
+      "line": 8,
+      "target": "../services/GuestAuthService.js"
+    },
+    {
+      "file": "frontend/js/core/Router.js",
+      "line": 10,
+      "target": "../utils/schoolCode.js"
+    },
+    {
+      "file": "frontend/js/core/Storage.js",
+      "line": 3,
+      "target": "../services/AuditService.js"
+    },
+    {
+      "file": "frontend/js/core/Storage.js",
+      "line": 4,
+      "target": "./AdaptiveUploadQueue.js"
+    },
+    {
+      "file": "frontend/js/core/Storage.js",
+      "line": 6,
+      "target": "../utils/schoolCode.js"
+    },
+    {
+      "file": "frontend/js/main.js",
+      "line": 1,
+      "target": "./utils/UIHelper.js"
+    },
+    {
+      "file": "frontend/js/main.js",
+      "line": 2,
+      "target": "./modules/Tableware.js"
+    },
+    {
+      "file": "frontend/js/main.js",
+      "line": 3,
+      "target": "./modules/GenericTest.js"
+    },
+    {
+      "file": "frontend/js/main.js",
+      "line": 4,
+      "target": "./modules/Pathogen.js"
+    },
+    {
+      "file": "frontend/js/main.js",
+      "line": 5,
+      "target": "./modules/Dashboard.js"
+    },
+    {
+      "file": "frontend/js/main.js",
+      "line": 6,
+      "target": "./services/ExportService.js"
+    },
+    {
+      "file": "frontend/js/main.js",
+      "line": 7,
+      "target": "./utils/SampleDataGenerator.js"
+    },
+    {
+      "file": "frontend/js/main.js",
+      "line": 9,
+      "target": "./utils/schoolCode.js"
+    },
+    {
+      "file": "frontend/js/main.js",
+      "line": 10,
+      "target": "./utils/schoolCustomization/shared.js"
+    },
+    {
+      "file": "frontend/js/main.js",
+      "line": 11,
+      "target": "./utils/schoolCustomization.js"
+    },
+    {
+      "file": "frontend/js/main.js",
+      "line": 13,
+      "target": "./modules/BackupRestore.js"
+    },
+    {
+      "file": "frontend/js/main.js",
+      "line": 15,
+      "target": "./core/Router.js"
+    },
+    {
+      "file": "frontend/js/main.js",
+      "line": 17,
+      "target": "./modules/UserManagement.js"
+    },
+    {
+      "file": "frontend/js/main.js",
+      "line": 19,
+      "target": "./services/PermissionService.js"
+    },
+    {
+      "file": "frontend/js/main.js",
+      "line": 21,
+      "target": "./modules/AuditLog.js"
+    },
+    {
+      "file": "frontend/js/main.js",
+      "line": 22,
+      "target": "./services/SessionManager.js"
+    },
+    {
+      "file": "frontend/js/main.js",
+      "line": 23,
+      "target": "./services/GuestAuthService.js"
+    },
+    {
+      "file": "frontend/js/main.js",
+      "line": 24,
+      "target": "./services/AuthService.js"
+    },
+    {
+      "file": "frontend/js/main.js",
+      "line": 25,
+      "target": "./modules/GuestDashboard.js"
+    },
+    {
+      "file": "frontend/js/main.js",
+      "line": 28,
+      "target": "./modules/FrequencyModule.js"
+    },
+    {
+      "file": "frontend/js/main.js",
+      "line": 30,
+      "target": "./modules/quickAccess.js"
+    },
+    {
+      "file": "frontend/js/main.js",
+      "line": 32,
+      "target": "./modules/Feedback.js"
+    },
+    {
+      "file": "frontend/js/modules/AuditLog.js",
+      "line": 14,
+      "target": "../services/AuthService.js"
+    },
+    {
+      "file": "frontend/js/modules/BackupRestore.js",
+      "line": 11,
+      "target": "../utils/UINotification.js"
+    },
+    {
+      "file": "frontend/js/modules/BackupRestore.js",
+      "line": 12,
+      "target": "../utils/schoolCode.js"
+    },
+    {
+      "file": "frontend/js/modules/BackupRestore.js",
+      "line": 13,
+      "target": "../services/AuthService.js"
+    },
+    {
+      "file": "frontend/js/modules/BackupRestore.js",
+      "line": 14,
+      "target": "../services/AuditService.js"
+    },
+    {
+      "file": "frontend/js/modules/BackupRestore.js",
+      "line": 15,
+      "target": "../utils/schoolCustomization/shared.js"
+    },
+    {
+      "file": "frontend/js/modules/Dashboard.js",
+      "line": 1,
+      "target": "../core/Storage.js"
+    },
+    {
+      "file": "frontend/js/modules/Dashboard.js",
+      "line": 2,
+      "target": "../services/GuestAuthService.js"
+    },
+    {
+      "file": "frontend/js/modules/Dashboard.js",
+      "line": 8,
+      "target": "../utils/UINotification.js"
+    },
+    {
+      "file": "frontend/js/modules/Dashboard.js",
+      "line": 9,
+      "target": "../utils/NetworkHelper.js"
+    },
+    {
+      "file": "frontend/js/modules/Dashboard.js",
+      "line": 10,
+      "target": "../utils/pathogenRisk.js"
+    },
+    {
+      "file": "frontend/js/modules/Dashboard.js",
+      "line": 11,
+      "target": "../services/AuditService.js"
+    },
+    {
+      "file": "frontend/js/modules/Dashboard.js",
+      "line": 12,
+      "target": "../utils/schoolCustomization.js"
+    },
+    {
+      "file": "frontend/js/modules/Dashboard.js",
+      "line": 13,
+      "target": "../utils/schoolCode.js"
+    },
+    {
+      "file": "frontend/js/modules/Dashboard.js",
+      "line": 14,
+      "target": "../utils/dateUtil.js"
+    },
+    {
+      "file": "frontend/js/modules/Feedback.js",
+      "line": 10,
+      "target": "../services/AuthService.js"
+    },
+    {
+      "file": "frontend/js/modules/Feedback.js",
+      "line": 11,
+      "target": "../services/GuestAuthService.js"
+    },
+    {
+      "file": "frontend/js/modules/FrequencyModule.js",
+      "line": 9,
+      "target": "../utils/UINotification.js"
+    },
+    {
+      "file": "frontend/js/modules/FrequencyModule.js",
+      "line": 10,
+      "target": "../services/AuthService.js"
+    },
+    {
+      "file": "frontend/js/modules/GenericTest.js",
+      "line": 1,
+      "target": "../core/Storage.js"
+    },
+    {
+      "file": "frontend/js/modules/GenericTest.js",
+      "line": 2,
+      "target": "../core/Auth.js"
+    },
+    {
+      "file": "frontend/js/modules/GenericTest.js",
+      "line": 3,
+      "target": "../utils/FormValidator.js"
+    },
+    {
+      "file": "frontend/js/modules/GenericTest.js",
+      "line": 4,
+      "target": "../utils/UINotification.js"
+    },
+    {
+      "file": "frontend/js/modules/GenericTest.js",
+      "line": 5,
+      "target": "../utils/NetworkHelper.js"
+    },
+    {
+      "file": "frontend/js/modules/GenericTest.js",
+      "line": 6,
+      "target": "../services/GuestAuthService.js"
+    },
+    {
+      "file": "frontend/js/modules/GenericTest.js",
+      "line": 7,
+      "target": "../services/PermissionService.js"
+    },
+    {
+      "file": "frontend/js/modules/GenericTest.js",
+      "line": 8,
+      "target": "../utils/schoolCustomization.js"
+    },
+    {
+      "file": "frontend/js/modules/GenericTest.js",
+      "line": 12,
+      "target": "../utils/schoolCode.js"
+    },
+    {
+      "file": "frontend/js/modules/GenericTest.js",
+      "line": 13,
+      "target": "../utils/schoolCustomization/shared.js"
+    },
+    {
+      "file": "frontend/js/modules/GenericTest.js",
+      "line": 14,
+      "target": "../utils/dateUtil.js"
+    },
+    {
+      "file": "frontend/js/modules/GuestDashboard.js",
+      "line": 6,
+      "target": "../services/GuestAuthService.js"
+    },
+    {
+      "file": "frontend/js/modules/GuestDashboard.js",
+      "line": 7,
+      "target": "../utils/schoolCode.js"
+    },
+    {
+      "file": "frontend/js/modules/GuestDashboard.js",
+      "line": 8,
+      "target": "../utils/schoolCustomization/shared.js"
+    },
+    {
+      "file": "frontend/js/modules/GuestDashboard.js",
+      "line": 14,
+      "target": "../utils/schoolCustomization.js"
+    },
+    {
+      "file": "frontend/js/modules/Pathogen.js",
+      "line": 1,
+      "target": "../core/Storage.js"
+    },
+    {
+      "file": "frontend/js/modules/Pathogen.js",
+      "line": 2,
+      "target": "../core/Auth.js"
+    },
+    {
+      "file": "frontend/js/modules/Pathogen.js",
+      "line": 3,
+      "target": "../utils/FormValidator.js"
+    },
+    {
+      "file": "frontend/js/modules/Pathogen.js",
+      "line": 4,
+      "target": "../utils/UINotification.js"
+    },
+    {
+      "file": "frontend/js/modules/Pathogen.js",
+      "line": 5,
+      "target": "../utils/NetworkHelper.js"
+    },
+    {
+      "file": "frontend/js/modules/Pathogen.js",
+      "line": 6,
+      "target": "../services/GuestAuthService.js"
+    },
+    {
+      "file": "frontend/js/modules/Pathogen.js",
+      "line": 7,
+      "target": "../utils/schoolCustomization/shared.js"
+    },
+    {
+      "file": "frontend/js/modules/Pathogen.js",
+      "line": 8,
+      "target": "../utils/schoolCustomization/cache.js"
+    },
+    {
+      "file": "frontend/js/modules/Pathogen.js",
+      "line": 11,
+      "target": "../utils/schoolCustomization.js"
+    },
+    {
+      "file": "frontend/js/modules/Pathogen.js",
+      "line": 12,
+      "target": "../utils/schoolCode.js"
+    },
+    {
+      "file": "frontend/js/modules/Pathogen.js",
+      "line": 13,
+      "target": "../utils/pathogenRisk.js"
+    },
+    {
+      "file": "frontend/js/modules/Pathogen.js",
+      "line": 14,
+      "target": "../services/AuditService.js"
+    },
+    {
+      "file": "frontend/js/modules/Pathogen.js",
+      "line": 15,
+      "target": "../services/PermissionService.js"
+    },
+    {
+      "file": "frontend/js/modules/Pathogen.js",
+      "line": 16,
+      "target": "../utils/dateUtil.js"
+    },
+    {
+      "file": "frontend/js/modules/SuperAdminAccount.js",
+      "line": 1,
+      "target": "../services/AuthService.js"
+    },
+    {
+      "file": "frontend/js/modules/SuperAdminAccount.js",
+      "line": 2,
+      "target": "../utils/schoolCustomization/shared.js"
+    },
+    {
+      "file": "frontend/js/modules/Tableware.js",
+      "line": 1,
+      "target": "../core/Storage.js"
+    },
+    {
+      "file": "frontend/js/modules/Tableware.js",
+      "line": 2,
+      "target": "../core/Auth.js"
+    },
+    {
+      "file": "frontend/js/modules/Tableware.js",
+      "line": 3,
+      "target": "../utils/FormValidator.js"
+    },
+    {
+      "file": "frontend/js/modules/Tableware.js",
+      "line": 4,
+      "target": "../utils/UINotification.js"
+    },
+    {
+      "file": "frontend/js/modules/Tableware.js",
+      "line": 5,
+      "target": "../utils/NetworkHelper.js"
+    },
+    {
+      "file": "frontend/js/modules/Tableware.js",
+      "line": 6,
+      "target": "../services/GuestAuthService.js"
+    },
+    {
+      "file": "frontend/js/modules/Tableware.js",
+      "line": 7,
+      "target": "../services/AuditService.js"
+    },
+    {
+      "file": "frontend/js/modules/Tableware.js",
+      "line": 8,
+      "target": "../services/PermissionService.js"
+    },
+    {
+      "file": "frontend/js/modules/Tableware.js",
+      "line": 10,
+      "target": "../utils/schoolCustomization.js"
+    },
+    {
+      "file": "frontend/js/modules/Tableware.js",
+      "line": 14,
+      "target": "../utils/schoolCode.js"
+    },
+    {
+      "file": "frontend/js/modules/Tableware.js",
+      "line": 15,
+      "target": "../utils/dateUtil.js"
+    },
+    {
+      "file": "frontend/js/modules/UserManagement.js",
+      "line": 6,
+      "target": "../services/AuthService.js"
+    },
+    {
+      "file": "frontend/js/modules/UserManagement.js",
+      "line": 7,
+      "target": "../utils/UINotification.js"
+    },
+    {
+      "file": "frontend/js/modules/UserManagement.js",
+      "line": 8,
+      "target": "../core/Router.js"
+    },
+    {
+      "file": "frontend/js/modules/UserManagement.js",
+      "line": 9,
+      "target": "../services/AuditService.js"
+    },
+    {
+      "file": "frontend/js/modules/UserManagement.js",
+      "line": 10,
+      "target": "../utils/schoolCustomization/shared.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/adminTheme.js",
+      "line": 2,
+      "target": "./customization/store.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/adminTheme.js",
+      "line": 3,
+      "target": "./preview.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/adminTheme.js",
+      "line": 4,
+      "target": "./ui.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/customization/fieldList.js",
+      "line": 3,
+      "target": "./store.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/customization/fieldList.js",
+      "line": 4,
+      "target": "./moduleFields.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/customization/fieldList.js",
+      "line": 5,
+      "target": "../ui.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/customization/fieldList.js",
+      "line": 6,
+      "target": "../preview.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/customization/fieldList.js",
+      "line": 7,
+      "target": "./popovers.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/customization/loadSave.js",
+      "line": 4,
+      "target": "./store.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/customization/loadSave.js",
+      "line": 5,
+      "target": "./moduleFields.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/customization/loadSave.js",
+      "line": 6,
+      "target": "../ui.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/customization/loadSave.js",
+      "line": 7,
+      "target": "../context.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/customization/loadSave.js",
+      "line": 8,
+      "target": "../preview.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/customization/loadSave.js",
+      "line": 9,
+      "target": "../adminTheme.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/customization/loadSave.js",
+      "line": 10,
+      "target": "./fieldList.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/customization/loadSave.js",
+      "line": 11,
+      "target": "/js/utils/schoolCustomization.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/customization/loadSave.js",
+      "line": 12,
+      "target": "/js/modules/registry.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/customization/moduleFields.js",
+      "line": 5,
+      "target": "/js/modules/registry.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/customization/popovers.js",
+      "line": 7,
+      "target": "./store.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/customization/popovers.js",
+      "line": 8,
+      "target": "./moduleFields.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/customization/popovers.js",
+      "line": 9,
+      "target": "../ui.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/customization/popovers.js",
+      "line": 10,
+      "target": "../preview.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/preview.js",
+      "line": 7,
+      "target": "./customization/store.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/preview.js",
+      "line": 8,
+      "target": "./ui.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/preview.js",
+      "line": 9,
+      "target": "/js/modules/registry.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/preview.js",
+      "line": 106,
+      "target": "/js/utils/schoolCustomization.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/sidebar.js",
+      "line": 21,
+      "target": "./context.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/sidebar.js",
+      "line": 22,
+      "target": "./ui.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/views/accountsView.js",
+      "line": 21,
+      "target": "../context.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/views/accountsView.js",
+      "line": 22,
+      "target": "../ui.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/views/accountsView.js",
+      "line": 23,
+      "target": "./schoolUsersView.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/views/auditView.js",
+      "line": 10,
+      "target": "../context.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/views/auditView.js",
+      "line": 11,
+      "target": "../ui.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/views/backupView.js",
+      "line": 63,
+      "target": "../components/tablePager.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/views/schoolCreateView.js",
+      "line": 2,
+      "target": "../ui.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/views/schoolCreateView.js",
+      "line": 3,
+      "target": "../context.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/views/schoolCreateView.js",
+      "line": 4,
+      "target": "./schoolsListView.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/views/schoolDetailView.js",
+      "line": 4,
+      "target": "../customization/store.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/views/schoolDetailView.js",
+      "line": 5,
+      "target": "../ui.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/views/schoolDetailView.js",
+      "line": 6,
+      "target": "../context.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/views/schoolDetailView.js",
+      "line": 7,
+      "target": "../adminTheme.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/views/schoolDetailView.js",
+      "line": 8,
+      "target": "../preview.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/views/schoolDetailView.js",
+      "line": 9,
+      "target": "../customization/loadSave.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/views/schoolDetailView.js",
+      "line": 10,
+      "target": "./schoolUsersView.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/views/schoolDetailView.js",
+      "line": 11,
+      "target": "./schoolsListView.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/views/schoolDetailView.js",
+      "line": 12,
+      "target": "/js/utils/schoolCustomization/badgeEditor.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/views/schoolDetailView.js",
+      "line": 13,
+      "target": "/js/utils/schoolCustomization.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/views/schoolUsersView.js",
+      "line": 3,
+      "target": "../customization/store.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/views/schoolUsersView.js",
+      "line": 4,
+      "target": "../ui.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/views/schoolUsersView.js",
+      "line": 5,
+      "target": "../context.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/views/schoolsListView.js",
+      "line": 5,
+      "target": "../customization/store.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/views/schoolsListView.js",
+      "line": 6,
+      "target": "../ui.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/views/schoolsListView.js",
+      "line": 7,
+      "target": "../context.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/views/testReports/issuesView.js",
+      "line": 8,
+      "target": "./shared.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/views/testReports/issuesView.js",
+      "line": 9,
+      "target": "../../ui.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/views/testReports/listView.js",
+      "line": 6,
+      "target": "./shared.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/views/testReports/listView.js",
+      "line": 7,
+      "target": "../../ui.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/views/testReports/shared.js",
+      "line": 2,
+      "target": "../../context.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/views/testReports/shared.js",
+      "line": 3,
+      "target": "../../ui.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/views/testReports/tasksView.js",
+      "line": 7,
+      "target": "./shared.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/views/testReports/tasksView.js",
+      "line": 8,
+      "target": "../../ui.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/visualEdit.js",
+      "line": 2,
+      "target": "./customization/store.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/visualEdit.js",
+      "line": 3,
+      "target": "./customization/moduleFields.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/visualEdit.js",
+      "line": 4,
+      "target": "./customization/fieldList.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/visualEdit.js",
+      "line": 5,
+      "target": "./preview.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/visualEdit.js",
+      "line": 6,
+      "target": "./adminTheme.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/visualEdit.js",
+      "line": 7,
+      "target": "./ui.js"
+    },
+    {
+      "file": "frontend/js/modules/adminSchools/visualEdit.js",
+      "line": 8,
+      "target": "/js/modules/registry.js"
+    },
+    {
+      "file": "frontend/js/modules/detergentDemo.js",
+      "line": 12,
+      "target": "../utils/embed.js"
+    },
+    {
+      "file": "frontend/js/modules/detergentDemo.js",
+      "line": 13,
+      "target": "../services/AuthService.js"
+    },
+    {
+      "file": "frontend/js/modules/detergentDemo.js",
+      "line": 18,
+      "target": "../opencv/recognizer.js"
+    },
+    {
+      "file": "frontend/js/modules/detergentDemo.js",
+      "line": 182,
+      "target": "../utils/syntheticDetergent.js"
+    },
+    {
+      "file": "frontend/js/modules/loginPage.js",
+      "line": 11,
+      "target": "/js/services/AuthService.js"
+    },
+    {
+      "file": "frontend/js/modules/loginPage.js",
+      "line": 12,
+      "target": "/js/services/GuestAuthService.js"
+    },
+    {
+      "file": "frontend/js/modules/loginPage.js",
+      "line": 13,
+      "target": "/js/utils/schoolCode.js"
+    },
+    {
+      "file": "frontend/js/modules/loginStyleDesigner.js",
+      "line": 24,
+      "target": "../utils/schoolCustomization/shared.js"
+    },
+    {
+      "file": "frontend/js/modules/quickAccess.js",
+      "line": 8,
+      "target": "../services/GuestAuthService.js"
+    },
+    {
+      "file": "frontend/js/modules/superAdminLoginPage.js",
+      "line": 4,
+      "target": "/js/services/AuthService.js"
+    },
+    {
+      "file": "frontend/js/opencv/recognizer.js",
+      "line": 10,
+      "target": "@techstark/opencv-js"
+    },
+    {
+      "file": "frontend/js/services/AuditService.js",
+      "line": 17,
+      "target": "../utils/AuditLogger.js"
+    },
+    {
+      "file": "frontend/js/services/AuditService.js",
+      "line": 19,
+      "target": "../utils/schoolCode.js"
+    },
+    {
+      "file": "frontend/js/services/AuthService.js",
+      "line": 6,
+      "target": "./AuditService.js"
+    },
+    {
+      "file": "frontend/js/services/AuthService.js",
+      "line": 7,
+      "target": "../utils/fieldMasking.js"
+    },
+    {
+      "file": "frontend/js/services/AuthService.js",
+      "line": 9,
+      "target": "../utils/schoolCode.js"
+    },
+    {
+      "file": "frontend/js/services/AuthService.js",
+      "line": 11,
+      "target": "./PermissionService.js"
+    },
+    {
+      "file": "frontend/js/services/ExportService.js",
+      "line": 1,
+      "target": "../core/Storage.js"
+    },
+    {
+      "file": "frontend/js/services/ExportService.js",
+      "line": 2,
+      "target": "../utils/UINotification.js"
+    },
+    {
+      "file": "frontend/js/services/ExportService.js",
+      "line": 3,
+      "target": "../utils/schoolCustomization.js"
+    },
+    {
+      "file": "frontend/js/services/ExportService.js",
+      "line": 4,
+      "target": "../utils/dateUtil.js"
+    },
+    {
+      "file": "frontend/js/services/ExportService.js",
+      "line": 6,
+      "target": "../utils/schoolCode.js"
+    },
+    {
+      "file": "frontend/js/services/ExportService.js",
+      "line": 8,
+      "target": "../utils/fieldMasking.js"
+    },
+    {
+      "file": "frontend/js/services/GuestAuthService.js",
+      "line": 7,
+      "target": "../utils/schoolCode.js"
+    },
+    {
+      "file": "frontend/js/services/PermissionService.js",
+      "line": 6,
+      "target": "./AuthService.js"
+    },
+    {
+      "file": "frontend/js/services/PermissionService.js",
+      "line": 8,
+      "target": "../utils/schoolCode.js"
+    },
+    {
+      "file": "frontend/js/services/SessionManager.js",
+      "line": 6,
+      "target": "../services/AuthService.js"
+    },
+    {
+      "file": "frontend/js/services/SessionManager.js",
+      "line": 7,
+      "target": "../utils/UINotification.js"
+    },
+    {
+      "file": "frontend/js/utils/AuditLogger.js",
+      "line": 8,
+      "target": "./schoolCode.js"
+    },
+    {
+      "file": "frontend/js/utils/SampleDataGenerator.js",
+      "line": 5,
+      "target": "./schoolCustomization.js"
+    },
+    {
+      "file": "frontend/js/utils/SampleDataGenerator.js",
+      "line": 6,
+      "target": "./dateUtil.js"
+    },
+    {
+      "file": "frontend/js/utils/SampleDataGenerator.js",
+      "line": 9,
+      "target": "./schoolCode.js"
+    },
+    {
+      "file": "frontend/js/utils/fieldMasking.js",
+      "line": 15,
+      "target": "./schoolCode.js"
+    },
+    {
+      "file": "frontend/js/utils/fieldMasking.js",
+      "line": 16,
+      "target": "./schoolCustomization.js"
+    },
+    {
+      "file": "frontend/js/utils/schoolCustomization.js",
+      "line": 11,
+      "target": ".../utils/schoolCustomization.js"
+    },
+    {
+      "file": "frontend/js/utils/schoolCustomization.js",
+      "line": 36,
+      "target": "./schoolCustomization/cache.js"
+    },
+    {
+      "file": "frontend/js/utils/schoolCustomization.js",
+      "line": 47,
+      "target": "./schoolCustomization/fields.js"
+    },
+    {
+      "file": "frontend/js/utils/schoolCustomization.js",
+      "line": 54,
+      "target": "./schoolCustomization/visible.js"
+    },
+    {
+      "file": "frontend/js/utils/schoolCustomization.js",
+      "line": 59,
+      "target": "./schoolCustomization/branding.js"
+    },
+    {
+      "file": "frontend/js/utils/schoolCustomization.js",
+      "line": 73,
+      "target": "./schoolCustomization/cache.js"
+    },
+    {
+      "file": "frontend/js/utils/schoolCustomization.js",
+      "line": 82,
+      "target": "./schoolCustomization/fields.js"
+    },
+    {
+      "file": "frontend/js/utils/schoolCustomization.js",
+      "line": 83,
+      "target": "./schoolCustomization/visible.js"
+    },
+    {
+      "file": "frontend/js/utils/schoolCustomization.js",
+      "line": 84,
+      "target": "./schoolCustomization/branding.js"
+    },
+    {
+      "file": "frontend/js/utils/schoolCustomization/branding.js",
+      "line": 7,
+      "target": "./cache.js"
+    },
+    {
+      "file": "frontend/js/utils/schoolCustomization/branding.js",
+      "line": 8,
+      "target": "./shared.js"
+    },
+    {
+      "file": "frontend/js/utils/schoolCustomization/fields.js",
+      "line": 7,
+      "target": "../schoolCode.js"
+    },
+    {
+      "file": "frontend/js/utils/schoolCustomization/fields.js",
+      "line": 8,
+      "target": "./cache.js"
+    },
+    {
+      "file": "frontend/js/utils/schoolCustomization/fields.js",
+      "line": 9,
+      "target": "./shared.js"
+    },
+    {
+      "file": "frontend/js/utils/schoolCustomization/visible.js",
+      "line": 7,
+      "target": "../../modules/registry.js"
+    },
+    {
+      "file": "frontend/js/utils/schoolCustomization/visible.js",
+      "line": 8,
+      "target": "./shared.js"
+    },
+    {
+      "file": "frontend/js/utils/syntheticDetergent.js",
+      "line": 3,
+      "target": "../opencv/recognizer.js"
+    },
+    {
+      "file": "frontend/pages/admin-schools.html",
+      "line": 976,
+      "target": "/js/services/AuthService.js"
+    },
+    {
+      "file": "frontend/pages/admin-schools.html",
+      "line": 978,
+      "target": "/js/modules/registry.js"
+    },
+    {
+      "file": "frontend/pages/admin-schools.html",
+      "line": 980,
+      "target": "/js/modules/loginStyleDesigner.js"
+    },
+    {
+      "file": "frontend/pages/admin-schools.html",
+      "line": 981,
+      "target": "/js/modules/SuperAdminAccount.js"
+    },
+    {
+      "file": "frontend/pages/admin-schools.html",
+      "line": 982,
+      "target": "/js/modules/backupManager.js"
+    },
+    {
+      "file": "frontend/pages/admin-schools.html",
+      "line": 985,
+      "target": "/js/modules/adminSchools/sessionBadge.js"
+    },
+    {
+      "file": "frontend/pages/admin-schools.html",
+      "line": 987,
+      "target": "/js/modules/adminSchools/context.js"
+    },
+    {
+      "file": "frontend/pages/admin-schools.html",
+      "line": 989,
+      "target": "/js/modules/adminSchools/ui.js"
+    },
+    {
+      "file": "frontend/pages/admin-schools.html",
+      "line": 991,
+      "target": "/js/modules/adminSchools/sidebar.js"
+    },
+    {
+      "file": "frontend/pages/admin-schools.html",
+      "line": 993,
+      "target": "/js/modules/adminSchools/views/kpiPoller.js"
+    },
+    {
+      "file": "frontend/pages/admin-schools.html",
+      "line": 995,
+      "target": "/js/modules/adminSchools/views/accountsView.js"
+    },
+    {
+      "file": "frontend/pages/admin-schools.html",
+      "line": 997,
+      "target": "/js/modules/adminSchools/views/auditView.js"
+    },
+    {
+      "file": "frontend/pages/admin-schools.html",
+      "line": 999,
+      "target": "/js/modules/adminSchools/views/backupView.js"
+    },
+    {
+      "file": "frontend/pages/admin-schools.html",
+      "line": 1001,
+      "target": "/js/modules/adminSchools/views/diskView.js"
+    },
+    {
+      "file": "frontend/pages/admin-schools.html",
+      "line": 1003,
+      "target": "/js/modules/adminSchools/views/openApiView.js"
+    },
+    {
+      "file": "frontend/pages/admin-schools.html",
+      "line": 1005,
+      "target": "/js/modules/adminSchools/views/testReports/tasksView.js"
+    },
+    {
+      "file": "frontend/pages/admin-schools.html",
+      "line": 1006,
+      "target": "/js/modules/adminSchools/views/testReports/issuesView.js"
+    },
+    {
+      "file": "frontend/pages/admin-schools.html",
+      "line": 1007,
+      "target": "/js/modules/adminSchools/views/testReports/listView.js"
+    },
+    {
+      "file": "frontend/pages/admin-schools.html",
+      "line": 1012,
+      "target": "/js/modules/adminSchools/preview.js"
+    },
+    {
+      "file": "frontend/pages/admin-schools.html",
+      "line": 1014,
+      "target": "/js/modules/adminSchools/customization/fieldList.js"
+    },
+    {
+      "file": "frontend/pages/admin-schools.html",
+      "line": 1016,
+      "target": "/js/modules/adminSchools/customization/popovers.js"
+    },
+    {
+      "file": "frontend/pages/admin-schools.html",
+      "line": 1018,
+      "target": "/js/modules/adminSchools/customization/loadSave.js"
+    },
+    {
+      "file": "frontend/pages/admin-schools.html",
+      "line": 1020,
+      "target": "/js/modules/adminSchools/views/schoolsListView.js"
+    },
+    {
+      "file": "frontend/pages/admin-schools.html",
+      "line": 1021,
+      "target": "/js/modules/adminSchools/views/schoolDetailView.js"
+    },
+    {
+      "file": "frontend/pages/index.html",
+      "line": 788,
+      "target": "/js/utils/schoolCode.js"
+    },
+    {
+      "file": "scripts/build-static.js",
+      "line": 8,
+      "target": "fs"
+    },
+    {
+      "file": "scripts/build-static.js",
+      "line": 9,
+      "target": "path"
+    },
+    {
+      "file": "scripts/import-backup.mjs",
+      "line": 1,
+      "target": "fs"
+    },
+    {
+      "file": "scripts/import-backup.mjs",
+      "line": 2,
+      "target": "crypto"
+    },
+    {
+      "file": "scripts/import-backup.mjs",
+      "line": 3,
+      "target": "@prisma/client"
+    },
+    {
+      "file": "scripts/import-backup.mjs",
+      "line": 4,
+      "target": "dotenv"
+    },
+    {
+      "file": "scripts/import-backup.mjs",
+      "line": 5,
+      "target": "path"
+    },
+    {
+      "file": "scripts/import-backup.mjs",
+      "line": 6,
+      "target": "url"
+    },
+    {
+      "file": "scripts/import-backup.mjs",
+      "line": 198,
+      "target": "crypto"
+    },
+    {
+      "file": "scripts/migrate-roles.mjs",
+      "line": 18,
+      "target": "pg"
+    },
+    {
+      "file": "scripts/migrate-roles.mjs",
+      "line": 19,
+      "target": "node:fs"
+    },
+    {
+      "file": "scripts/migrate-roles.mjs",
+      "line": 20,
+      "target": "node:path"
+    },
+    {
+      "file": "scripts/migrate-roles.mjs",
+      "line": 21,
+      "target": "node:url"
+    },
+    {
+      "file": "scripts/setup-backup-kms.sh",
+      "line": 256,
+      "target": "./lib/backupKms.js"
+    },
+    {
+      "file": "tailwind.config.cjs",
+      "line": 1,
+      "target": "tailwindcss"
+    },
+    {
+      "file": "tests/auditUnificationRegression.test.js",
+      "line": 22,
+      "target": "fs"
+    },
+    {
+      "file": "tests/auditUnificationRegression.test.js",
+      "line": 23,
+      "target": "path"
+    },
+    {
+      "file": "tests/auditUnificationRegression.test.js",
+      "line": 43,
+      "target": "../backend/lib/auditLog.js"
+    },
+    {
+      "file": "tests/auditUnificationRegression.test.js",
+      "line": 44,
+      "target": "../backend/modules/UserManager.js"
+    },
+    {
+      "file": "tests/auditUserFilter.test.js",
+      "line": 17,
+      "target": "express"
+    },
+    {
+      "file": "tests/auditUserFilter.test.js",
+      "line": 18,
+      "target": "supertest"
+    },
+    {
+      "file": "tests/auditUserFilter.test.js",
+      "line": 36,
+      "target": "../backend/routes/auditRoutes.js"
+    },
+    {
+      "file": "tests/authCrossTabRefresh.test.js",
+      "line": 26,
+      "target": "../frontend/js/services/AuthService.js"
+    },
+    {
+      "file": "tests/authRecheckFailover.test.js",
+      "line": 24,
+      "target": "bcryptjs"
+    },
+    {
+      "file": "tests/authRecheckFailover.test.js",
+      "line": 25,
+      "target": "../backend/modules/UserManager.js"
+    },
+    {
+      "file": "tests/authRecheckFailover.test.js",
+      "line": 26,
+      "target": "../backend/middleware/authMiddleware.js"
+    },
+    {
+      "file": "tests/authRefreshFrontend.test.js",
+      "line": 30,
+      "target": "../frontend/js/services/AuthService.js"
+    },
+    {
+      "file": "tests/authRoleSync.test.js",
+      "line": 24,
+      "target": "../frontend/js/services/AuthService.js"
+    },
+    {
+      "file": "tests/authSession.test.js",
+      "line": 22,
+      "target": "jsonwebtoken"
+    },
+    {
+      "file": "tests/authSession.test.js",
+      "line": 23,
+      "target": "bcryptjs"
+    },
+    {
+      "file": "tests/authSession.test.js",
+      "line": 24,
+      "target": "../backend/modules/UserManager.js"
+    },
+    {
+      "file": "tests/authSession.test.js",
+      "line": 30,
+      "target": "../backend/middleware/authMiddleware.js"
+    },
+    {
+      "file": "tests/backupKms.test.js",
+      "line": 6,
+      "target": "node:crypto"
+    },
+    {
+      "file": "tests/backupKms.test.js",
+      "line": 7,
+      "target": "../backend/lib/backupKms.js"
+    },
+    {
+      "file": "tests/extractSchemaSegment.test.js",
+      "line": 11,
+      "target": "../backend/lib/restoreSqlUtils.js"
+    },
+    {
+      "file": "tests/idempotencyConcurrency.test.js",
+      "line": 15,
+      "target": "express"
+    },
+    {
+      "file": "tests/idempotencyConcurrency.test.js",
+      "line": 16,
+      "target": "supertest"
+    },
+    {
+      "file": "tests/idempotencyConcurrency.test.js",
+      "line": 17,
+      "target": "../backend/middleware/idempotencyMiddleware.js"
+    },
+    {
+      "file": "tests/integration/concurrency.test.js",
+      "line": 20,
+      "target": "@prisma/client"
+    },
+    {
+      "file": "tests/integration/concurrency.test.js",
+      "line": 25,
+      "target": "../../backend/lib/tenantClient.js"
+    },
+    {
+      "file": "tests/integration/concurrency.test.js",
+      "line": 33,
+      "target": "./pg-bootstrap.js"
+    },
+    {
+      "file": "tests/integration/pg-bootstrap.js",
+      "line": 8,
+      "target": "pg"
+    },
+    {
+      "file": "tests/integration/pg-bootstrap.js",
+      "line": 9,
+      "target": "../../backend/lib/tenantClient.js"
+    },
+    {
+      "file": "tests/integration/roleAuditTrigger.test.js",
+      "line": 18,
+      "target": "pg"
+    },
+    {
+      "file": "tests/p0ProvNoAdminInSchool.test.js",
+      "line": 34,
+      "target": "../backend/node_modules/@prisma/client"
+    },
+    {
+      "file": "tests/p0ProvNoAdminInSchool.test.js",
+      "line": 35,
+      "target": "../backend/lib/schoolAdminPurge.js"
+    },
+    {
+      "file": "tests/refreshConcurrencyBackend.test.js",
+      "line": 32,
+      "target": "express"
+    },
+    {
+      "file": "tests/refreshConcurrencyBackend.test.js",
+      "line": 33,
+      "target": "supertest"
+    },
+    {
+      "file": "tests/refreshConcurrencyBackend.test.js",
+      "line": 34,
+      "target": "../backend/modules/UserManager.js"
+    },
+    {
+      "file": "tests/refreshConcurrencyBackend.test.js",
+      "line": 35,
+      "target": "../backend/routes/userRoutes.js"
+    },
+    {
+      "file": "tests/restoreSchemaRewrite.test.js",
+      "line": 6,
+      "target": "../backend/lib/restoreSqlUtils.js"
+    },
+    {
+      "file": "tests/roleAuthorization.test.js",
+      "line": 27,
+      "target": "../backend/middleware/authMiddleware.js"
+    },
+    {
+      "file": "tests/roleMatrix.test.js",
+      "line": 26,
+      "target": "../backend/middleware/authMiddleware.js"
+    },
+    {
+      "file": "tests/schoolCode.test.js",
+      "line": 6,
+      "target": "../frontend/js/utils/schoolCode.js"
+    },
+    {
+      "file": "tests/securityAlerts.test.js",
+      "line": 11,
+      "target": "../backend/lib/securityAlerts.js"
+    },
+    {
+      "file": "tests/securityGuards.test.js",
+      "line": 18,
+      "target": "../backend/lib/securityGuards.js"
+    },
+    {
+      "file": "tests/securityRegression.test.js",
+      "line": 33,
+      "target": "bcryptjs"
+    },
+    {
+      "file": "tests/securityRegression.test.js",
+      "line": 34,
+      "target": "../backend/modules/UserManager.js"
+    },
+    {
+      "file": "tests/securityRegression.test.js",
+      "line": 35,
+      "target": "../backend/middleware/authMiddleware.js"
+    },
+    {
+      "file": "tests/setup-env.js",
+      "line": 8,
+      "target": "node:util"
+    },
+    {
+      "file": "tests/smoke.test.js",
+      "line": 8,
+      "target": "../frontend/js/utils/pathogenRisk.js"
+    },
+    {
+      "file": "tests/storageApplyServerRecord.test.js",
+      "line": 9,
+      "target": "../frontend/js/core/Storage.js"
+    },
+    {
+      "file": "tests/storageDurabilityAndRace.test.js",
+      "line": 10,
+      "target": "../frontend/js/core/Storage.js"
+    },
+    {
+      "file": "tests/storageForceServer.test.js",
+      "line": 11,
+      "target": "../frontend/js/core/Storage.js"
+    },
+    {
+      "file": "tests/superAdminRoutes.test.js",
+      "line": 47,
+      "target": "supertest"
+    },
+    {
+      "file": "tests/superAdminRoutes.test.js",
+      "line": 48,
+      "target": "express"
+    },
+    {
+      "file": "tests/superAdminRoutes.test.js",
+      "line": 49,
+      "target": "../backend/routes/userRoutes.js"
+    },
+    {
+      "file": "tests/uploadQueue409Recovery.test.js",
+      "line": 13,
+      "target": "../frontend/js/core/AdaptiveUploadQueue.js"
+    },
+    {
+      "file": "tests/userLoginErrorMapping.test.js",
+      "line": 29,
+      "target": "express"
+    },
+    {
+      "file": "tests/userLoginErrorMapping.test.js",
+      "line": 30,
+      "target": "supertest"
+    },
+    {
+      "file": "tests/userLoginErrorMapping.test.js",
+      "line": 31,
+      "target": "../backend/routes/userRoutes.js"
+    },
+    {
+      "file": "tests/window2AdminAudit.test.js",
+      "line": 18,
+      "target": "fs"
+    },
+    {
+      "file": "tests/window2AdminAudit.test.js",
+      "line": 19,
+      "target": "path"
+    },
+    {
+      "file": "tests/window2AdminAudit.test.js",
+      "line": 20,
+      "target": "express"
+    },
+    {
+      "file": "tests/window2AdminAudit.test.js",
+      "line": 21,
+      "target": "supertest"
+    },
+    {
+      "file": "tests/window2AdminAudit.test.js",
+      "line": 41,
+      "target": "child_process"
+    },
+    {
+      "file": "tests/window2AdminAudit.test.js",
+      "line": 42,
+      "target": "../backend/lib/auditLog.js"
+    },
+    {
+      "file": "tests/window2AdminAudit.test.js",
+      "line": 43,
+      "target": "../backend/modules/UserManager.js"
+    },
+    {
+      "file": "tests/window2AdminAudit.test.js",
+      "line": 44,
+      "target": "../backend/routes/auditRoutes.js"
+    },
+    {
+      "file": "tests/window2AdminAudit.test.js",
+      "line": 314,
+      "target": "./backend/lib/tenantProvisioner.js"
+    }
+  ],
+  "scan_pattern_counts": {
+    "environment": 736,
+    "error_handling": 727,
+    "raw_sql": 182,
+    "auth": 254,
+    "browser_storage": 367,
+    "destructive_sql": 24,
+    "html_sinks": 374
+  }
+}

@@ -1,0 +1,453 @@
+{
+  "phase": 2,
+  "batch": "A",
+  "mode": "independent_adversarial_verification",
+  "baseline": "f08e72e3e74d188b4555e0bee16280b3dd0d622b",
+  "generated_at": "2026-09-24",
+  "audit_only": true,
+  "application_code_changed": false,
+  "environment": {
+    "node": "v24.15.0",
+    "express_installed": true,
+    "jsdom_installed": true,
+    "prisma_client_installed": true,
+    "database_used": "none",
+    "placeholder_database_url": "postgresql://phase2:phase2@127.0.0.1:1/phase2_never_connect (unreachable port; Prisma lazy connect; no real connection opened)",
+    "network_external": "none"
+  },
+  "issues": [
+    {
+      "id": "AUD-001",
+      "title": "浏览器记录缓存和离线队列未按学校、账号隔离",
+      "original_claim": "cache_<table>/pending_<table> 等键不含租户与主体维度且无清理；切校或换账号后新主体读到旧主体缓存与待上传任务，任务发送时使用当前 token。",
+      "verdict": "CONFIRMED",
+      "reproduction_class": "A",
+      "call_path": [
+        "new StorageService(tableName) -> localCacheKey=cache_<table> / pendingRequestsKey=pending_<table> (Storage.js:61-62)",
+        "cache/queue read-write only on those global keys (Storage.js:500-504, 574, 593, 650-659)",
+        "AuthService.clearAuth only clears namespaced auth keys (AuthService.js:875-904)",
+        "queue headers taken from current token at send time (Storage.js:212-217)",
+        "getAll() returns local cache first (Storage.js:92-96)"
+      ],
+      "key_evidence": [
+        "frontend/js/core/Storage.js:61-62",
+        "frontend/js/core/Storage.js:212-217",
+        "frontend/js/core/Storage.js:500-504",
+        "frontend/js/services/AuthService.js:875-904",
+        "deploy/DEPLOY_READINESS_REPORT.md:84-88 (single-origin deployment: https://foodsentinel.digifluidic.com, /api reverse-proxied same origin)"
+      ],
+      "existing_protections": [
+        "auth keys namespaced by schoolCode (TD-TenantIsolation)",
+        "server-side schema-per-tenant isolation",
+        "none for record cache / offline queue"
+      ],
+      "first_pass_missed_guard": false,
+      "first_pass_note": "First pass stated server schema isolation cannot compensate client-side misattribution; confirmed. Added precondition: isolation holds only because deployment is single-origin.",
+      "trigger": "Same browser same-origin: visit school A then switch to school B, or logout and login as another account",
+      "impact": "New subject sees previous subject's cached records (PII: inspector, canteen) and may upload A-school offline jobs with B-school credentials",
+      "impact_description_accurate": true,
+      "reproduction": {
+        "method": "JSDOM same-origin URL switch (/a/ -> /b/) with real StorageService",
+        "observed": "New StorageService instance reads inspector=A校检测员 and pending job id=a-job; key template/source assertions pass (no cleanup point)",
+        "artifact": "phase2/probes-batch-a.mjs"
+      },
+      "counter_evidence": [
+        "Cross-device not affected",
+        "Would not apply if tenants were split across subdomains",
+        "Server data not modified; misattribution affects client display and subsequent writes"
+      ],
+      "confidence": "HIGH",
+      "recommended_priority": "保持原优先级",
+      "priority_change": "none"
+    },
+    {
+      "id": "AUD-002",
+      "title": "幂等缓存跨租户、跨主体命中，且先于写权限检查",
+      "original_claim": "缓存键仅由 Idempotency-Key 与 body hash 组成；命中后直接返回缓存响应，跳过写权限检查；B 校 guest 可获得 A 校写请求的原始成功响应（非匿名，生产有前置认证）。",
+      "verdict": "CONFIRMED",
+      "reproduction_class": "A",
+      "call_path": [
+        "app.use('/api', recognitionRoutes) -> router.use(authenticateUser) (server.js:339 + recognitionRoutes.js:21)",
+        "app.use('/', recordRoutes) (server.js:347)",
+        "router.use('/api/records', idempotencyMiddleware) mounts BEFORE concrete routes (recordRoutes.js:20-21)",
+        "cacheKey = `${key}:${bodyHash(req.body)}` (idempotencyMiddleware.js:40)",
+        "cache hit -> res.status(...).json(cached.result); next() not called (idempotencyMiddleware.js:53-58)",
+        "concrete route chain authenticateUser + requireEditorOrAbove never executes (recordRoutes.js:280)",
+        "cached body = buildRecordPayload(record) with sample_info + result_data expanded (recordRoutes.js:333-337, recordNormalize.js:26-56)"
+      ],
+      "key_evidence": [
+        "backend/middleware/idempotencyMiddleware.js:40",
+        "backend/middleware/idempotencyMiddleware.js:53-58",
+        "backend/routes/recordRoutes.js:20-21",
+        "backend/routes/recordRoutes.js:280",
+        "backend/routes/recordRoutes.js:333-337",
+        "backend/server.js:339",
+        "backend/server.js:347",
+        "backend/routes/recognitionRoutes.js:21"
+      ],
+      "existing_protections": [
+        "production pre-auth via recognitionRoutes requires valid JWT (blocks anonymous)",
+        "requireGuestReadOnly covers GET reads only; write guard requireEditorOrAbove is bypassed by cache hit"
+      ],
+      "first_pass_missed_guard": false,
+      "first_pass_note": "First pass explicitly noted production pre-auth exists and did not claim anonymous bypass; confirmed.",
+      "trigger": "Authenticated subject (incl. guest/viewer) knows the exact Idempotency-Key AND byte-identical body (JSON.stringify semantics). Frontend key = sync_<ts>_<random5>_<type> (Storage.js:756-758); realistic path is same-device cross-school replay (offline queue / browser retry), not remote enumeration.",
+      "impact": "Cross-tenant, cross-subject read of A-school write response including unmasked inspector; authorization bypassed; no write produced (writes stays 1)",
+      "impact_description_accurate": true,
+      "reproduction": {
+        "method": "Real express + real recordRoutes + real idempotencyMiddleware, controlled auth/guard counters",
+        "observed": "A-school operator POST -> 200, writes=1, auth=1, editor=1; B-school guest same key/body -> 200 with inspector=A校检测员, writes=1, auth=1(+0), editor=1(+0); replay from different URL + different subject also hits the same cache",
+        "artifact": "phase2/probes-batch-a.mjs"
+      },
+      "counter_evidence": [
+        "Requires exact key + body knowledge (not blind)",
+        "Body key order sensitive",
+        "Anonymous not possible due to production pre-auth",
+        "In-memory per-process store: multi-instance deployments reduce hit surface (idempotencyMiddleware.js:1-9)"
+      ],
+      "confidence": "HIGH",
+      "recommended_priority": "保持原优先级",
+      "priority_change": "none"
+    },
+    {
+      "id": "AUD-010",
+      "title": "停用学校未阻断内部登录和已签发 token",
+      "original_claim": "School.status 置 disabled 后，该校 User/Guest 仍可登录，已签发 token 继续可用。",
+      "verdict": "CONFIRMED",
+      "reproduction_class": "B",
+      "call_path": [
+        "PATCH /api/admin/schools/:code/status only updates School.status (schoolRoutes.js:404-422)",
+        "loginUser checks tenant user status/tenant binding only, never public.School (UserManager.js:313-390)",
+        "authenticateUser staff branch rechecks tenant User + revoked_tokens only (authMiddleware.js:364-386)",
+        "guest quick-access checks school existence + guest_enabled, not school.status (guestRoutes.js:88-99)",
+        "no DB trigger for School.status (role-audit-trigger.sql:92-96 only fires on UPDATE OF role ON User)"
+      ],
+      "key_evidence": [
+        "backend/routes/schoolRoutes.js:404-422",
+        "backend/modules/UserManager.js:313-390",
+        "backend/middleware/authMiddleware.js:364-386",
+        "backend/routes/guestRoutes.js:88-99",
+        "backend/prisma/role-audit-trigger.sql:92-96",
+        "backend/routes/openApiRoutes.js:163-167 (OpenAPI does check school.status — inconsistent)"
+      ],
+      "existing_protections": [
+        "OpenAPI path rejects disabled school (openApiRoutes.js:163-167)",
+        "no revocation/token invalidation anywhere on school disable"
+      ],
+      "first_pass_missed_guard": false,
+      "first_pass_note": "No trigger or scheduled job provides a fallback; all revokeAllUserTokens call sites are user-level operations only.",
+      "trigger": "Platform super admin sets a school to disabled while its users/guests remain active",
+      "impact": "Disabled school keeps full internal access: login, read/write tenant data, obtain guest tokens",
+      "impact_description_accurate": true,
+      "reproduction": {
+        "method": "source-path assertions (no runtime DB)",
+        "observed": "disable handler contains no revoke/session operations; login/auth/quick-access never read School.status; assertions pass",
+        "artifact": "phase2/probes-batch-a.mjs"
+      },
+      "counter_evidence": [
+        "Requires platform-admin action",
+        "Individual user accounts disabled separately are unaffected by this gap"
+      ],
+      "confidence": "MEDIUM-HIGH",
+      "recommended_priority": "保持原优先级",
+      "priority_change": "none"
+    },
+    {
+      "id": "AUD-012",
+      "title": "退出及远程会话撤销没有绑定 JWT 有效性",
+      "original_claim": "logout 不做服务端撤销；Session.status=revoked 不影响 JWT 认证与刷新；已保存 token 仍可用。",
+      "verdict": "CONFIRMED",
+      "reproduction_class": "B",
+      "call_path": [
+        "POST /api/user/logout returns { success: true } only (userRoutes.js:191-194); frontend does call it (AuthService.js:348)",
+        "DELETE /api/session/:id and /others only set Session.status='revoked' (sessionRoutes.js:70-114)",
+        "authenticateUser queries Guest/User + revoked_tokens only, never Session (authMiddleware.js:322-397)",
+        "refresh-token checks revocation table + user status, never Session (userRoutes.js:287-314)"
+      ],
+      "key_evidence": [
+        "backend/routes/userRoutes.js:191-194",
+        "backend/routes/userRoutes.js:287-314",
+        "backend/routes/sessionRoutes.js:70-114",
+        "backend/middleware/authMiddleware.js:322-397",
+        "frontend/js/services/AuthService.js:348"
+      ],
+      "existing_protections": [
+        "password change / reset / disable / role change / delete paths do write user_all revocation",
+        "logout and session-management UI are outside those paths"
+      ],
+      "first_pass_missed_guard": false,
+      "first_pass_note": "None missed.",
+      "trigger": "Call logout, or revoke a session in the session management UI (including 'logout other devices')",
+      "impact": "UI shows logged-out/revoked while access token (<=30m) and refresh token (<=7d, renewable) remain valid; remote revoke cannot actually terminate a session",
+      "impact_description_accurate": true,
+      "reproduction": {
+        "method": "source assertions; plus first-pass minimal repro that logout returns 200 with no revocation dependency",
+        "observed": "logout handler contains no revoke; auth/refresh paths contain no session table queries; session revoke only writes status",
+        "artifact": "phase2/probes-batch-a.mjs, phase1 probe-results.json"
+      },
+      "counter_evidence": [
+        "Tokens are TTL-bounded",
+        "Password change and role change do provide real revocation paths"
+      ],
+      "confidence": "HIGH",
+      "recommended_priority": "保持原优先级",
+      "priority_change": "none"
+    },
+    {
+      "id": "AUD-014",
+      "title": "认证数据库故障时默认先放行两次请求",
+      "original_claim": "JWT 有效但 DB 回查失败时前两次请求 fail-soft 放行（沿用 token 内旧权限），第 3 次 503；成功回查清零计数。",
+      "verdict": "CONFIRMED",
+      "reproduction_class": "A",
+      "call_path": [
+        "authenticateUser staff branch: Promise.all([user.findUnique, isTokenRevoked]) (authMiddleware.js:366-373)",
+        "catch -> _onRecheckFailure(error) increments process counter (authMiddleware.js:429, 244-255)",
+        "below threshold: no response returned; req.user = token payload; next() called (authMiddleware.js:433-443)",
+        "threshold default 3 (authMiddleware.js:220); no deployment override in repo",
+        "_onRecheckSuccess resets counter on any successful lookup (authMiddleware.js:257-262)"
+      ],
+      "key_evidence": [
+        "backend/middleware/authMiddleware.js:220",
+        "backend/middleware/authMiddleware.js:244-255",
+        "backend/middleware/authMiddleware.js:257-262",
+        "backend/middleware/authMiddleware.js:366-373",
+        "backend/middleware/authMiddleware.js:429-443"
+      ],
+      "existing_protections": [
+        "consecutive-failure threshold gates 503",
+        "metric export getRecheckFailState()",
+        "documented availability trade-off (comments)"
+      ],
+      "first_pass_missed_guard": false,
+      "first_pass_note": "None missed.",
+      "trigger": "Valid JWT signature + failing DB recheck (outage, pool exhaustion); interleaved successful lookups reset the counter and can prolong fail-soft windows",
+      "impact": "During outage window, token's stale role is honored for up to 2 requests per failure streak, including disabled/demoted accounts whose revocation record cannot be read; not read-only degradation",
+      "impact_description_accurate": true,
+      "reproduction": {
+        "method": "Direct invocation of real authenticateUser with fake manager + failing fake DB",
+        "observed": "status sequence 200/200/503; first two calls invoked next() with req.user.role='admin' (stale token role); threshold=3",
+        "artifact": "phase2/probes-batch-a.mjs"
+      },
+      "counter_evidence": [
+        "Per-process counter; instances independent",
+        "Setting AUTH_DB_RECHECK_FAIL_THRESHOLD=1 removes the window (not set in deployment files)"
+      ],
+      "confidence": "HIGH",
+      "recommended_priority": "保持原优先级",
+      "priority_change": "none"
+    },
+    {
+      "id": "AUD-015",
+      "title": "iat + 1 比较永久漏吊销同秒签发的旧 token",
+      "original_claim": "revoked_at >= to_timestamp(iat + 1) 使同一秒内先签发、后吊销的旧 token 永不命中该吊销记录。",
+      "verdict": "CONFIRMED",
+      "reproduction_class": "B",
+      "call_path": [
+        "isTokenRevoked SQL uses revoked_at >= to_timestamp($3 + 1) (authMiddleware.js:82-102)",
+        "used by authenticateUser (authMiddleware.js:334, 372) and refresh-token (userRoutes.js:287)",
+        "getTokenRevocationReason uses the same predicate (authMiddleware.js:111-129)",
+        "design comment documents iat+1 intent: avoid false revocation of a same-second re-issued token after password change (authMiddleware.js:74-79)"
+      ],
+      "key_evidence": [
+        "backend/middleware/authMiddleware.js:82-102",
+        "backend/middleware/authMiddleware.js:111-129",
+        "backend/routes/userRoutes.js:287"
+      ],
+      "existing_protections": [
+        "jti-precise revocation unaffected",
+        "iat+1 only affects user_all boundary second"
+      ],
+      "first_pass_missed_guard": false,
+      "first_pass_note": "Design intent (deliberate iat+1 to support same-second re-login after password change) is documented in code comments; first pass acknowledged this in its fix direction but did not weight the 1-second window in severity.",
+      "trigger": "Token iat and the user_all revocation timestamp fall in the same integer second (issue before revoke)",
+      "impact": "That token never matches the revocation record: access usable up to 30 min; leaked refresh token can be rotated if the user stays active (e.g. password-change scenario)",
+      "impact_description_accurate": "technically accurate; wording 'permanently leaked revocation' overstates the scale — it is a 1-second coincidence window for a single token",
+      "reproduction": {
+        "method": "semantic-equivalence probe of the SQL predicate + phase-1 PostgreSQL expression verification",
+        "observed": "iat=100s/revoked=100.5s -> hit=false; revoked=101.0s -> hit=true; iat=99s -> hit=true",
+        "artifact": "phase2/probes-batch-a.mjs, phase1 VERIFICATION.md:54-64"
+      },
+      "counter_evidence": [
+        "Common scenarios (revoke >1s after issue) work correctly",
+        "Affected window bounded by token TTL and subsequent revocation events"
+      ],
+      "confidence": "HIGH",
+      "recommended_priority": "降级",
+      "priority_change": "P1 -> P2",
+      "priority_rationale": "1-second timing coincidence, documented design trade-off, impact bounded by TTL; recommend session-epoch redesign together with AUD-016 rather than raising severity"
+    },
+    {
+      "id": "AUD-016",
+      "title": "密码变更与会话吊销非原子，吊销失败仍返回成功",
+      "original_claim": "改密/重置的密码写入与 revokeUserSessions 不在同一事务；吊销失败被捕获记录但不抛出，调用方仍返回成功。",
+      "verdict": "CONFIRMED",
+      "reproduction_class": "A",
+      "call_path": [
+        "changePassword: password update inside $transaction (UserManager.js:456-467) then revokeUserSessions called outside it (UserManager.js:469-472) then returns success (476-479)",
+        "resetPassword: user.update (662-669) -> revokeUserSessions (678) -> success (682-685)",
+        "revokeUserSessions catch: console.error + logSecurityEvent('REVOCATION_WRITE_FAILED') without rethrow (UserManager.js:195-211)"
+      ],
+      "key_evidence": [
+        "backend/modules/UserManager.js:195-211",
+        "backend/modules/UserManager.js:456-479",
+        "backend/modules/UserManager.js:660-685"
+      ],
+      "existing_protections": [
+        "security event SECURITY:REVOCATION_WRITE_FAILED feeds alerting",
+        "no compensation or failure signal to the caller"
+      ],
+      "first_pass_missed_guard": false,
+      "first_pass_note": "None missed.",
+      "trigger": "Password update succeeds, then writing public.revoked_tokens fails (DB hiccup/permission/connection)",
+      "impact": "API returns success while old access/refresh credentials stay valid; combined with AUD-014 the same outage makes auth recheck fail-soft, so old credentials actually remain usable",
+      "impact_description_accurate": true,
+      "reproduction": {
+        "method": "Real UserManager.revokeUserSessions with a fake rootPrisma whose revocation write always throws",
+        "observed": "no throw propagated; SECURITY:REVOCATION_WRITE_FAILED emitted; source assertions confirm transaction-external call and unchecked result",
+        "artifact": "phase2/probes-batch-a.mjs"
+      },
+      "counter_evidence": [
+        "Failure leaves an alertable security event",
+        "Full DB outage usually fails the password update itself, but partial-success window exists"
+      ],
+      "confidence": "HIGH",
+      "recommended_priority": "保持原优先级",
+      "priority_change": "none"
+    },
+    {
+      "id": "AUD-017",
+      "title": "全局测试报告接口对任意已登录身份开放读写",
+      "original_claim": "/api/test-results 仅挂 authenticateUser，数据走全局 public Prisma；operator/viewer/guest 均可读写全局报告与管理操作。",
+      "verdict": "CONFIRMED",
+      "reproduction_class": "B",
+      "call_path": [
+        "createTestResultRoutes(userManager, prisma) mounted at /api/test-results with the global public prisma (server.js:333-335)",
+        "router.use(authenticateUser) only; no authorizeAdmin/authorizeRoles/requirePlatformSuperAdmin (testResultRoutes.js:73-74)",
+        "10 endpoints incl. 4 write endpoints (executions, cases/close, cases/mark-fixed, upload)",
+        "guest identities pass authenticateUser (authMiddleware.js:322-348); quick-access guests skip DB recheck"
+      ],
+      "key_evidence": [
+        "backend/server.js:333-335",
+        "backend/routes/testResultRoutes.js:9",
+        "backend/routes/testResultRoutes.js:73-74",
+        "backend/routes/testResultRoutes.js:203",
+        "backend/routes/testResultRoutes.js:301",
+        "backend/routes/testResultRoutes.js:333",
+        "backend/routes/testResultRoutes.js:398"
+      ],
+      "existing_protections": [
+        "login required",
+        "upload mime/size/count limits (testResultRoutes.js:38-46)"
+      ],
+      "first_pass_missed_guard": false,
+      "first_pass_note": "Module header comment states it is a temporary test tool where any logged-in account may submit/view — declared design intent, not a hidden gap; this lowers the 'covert' component but not the over-exposure fact.",
+      "trigger": "Any authenticated identity (including guest) requests /api/test-results/*",
+      "impact": "Read global test cases/executions/evidence images; write executions, close issues, mark fixed (quality-state pollution), upload files; data unrelated to requester's school",
+      "impact_description_accurate": true,
+      "reproduction": {
+        "method": "source-path assertions (endpoint enumeration, guard absence, global prisma injection)",
+        "observed": "only authenticateUser; 10 endpoints enumerated; no role guard anywhere in router; assertions pass",
+        "artifact": "phase2/probes-batch-a.mjs"
+      },
+      "counter_evidence": [
+        "Limited to test-report module, no tenant business data",
+        "If module is not enabled in production the exposure surface is smaller (frontend entry not verified this round)"
+      ],
+      "confidence": "HIGH",
+      "recommended_priority": "降级",
+      "priority_change": "P1 -> P2",
+      "priority_rationale": "No tenant business data involved; module-level over-permission; still should be restricted to platform/authorized roles"
+    },
+    {
+      "id": "AUD-047",
+      "title": "学校删除后 OpenAPI 授权残留，可重新附着到同代码新学校",
+      "original_claim": "OpenApiGrant 以 school_code 文本关联、无外键与生命周期处理；删除学校不撤销 grant，同 code 重建后旧对接方仍可读新学校数据。",
+      "verdict": "CONFIRMED",
+      "reproduction_class": "B",
+      "call_path": [
+        "OpenApiGrant has school_code String only, unique(client_id, school_code), no School relation (schema.prisma:412-434)",
+        "hard delete transaction: ALTER SCHEMA RENAME + school.delete + recycle_bin insert; no OpenApiGrant handling (schoolRoutes.js:490-502)",
+        "POST /api/admin/schools -> provisionSchool; 409 only when schema already exists and not allowExisting (schoolRoutes.js:222-243, tenantProvisioner.js:120-133); no recycle_bin check",
+        "resolveSchool resolves grant by school_code + requires School.status='active' (openApiRoutes.js:139-148, 150-171)"
+      ],
+      "key_evidence": [
+        "backend/prisma/schema.prisma:412-434",
+        "backend/routes/schoolRoutes.js:222-243",
+        "backend/routes/schoolRoutes.js:490-502",
+        "backend/lib/tenantProvisioner.js:120-133",
+        "backend/routes/openApiRoutes.js:139-148",
+        "backend/routes/openApiRoutes.js:150-171",
+        "backend/routes/adminOpenApiRoutes.js:358-379 (manual mitigation: unlisted schools get disabled on grant save)"
+      ],
+      "existing_protections": [
+        "school.status check at access time (404 while school row absent)",
+        "grant save disables schools missing from the request payload (manual action required)"
+      ],
+      "first_pass_missed_guard": false,
+      "first_pass_note": "First pass noted the temporary 404 protection; added the manual disable-on-save mitigation path and reachability conditions.",
+      "trigger": "Delete school -> recreate school with the same code (or restore from recycle bin) -> nobody re-saved the client's grants in between",
+      "impact": "Grant outlives the school lifecycle; the old third-party API key automatically regains read access to the new school's data",
+      "impact_description_accurate": true,
+      "reproduction": {
+        "method": "source-path assertions (grant model, delete transaction, create path, resolve logic)",
+        "observed": "no School relation; delete transaction contains no openApiGrant reference; create path ignores recycle_bin; resolveSchool has status check but no generation/epoch check",
+        "artifact": "phase2/probes-batch-a.mjs"
+      },
+      "counter_evidence": [
+        "Requires delete + same-code recreate",
+        "If the code is never reused the gap is dormant",
+        "Saving the client's grant list after deletion disables the stale grant"
+      ],
+      "confidence": "MEDIUM-HIGH",
+      "recommended_priority": "保持原优先级",
+      "priority_change": "none"
+    }
+  ],
+  "summary": {
+    "CONFIRMED": 9,
+    "PARTIALLY_CONFIRMED": 0,
+    "FALSE_POSITIVE": 0,
+    "NOT_REPRODUCIBLE": 0,
+    "NEEDS_RUNTIME_VERIFICATION": 0,
+    "confirmed_with_priority_downgrade": ["AUD-015", "AUD-017"]
+  },
+  "most_trustworthy_findings": ["AUD-002", "AUD-014", "AUD-016"],
+  "most_likely_overstated": ["AUD-015", "AUD-017"],
+  "arbitration_needed": [
+    "AUD-015: accept documented 1s iat+1 trade-off (P2) vs adopt session/token epoch (root fix covering AUD-016)",
+    "AUD-002: move idempotency middleware after auth/authz vs keep position and bind cache key to tenant+subject+method+path with masked caching",
+    "AUD-017: restrict /api/test-results to platform roles vs introduce explicit scoped participants",
+    "AUD-010: should disabling a school revoke all school tokens (batch user_all cost, multi-instance consistency)",
+    "AUD-047: should same-code recreation inherit grants or force re-authorization with scope_version bump"
+  ],
+  "systemic_root_causes": [
+    "Cache keys lack tenant/subject dimensions and cache lookup precedes authorization (AUD-001 client-side, AUD-002 server-side)",
+    "Identity-state invalidation depends on explicit revocation writes that are neither mandatory nor covered on all paths, with distributed truth across User/School/Session/revoked_tokens (AUD-010, AUD-012, AUD-014, AUD-015, AUD-016)",
+    "Authorization entities are decoupled from resource lifecycle (AUD-047: grant keyed by reusable business code instead of immutable school id/generation)"
+  ],
+  "new_findings_candidates": [
+    {
+      "id": "NF-A-01",
+      "description": "req.db injection (createTenantClient) sits outside authenticateUser's try/catch (authMiddleware.js:437-443); if tenant client construction throws (e.g. missing/invalid DATABASE_URL), a fail-soft-allowed request escapes as 500 instead of 503 and bypasses the fail-soft accounting.",
+      "evidence": "observed during probe bring-up: '缺少 DATABASE_URL，无法创建租户客户端' thrown from authMiddleware.js:441, escaping the try/catch",
+      "severity_hint": "low (configuration-dependent; Prisma lazy connect means DB outages do not trigger it)"
+    },
+    {
+      "id": "NF-A-02",
+      "description": "Idempotency store is a per-process Map (idempotencyMiddleware.js:6): multi-instance deployments do not share cache, so the same key may execute writes twice on different instances (idempotency guarantee does not hold horizontally).",
+      "evidence": "idempotencyMiddleware.js:1-9 module comment",
+      "severity_hint": "medium (already self-documented)"
+    }
+  ],
+  "artifacts": {
+    "report": "docs/reviews/global-audit-20260924/phase2/BATCH-A-VERIFICATION.md",
+    "probe_script": "docs/reviews/global-audit-20260924/phase2/probes-batch-a.mjs",
+    "probe_results": "docs/reviews/global-audit-20260924/phase2/probe-results-batch-a.json",
+    "rerun_command": "node docs/reviews/global-audit-20260924/phase2/probes-batch-a.mjs"
+  },
+  "not_executed": [
+    "real-DB HTTP integration tests for AUD-010 / AUD-017 / AUD-047 (require isolated database + tenant fixtures)",
+    "browser end-to-end (Cypress)",
+    "any deployment, migration, restore or destructive operation"
+  ]
+}

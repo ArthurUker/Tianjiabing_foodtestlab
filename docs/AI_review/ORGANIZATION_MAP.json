@@ -1,0 +1,173 @@
+{
+  "count": 21,
+  "records": [
+    {
+      "name": "P3-PARALLEL-R1_REVIEW.md",
+      "group": "Kimi-K3",
+      "old_sha256": "cc14fd21476789632e9e36b919d50fee18eabfb9d7c8778b2d66ca9080996a33",
+      "new_sha256": "cc14fd21476789632e9e36b919d50fee18eabfb9d7c8778b2d66ca9080996a33",
+      "old_path": "docs/reviews/global-audit-20260924/phase3/P3-PARALLEL-R1_REVIEW.md",
+      "new_path": "docs/AI_review/Kimi-K3/P3-PARALLEL-R1_REVIEW.md"
+    },
+    {
+      "name": "P3-PARALLEL-R2_REVIEW.md",
+      "group": "Kimi-K3",
+      "old_sha256": "684182d585ccecc845c166924f6aa65a66f41fd8230a77f8b0d7aa69143b280b",
+      "new_sha256": "684182d585ccecc845c166924f6aa65a66f41fd8230a77f8b0d7aa69143b280b",
+      "old_path": "docs/reviews/global-audit-20260924/phase3/P3-PARALLEL-R2_REVIEW.md",
+      "new_path": "docs/AI_review/Kimi-K3/P3-PARALLEL-R2_REVIEW.md"
+    },
+    {
+      "name": "P3-PARALLEL-R3_REVIEW.md",
+      "group": "Codex-GPT6",
+      "old_sha256": "46a07065fdbfe5044867a397958eaa8c267cf346a7bcdf86d0477105dfe461c1",
+      "new_sha256": "1118f11b8004d201f672727d873035f9664ff29c1a538f29ff4f271e68b2d3b8",
+      "old_path": "docs/reviews/global-audit-20260924/phase3/P3-PARALLEL-R3_REVIEW.md",
+      "new_path": "docs/AI_review/Codex-GPT6/P3-PARALLEL-R3_REVIEW.md"
+    },
+    {
+      "name": "P3-PF-T01-R1_REVIEW.md",
+      "group": "GPT6-Astra",
+      "old_sha256": "14733fb8e5ce5a49f8d9c39e98c5fabcade45025c465c954e38677a7535a6090",
+      "new_sha256": "750a6ed6f47c5c1919940db488a7b219fb675feb9b22f14a2e0b3db7bef2a85b",
+      "old_path": "docs/reviews/global-audit-20260924/phase3/P3-PF-T01-R1_REVIEW.md",
+      "new_path": "docs/AI_review/GPT6-Astra/P3-PF-T01-R1_REVIEW.md"
+    },
+    {
+      "name": "P3-PF-T01-R2_REVIEW.md",
+      "group": "GPT6-Astra",
+      "old_sha256": "3503260d43945fc53368efefeadb41a161e9c0bffe92f1989bc87d41366dc880",
+      "new_sha256": "9dc776107273d7e5c1aab6dd13d17d7a656c9f39ea7df684bbef17e81e032a62",
+      "old_path": "docs/reviews/global-audit-20260924/phase3/P3-PF-T01-R2_REVIEW.md",
+      "new_path": "docs/AI_review/GPT6-Astra/P3-PF-T01-R2_REVIEW.md"
+    },
+    {
+      "name": "P3-PF-T01_REVIEW.md",
+      "group": "GPT6-Astra",
+      "old_sha256": "3c125f9bcc9256e1be16805f930a8895ebab985aa7e84df995138659eca86ada",
+      "new_sha256": "4173536b517af72b0109c7170a1d19c2416d83ec1bee75d8eda99da0c946c2ad",
+      "old_path": "docs/reviews/global-audit-20260924/phase3/P3-PF-T01_REVIEW.md",
+      "new_path": "docs/AI_review/GPT6-Astra/P3-PF-T01_REVIEW.md"
+    },
+    {
+      "name": "P3-W0-T01-R1_REVIEW.md",
+      "group": "GPT6-Astra",
+      "old_sha256": "ebe7a1c4543e8115f5f9a1fef763ac1a9769455f5dae1d71dc7138d07df2c477",
+      "new_sha256": "c26b688831cb127b5230ac0e1b4d7d2642ed3aeeee768d29ba0ca08fe20ba517",
+      "old_path": "docs/reviews/global-audit-20260924/phase3/P3-W0-T01-R1_REVIEW.md",
+      "new_path": "docs/AI_review/GPT6-Astra/P3-W0-T01-R1_REVIEW.md"
+    },
+    {
+      "name": "P3-W0-T01-R2_REVIEW.md",
+      "group": "GPT6-Astra",
+      "old_sha256": "615c3d0bca489a6a819eabda4a304058fc770924c4298ce4c326208b3f639658",
+      "new_sha256": "dc94eca5adad032372a389c01c04dffc955262ac8a9f76e635c6b6806b2365c2",
+      "old_path": "docs/reviews/global-audit-20260924/phase3/P3-W0-T01-R2_REVIEW.md",
+      "new_path": "docs/AI_review/GPT6-Astra/P3-W0-T01-R2_REVIEW.md"
+    },
+    {
+      "name": "P3-W0-T01-R3_REVIEW.md",
+      "group": "GPT6-Astra",
+      "old_sha256": "9a153c795e40c6370b1384bba643018b048cd42408b1b3b155bda34aa7d0a98f",
+      "new_sha256": "61c8ee2b17c459d48c0b47e965db3ee8f0f52f16eb3ee0518c8f874ddb9da42e",
+      "old_path": "docs/reviews/global-audit-20260924/phase3/P3-W0-T01-R3_REVIEW.md",
+      "new_path": "docs/AI_review/GPT6-Astra/P3-W0-T01-R3_REVIEW.md"
+    },
+    {
+      "name": "P3-W0-T01-R4_REVIEW.md",
+      "group": "GPT6-Astra",
+      "old_sha256": "841e23d767a08801f65ebf992c24774f41a0efed45c1374ba2679bfd0d07b674",
+      "new_sha256": "8b8923665bdea03c22b46f65ea1389d83154c53e7a26427e38b54a3820a6f9b9",
+      "old_path": "docs/reviews/global-audit-20260924/phase3/P3-W0-T01-R4_REVIEW.md",
+      "new_path": "docs/AI_review/GPT6-Astra/P3-W0-T01-R4_REVIEW.md"
+    },
+    {
+      "name": "P3-W0-T01_REVIEW.md",
+      "group": "GPT6-Astra",
+      "old_sha256": "532d18c21b9d152a7f3549b3ceee835174e20fbc33f1019be3258db19550d28f",
+      "new_sha256": "5236f6edc511c8e28099eeee121af6e8bce65329f03896318a07c614659e8cae",
+      "old_path": "docs/reviews/global-audit-20260924/phase3/P3-W0-T01_REVIEW.md",
+      "new_path": "docs/AI_review/GPT6-Astra/P3-W0-T01_REVIEW.md"
+    },
+    {
+      "name": "P3-W0-T02A-R1_REVIEW.md",
+      "group": "GPT6-Astra",
+      "old_sha256": "7cd5540a495140cd165c0bae5e43f4f2d08c7303edacc02a5c0e989e4f39c67a",
+      "new_sha256": "b3a7df09d592be09d4acd1c3b7a317238f6433e1e554fe6c1d51f4b5053a7032",
+      "old_path": "docs/reviews/global-audit-20260924/phase3/P3-W0-T02A-R1_REVIEW.md",
+      "new_path": "docs/AI_review/GPT6-Astra/P3-W0-T02A-R1_REVIEW.md"
+    },
+    {
+      "name": "P3-W0-T02A-R2_REVIEW.md",
+      "group": "GPT6-Astra",
+      "old_sha256": "8b678cb01506780e5eacf35386fe4a84b1f8a4d59c59fb386733b7ce8a288b3d",
+      "new_sha256": "e5392470929973f5e582ce420c129ef905698c9be95648efa35f7f9a66b99a3f",
+      "old_path": "docs/reviews/global-audit-20260924/phase3/P3-W0-T02A-R2_REVIEW.md",
+      "new_path": "docs/AI_review/GPT6-Astra/P3-W0-T02A-R2_REVIEW.md"
+    },
+    {
+      "name": "P3-W0-T02A-R3_REVIEW.md",
+      "group": "GPT6-Astra",
+      "old_sha256": "1c5735c7714edaca39df28e156e0a46f917b369e725bdbf475cba4fc5e713db3",
+      "new_sha256": "36b91842883ed3ee14da8a96b85037bcf8929a8d6fa6960e669603dd380dc602",
+      "old_path": "docs/reviews/global-audit-20260924/phase3/P3-W0-T02A-R3_REVIEW.md",
+      "new_path": "docs/AI_review/GPT6-Astra/P3-W0-T02A-R3_REVIEW.md"
+    },
+    {
+      "name": "P3-W0-T02A-R4_REVIEW.md",
+      "group": "GPT6-Astra",
+      "old_sha256": "c2fad08a62355b5badbb78e5096fc31123eee74d1eece3a058c5b91839309b96",
+      "new_sha256": "4c34e78ebced3f309287923492678bb671eba851adf205f80ad51a5ffa1f0f48",
+      "old_path": "docs/reviews/global-audit-20260924/phase3/P3-W0-T02A-R4_REVIEW.md",
+      "new_path": "docs/AI_review/GPT6-Astra/P3-W0-T02A-R4_REVIEW.md"
+    },
+    {
+      "name": "P3-W0-T02A_REVIEW.md",
+      "group": "GPT6-Astra",
+      "old_sha256": "e5edcee9322bc0753e32af09ea46f75c5cc7c27935d996f16ea1268328fc8875",
+      "new_sha256": "1bbd892cffbe4e6e914c12655becf26081ea9dc092868642f81a7d922a26c035",
+      "old_path": "docs/reviews/global-audit-20260924/phase3/P3-W0-T02A_REVIEW.md",
+      "new_path": "docs/AI_review/GPT6-Astra/P3-W0-T02A_REVIEW.md"
+    },
+    {
+      "name": "P3-W0-T02B-R1_REVIEW.md",
+      "group": "GPT6-Astra",
+      "old_sha256": "42210ed7c91db6ecfaa6ff21add503fa60f48290ca3a48353b83be37ec61b999",
+      "new_sha256": "eb2393df5b20e852966e972c1de40d57a0d99b804dcc6b07ef322d40e04fdb51",
+      "old_path": "docs/reviews/global-audit-20260924/phase3/P3-W0-T02B-R1_REVIEW.md",
+      "new_path": "docs/AI_review/GPT6-Astra/P3-W0-T02B-R1_REVIEW.md"
+    },
+    {
+      "name": "P3-W0-T02B-R2_REVIEW.md",
+      "group": "Kimi-K3",
+      "old_sha256": "12d3ba4a5df9450b04e9904c22c4b11fe7b33d10cdf620d64a3c43d4dc2446cd",
+      "new_sha256": "022ff159d2ece78916fedd1fe232569b25fa3587f076cea18e155c6dffd354b9",
+      "old_path": "docs/reviews/global-audit-20260924/phase3/P3-W0-T02B-R2_REVIEW.md",
+      "new_path": "docs/AI_review/Kimi-K3/P3-W0-T02B-R2_REVIEW.md"
+    },
+    {
+      "name": "P3-W0-T02B_REVIEW.md",
+      "group": "GPT6-Astra",
+      "old_sha256": "cd3ea67aa6978d0b1e59f2bcd93559de47fd7dd9beafec16e80c19ce0d8b1ae0",
+      "new_sha256": "81b1a7bd0c43ea8a4d595ec3cf1811f8917eacb3c86d4127eb5297730a4f23a9",
+      "old_path": "docs/reviews/global-audit-20260924/phase3/P3-W0-T02B_REVIEW.md",
+      "new_path": "docs/AI_review/GPT6-Astra/P3-W0-T02B_REVIEW.md"
+    },
+    {
+      "name": "P3-W0-T02C_REVIEW.md",
+      "group": "Kimi-K3",
+      "old_sha256": "7829ec57c3994dd94c7f758a954b19482e53c1270be1a18a907cd54c8ab3ccc9",
+      "new_sha256": "7829ec57c3994dd94c7f758a954b19482e53c1270be1a18a907cd54c8ab3ccc9",
+      "old_path": "docs/reviews/global-audit-20260924/phase3/P3-W0-T02C_REVIEW.md",
+      "new_path": "docs/AI_review/Kimi-K3/P3-W0-T02C_REVIEW.md"
+    },
+    {
+      "name": "P3-W0-T02D_REVIEW.md",
+      "group": "Kimi-K3",
+      "old_sha256": "f6a74643427007082896c2fb2497a3a6e32926c72a672d6bfb5d5c23b4dbfe78",
+      "new_sha256": "f6a74643427007082896c2fb2497a3a6e32926c72a672d6bfb5d5c23b4dbfe78",
+      "old_path": "docs/reviews/global-audit-20260924/phase3/P3-W0-T02D_REVIEW.md",
+      "new_path": "docs/AI_review/Kimi-K3/P3-W0-T02D_REVIEW.md"
+    }
+  ]
+}

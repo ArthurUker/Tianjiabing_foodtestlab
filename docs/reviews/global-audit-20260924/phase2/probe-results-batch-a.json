@@ -1,0 +1,83 @@
+{
+  "baseline": "f08e72e3e74d188b4555e0bee16280b3dd0d622b",
+  "environment": {
+    "node": "v24.15.0",
+    "express": true,
+    "jsdom": true,
+    "prismaClient": true,
+    "note": "no DATABASE_URL used; no network; fake prisma/manager only"
+  },
+  "probes": 14,
+  "results": [
+    {
+      "id": "AUD-001",
+      "kind": "STATIC_CONFIRMED",
+      "detail": "cache_<table> / pending_<table> 为全局键：不含 schoolCode/userId，且全文件无清理点（AuthService.clearAuth 只清认证态）"
+    },
+    {
+      "id": "AUD-001",
+      "kind": "REPRODUCED",
+      "detail": "JSDOM 同源切换 下新 StorageService 直接读到上一主体缓存与待上传任务（inspector=A校检测员，job=a-job）"
+    },
+    {
+      "id": "AUD-002",
+      "kind": "REPRODUCED",
+      "detail": "真实 express + 真实 recordRoutes/idempotencyMiddleware：guest 命中 A 校缓存返回 inspector=A校检测员；auth=1(+0) editor=1(+0) writes=1"
+    },
+    {
+      "id": "AUD-002",
+      "kind": "PROD_GUARD",
+      "detail": "生产另有 recognitionRoutes 前置 authenticateUser（server.js:339 + recognitionRoutes.js:21），因此本项不是匿名可达；但前置认证只验身份，不做写权限判定，跨租户/跨主体读取仍成立"
+    },
+    {
+      "id": "AUD-014",
+      "kind": "REPRODUCED",
+      "detail": "真实 authenticateUser（fake DB 全部抛错）：状态序列 200/200/503，前两次以 token 内 role=admin 放行并进入业务链"
+    },
+    {
+      "id": "AUD-014",
+      "kind": "COUNTER",
+      "detail": "计数为进程级：getRecheckFailState().threshold=3；任何一次回查成功即清零（authMiddleware.js:_onRecheckSuccess）"
+    },
+    {
+      "id": "AUD-015",
+      "kind": "SEMANTIC_REPRODUCED",
+      "detail": "iat=100s / revoked_at=100.5s → hit=false（与第一遍 PostgreSQL 表达式验证一致）；access 与 refresh 同口径"
+    },
+    {
+      "id": "AUD-015",
+      "kind": "LIMIT",
+      "detail": "触发窗口 = 签发与吊销落在同一整数秒（设计注释 B-JWT-IAT 明确为支持「改密后同秒重登」而取 iat+1）；该窗口外的旧 token 正常吊销"
+    },
+    {
+      "id": "AUD-016",
+      "kind": "REPRODUCED",
+      "detail": "真实 revokeUserSessions + fake rootPrisma（写吊销抛错）：不上抛，仅记 SECURITY:REVOCATION_WRITE_FAILED"
+    },
+    {
+      "id": "AUD-016",
+      "kind": "STATIC_CONFIRMED",
+      "detail": "changePassword：密码更新在 $transaction 内，revokeUserSessions 在其后（事务外）且结果未被检查 → 返回 { success: true }"
+    },
+    {
+      "id": "AUD-010",
+      "kind": "STATIC_CONFIRMED",
+      "detail": "停用学校无任何令牌失效；loginUser / authenticateUser / quick-access 均只检查主体自身状态，不检查 School.status"
+    },
+    {
+      "id": "AUD-012",
+      "kind": "STATIC_CONFIRMED",
+      "detail": "logout 仅返回 { success: true }（userRoutes.js:191-194）；DELETE /api/session/:id 只写 Session.status，而认证只查 User + revoked_tokens → 已保存 access/refresh 不受影响"
+    },
+    {
+      "id": "AUD-017",
+      "kind": "STATIC_CONFIRMED",
+      "detail": "全部 10 个端点仅 authenticateUser（含写：POST /executions / POST /cases/close / POST /cases/mark-fixed / POST /upload）；数据落全局 public schema，与请求方学校无关"
+    },
+    {
+      "id": "AUD-047",
+      "kind": "STATIC_CONFIRMED",
+      "detail": "删除不回撤 grant；grant 不复用学校 ID/世代；同 code 重建后旧对接方自动恢复读取（中间态由 School 行缺失 + status 检查阻断）"
+    }
+  ]
+}

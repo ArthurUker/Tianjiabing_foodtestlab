@@ -1,0 +1,65 @@
+{
+  "probes": 15,
+  "findings": [
+    {
+      "id": "AUD-002",
+      "evidence": "B校 guest 命中 A校 POST 缓存，200 返回未脱敏检测员；写守卫未执行，写入计数仍为1。"
+    },
+    {
+      "id": "AUD-014",
+      "evidence": "认证数据库回查失败，连续请求状态为 200/200/503。"
+    },
+    {
+      "id": "AUD-013",
+      "evidence": "攻击者提交另一用户 sessionId，201 返回受害者会话信息，并将 revoked 改回 active。"
+    },
+    {
+      "id": "AUD-012",
+      "evidence": "logout handler 只返回成功；fakeRoot 没有令牌吊销/会话写接口仍成功。"
+    },
+    {
+      "id": "AUD-004",
+      "evidence": "alpha 的恢复暂存名与合法学校 alpha-restore 的真实 schema 完全相同：school_alpha_restore。"
+    },
+    {
+      "id": "AUD-023",
+      "evidence": "normalizeWriteJson 接受不存在的业务日期 2026-02-30。"
+    },
+    {
+      "id": "AUD-024",
+      "evidence": "更新未传 status 时 buildRecordWriteData 仍写入 completed，原 archived/pending 状态无法保留。"
+    },
+    {
+      "id": "AUD-031",
+      "evidence": "字段选项允许将 parent_option_id 设置为自己的 id。"
+    },
+    {
+      "id": "AUD-018",
+      "evidence": "上传 case_id=../../scripts 时 path.join 离开证据目录；上传 handler 没有 containment 校验。"
+    },
+    {
+      "id": "AUD-001",
+      "evidence": "切换同源 URL 从 /a/ 到 /b/ 后，B 的 StorageService 直接读出 A 的缓存与待上传任务。"
+    },
+    {
+      "id": "AUD-021",
+      "evidence": "临时记录编辑在创建应答后被丢弃；删除临时记录后 dirty 合并又保留本地行，但上传任务已清除。"
+    },
+    {
+      "id": "AUD-003",
+      "evidence": "真实 GenericTest.render 将业务字段解析成带 onerror 的 img 节点，而非文本（未执行攻击脚本）。"
+    },
+    {
+      "id": "AUD-022",
+      "evidence": "409 后只将旧 payload.version 改为服务端的2，旧 remark 原样再次排队，未合并服务端内容。"
+    },
+    {
+      "id": "AUD-048",
+      "evidence": "恢复 SQL 的全局 replace 同时改写 COPY 行中的业务 JSON 字符串。"
+    },
+    {
+      "id": "AUD-049",
+      "evidence": "201条安全事件共享 created_at 时，时间戳游标首批读取200条、下一批0条，漏掉第201条。"
+    }
+  ]
+}

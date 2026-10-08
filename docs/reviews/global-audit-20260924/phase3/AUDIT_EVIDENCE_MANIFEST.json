@@ -1,0 +1,153 @@
+{
+  "audit_baseline": "f08e72e3e74d188b4555e0bee16280b3dd0d622b",
+  "preflight_head": "7343a8a9f8fc28b7ef2a6bad2b22c701b2fbf9e7",
+  "status": "CONTENT_PINNED_LOCAL_UNTRACKED",
+  "scope": "Existing Phase 1/2 files, including archival Phase 2.5 files; no endorsement or scope expansion from archived candidates. Excludes phase3 and .DS_Store. Manifest is integrity evidence, not a Git commit or independent backup.",
+  "files": [
+    {
+      "path": "docs/reviews/global-audit-20260924/ISSUE_INVENTORY.md",
+      "bytes": 67029,
+      "sha256": "a632a5a538d54bf03a230f98b1fcac76179399ff4d5f3c94a2523040b9bd2436"
+    },
+    {
+      "path": "docs/reviews/global-audit-20260924/VERIFICATION.md",
+      "bytes": 6198,
+      "sha256": "aec363391e0529742121dd75213513a248d35fbd9440daf905ded1293ba7d0b4"
+    },
+    {
+      "path": "docs/reviews/global-audit-20260924/coverage.tsv",
+      "bytes": 42668,
+      "sha256": "67af8d9ffe606dfd6861aa66723d249c732216a2d0343e4f1c628727960c200c"
+    },
+    {
+      "path": "docs/reviews/global-audit-20260924/issues.json",
+      "bytes": 53557,
+      "sha256": "0b2f206cc26dfa062a6dfde13673c8c54ec79196d8e78be23de4c247da864899"
+    },
+    {
+      "path": "docs/reviews/global-audit-20260924/phase2/BATCH-A-VERIFICATION.md",
+      "bytes": 33601,
+      "sha256": "059ad9a688621141521b9ca14585e6eedd4693db69bb32586889a186440149ab"
+    },
+    {
+      "path": "docs/reviews/global-audit-20260924/phase2/BATCH-B-VERIFICATION.md",
+      "bytes": 30582,
+      "sha256": "5a1156c49c758546285b72755473414bbfc88d13d2687b1f2ab81d4b38d12c54"
+    },
+    {
+      "path": "docs/reviews/global-audit-20260924/phase2/BATCH-C-VERIFICATION.md",
+      "bytes": 26264,
+      "sha256": "aa82f78c9a61be761626e07fc6601c05ba43a50565db6e1b0043693c97c7d67e"
+    },
+    {
+      "path": "docs/reviews/global-audit-20260924/phase2/FINAL_ARBITRATION_CHECKPOINT.md",
+      "bytes": 4178,
+      "sha256": "25cce229f0fd234cfd5859b57d97d99c6b8b33cfc6f9bf513cc5a6a006365803"
+    },
+    {
+      "path": "docs/reviews/global-audit-20260924/phase2/FINAL_ARCHITECTURE_DECISIONS.md",
+      "bytes": 32493,
+      "sha256": "a700c5a748206f5c0cc82d13b4a3bd60cf0d170426549b8cd1f46a5004e885a6"
+    },
+    {
+      "path": "docs/reviews/global-audit-20260924/phase2/FINAL_REMEDIATION_WAVES.md",
+      "bytes": 22620,
+      "sha256": "28cc1c33a9bcfdbd3dc15455094cd2589d7798aa3398cdb8ba57b62e94a0dcaf"
+    },
+    {
+      "path": "docs/reviews/global-audit-20260924/phase2/FINAL_SEVERITY_ARBITRATION.md",
+      "bytes": 16125,
+      "sha256": "27522060543a7aed8ab11e19874b34c2e1f7b722412495fe9ee86e1691f9f45e"
+    },
+    {
+      "path": "docs/reviews/global-audit-20260924/phase2/PHASE2_5_NF_SCOPE_DECISION.md",
+      "bytes": 11566,
+      "sha256": "c5869dbdd764491a40052524a43c41faa9d10dc17a369ae1e25362dc9f010a66"
+    },
+    {
+      "path": "docs/reviews/global-audit-20260924/phase2/PHASE2_5_REMOTE_COVERAGE_CHECK.md",
+      "bytes": 8218,
+      "sha256": "f086ca33bb7be16119019d5465584d89977253c49025d095f80fa0739207d615"
+    },
+    {
+      "path": "docs/reviews/global-audit-20260924/phase2/PHASE2_MASTER_VERDICT.md",
+      "bytes": 16016,
+      "sha256": "3c5da39440ae50bf7803d0438ef0f16eae1dcd56dd4f2f5d7aa6dda2949703d3"
+    },
+    {
+      "path": "docs/reviews/global-audit-20260924/phase2/REMEDIATION_DEPENDENCY_GRAPH.md",
+      "bytes": 14463,
+      "sha256": "46eb4276b19ddb7c13a191595b9b025cba5f8a5419e033e1fc82e5d019ef7753"
+    },
+    {
+      "path": "docs/reviews/global-audit-20260924/phase2/ROOT_CAUSE_MATRIX.md",
+      "bytes": 22454,
+      "sha256": "4c2399c70362bef3299de3ccc2ab3dac3ff38f9ce24238468b92d696a41f1fe1"
+    },
+    {
+      "path": "docs/reviews/global-audit-20260924/phase2/phase2-5-nf-scope-decision.json",
+      "bytes": 9560,
+      "sha256": "db4adbc13b326b7e4973ffd897fe2d71de945fd4ba7643a07d6a4888358e1170"
+    },
+    {
+      "path": "docs/reviews/global-audit-20260924/phase2/probe-results-batch-a.json",
+      "bytes": 3633,
+      "sha256": "f2ce298083fa5af0182098598d664e694530e64af5964e79c7770eeb69d68fdc"
+    },
+    {
+      "path": "docs/reviews/global-audit-20260924/phase2/probe-results-batch-b.json",
+      "bytes": 2967,
+      "sha256": "3ed0cb39845c9ba4c973a208057ef7bfb7058c44f4932c48e2d687ae3980ef9d"
+    },
+    {
+      "path": "docs/reviews/global-audit-20260924/phase2/probe-results-batch-c.json",
+      "bytes": 4213,
+      "sha256": "45c3d076f4447a1f7a09258f14784b0c974591145af9ee7ed8d43b5b3d21abf5"
+    },
+    {
+      "path": "docs/reviews/global-audit-20260924/phase2/probes-batch-a.mjs",
+      "bytes": 18251,
+      "sha256": "6b60342e6dbbb4788a234bd6e3a849729f63c58eba6dcd477b558a2f682e5747"
+    },
+    {
+      "path": "docs/reviews/global-audit-20260924/phase2/probes-batch-b.mjs",
+      "bytes": 14465,
+      "sha256": "6791c67399cc08d71e1bb0a29a34a9351c760d57483fee14098a9ff144c5ddc6"
+    },
+    {
+      "path": "docs/reviews/global-audit-20260924/phase2/probes-batch-c.mjs",
+      "bytes": 19574,
+      "sha256": "e0049c8b3b93bafa1c25930d7a650c6287bafb46eb99418f8122ab9e8abdddcb"
+    },
+    {
+      "path": "docs/reviews/global-audit-20260924/phase2/verification-batch-a.json",
+      "bytes": 27951,
+      "sha256": "100eb879015bd4b79e4e291dfd1f26d2edc6a1d40da3ae8dc76a32ba38536e5d"
+    },
+    {
+      "path": "docs/reviews/global-audit-20260924/phase2/verification-batch-b.json",
+      "bytes": 26159,
+      "sha256": "8806533c3fae16c942a687c1c0d155beb41acc8522279c0a107a71460afda2ae"
+    },
+    {
+      "path": "docs/reviews/global-audit-20260924/phase2/verification-batch-c.json",
+      "bytes": 22165,
+      "sha256": "5b5f14ec7dc62e6587819d78175beb93a9440e87bdbfd35234b639d6ec3430be"
+    },
+    {
+      "path": "docs/reviews/global-audit-20260924/probe-results.json",
+      "bytes": 2377,
+      "sha256": "2fa347daeb01063c9f6e382c6d0a913769f92350a814208e426362a2d7babb2d"
+    },
+    {
+      "path": "docs/reviews/global-audit-20260924/probes.mjs",
+      "bytes": 11510,
+      "sha256": "6a3538716097bba64aee6a077a34a7da1f6646f90deeabfdaccd88b152d6ce53"
+    },
+    {
+      "path": "docs/reviews/global-audit-20260924/repository-map.json",
+      "bytes": 113319,
+      "sha256": "9964bb1b07b05e7024c380407602926067cb43caef32a5426f3fc0b26eb7df16"
+    }
+  ]
+}

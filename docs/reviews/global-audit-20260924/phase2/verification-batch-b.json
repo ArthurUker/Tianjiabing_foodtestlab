@@ -1,0 +1,350 @@
+{
+  "phase": 2,
+  "batch": "B",
+  "mode": "independent_adversarial_verification",
+  "baseline": "f08e72e3e74d188b4555e0bee16280b3dd0d622b",
+  "generated_at": "2026-09-24",
+  "audit_only": true,
+  "application_code_changed": false,
+  "stage1": "semi-blind (only id/title/claim/trigger read before independent code tracing); provisional verdicts identical to final",
+  "environment": {
+    "node": "v24.15.0",
+    "database_used": "none",
+    "placeholder_database_url": "postgresql://phase2:phase2@127.0.0.1:1/phase2_never_connect (unreachable port; Prisma lazy connect; no real connection)",
+    "probes": "real pure functions (schemaNameOf, localNow) + source-path assertions on real files; no DB, no network"
+  },
+  "issues": [
+    {
+      "id": "AUD-004",
+      "title": "恢复暂存 schema 可与另一所合法学校重名并被 DROP",
+      "original_claim": "合法学校 alpha 与 alpha-restore 共存时，恢复 alpha 的暂存名 school_alpha_restore 与 alpha-restore 学校的真实 schema 相同，DROP 会作用于另一学校。",
+      "validity": "CONFIRMED",
+      "reproduction_class": "A",
+      "entry_points": ["POST /api/admin/backups/:id/restore (platform super admin)", "POST /api/school/backups/:id/restore (school admin/manager, schoolBackupRoutes.js:35-43)"],
+      "call_path": [
+        "runRestore (restoreService.js:81)",
+        "restoreSchema = `${schema}_restore` (:85)",
+        "DROP SCHEMA IF EXISTS \"${restoreSchema}\" CASCADE (:110, staging pre-clean)",
+        "SWITCHING double rename (:196-202)",
+        "failure cleanup DROP again (:240-242)"
+      ],
+      "key_evidence": [
+        "backend/lib/tenantClient.js:60-71 (schemaNameOf('alpha')+'_restore' === schemaNameOf('alpha-restore') === 'school_alpha_restore', real-function repro)",
+        "backend/lib/tenantClient.js:33 (CODE_RE allows -restore suffix)",
+        "backend/lib/restoreService.js:110",
+        "backend/lib/restoreService.js:242",
+        "backend/lib/tenantProvisioner.js:127-131 (409 only blocks create-when-schema-exists; does not block create-school-then-restore sequence)"
+      ],
+      "preconditions": "platform super admin OR school manager; a school whose code is '<X>-restore' exists while restoring X",
+      "deployment_conditions": "none (application logic)",
+      "db_filesystem_impact": "DROP CASCADE destroys school_alpha_restore entirely (all data); after SWITCHING the name is renamed to school_alpha, leaving alpha-restore's School row pointing to a missing schema -> both schools broken (phase-2 blind-stage deduction beyond first-pass text)",
+      "hidden_guard": "none (no ownership/School-registry cross-check before either DROP)",
+      "transaction_lock_ownership": "SWITCHING is single-transaction atomic rename; staging name has no ownership ledger",
+      "cleanup_rollback": "failure path re-DROPs the same shared name unconditionally",
+      "actual_failure_mode": "irreversible whole-school data destruction",
+      "first_pass_comparison": {
+        "missed_guard": false,
+        "trigger_reachable": true,
+        "impact_overstated": false,
+        "reproducer_faithful": true,
+        "note": "first pass already noted school-manager entry point; impact wording accurate"
+      },
+      "exploitability": "REALISTIC_PRECONDITION",
+      "impact": ["INTEGRITY", "DATA_RECOVERY"],
+      "severity_recommendation": "P1",
+      "severity_rationale": "whole-school DROP CASCADE with no technical guard; trigger needs only a naturally-named sibling school plus one restore action"
+    },
+    {
+      "id": "AUD-005",
+      "title": "在线恢复缺少同校互斥和写入暂停机制",
+      "original_claim": "同校两个恢复请求并行，或恢复准备期间正常业务继续写入；无 per-school 锁、请求排空或写屏障。",
+      "validity": "CONFIRMED",
+      "reproduction_class": "B",
+      "entry_points": ["POST /api/admin/backups/:id/restore", "POST /api/school/backups/:id/restore (school manager)"],
+      "call_path": [
+        "two concurrent runRestore share staging name school_<code>_restore",
+        "both DROP ... IF EXISTS (:110) each other's staging",
+        "STAGING lasts minutes while business writes land in original schema",
+        "SWITCHING atomic rename (:196-203) strands already-acknowledged writes in old schema"
+      ],
+      "key_evidence": [
+        "backend/lib/restoreService.js (no pg_advisory/mutex/drain/writeBarrier anywhere, source assertion)",
+        "backend/middleware/readOnlyMiddleware.js:14 (READONLY_MODE default open; restore flow never sets it)",
+        "docs/deployment/backup-module.md:206 (READONLY_MODE is a manual procedure; no code linkage to restore)",
+        "backend/routes/schoolBackupRoutes.js:35-43 (school manager can trigger)"
+      ],
+      "special_checks": {
+        "per_school_mutex": false,
+        "advisory_lock": false,
+        "maintenance_state": "manual-only (READONLY_MODE, restart-level, not set by restore)",
+        "write_barrier": false,
+        "in_flight_drain": false,
+        "tenant_prisma_reconnect": "not needed: rename preserves schema name so ?schema= references follow automatically; first-pass fix item 'reconnect tenant clients' is unnecessary"
+      },
+      "actual_failure_mode": "concurrent restores randomly fail by deleting each other's staging; minute-scale silent loss of acknowledged writes during every restore",
+      "first_pass_comparison": {
+        "missed_guard": false,
+        "trigger_reachable": true,
+        "impact_overstated": false,
+        "reproducer_faithful": true,
+        "note": "fix direction mostly sound; 'rebuild tenant connections' item is over-engineering"
+      },
+      "exploitability": "DIRECT (inherent per-restore window) / RARE (concurrent restore pair)",
+      "impact": ["INTEGRITY"],
+      "severity_recommendation": "P1",
+      "severity_rationale": "every online restore silently drops acknowledged writes in a minutes-long window with no warning; school-manager entry raises concurrency reachability"
+    },
+    {
+      "id": "AUD-006",
+      "title": "备份元数据行数与 pg_dump 不共享数据库快照",
+      "original_claim": "collectTableCounts 与 pg_dump 之间发生写入时，meta 计数与 dump 内容不一致。",
+      "validity": "CONFIRMED",
+      "reproduction_class": "B",
+      "entry_points": ["runBackup (CLI/systemd timer + admin/school-manager API)"],
+      "call_path": [
+        "collectTableCounts (backupService.js:357 -> :107-121; per-table SELECT count(*) via Prisma pool, each query its own READ COMMITTED snapshot)",
+        "collectSchemaSnapshot (:361 -> :129-148; another time point)",
+        "runPgDump (:375 -> :162-197; independent child process, no --snapshot flag)"
+      ],
+      "snapshot_review": "verdict based on connection topology, not mere ordering: three phases span different connections/processes/transactions; sharing would require pg_export_snapshot + same-connection pass (or pg_dump --snapshot, PG>=14) — none used",
+      "key_evidence": [
+        "backend/lib/backupService.js:107-121",
+        "backend/lib/backupService.js:162-197 (no --snapshot)",
+        "backend/lib/restoreService.js:174-193 (strict count check on restore)"
+      ],
+      "hidden_guard": "L1 CREATE TABLE count unaffected; restore-side strict validation turns any drift into restore REJECTION (fail-safe)",
+      "actual_failure_mode": "backups taken during business writes are spuriously rejected at restore time; must re-backup and retry",
+      "first_pass_comparison": {
+        "missed_guard": false,
+        "trigger_reachable": true,
+        "impact_overstated": false,
+        "reproducer_faithful": true,
+        "note": "first pass correctly described the fail-safe direction (restore rejected, not corrupted data); disagreement is on severity, not facts"
+      },
+      "exploitability": "REALISTIC_PRECONDITION (any write during backup window)",
+      "impact": ["DATA_RECOVERY (fail-safe false rejection)"],
+      "severity_recommendation": "P2 (downgrade, contested)",
+      "severity_rationale": "fail-safe direction: never accepts bad data, only falsely rejects good backups; disaster-recovery SLA argument for P1 exists -> arbitration"
+    },
+    {
+      "id": "AUD-007",
+      "title": "同秒同范围备份共享文件名，存在覆盖和互相清理竞态",
+      "original_claim": "管理员、学校经理或定时任务在同一秒备份相同 scope 时共享 .tmp/.aes/.meta 文件名。",
+      "validity": "CONFIRMED",
+      "reproduction_class": "A-",
+      "entry_points": ["runBackup (CLI/timer/API)"],
+      "call_path": [
+        "ts = localNow().toISOString().slice(0,15) — second precision (:364)",
+        "baseName = scope/schema + ts, no entropy (:365; source assertion: no Math.random/UUID)",
+        "tmpGz/aesPath/metaPath same-name family (:366-368)",
+        "failure cleanup unlink(aesPath)+unlink(tmpGz) deletes concurrent peer's artifacts (:395-399)",
+        "no isRunning/inFlight/scope lock anywhere in backupService/adminBackupRoutes/schoolBackupRoutes (grep verified)"
+      ],
+      "special_checks": {
+        "filename_entropy": false,
+        "tmp_path": "same-name family, not exclusive dir",
+        "rename": false,
+        "cleanup": "mutual deletion by path",
+        "scope_locking": false
+      },
+      "reproduction": "real localNow called twice within the same second yields identical ts (probe observed sameSecond=true)",
+      "actual_failure_mode": "one backup's artifacts corrupted/overwritten/deleted by a same-second peer; BackupRun may point to a deleted file; original data unharmed; L1/verify expose corruption",
+      "first_pass_comparison": {
+        "missed_guard": false,
+        "trigger_reachable": true,
+        "impact_overstated": false,
+        "reproducer_faithful": true
+      },
+      "exploitability": "RARE_PRECONDITION (requires same-second launch of same scope)",
+      "impact": ["DATA_RECOVERY", "RELEASE_RELIABILITY (single backup artifact)"],
+      "severity_recommendation": "P2 (downgrade, contested)",
+      "severity_rationale": "rare trigger + single-artifact loss, re-runnable, original data intact, corruption exposed by existing checks; P1 defensible on backup-reliability grounds -> arbitration"
+    },
+    {
+      "id": "AUD-008",
+      "title": "全新数据库无法从已提交 migration 链部署",
+      "original_claim": "空库 prisma migrate deploy 因 baseline 未创建 visible_menu_items 而中断（第一遍独立 PG 实测 P3018/42703）。",
+      "validity": "CONFIRMED",
+      "reproduction_class": "A (phase-1 live PostgreSQL test; not re-executed this round per instruction)",
+      "root_cause": "column introductions went through runtime DDL (tenantSync.js:110-155 ADD COLUMN IF NOT EXISTS) and db push, never sedimented into migrations; baseline (2026-07-26, generated from then-current schema.prisma via migrate diff --from-empty) lacks visible_menu_items (source assertion), while 2026-08-14 unify (:15 ALTER COLUMN) and revert (:13) assume it exists on the then-production database -> chain only self-consistent on db-push-era databases, breaks on empty-database replay",
+      "baseline_vs_later_relationship": "baseline is an adoption anchor, not a replayable origin; its header documents production onboarding as 'prisma migrate resolve --applied 20260726000000_baseline' (register without replaying)",
+      "possible_production_states": [
+        "state-1: resolve --applied baseline executed -> chain healthy on that DB, but empty-replay still broken",
+        "state-2: never resolved -> first migrate deploy fails on CREATE TABLE already exists -> deploy.sh FIRST_DEPLOY=false -> fail -> redeployment blocked",
+        "state-3: first-deploy fallback db push used after migrate deploy failure -> _prisma_migrations retains failed record -> next deploy (non-first) meets failed migration -> fail -> permanently blocked until manual resolve"
+      ],
+      "production_state_note": "which state production is in requires read-only inspection of _prisma_migrations (prohibited this round); recorded as a NEEDS_RUNTIME_VERIFICATION sub-premise that does not change the main verdict",
+      "deploy_sh_secondary": [
+        "deploy.sh:512 'npx prisma migrate deploy 2>/dev/null' swallows failure output",
+        "fallback branch performs no migrate resolve handling for the failed record (source assertion)"
+      ],
+      "fix_without_breaking_existing": [
+        "do NOT modify the baseline file itself",
+        "insert patch migration between baseline and unify (e.g. 20260726100000_add_customization_columns_if_missing, all ADD COLUMN IF NOT EXISTS, jsonb to match then-production) — idempotent on resolved DBs, makes empty replay pass unify/revert",
+        "remove 2>/dev/null in deploy.sh; after db-push fallback, explicitly handle failed records (migrate resolve --rolled-back) or fail-fast with guidance",
+        "production onboarding strategy (resolve --applied or not) per actual _prisma_migrations state, arbitrated by Astra"
+      ],
+      "migrate_resolve_history_issue": true,
+      "first_pass_comparison": {
+        "missed_guard": false,
+        "trigger_reachable": true,
+        "impact_overstated": false,
+        "reproducer_faithful": true,
+        "note": "first pass already anticipated the failed-record problem ('will not auto-resolve failed migration history state'); this round concretizes the three production states and the non-breaking fix design"
+      },
+      "exploitability": "DIRECT (fresh database / redeployment paths)",
+      "impact": ["RELEASE_RELIABILITY"],
+      "severity_recommendation": "P1",
+      "severity_rationale": "empty environments cannot deploy from the controlled chain (live-tested); production redeployment has code paths to hard failure if unresolved; fallback masks failures and leaves persistent failed state"
+    },
+    {
+      "id": "AUD-009",
+      "title": "启动自愈默认执行可丢数据的 schema push，且租户失败仍汇总成功",
+      "original_claim": "启动时 AUTO_SYNC_TENANTS 未置 false 或部署调用租户同步；--accept-data-loss 允许未审批变更；单校失败被吞、汇总仍成功。",
+      "validity": "CONFIRMED",
+      "reproduction_class": "B",
+      "may_execute_vs_must_execute": "MUST execute by default: server.js:372-382 calls selfHealTenantSchemas() at listen unless AUTO_SYNC_TENANTS === 'false' (unset by default; .env.example does not set it); deploy.sh:577-578 additionally invokes db:sync during deployment",
+      "call_path": [
+        "selfHealTenantSchemas (server.js:372-382)",
+        "syncAllTenantSchemas (tenantSync.js:168)",
+        "per-tenant provisionSchool({allowExisting:true}) (:184)",
+        "runPrismaPush(['prisma','db','push','--skip-generate','--accept-data-loss']) (tenantProvisioner.js:150; alignTenantSchema same args :272; 2 occurrences)"
+      ],
+      "error_swallowing": [
+        "tenantSync.js:186-189 per-tenant catch-and-continue",
+        "tenantSync.js:210 unconditional success log",
+        "sync-tenant-schemas.mjs exits 1 only on top-level reject (never fires for per-tenant failures)",
+        "deploy.sh:578 '|| fail' therefore never triggers for partial failures -> deployment continues"
+      ],
+      "hidden_guard_found_this_round": "tenantSync.js:174-179 syncs only status:'active' schools (narrows blast radius; comment-level discipline against destructive changes is not a technical block)",
+      "actual_failure_mode": "destructive schema.prisma changes are pushed to all active tenants at every restart, silently dropping columns/data; partial failures invisible to deployment",
+      "first_pass_comparison": {
+        "missed_guard": false,
+        "trigger_reachable": true,
+        "impact_overstated": false,
+        "reproducer_faithful": true
+      },
+      "exploitability": "DIRECT (default startup path)",
+      "impact": ["INTEGRITY (silent data loss)", "RELEASE_RELIABILITY"],
+      "severity_recommendation": "P1",
+      "severity_rationale": "default-on destructive push plus swallowed failures; hard ordering dependency: AUD-008 must be fixed first, otherwise removing --accept-data-loss regresses P2022 tenant drift (the very problem this self-heal was built for)"
+    },
+    {
+      "id": "AUD-039",
+      "title": "旧测试使用普通 DATABASE_URL 并执行跨范围破坏性清理",
+      "original_claim": "在已有业务环境直接运行 npm test / test:integration；旧测试无统一隔离门禁，接收普通 DATABASE_URL，部分用固定 schema/用户名。",
+      "validity": "CONFIRMED",
+      "reproduction_class": "B",
+      "chains": [
+        "tests/integration/pg-bootstrap.js:19-25 getDatabaseUrl() reads process.env.DATABASE_URL directly (no dedicated isolation variable); TENANTS=['school-a','school-b','school-c'] (:14); bootstrap CREATE SCHEMA + TRUNCATE (:48-57); teardown DROP SCHEMA IF EXISTS ... CASCADE x3 + DROP TABLE public.messages (:79-81)",
+        "tests/integration/roleAuditTrigger.test.js:22-24 reads process.env.DATABASE_URL; SCHEMA defaults to 'school_tjb' (production seed school), TEST_ROLE_USER to 'test' -> UPDATE role + revoked_tokens + AuditLog writes on that schema",
+        "tests/p0ProvNoAdminInSchool.test.js:34 imports PrismaClient from backend/node_modules and instantiates it: Prisma auto-loads backend/.env DATABASE_URL (no shell env needed) -> bare `npm test` on a deployment host connects to the business DB; invokes purgeInvalidAdminInSchools(prisma) which scans ALL schemas and demotes role=admin (random test school does not bound its scope)"
+      ],
+      "destructive_scope": "DROP SCHEMA (fixed names), DROP TABLE (public), TRUNCATE, whole-DB admin demotion, revoked_tokens writes",
+      "hidden_guard": "roleAuditTrigger skips only when DATABASE_URL is absent (does not guard against pointing at business DB); jest setup has no isolation gate (tests/setup-env.js only polyfills TextEncoder)",
+      "actual_failure_mode": "running npm test on a business host: p0Prov auto-connects to business DB and runs whole-DB admin demotion; test:integration with DATABASE_URL exported (e.g. systemd EnvironmentFile shell) drops whole-school schemas if school-a/b/c codes exist",
+      "first_pass_comparison": {
+        "missed_guard": false,
+        "trigger_reachable": true,
+        "impact_overstated": false,
+        "reproducer_faithful": true,
+        "note": "first pass additionally flagged the whole-DB purge scope of purgeInvalidAdminInSchools which I confirm; my increment: Prisma auto-.env loading makes p0Prov the most dangerous default entry (no env var needed)"
+      },
+      "exploitability": "REALISTIC_PRECONDITION (npm test is the most common developer command)",
+      "impact": ["INTEGRITY", "AVAILABILITY (DROP of production schema)"],
+      "severity_recommendation": "P1",
+      "severity_rationale": "realistic misoperation on business host causes whole-school DROP CASCADE / production-wide demotion / token revocation; backend mjs tests already have strict gates, gap concentrated in legacy Jest suites"
+    },
+    {
+      "id": "AUD-044",
+      "title": "示例 JWT_SECRET 是已知固定字符串，却未被启动保护拒绝",
+      "original_claim": "复制示例环境后配置数据库但未替换 JWT_SECRET；示例值不在 KNOWN_WEAK_SECRETS 列表，也没有足够强度校验。",
+      "validity": "CONFIRMED",
+      "reproduction_class": "B",
+      "special_checks": {
+        "enters_example_config": true,
+        "enters_example_config_evidence": ".env.example:33 JWT_SECRET=please-run-openssl-rand-hex-32-and-replace-this (extracted by probe)",
+        "startup_guard_rejects": false,
+        "startup_guard_rejects_evidence": "probe: example value not in the 5-entry KNOWN_WEAK_SECRETS list; no JWT_SECRET.length/entropy checks (source assertion)",
+        "production_can_carry_it": "manual-deployment path only: deploy.sh:407 auto-generates via openssl rand -base64 48 when empty; deploy.adapter.example.conf:48 leaves it empty -> generated; deploy.sh-path instances unaffected",
+        "document_risk_vs_deployment_risk": "real deployment risk (tail): manual deployer copying .env.example and editing only DB settings starts with a publicly-known signing key; attacker then forges JWTs for any existing userId (authenticateUser DB recheck only confirms the user exists and is active, and role is overwritten from DB — impersonating a real existing admin passes)"
+      },
+      "actual_failure_mode": "publicly-known key -> forged admin/manager tokens -> full-system unauthorized access including school writes, backup restore, school management",
+      "first_pass_comparison": {
+        "missed_guard": false,
+        "trigger_reachable": true,
+        "impact_overstated": false,
+        "reproducer_faithful": true,
+        "note": "first pass wording was appropriately restrained (noted DB subject recheck dependency, did not claim production uses it)"
+      },
+      "exploitability": "DEPLOYMENT_DEPENDENT",
+      "impact": ["CONFIDENTIALITY", "INTEGRITY"],
+      "severity_recommendation": "P1 (keep; arbitration candidate)",
+      "severity_rationale": "deployment-dependent but total auth compromise when it occurs; fix cost near zero (add own example value to weak list / leave example empty); if the team rules deploy.sh as the only supported path, P2 is defensible -> arbitration"
+    }
+  ],
+  "summary": {
+    "CONFIRMED": 8,
+    "PARTIALLY_CONFIRMED": 0,
+    "FALSE_POSITIVE": 0,
+    "NOT_REPRODUCIBLE": 0,
+    "NEEDS_RUNTIME_VERIFICATION": 0,
+    "note": "AUD-008 carries one NEEDS_RUNTIME_VERIFICATION sub-premise (production _prisma_migrations state) that does not change its main verdict",
+    "severity_downgrade_recommendations": ["AUD-006 P1->P2", "AUD-007 P1->P2"],
+    "severity_arbitration_candidates": ["AUD-006", "AUD-007", "AUD-044", "AUD-008 production-state confirmation"]
+  },
+  "most_trustworthy": ["AUD-004", "AUD-009", "AUD-008"],
+  "most_likely_overstated": ["AUD-006", "AUD-007"],
+  "shared_root_causes": [
+    "restore staging namespace is a fixed derived name (AUD-004 + AUD-005): collides with real tenants AND lets concurrent restores trample each other; one refactor (random unique staging name + per-school advisory lock + ownership ledger) resolves both",
+    "backup artifacts built on non-atomic, non-exclusive point-in-time operations (AUD-006 + AUD-007): no shared snapshot for counts, no entropy/lock for filenames",
+    "schema evolution relies on runtime DDL / db push instead of controlled migrations (AUD-008 + AUD-009): columns never sedimented cause empty-replay breakage; startup self-heal with --accept-data-loss papers over drift — fixing 008 is prerequisite to safely fixing 009",
+    "trust-the-environment assumptions in tests and example config (AUD-039 + AUD-044): tests trust DATABASE_URL / auto .env; startup trusts placeholder secret"
+  ],
+  "arbitration_needed": [
+    "final severity for AUD-006 / AUD-007 (P1 vs P2)",
+    "final severity for AUD-044 (deployment-dependent catastrophic tail vs documentation risk; near-zero fix cost)",
+    "AUD-008 production onboarding strategy: authorize a read-only inspection of _prisma_migrations to determine state-1/2/3, then decide resolve --applied + patch-migration plan",
+    "AUD-009 architecture trade-off: P2022 anti-drift self-heal (deliberate availability design) vs silent data loss of --accept-data-loss; whether to demote self-heal to check-and-alert gated behind AUD-008 completion",
+    "AUD-005 fix scope: per-school advisory lock and write barrier across Caddy/application layers"
+  ],
+  "fix_order_dependencies": [
+    "AUD-008 -> AUD-009 (hard): sediment schema evolution into migrations before demoting the self-heal, else tenant P2022 drift regresses",
+    "AUD-004 + AUD-005 (same batch): one restore-engine refactor; random staging name from 004 also removes 005's same-name trampling",
+    "AUD-006 + AUD-007 (same batch): backup artifact consistency refactor (shared-snapshot counts + unique filenames/atomic publish/scope lock)",
+    "AUD-039 and AUD-044 independent and parallelizable (044 near-zero cost, do immediately)",
+    "deploy.sh fixes for AUD-008 (drop 2>/dev/null, handle failed records) must ship in the same batch as its migration patch to avoid intermediate states"
+  ],
+  "new_findings_candidates": [
+    {
+      "id": "NF-B-01",
+      "description": "Re-enabling a disabled school leaves it immediately P2022-broken: self-heal/db:sync only sync status:'active' schools (tenantSync.js:174-179) while the status PATCH (schoolRoutes.js:404-422) triggers no provision/db push; a long-disabled school's schema stays stale across model evolution and breaks on re-enable until the next restart self-heal runs",
+      "evidence": "backend/lib/tenantSync.js:174-179 + backend/routes/schoolRoutes.js:404-422",
+      "severity_hint": "medium"
+    },
+    {
+      "id": "NF-B-02",
+      "description": "Restore writes decrypted plaintext SQL to /tmp/restore_*.sql (mode 0600, finally unlinked): full business data briefly exists in plaintext in /tmp; crashes can leave residue",
+      "evidence": "backend/lib/restoreService.js:127-133",
+      "severity_hint": "low"
+    },
+    {
+      "id": "NF-B-03",
+      "description": "deploy.sh discards migrate deploy stderr (2>/dev/null), hiding migration failure root causes from deployment logs (folded into AUD-008 fix; listed for tracking)",
+      "evidence": "deploy/deploy.sh:512",
+      "severity_hint": "low (inside AUD-008 scope)"
+    }
+  ],
+  "artifacts": {
+    "report": "docs/reviews/global-audit-20260924/phase2/BATCH-B-VERIFICATION.md",
+    "probe_script": "docs/reviews/global-audit-20260924/phase2/probes-batch-b.mjs",
+    "probe_results": "docs/reviews/global-audit-20260924/phase2/probe-results-batch-b.json",
+    "rerun_command": "node docs/reviews/global-audit-20260924/phase2/probes-batch-b.mjs"
+  },
+  "not_executed": [
+    "any real database connection (including production)",
+    "destructive restore/migration/restore-rehearsal",
+    "re-proving AUD-008 empty-database failure (phase-1 live test stands)",
+    "Cypress / browser e2e"
+  ]
+}
