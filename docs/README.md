@@ -34,6 +34,7 @@
 | [`backend/README.md`](../backend/README.md) | **后端子项目说明**：仅后端本地起服务、环境变量、curl 自测 | 权威（局部） | 是 | 中 |
 | [`deploy/README.md`](../deploy/README.md) | **部署方案说明**：`deploy.sh` + 适配文件用法、部署前置、多用户同机、自适应资源 | 权威（局部） | 是 | 中 |
 | [`docs/CHANGELOG.md`](./CHANGELOG.md) | **近期变更日志**：2026-08 已上线功能按主题归类（测试报告/权限/备份/洗涤剂识别等） | 权威（记录） | 是 | 中 |
+| [`docs/PATHOGEN_DEVICE_INTEGRATION.md`](./PATHOGEN_DEVICE_INTEGRATION.md) | **病原体设备自动采集对接方案**：VirusHunter2.0B 上传接口 / 设备编号→学校租户归属 / 异常处理 / 数据流转 | 权威（设计+实现） | 是 | 中 |
 | [`docs/fix/`](./fix/) | **待修复问题清单**：当前测试反馈未收口（failed-open）问题的根因定位与优先级 | 当前依据 | 是 | 中 |
 | [`docs/test-results/`](./test-results/README.md) | **测试结果快照**：`latest/` 覆盖式快照（HTML/MD/JSON + 证据图），权威数据在数据库 | 快照 | 是 | 参考 |
 
@@ -57,6 +58,7 @@
 | 改部署 / 环境变量 | deploy/README | `deploy/deploy.sh`（通用部署脚本）、`deploy/deploy.adapter.example.conf`（模板；生产真实配置为服务器 `/opt/deploy/deploy.foodsentinel.conf`，含密钥不入库） | 规则十（脚本与适配分离、单应用）、规则六.6（禁改回 sqlite） |
 | 加单元测试 | DEV_GUIDE §10 | `tests/*.test.js`、`jest.config.cjs` | 规则十二（纯函数应补单测、lint 零 error） |
 | 查看/归档浏览器测试反馈 | [`test-results/`](./test-results/README.md) | `backend/lib/testCaseDefs.js`（用例清单唯一权威）、`backend/routes/testResultRoutes.js`（上报/上传/读取端点）、`admin-schools.html` 测试报告模块（原生三视图） | 数据权威在库 `public.TestCase`/`TestExecution`；旧 testReportSync 静态快照已废弃 |
+| 病原体设备自动采集对接 | [`PATHOGEN_DEVICE_INTEGRATION.md`](./PATHOGEN_DEVICE_INTEGRATION.md) | `backend/routes/pathogenDeviceRoutes.js`、`backend/lib/pathogenDevice.js`、`schema.prisma`（`PathogenDevice`）、`admin-schools.html`（病原体设备视图） | 规则三（public 权威副本 + `createTenantClient` 唯一切换点）、规则八（幂等 `record_code`） |
 
 ---
 
