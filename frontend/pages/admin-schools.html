@@ -189,6 +189,12 @@
                 <button class="admin-sidebar__item" data-view="links" data-desc="维护登录页登录卡下方的友情链接：新增、排序、启用/停用、一键访问与点击统计。" type="button">
                     <i class="fas fa-link"></i><span class="admin-sidebar__item-label">友情链接</span>
                 </button>
+                <!-- 病原体设备（2026-10-14，VirusHunter2.0B 对接）：按学校维护「设备编号 → 学校」映射，
+                     设备凭此处签发的密钥（X-API-Key）调 POST /api/open/pathogen-device/upload 自动上报，
+                     按设备编号归属学校租户（上传接口不暴露任何租户信息）。配置变更全部写审计。 -->
+                <button class="admin-sidebar__item" data-view="pathogendevices" data-desc="按学校配置病原体检测设备编号：设备凭签发密钥自动上传检测结果，按设备编号归属对应学校租户。" type="button">
+                    <i class="fas fa-microscope"></i><span class="admin-sidebar__item-label">病原体设备</span>
+                </button>
                 <!-- 测试报告：二级菜单（测试任务 / 问题反馈 / 问题总览）。
                      TR-Rewrite：原生视图模块，废弃 iframe + test-report.html + docs 产物。
                      三视图对齐检测业务模型：任务=计划内执行、反馈=计划外上报、总览=记录列表。 -->
@@ -1010,6 +1016,8 @@
         import { initOpenApiView } from '/js/modules/adminSchools/views/openApiView.js';
         // 「友情链接」视图（2026-09-28：登录页外链管理 + 快捷访问 + 点击统计）
         import { initFriendlyLinksView } from '/js/modules/adminSchools/views/friendlyLinksView.js';
+        // 「病原体设备」视图（2026-10-14 VirusHunter2.0B 对接：设备编号 → 学校映射 + 密钥签发）
+        import { initPathogenDeviceView } from '/js/modules/adminSchools/views/pathogenDeviceView.js';
         // 「测试报告」三视图（TR-Rewrite：测试任务 / 问题反馈 / 问题总览）
         import { initTasksView } from '/js/modules/adminSchools/views/testReports/tasksView.js';
         import { initIssuesView } from '/js/modules/adminSchools/views/testReports/issuesView.js';
@@ -1104,6 +1112,8 @@
         initOpenApiView({ API_BASE, authHeaders, notify: showNotice });
         // 友情链接视图（登录页外链：多条/排序/启停/快捷访问/点击统计，super_admin 专属）
         initFriendlyLinksView({ API_BASE, authHeaders, notify: showNotice });
+        // 病原体设备视图（设备编号→学校映射 + 密钥签发，super_admin 专属）
+        initPathogenDeviceView({ API_BASE, authHeaders, notify: showNotice });
         initKpiPoller();
         // 学校管理：详情视图先建（导出 openDetail / switchSchoolsSubview / renderCanteenInputs / updateBadgeStyleHint），
         // 再注入定制加载的详情回调与弹层的列表刷新回调，最后装配列表视图（openDetail / switchSchoolsSubview 注入）。
@@ -1870,6 +1880,7 @@
 
     <!-- 友情链接视图（2026-09-28）：骨架由 views/friendlyLinksView.js 动态渲染 -->
     <section id="adminViewLinks" class="admin-view hidden" data-view="links"></section>
+    <section id="adminViewPathogenDevices" class="admin-view hidden" data-view="pathogendevices"></section>
 
     <!-- 测试报告视图（TR-Rewrite）：
          原生三视图（测试任务 / 问题反馈 / 问题总览），由 views/testReports/ 模块

@@ -1,0 +1,757 @@
+/*
+* 病原体设备视图（2026-10-14，VirusHunter2.0B 对接）
+* ------------------------------------------------------------
+* 控制台一级菜单「病原体设备」：按学校租户维护「设备编号 → 学校」映射，
+* 设备凭此处签发的密钥调用 POST /api/open/pathogen-device/upload 自动上报检测结果。
+*
+* 能力：查询（按学校过滤）/ 新增 / 修改 / 删除 / 停启用 / 轮换密钥 / 导出。
+* 口径：字段校验唯一事实源在 backend/lib/pathogenDevice.js 与
+*   routes/pathogenDeviceRoutes.js（前端只做即时提示，不作安全边界）；
+*   所有动态内容一律 escapeHtml 后渲染；明文密钥仅在新增/轮换响应中出现一次。
+*/
+import { escapeHtml } from '../ui.js';
+
+const UPLOAD_ENDPOINT = '/api/open/pathogen-device/upload';
+
+/* ─────────── 接口使用指导（界面与「下载 MD 文档」的唯一事实源） ───────────
+ * 口径与 backend/lib/pathogenDevice.js、routes/pathogenDeviceRoutes.js 对齐；
+ * 接口如有调整，先改这里（改完界面与下载自动同步）。`<平台域名>` 在渲染/下载时替换为 location.origin。 */
+const GUIDE_MD = [
+    '# 病原体检测设备数据上传接口 · 使用指导',
+    '',
+    '> VirusHunter2.0B 自动采集对接（2026-10-14）。本指导与平台「病原体设备」配置页同源，可直接交付设备/上传程序开发方。',
+    '',
+    '## 1. 接口概况',
+    '',
+    '| 项 | 值 |',
+    '|---|---|',
+    '| 接口地址 | `POST <平台域名>/api/open/pathogen-device/upload` |',
+    '| Content-Type | `application/json` |',
+    '| 请求体上限 | 2MB（超限返回 413 `PAYLOAD_TOO_LARGE`） |',
+    '| 数据归属 | 完全由报文 `DeviceNo` 查「学校-设备编号」映射决定；**报文不包含、也不需要任何学校信息** |',
+    '| 限流 | 每设备默认 60 次/分钟（超限 429，响应带 `Retry-After` 秒数）；统一密钥另有平台级 600 次/分钟兜底 |',
+    '',
+    '**认证方式（两种模式，同一接口，任选其一）**：',
+    '',
+    '| 模式 | 密钥形态 | 归属判定 | 适用 |',
+    '|---|---|---|---|',
+    '| **统一上传密钥（推荐，默认形态）** | 全平台**共用一把**平台级密钥（控制台「病原体设备」页顶部创建/轮换） | 密钥只做准入；归属**完全由报文 `DeviceNo`** 查映射表决定 | 设备数量多、希望接入形态统一的场景：一把钥匙 + 设备编号绑定 |',
+    '| 设备密钥（可选，严格模式） | **每台设备一把**独立密钥（新增设备时签发） | 密钥即设备；报文 `DeviceNo` 必须与密钥所属设备一致（不一致 403） | 单校/少量设备、要求更高隔离性的场景 |',
+    '',
+    '两种模式的认证头一致：`X-API-Key: <密钥>` 或 `Authorization: Bearer <密钥>`（二选一）。',
+    '',
+    '## 2. 接入前准备（由平台超管在控制台完成，随密钥一并交付）',
+    '',
+    '**模式一：统一上传密钥（推荐）**',
+    '',
+    '1. 控制台「病原体设备」页**顶部**「创建/轮换」统一上传密钥 → 立即抄录明文（仅此一次展示）',
+    '2. 为每个学校绑定设备编号：选择学校 →「新增设备」→ 填写设备编号、绑定用户、默认食堂（设备即完成登记）',
+    '3. 所有设备/上传程序配置**同一把**统一密钥 + 各自的设备编号',
+    '',
+    '**模式二：每设备独立密钥（可选）**',
+    '',
+    '1. 控制台「病原体设备」→ 选择学校 →「新增设备」：填写设备编号、绑定用户、默认食堂',
+    '2. 保存后**立即抄录该设备的明文密钥**——仅此一次展示，遗失只能轮换',
+    '3. 每台设备配置自己的密钥，报文携带与之一致的设备编号',
+    '',
+    '## 3. 请求报文字段',
+    '',
+    '| 字段 | 类型 | 必填 | 说明 |',
+    '|---|---|---|---|',
+    '| DeviceNo | string | 是 | 设备编号，须与控制台配置完全一致（不一致返回 403） |',
+    '| DetectionDateTime | string | 是 | 检测开始时间，`YYYY-MM-DD HH:mm:ss`（兼容 `YYYY-MM-DDTHH:mm:ss`） |',
+    '| DetectionEndDateTime | string | 是 | 检测结束时间，`YYYY-MM-DD HH:mm:ss`，不得早于开始时间 |',
+    '| SampleStr | string | 是 | 样本描述，须含食堂名称（如「二食堂 餐盘涂抹样」） |',
+    '| DetectionPeopleStr | string | 是 | 检测员姓名 |',
+    '| DetectionNumber | string | 是 | 报告编号（设备侧唯一），**幂等键之一** |',
+    '| FileName | string | 是 | 原始报告文件名 |',
+    '| ChipID | string | 否 | 芯片 ID |',
+    '| ChipName | string | 是 | 芯片名称 |',
+    '| ChipNumber | string | 是 | 芯片序列号 |',
+    '| Parms | object | 是 | 点位配置：通道 → 检测项名称；通道限 `FAM/HEX/ROX/CY5` + `-` + 序号 1~8（如 `FAM-1`） |',
+    '| OptimizationDataLists | object | 是 | 点位荧光数据集合；**无荧光数据时传空对象 `{}`**；各通道数组（数字）可缺省，单通道超 96 点截断 |',
+    '| ResultList | object | 是 | 各通道是否阳性（true/false），**必须覆盖 Parms 的每个通道** |',
+    '| CTList | object | 是 | 各通道 Ct 值（字符串；阴性填 `-`），必须覆盖每个通道 |',
+    '',
+    '## 4. 完整报文示例',
+    '',
+    '```json',
+    '{',
+    '  "DeviceNo": "VH-2B-001",',
+    '  "DetectionDateTime": "2026-09-17 08:30:00",',
+    '  "DetectionEndDateTime": "2026-09-17 10:45:00",',
+    '  "SampleStr": "二食堂 餐盘涂抹样",',
+    '  "DetectionPeopleStr": "张三",',
+    '  "DetectionNumber": "20260917001",',
+    '  "FileName": "20260917_0830_1045_二食堂.vhfl",',
+    '  "ChipID": "TS001",',
+    '  "ChipName": "四通道微流控芯片",',
+    '  "ChipNumber": "SN20260917001",',
+    '  "Parms": { "FAM-1": "ORF1ab", "FAM-2": "N", "HEX-1": "内参" },',
+    '  "OptimizationDataLists": { "FAM-1": [0.12, 0.45, 0.89], "FAM-2": [0.08, 0.32, 0.77], "HEX-1": [0.1, 0.4, 0.8] },',
+    '  "ResultList": { "FAM-1": true, "FAM-2": false, "HEX-1": true },',
+    '  "CTList": { "FAM-1": "25.3", "FAM-2": "-", "HEX-1": "28.7" }',
+    '}',
+    '```',
+    '',
+    '## 5. 响应格式',
+    '',
+    '成功（HTTP 200）：',
+    '',
+    '```json',
+    '{ "code": 0, "message": "success", "data": { "reportId": "RC-pathogen-<64位十六进制>", "duplicated": false } }',
+    '```',
+    '',
+    '重复上传（HTTP 200，幂等）：',
+    '',
+    '```json',
+    '{ "code": 0, "message": "success", "data": { "reportId": "RC-pathogen-<与首次相同>", "duplicated": true } }',
+    '```',
+    '',
+    '失败（HTTP 4xx/5xx）：',
+    '',
+    '```json',
+    '{ "code": "VALIDATION_ERROR", "message": "参数校验失败：DetectionNumber不能为空", "data": null }',
+    '```',
+    '',
+    '## 6. 错误码与处理动作',
+    '',
+    '| HTTP | code | 含义 | 应做什么 |',
+    '|---|---|---|---|',
+    '| 401 | MISSING_KEY | 未携带密钥 | 补 `X-API-Key` 请求头 |',
+    '| 401 | INVALID_KEY | 密钥无效 | 核对密钥；确认统一密钥/设备未被停用、未被轮换 |',
+    '| 403 | DEVICE_NOT_REGISTERED | （统一密钥模式）报文设备编号未在任何学校登记 | 先在控制台为该设备所属学校绑定此设备编号 |',
+    '| 403 | DEVICE_DISABLED | 设备已停用 | 联系平台超管在控制台启用 |',
+    '| 403 | DEVICE_MISMATCH | 报文 DeviceNo 与密钥所属设备不一致 | 核对设备编号配置 |',
+    '| 403 | SCHOOL_DISABLED | 归属学校已停用 | 联系平台超管 |',
+    '| 400 | VALIDATION_ERROR | 报文格式/字段错误 | 按 message 修正后重传（**勿原样重试**） |',
+    '| 409 | SCHOOL_NOT_FOUND | 归属学校不存在 | 联系平台超管重新配置设备 |',
+    '| 413 | PAYLOAD_TOO_LARGE | 请求体超 2MB | 检查荧光数组等字段大小 |',
+    '| 422 | CANTEEN_UNRESOLVED | 食堂无法识别且设备未配默认食堂 | SampleStr 含食堂名，或让超管配置默认食堂 |',
+    '| 422 | BINDING_USER_MISSING | 设备绑定用户已失效 | 让超管在控制台改绑有效用户 |',
+    '| 429 | RATE_LIMITED | 超过设备限流 | 按 `Retry-After` 退避后重试 |',
+    '| 500 | INTERNAL_ERROR | 服务端异常 | 退避重试（建议 1s/5s/30s，至多 3 次） |',
+    '',
+    '## 7. 幂等与重试',
+    '',
+    '- **幂等键 = 设备编号 + DetectionNumber**：重复上传返回同一 `reportId` 且 `duplicated:true`，不会产生重复记录，网络超时后可放心重传',
+    '- 4xx（除 429）为数据/配置问题：**修正后重传，勿原样重试**',
+    '- 429 / 5xx / 网络错误：退避重试，建议间隔 1s、5s、30s，至多 3 次',
+    '',
+    '## 8. 数据落库口径（与手动导入完全一致）',
+    '',
+    '- **食堂识别**：SampleStr 中含该校食堂名即自动匹配（支持「二食堂 / 第2食堂 / 2号食堂 / 全角数字」等写法）；识别不到回落设备「默认食堂」；两者都没有 → 422 拒绝，**不会写入「未知食堂」**',
+    '- **业务日期**：取 DetectionDateTime 的日期部分',
+    '- **风险分档**（按阳性项最低 Ct）：Ct<20 高风险 / 20~30 中风险 / 30~35 低风险 / ≥35 极低风险；内参通道不计阳性',
+    '- 记录以**「设备」来源**进入学校「病原体检测」列表（样本 ID 旁有徽标，详情可溯源设备编号），看板/导出/开放接口自动覆盖，无需学校额外操作',
+    '',
+    '## 9. 联调自检清单',
+    '',
+    '- [ ] 不携带密钥上传 → 401 MISSING_KEY',
+    '- [ ] 使用错误 DeviceNo 上传 → 403 DEVICE_MISMATCH',
+    '- [ ] 正常上传 → `code:0` 且返回 reportId',
+    '- [ ] 同一 DetectionNumber 重复上传 → `duplicated:true`，reportId 不变',
+    '- [ ] 控制台「病原体设备」该设备上传次数 +1、最近上传时间更新',
+    '- [ ] 学校「病原体检测」列表出现该记录且带「设备」徽标',
+].join('\n');
+
+/* 极简 Markdown → HTML（服务「接口使用指导」；与 openApiView 同款口径，避免跨视图引依赖）。
+ * 支持：``` 代码块 / | 表格 / #~#### 标题 / > 引用 / - 列表 / 数字列表 / **加粗** / `行内代码` */
+function mdInline(s) {
+    return escapeHtml(s)
+        .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+        .replace(/`([^`]+)`/g, '<code class="font-mono text-[11px] bg-gray-100 px-1 rounded">$1</code>');
+}
+
+function renderMdBlocks(lines) {
+    const out = [];
+    let i = 0;
+    const src = Array.isArray(lines) ? lines : [];
+    while (i < src.length) {
+        const line = String(src[i]);
+        if (line.startsWith('```')) {
+            const buf = [];
+            i++;
+            while (i < src.length && !String(src[i]).startsWith('```')) buf.push(src[i++]);
+            i++;
+            out.push(`<pre class="bg-gray-900 text-gray-100 text-[11px] rounded-lg p-3 overflow-auto max-h-[320px] mb-2">${escapeHtml(buf.join('\n'))}</pre>`);
+            continue;
+        }
+        if (line.startsWith('|')) {
+            const rows = [];
+            while (i < src.length && String(src[i]).startsWith('|')) rows.push(src[i++]);
+            const head = rows[0] || '';
+            const body = rows.slice(2);
+            const cells = (r) => String(r).split('|').slice(1, -1).map((x) => x.trim());
+            out.push(`<div class="overflow-auto mb-2"><table class="w-full text-xs">
+                <thead><tr class="text-left text-gray-500 border-b">${cells(head).map((h) => `<th class="py-1 px-2">${mdInline(h)}</th>`).join('')}</tr></thead>
+                <tbody>${body.map((r) => `<tr class="border-b last:border-0">${cells(r).map((x) => `<td class="py-1 px-2 align-top">${mdInline(x)}</td>`).join('')}</tr>`).join('')}</tbody>
+            </table></div>`);
+            continue;
+        }
+        if (/^#{1,4}\s/.test(line)) {
+            out.push(`<p class="text-sm font-bold text-gray-800 mt-4 mb-1 border-b border-gray-200 pb-1">${mdInline(line.replace(/^#{1,4}\s/, ''))}</p>`);
+            i++;
+            continue;
+        }
+        if (line.startsWith('> ')) {
+            out.push(`<p class="text-xs text-gray-600 border-l-2 border-gray-300 pl-2 mb-1">${mdInline(line.slice(2))}</p>`);
+            i++;
+            continue;
+        }
+        if (/^- /.test(line)) {
+            out.push(`<p class="text-xs text-gray-600 mb-1 pl-2">• ${mdInline(line.slice(2))}</p>`);
+            i++;
+            continue;
+        }
+        if (/^\d+\.\s/.test(line)) {
+            out.push(`<p class="text-xs text-gray-600 mb-1 pl-2">${mdInline(line)}</p>`);
+            i++;
+            continue;
+        }
+        if (line.trim() === '') { i++; continue; }
+        out.push(`<p class="text-xs text-gray-600 mb-1">${mdInline(line)}</p>`);
+        i++; // ⚠️ 必须推进：漏掉即死循环（2026-10-14 点击「接口使用指导」页面卡死事故）
+    }
+    return out.join('');
+}
+
+function fmtTime(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '—';
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/* 指导文档与渲染器导出（供 tests/frontend 回归：死循环/口径/转义）。 */
+export { GUIDE_MD, renderMdBlocks };
+
+export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
+    const state = {
+        schools: [],        // [{ code, name, status }]
+        schoolCode: '',     // 当前筛选学校
+        devices: [],
+        users: [],          // 当前学校用户（绑定用户下拉）
+        canteens: [],       // 当前学校食堂名单（默认食堂下拉）
+        editing: null,      // null = 新增；否则为编辑中的设备
+        platformKey: null,  // 统一上传密钥当前视图（B 方案）
+        bound: false,
+    };
+
+    const el = (id) => document.getElementById(id);
+
+    async function api(path, opts = {}) {
+        const resp = await fetch(`${API_BASE}/api/admin/pathogen-devices${path}`, {
+            method: opts.method || 'GET',
+            headers: { 'Content-Type': 'application/json', ...authHeaders() },
+            body: opts.body ? JSON.stringify(opts.body) : undefined,
+        });
+        const j = await resp.json().catch(() => ({}));
+        if (!resp.ok || j.success === false) throw new Error(j.error || `HTTP ${resp.status}`);
+        return j.data;
+    }
+
+    async function loadSchools() {
+        const resp = await fetch(`${API_BASE}/api/admin/schools?limit=500`, { headers: authHeaders() });
+        const j = await resp.json().catch(() => ({}));
+        const rows = Array.isArray(j.data) ? j.data : [];
+        state.schools = rows.map((s) => ({ code: s.code, name: s.name, status: s.status }));
+    }
+
+    async function loadSchoolContext() {
+        state.users = [];
+        state.canteens = [];
+        if (!state.schoolCode) return;
+        try {
+            const resp = await fetch(`${API_BASE}/api/admin/schools/${encodeURIComponent(state.schoolCode)}/users`, { headers: authHeaders() });
+            const j = await resp.json().catch(() => ({}));
+            const rows = Array.isArray(j.data) ? j.data : (Array.isArray(j.users) ? j.users : []);
+            state.users = rows.map((u) => ({ id: u.id, username: u.username, full_name: u.full_name, role: u.role, status: u.status }));
+        } catch { /* 绑定用户退化为手工输入 id */ }
+        try {
+            const resp = await fetch(`${API_BASE}/api/admin/schools/${encodeURIComponent(state.schoolCode)}/customization`, { headers: authHeaders() });
+            const j = await resp.json().catch(() => ({}));
+            const cfg = j.data || {};
+            const list = Array.isArray(cfg.canteens) ? cfg.canteens : (Array.isArray(cfg.field_options?.canteen) ? cfg.field_options.canteen : []);
+            state.canteens = list.map(String);
+        } catch { /* 食堂名单缺失时由后端校验兜底 */ }
+    }
+
+    async function load() {
+        if (!state.schoolCode) { state.devices = []; renderAll(); return; }
+        state.devices = await api(`?school_code=${encodeURIComponent(state.schoolCode)}`);
+        renderAll();
+    }
+
+    /* ─────────── 骨架 ─────────── */
+    function renderSkeleton() {
+        const host = el('adminViewPathogenDevices');
+        if (!host) return;
+        host.innerHTML = `
+        <div class="container mx-auto px-4 py-6 max-w-[2000px]">
+            <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
+                <div>
+                    <h2 class="text-xl font-semibold text-gray-800"><i class="fas fa-microscope text-blue-500 mr-2"></i>病原体设备</h2>
+                    <p class="text-xs text-gray-500 mt-1">
+                        维护各学校「检测设备编号 → 学校」映射：设备凭此处签发的密钥（<code>X-API-Key</code>）调用
+                        <code>POST ${UPLOAD_ENDPOINT}</code> 自动上报检测结果，系统按设备编号归属到对应学校租户（设备无需感知任何学校信息）。
+                    </p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button type="button" data-act="guide" class="px-3 py-1.5 text-sm bg-indigo-50 text-indigo-700 rounded-lg hover:bg-indigo-100 transition" title="查看上传接口使用说明，并可下载 Markdown 指导文档"><i class="fas fa-book-open mr-1"></i>接口使用指导</button>
+                    <button type="button" data-act="export" class="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition"><i class="fas fa-download mr-1"></i>导出配置</button>
+                    <button type="button" data-act="refresh" class="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition"><i class="fas fa-sync-alt mr-1"></i>刷新</button>
+                    <button type="button" data-act="new" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition shadow"><i class="fas fa-plus mr-1"></i>新增设备</button>
+                </div>
+            </div>
+
+            <!-- 统一上传密钥（B 方案推荐模式：全平台一把钥匙 + 报文设备编号归属） -->
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-3 mb-4 flex flex-wrap items-center gap-3">
+                <div class="flex-1">
+                    <div class="text-sm font-medium text-gray-800"><i class="fas fa-key text-indigo-500 mr-2"></i>统一上传密钥<span id="pdPkBadge" class="ml-2 px-2 py-1 rounded-full text-xs font-medium bg-gray-200 text-gray-600">加载中…</span></div>
+                    <p class="text-xs text-gray-500 mt-1">
+                        推荐模式：全平台设备共用这一把密钥（请求头 <code>X-API-Key</code>），数据归属<strong>完全由报文中的设备编号</strong>查「学校-设备编号」映射决定——设备必须先在下方按学校完成绑定。
+                        轮换后旧密钥立即失效，请同步更新所有设备上的密钥配置。
+                    </p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span id="pdPkMeta" class="text-xs font-mono text-gray-500"></span>
+                    <button type="button" data-act="pk-create" class="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">创建/轮换</button>
+                    <button type="button" data-act="pk-toggle" class="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">停用</button>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-3 mb-4 flex flex-wrap items-center gap-3">
+                <label class="text-sm text-gray-600">学校租户：</label>
+                <select id="pdSchoolSelect" class="border border-gray-300 rounded px-3 py-1.5 text-sm min-w-[240px]">
+                    <option value="">— 请选择学校 —</option>
+                </select>
+                <span class="text-xs text-gray-400">仅可查看/配置已启用学校的设备；停用学校下的设备上传会被拒绝。</span>
+            </div>
+
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead class="bg-gray-50 text-gray-600">
+                        <tr>
+                            <th class="px-4 py-3 text-left">设备编号</th>
+                            <th class="px-4 py-3 text-left">备注</th>
+                            <th class="px-4 py-3 text-left">绑定用户</th>
+                            <th class="px-4 py-3 text-left">默认食堂</th>
+                            <th class="px-4 py-3 text-center">状态</th>
+                            <th class="px-4 py-3 text-left">密钥</th>
+                            <th class="px-4 py-3 text-right">上传次数</th>
+                            <th class="px-4 py-3 text-left">最近上传</th>
+                            <th class="px-4 py-3 text-center">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="pdDeviceRows"></tbody>
+                </table>
+                <div id="pdEmptyHint" class="hidden text-center text-gray-400 py-8 text-sm">该学校尚未配置检测设备</div>
+            </div>
+        </div>
+
+        <!-- 设备表单弹层 -->
+        <div id="pdModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+            <div class="bg-white rounded-lg shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
+                <div class="px-5 py-4 border-b flex items-center justify-between">
+                    <h3 class="font-bold text-gray-800" id="pdModalTitle">新增设备</h3>
+                    <button type="button" data-pd-close class="text-gray-500 hover:text-gray-700"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="p-5 space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">设备编号 <span class="text-red-500">*</span></label>
+                        <input type="text" id="pdDeviceNo" class="w-full border border-gray-300 rounded px-3 py-2 text-sm" placeholder="如 VH-2B-001（字母/数字/连字符/下划线）" autocomplete="off">
+                        <p class="text-xs text-gray-400 mt-1">全局唯一；新增后不可修改。设备上报报文须携带同一编号。</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">备注名</label>
+                        <input type="text" id="pdName" class="w-full border border-gray-300 rounded px-3 py-2 text-sm" placeholder="如 食堂快检室 1 号机" autocomplete="off">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">绑定用户 <span class="text-red-500">*</span></label>
+                        <select id="pdBindingUser" class="w-full border border-gray-300 rounded px-3 py-2 text-sm"></select>
+                        <p class="text-xs text-gray-400 mt-1">设备上报记录的「创建人」（审计归属），须为该校租户内有效用户。</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">默认食堂</label>
+                        <select id="pdDefaultCanteen" class="w-full border border-gray-300 rounded px-3 py-2 text-sm"></select>
+                        <p class="text-xs text-gray-400 mt-1">样本信息中识别不到食堂时回落此值；不设置且无法识别时上报将被拒绝（不会写入「未知食堂」）。</p>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">限流（次/分钟）</label>
+                            <input type="number" id="pdRateLimit" class="w-full border border-gray-300 rounded px-3 py-2 text-sm" min="1" max="600" value="60">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">IP 白名单（逗号分隔，可空）</label>
+                            <input type="text" id="pdIpWhitelist" class="w-full border border-gray-300 rounded px-3 py-2 text-sm" placeholder="如 192.168.1.10,10.0.0.0/24" autocomplete="off">
+                        </div>
+                    </div>
+                </div>
+                <div class="px-5 py-4 border-t bg-gray-50 flex justify-end gap-3">
+                    <button type="button" data-pd-close class="px-4 py-2 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300">取消</button>
+                    <button type="button" id="pdSaveBtn" class="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"><i class="fas fa-save mr-1"></i>保存</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 密钥展示弹层（仅出现一次） -->
+        <div id="pdKeyModal" class="hidden fixed inset-0 bg-black bg-opacity-60 z-[60] flex items-center justify-center p-4">
+            <div class="bg-white rounded-lg shadow-2xl w-full max-w-lg">
+                <div class="px-5 py-4 border-b bg-amber-50 rounded-t-lg">
+                    <h3 class="font-bold text-amber-800"><i class="fas fa-key mr-2"></i><span id="pdKeyModalTitle">设备密钥（仅此一次展示）</span></h3>
+                </div>
+                <div class="p-5 space-y-3">
+                    <p class="text-sm text-gray-600">请立即复制并安全交付给设备部署人员；关闭后无法再次查看，遗失只能轮换新密钥。</p>
+                    <div class="flex items-stretch gap-2">
+                        <input type="text" id="pdKeyPlain" readonly class="flex-1 border border-amber-300 bg-amber-50 rounded px-3 py-2 text-sm font-mono">
+                        <button type="button" id="pdKeyCopy" class="px-3 py-2 text-sm bg-amber-500 text-white rounded hover:bg-amber-600"><i class="fas fa-copy mr-1"></i>复制</button>
+                    </div>
+                    <div class="bg-gray-50 border rounded p-3 text-xs text-gray-600 space-y-1">
+                        <div><b>上传地址：</b><code class="font-mono">POST ${UPLOAD_ENDPOINT}</code></div>
+                        <div><b>请求头：</b><code class="font-mono">X-API-Key: &lt;上述密钥&gt;</code></div>
+                        <div><b>Content-Type：</b><code class="font-mono">application/json</code></div>
+                    </div>
+                </div>
+                <div class="px-5 py-4 border-t bg-gray-50 flex justify-end">
+                    <button type="button" id="pdKeyDone" class="px-4 py-2 text-sm bg-gray-700 text-white rounded hover:bg-gray-800">我已保存</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 接口使用指导弹层（界面内容与「下载 MD 文档」同源：GUIDE_MD） -->
+        <div id="pdGuideModal" class="hidden fixed inset-0 bg-black bg-opacity-60 z-[60] flex items-center justify-center p-4">
+            <div class="bg-white rounded-lg shadow-2xl w-full max-w-4xl max-h-[88vh] flex flex-col">
+                <div class="px-5 py-4 border-b flex items-center justify-between">
+                    <h3 class="font-bold text-gray-800"><i class="fas fa-book-open text-indigo-500 mr-2"></i>接口使用指导（设备上传）</h3>
+                    <div class="flex items-center gap-2">
+                        <button type="button" id="pdGuideDownload" class="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"><i class="fas fa-download mr-1"></i>下载 MD 文档</button>
+                        <button type="button" data-pd-close class="text-gray-500 hover:text-gray-700" title="关闭"><i class="fas fa-times"></i></button>
+                    </div>
+                </div>
+                <div id="pdGuideBody" class="px-5 py-4 overflow-y-auto flex-1 min-h-0"></div>
+                <div class="px-5 py-3 border-t bg-gray-50 text-xs text-gray-500">本指导与「下载 MD 文档」内容同源（接口地址已按当前站点自动替换）；口径如有调整，以平台最新发布为准。</div>
+            </div>
+        </div>`;
+    }
+
+    function renderSchoolOptions() {
+        const sel = el('pdSchoolSelect');
+        if (!sel) return;
+        sel.innerHTML = '<option value="">— 请选择学校 —</option>' +
+            state.schools.map((s) => `<option value="${escapeHtml(s.code)}" ${s.code === state.schoolCode ? 'selected' : ''}>${escapeHtml(s.name || s.code)}（${escapeHtml(s.code)}）${s.status !== 'active' ? '［已停用］' : ''}</option>`).join('');
+    }
+
+    function renderRows() {
+        const tbody = el('pdDeviceRows');
+        const empty = el('pdEmptyHint');
+        if (!tbody) return;
+        if (!state.devices.length) {
+            tbody.innerHTML = '';
+            if (empty) empty.classList.remove('hidden');
+            return;
+        }
+        if (empty) empty.classList.add('hidden');
+        tbody.innerHTML = state.devices.map((d) => {
+            const active = d.status === 'active';
+            return `
+            <tr class="border-t hover:bg-gray-50">
+                <td class="px-4 py-3 font-medium font-mono">${escapeHtml(d.device_no)}</td>
+                <td class="px-4 py-3 text-gray-600">${escapeHtml(d.name || '—')}</td>
+                <td class="px-4 py-3 text-gray-600 text-xs font-mono">${escapeHtml(d.binding_user_id || '—')}</td>
+                <td class="px-4 py-3 text-gray-600">${escapeHtml(d.default_canteen || '—')}</td>
+                <td class="px-4 py-3 text-center">
+                    ${active
+                        ? '<span class="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">启用</span>'
+                        : `<span class="px-2 py-1 rounded-full text-xs font-medium bg-gray-200 text-gray-600" title="${escapeHtml(d.disabled_reason || '')}">停用</span>`}
+                </td>
+                <td class="px-4 py-3 text-xs font-mono text-gray-500">${escapeHtml(d.key_prefix)}…${escapeHtml(d.key_last4)}</td>
+                <td class="px-4 py-3 text-right">${Number(d.upload_count || 0)}</td>
+                <td class="px-4 py-3 text-gray-500 text-xs">${fmtTime(d.last_upload_at)}</td>
+                <td class="px-4 py-3 text-center whitespace-nowrap">
+                    <button class="px-2.5 py-1.5 text-xs bg-blue-50 text-blue-700 rounded hover:bg-blue-100" data-act="edit" data-id="${escapeHtml(d.id)}"><i class="fas fa-edit mr-1"></i>编辑</button>
+                    <button class="px-2.5 py-1.5 text-xs bg-amber-50 text-amber-700 rounded hover:bg-amber-100" data-act="rotate" data-id="${escapeHtml(d.id)}" title="轮换后旧密钥立即失效"><i class="fas fa-key mr-1"></i>轮换</button>
+                    <button class="px-2.5 py-1.5 text-xs ${active ? 'bg-gray-100 text-gray-600 hover:bg-gray-200' : 'bg-green-50 text-green-700 hover:bg-green-100'}" data-act="toggle" data-id="${escapeHtml(d.id)}">${active ? '停用' : '启用'}</button>
+                    <button class="px-2.5 py-1.5 text-xs bg-red-50 text-red-700 rounded hover:bg-red-100" data-act="del" data-id="${escapeHtml(d.id)}"><i class="fas fa-trash mr-1"></i>删除</button>
+                </td>
+            </tr>`;
+        }).join('');
+    }
+
+    function renderAll() {
+        renderSchoolOptions();
+        renderRows();
+    }
+
+    /* ─────────── 弹层 ─────────── */
+    function openModal(device) {
+        state.editing = device || null;
+        const modal = el('pdModal');
+        if (!modal) return;
+        el('pdModalTitle').textContent = device ? `编辑设备 ${device.device_no}` : '新增设备';
+        el('pdDeviceNo').value = device?.device_no || '';
+        el('pdDeviceNo').disabled = !!device;
+        el('pdName').value = device?.name || '';
+        // 绑定用户下拉（无用户列表时退化为手工输入 id）
+        const userSel = el('pdBindingUser');
+        if (state.users.length) {
+            userSel.innerHTML = state.users.map((u) =>
+                `<option value="${escapeHtml(u.id)}" ${device?.binding_user_id === u.id ? 'selected' : ''}>${escapeHtml(u.full_name || u.username)}（${escapeHtml(u.username)} / ${escapeHtml(u.role)}${u.status !== 'active' ? ' / 已停用' : ''}）</option>`).join('');
+        } else {
+            userSel.innerHTML = `<option value="${escapeHtml(device?.binding_user_id || '')}">${escapeHtml(device?.binding_user_id || '（未获取到用户列表，请手工输入用户 ID）')}</option>`;
+        }
+        // 默认食堂下拉
+        const canSel = el('pdDefaultCanteen');
+        const canteenOpts = ['<option value="">— 不设置 —</option>']
+            .concat(state.canteens.map((c) => `<option value="${escapeHtml(c)}" ${device?.default_canteen === c ? 'selected' : ''}>${escapeHtml(c)}</option>`));
+        canSel.innerHTML = canteenOpts.join('');
+        el('pdRateLimit').value = device?.rate_limit_per_min || 60;
+        el('pdIpWhitelist').value = Array.isArray(device?.ip_whitelist) ? device.ip_whitelist.join(',') : '';
+        modal.classList.remove('hidden');
+    }
+
+    function closeModal() {
+        el('pdModal')?.classList.add('hidden');
+        el('pdGuideModal')?.classList.add('hidden');
+        state.editing = null;
+    }
+
+    /* ─────────── 接口使用指导（界面与 MD 下载同源） ─────────── */
+    function openGuide() {
+        const body = el('pdGuideBody');
+        if (body) body.innerHTML = renderMdBlocks(GUIDE_MD.replace(/<平台域名>/g, location.origin).split('\n'));
+        el('pdGuideModal')?.classList.remove('hidden');
+    }
+
+    function downloadGuide() {
+        const text = GUIDE_MD.replace(/<平台域名>/g, location.origin);
+        const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `pathogen-device-api-guide-${new Date().toISOString().slice(0, 10)}.md`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+        notify('指导文档已下载（可直接交付设备方）', 'success');
+    }
+
+    function showKeyModal(plain, title) {
+        const modal = el('pdKeyModal');
+        if (!modal) return;
+        if (title && el('pdKeyModalTitle')) el('pdKeyModalTitle').textContent = title;
+        el('pdKeyPlain').value = plain;
+        modal.classList.remove('hidden');
+    }
+
+    /* ─────────── 统一上传密钥（B 方案） ─────────── */
+    async function loadPlatformKey() {
+        try {
+            const data = await api('/platform-key');
+            state.platformKey = data?.key || null;
+            renderPlatformKey();
+        } catch (e) {
+            const badge = el('pdPkBadge');
+            if (badge) { badge.textContent = '加载失败'; badge.className = 'ml-2 px-2 py-1 rounded-full text-xs font-medium bg-red-50 text-red-700'; }
+        }
+    }
+
+    function renderPlatformKey() {
+        const badge = el('pdPkBadge');
+        const meta = el('pdPkMeta');
+        const toggleBtn = document.querySelector('[data-act="pk-toggle"]');
+        const k = state.platformKey;
+        if (!badge) return;
+        if (!k) {
+            badge.textContent = '未创建';
+            badge.className = 'ml-2 px-2 py-1 rounded-full text-xs font-medium bg-gray-200 text-gray-600';
+            if (meta) meta.textContent = '';
+            if (toggleBtn) { toggleBtn.textContent = '停用'; toggleBtn.disabled = true; }
+            return;
+        }
+        const active = k.status === 'active';
+        badge.textContent = active ? '已启用' : '已停用';
+        badge.className = active
+            ? 'ml-2 px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700'
+            : 'ml-2 px-2 py-1 rounded-full text-xs font-medium bg-gray-200 text-gray-600';
+        if (meta) meta.textContent = `${k.key_prefix}…${k.key_last4}${k.last_used_at ? ` · 最近使用 ${fmtTime(k.last_used_at)}` : ''}`;
+        if (toggleBtn) { toggleBtn.textContent = active ? '停用' : '启用'; toggleBtn.disabled = false; }
+    }
+
+    async function createPlatformKey() {
+        const existing = state.platformKey && state.platformKey.status === 'active';
+        const msg = existing
+            ? '轮换统一上传密钥？\n\n新密钥仅显示一次；旧密钥立即失效，所有设备需同步更新配置。'
+            : '创建统一上传密钥？\n\n密钥仅显示一次，请立即抄录并配置到设备上传程序。';
+        if (!window.confirm(msg)) return;
+        try {
+            const data = await api('/platform-key', { method: 'POST', body: {} });
+            showKeyModal(data.apiKey, existing ? '统一上传密钥·新密钥（仅此一次展示）' : '统一上传密钥（仅此一次展示）');
+            notify(data.rotated ? '✅ 已轮换，旧密钥已失效' : '✅ 统一上传密钥已创建', 'success');
+            await loadPlatformKey();
+        } catch (e) {
+            notify(`创建失败：${e.message}`, 'error');
+        }
+    }
+
+    async function togglePlatformKey() {
+        const k = state.platformKey;
+        if (!k) return;
+        const next = k.status === 'active' ? 'disabled' : 'active';
+        if (next === 'disabled' && !window.confirm('停用统一上传密钥？\n\n停用后，使用该密钥的所有设备上传都将被拒绝（每设备密钥模式不受影响）。')) return;
+        try {
+            await api('/platform-key', { method: 'PATCH', body: { status: next } });
+            notify(next === 'active' ? '✅ 已启用' : '已停用', 'success');
+            await loadPlatformKey();
+        } catch (e) {
+            notify(`操作失败：${e.message}`, 'error');
+        }
+    }
+
+    async function submit() {
+        const deviceNo = el('pdDeviceNo').value.trim();
+        const bindingSel = el('pdBindingUser');
+        const bindingUserId = bindingSel.value;
+        const body = {
+            binding_user_id: bindingUserId,
+            name: el('pdName').value.trim(),
+            default_canteen: el('pdDefaultCanteen').value || null,
+            rate_limit_per_min: Number(el('pdRateLimit').value) || 60,
+            ip_whitelist: el('pdIpWhitelist').value.split(',').map((s) => s.trim()).filter(Boolean),
+        };
+        try {
+            if (state.editing) {
+                await api(`/${encodeURIComponent(state.editing.id)}`, { method: 'PATCH', body });
+                notify('✅ 设备已更新', 'success');
+                closeModal();
+            } else {
+                if (!deviceNo) { notify('请填写设备编号', 'error'); return; }
+                if (!state.schoolCode) { notify('请先选择学校租户', 'error'); return; }
+                body.device_no = deviceNo;
+                body.school_code = state.schoolCode;
+                const data = await api('', { method: 'POST', body });
+                closeModal();
+                if (data?.apiKey) showKeyModal(data.apiKey, '设备密钥（仅此一次展示）');
+                notify('✅ 设备已创建', 'success');
+            }
+            await load();
+        } catch (e) {
+            notify(`保存失败：${e.message}`, 'error');
+        }
+    }
+
+    async function rotate(id) {
+        const row = state.devices.find((d) => d.id === id);
+        if (!row) return;
+        if (!window.confirm(`轮换设备「${row.device_no}」的密钥？\n\n旧密钥将立即失效，设备须更换为新密钥后才能继续上报。`)) return;
+        try {
+            const data = await api(`/${encodeURIComponent(id)}/rotate-key`, { method: 'POST', body: {} });
+            if (data?.apiKey) showKeyModal(data.apiKey, '设备密钥·新密钥（仅此一次展示）');
+            notify('✅ 已轮换密钥', 'success');
+            await load();
+        } catch (e) {
+            notify(`轮换失败：${e.message}`, 'error');
+        }
+    }
+
+    async function toggle(id) {
+        const row = state.devices.find((d) => d.id === id);
+        if (!row) return;
+        const next = row.status === 'active' ? 'disabled' : 'active';
+        const reason = next === 'disabled' ? window.prompt('停用原因（可选）：') || '' : '';
+        try {
+            await api(`/${encodeURIComponent(id)}`, { method: 'PATCH', body: { status: next, disabled_reason: reason || null } });
+            notify(next === 'active' ? '✅ 已启用，设备可恢复上报' : '已停用，设备上报将被拒绝', 'success');
+            await load();
+        } catch (e) {
+            notify(`状态切换失败：${e.message}`, 'error');
+        }
+    }
+
+    async function remove(id) {
+        const row = state.devices.find((d) => d.id === id);
+        if (!row) return;
+        if (!window.confirm(`确认删除设备「${row.device_no}」？\n\n删除后该设备无法再上报；已上传的记录不受影响。`)) return;
+        try {
+            await api(`/${encodeURIComponent(id)}`, { method: 'DELETE' });
+            notify('🗑️ 设备已删除', 'success');
+            await load();
+        } catch (e) {
+            notify(`删除失败：${e.message}`, 'error');
+        }
+    }
+
+    async function exportConfig() {
+        try {
+            const data = await api('/export');
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `pathogen-devices-${new Date().toISOString().slice(0, 10)}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            notify('✅ 已导出（含密钥哈希，不含明文；用于灾后重建）', 'success');
+        } catch (e) {
+            notify(`导出失败：${e.message}`, 'error');
+        }
+    }
+
+    /* ─────────── 事件绑定（委托到宿主 section，避免重渲染失效） ─────────── */
+    function bindEvents() {
+        const host = el('adminViewPathogenDevices');
+        if (!host || host.dataset.pdBound === '1') return;
+        host.dataset.pdBound = '1';
+
+        host.addEventListener('click', async (ev) => {
+            if (ev.target.closest('[data-pd-close]')) { closeModal(); return; }
+            const btn = ev.target.closest('[data-act]');
+            if (!btn) return;
+            const act = btn.getAttribute('data-act');
+            const id = btn.getAttribute('data-id');
+            if (act === 'new') return openModal(null);
+            if (act === 'guide') return openGuide();
+            if (act === 'pk-create') return createPlatformKey();
+            if (act === 'pk-toggle') return togglePlatformKey();
+            if (act === 'refresh') { await loadSchools(); renderSchoolOptions(); await load(); return; }
+            if (act === 'export') return exportConfig();
+            if (act === 'edit') return openModal(state.devices.find((d) => d.id === id) || null);
+            if (act === 'rotate') return rotate(id);
+            if (act === 'toggle') return toggle(id);
+            if (act === 'del') return remove(id);
+        });
+
+        const schoolSel = el('pdSchoolSelect');
+        schoolSel?.addEventListener('change', async () => {
+            state.schoolCode = schoolSel.value;
+            await loadSchoolContext();
+            await load();
+        });
+
+        el('pdSaveBtn')?.addEventListener('click', submit);
+        el('pdKeyDone')?.addEventListener('click', () => el('pdKeyModal')?.classList.add('hidden'));
+        el('pdGuideDownload')?.addEventListener('click', downloadGuide);
+        el('pdKeyCopy')?.addEventListener('click', async () => {
+            try {
+                await navigator.clipboard.writeText(el('pdKeyPlain').value);
+                notify('已复制到剪贴板', 'success');
+            } catch {
+                el('pdKeyPlain').select();
+                notify('请手动复制', 'error');
+            }
+        });
+    }
+
+    renderSkeleton();
+    bindEvents();
+    loadPlatformKey();
+    (async () => {
+        try {
+            await loadSchools();
+            renderSchoolOptions();
+        } catch (e) {
+            notify(`学校列表加载失败：${e.message}`, 'error');
+        }
+    })();
+
+    return { reload: load };
+}
