@@ -34,6 +34,7 @@ import { createOpenApiRoutes } from './routes/openApiRoutes.js'
 import { createAdminOpenApiRoutes } from './routes/adminOpenApiRoutes.js'
 import { createAdminFriendlyLinkRoutes } from './routes/adminFriendlyLinkRoutes.js'
 import { createPublicFriendlyLinkRoutes } from './routes/publicFriendlyLinkRoutes.js'
+import { createPathogenDeviceUploadRoutes, createAdminPathogenDeviceRoutes } from './routes/pathogenDeviceRoutes.js'
 import { disconnectAllTenantClients } from './lib/tenantClient.js'
 import { syncAllTenantSchemas } from './lib/tenantSync.js'
 import { redactSecrets } from './lib/tenantProvisioner.js'
@@ -186,6 +187,9 @@ app.use(cors({
 app.use('/api/test-results/upload', express.json({ limit: process.env.BODY_LIMIT_UPLOAD || '30mb' }))
 // 问题反馈截图随反馈 JSON 一并提交（≤3 张、单张 5MB，base64 后约 20MB），同理在全局限制前放行
 app.use('/api/feedback', express.json({ limit: process.env.BODY_LIMIT_FEEDBACK || '25mb' }))
+// 病原体设备上报（VirusHunter2.0B）：单次报告含荧光数组，2MB 上限先于全局放行，
+// 超限由本路径级解析器以 413 拒绝（厂商文档：失败需返回可读原因，设备退避重试）
+app.use('/api/open/pathogen-device', express.json({ limit: '2mb' }))
 app.use(express.json({ limit: process.env.BODY_LIMIT || '8mb' }))
 
 // P1 维护模式写阻断：READONLY_MODE=true 时所有写请求返回 503（配合 Caddy 网关层双保险，
@@ -469,6 +473,27 @@ const adminFriendlyLinkRoutes = createAdminFriendlyLinkRoutes({ prisma, authenti
 app.use('/api/admin/friendly-links', adminFriendlyLinkRoutes)
 const publicFriendlyLinkRoutes = createPublicFriendlyLinkRoutes({ prisma, rateLimit })
 app.use('/api/public/friendly-links', publicFriendlyLinkRoutes)
+
+// ====== 病原体检测设备自动采集（VirusHunter2.0B 对接，2026-10-14）======
+// 背景：病原体检测由「手动导入 Word 报告」升级为「设备自动采集」。设备推送 JSON 至统一上传接口，
+//   按设备编号 → public.PathogenDevice.school_code 归属学校租户，物理隔离写入。
+// ① /api/admin/pathogen-devices —— 超管配置面（设备编号 CRUD / 密钥轮换 / 启停 / 导入导出；
+//    authenticateUser + requirePlatformSuperAdmin；数据权威副本在 public，绝不用 req.db）
+// ② /api/open/pathogen-device    —— 设备上传面（设备密钥认证，免人类 JWT；无租户信息暴露）
+// ⚠️ 挂载顺序同 Open API：必须在下方 `app.use('/api', recognitionRoutes)` **之前**，
+//    否则设备上传会被其全局 authenticateUser 拦成 401。
+const adminPathogenDeviceRoutes = createAdminPathogenDeviceRoutes({ prisma, authenticateUser, requirePlatformSuperAdmin })
+app.use('/api/admin/pathogen-devices', adminPathogenDeviceRoutes)
+const pathogenDeviceUploadRoutes = createPathogenDeviceUploadRoutes({ prisma })
+app.use('/api/open/pathogen-device', pathogenDeviceUploadRoutes)
+// 上传体超 2MB：body-parser 的 PayloadTooLargeError 转为厂商口径 413（可读原因；设备退避重试或修正数据），
+// 否则会落到全局错误处理器变成无信息量的 500。仅覆盖本路径，其余错误继续向后传递。
+app.use('/api/open/pathogen-device', (err, req, res, next) => {
+    if (err && (err.type === 'entity.too.large' || err.status === 413 || err.statusCode === 413)) {
+        return res.status(413).json({ code: 'PAYLOAD_TOO_LARGE', message: '请求体超过 2MB 上限，请检查荧光数组等字段大小', data: null })
+    }
+    next(err)
+})
 
 // ====== Test Result Routes（临时测试工具：测试结果上报，任意登录用户）======
 const testResultRoutes = createTestResultRoutes(userManager, prisma)
