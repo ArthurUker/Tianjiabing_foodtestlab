@@ -62,6 +62,10 @@ docs/reviews/global-audit-20260924/phase3/*
 !docs/reviews/global-audit-20260924/phase3/*INPUT_MANIFEST.json
 !docs/reviews/global-audit-20260924/phase3/AUDIT_EVIDENCE_MANIFEST.json
 
+# 全仓审查 run01（2026-10-08 起）：工作底稿与原始证据（含生产环境现场、截图、库表快照），
+# 默认不入库；需发布时人工筛选产物后 `git add -f`（沿用 global-audit-20260924 的放行惯例）。
+docs/reviews/full-repository-review-20261008-run01/*
+
 # Review documents required by the published historical read order.
 !docs/AI_review/REVIEW_CONTINUITY_HANDOFF.md
 !docs/AI_review/ORGANIZATION_MAP.json
