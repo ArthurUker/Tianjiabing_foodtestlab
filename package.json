@@ -28,7 +28,7 @@
     "format": "prettier --write .",
     "build:css": "tailwindcss -i ./frontend/css/tailwind.input.css -o ./frontend/css/tailwind.css --minify",
     "watch:css": "tailwindcss -i ./frontend/css/tailwind.input.css -o ./frontend/css/tailwind.css --watch",
-    "build": "node scripts/build-static.js && npm run build:css",
+    "build": "npm run build:css && node scripts/build-static.js",
     "build:dev": "node scripts/build-static.js",
     "build:prod": "node scripts/build-static.js",
     "db:sync": "node backend/sync-tenant-schemas.mjs",

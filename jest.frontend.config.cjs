@@ -6,10 +6,11 @@
  * → 入口“名不副实且静默落空”。本配置把它改为**显式失败**：没有前端套件时以非零退出并给出指引，
  * 既不伪装成通过，也不删除既有入口声明（替代入口 = 本配置 + docs/TEST_DATABASE_ISOLATION.md §10）。
  *
- * 运行：npm run test:frontend（在补充 tests/frontend/**\/*.test.js 之前，预期 rc≠0 且无任何用例执行）
+ * 运行：npm run test:frontend（2026-10-14 起已有首个前端套件 tests/frontend/pathogenGuide.test.js；
+ * 仍保持 passWithNoTests:false——套件被清空时显式失败，不伪装通过）
  */
 module.exports = {
-  displayName: 'frontend (no suite yet — fail-closed)',
+  displayName: 'frontend',
   testEnvironment: 'jsdom',
   testMatch: ['<rootDir>/tests/frontend/**/*.test.js'],
   passWithNoTests: false,
