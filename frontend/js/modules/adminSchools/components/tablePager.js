@@ -1,13 +1,14 @@
 /**
- * 通用表格分页组件
+ * 通用表格分页组件（全系统统一：超管控制台各列表 + 学校管理控制台共用同一套交互）
  * - 支持客户端分页（传入 total）与服务器端分页（外部设置 total）
- * - 统一 UI：显示信息、每页条数、上一页/下一页、页码按钮、跳转输入
+ * - 统一 UI：显示信息、每页条数（默认档位 10/20/50/100/200）、上一页/下一页、页码按钮、跳转输入
+ * - 需要其它档位（如卡片网格 6/12/24/48）时显式传 perPageOptions 覆盖
  */
 export class TablePager {
     constructor(options = {}) {
         this.id = options.id || `pager-${Math.random().toString(36).slice(2, 9)}`;
         this.containerId = options.containerId;
-        this.perPageOptions = options.perPageOptions || [5, 10, 20, 50];
+        this.perPageOptions = options.perPageOptions || [10, 20, 50, 100, 200];
         this.defaultPerPage = options.defaultPerPage || 10;
         this.showPerPage = options.showPerPage !== false;
         this.showJump = options.showJump !== false;
@@ -68,6 +69,14 @@ export class TablePager {
         return this;
     }
 
+    /** 下拉档位：perPageOptions ∪ 当前值（保证 defaultPerPage=15 这类非档位默认值也能正确选中），数值升序 */
+    _perPageValues() {
+        const values = [...this.perPageOptions, this.perPage]
+            .map((n) => Number(n))
+            .filter((n) => Number.isFinite(n) && n > 0);
+        return [...new Set(values)].sort((a, b) => a - b);
+    }
+
     _html() {
         const id = this.id;
         return `
@@ -78,7 +87,7 @@ export class TablePager {
                         <label class="flex items-center gap-1 text-sm text-gray-600">
                             每页
                             <select id="${id}_perPage" class="border border-gray-300 rounded px-2 py-1 text-sm bg-white/80">
-                                ${this.perPageOptions.map((n) => `<option value="${n}" ${n === this.perPage ? 'selected' : ''}>${n}</option>`).join('')}
+                                ${this._perPageValues().map((n) => `<option value="${n}" ${n === this.perPage ? 'selected' : ''}>${n}</option>`).join('')}
                             </select>
                             条
                         </label>
@@ -155,6 +164,10 @@ export class TablePager {
         const next = document.getElementById(`${id}_next`);
         if (prev) prev.disabled = this.page <= 1;
         if (next) next.disabled = this.page >= this.totalPages;
+
+        // 跳转输入上限随总页数收敛，越界页号由浏览器原生校验提示（不再静默丢弃）
+        const jumpInput = document.getElementById(`${id}_jumpInput`);
+        if (jumpInput) jumpInput.max = String(this.totalPages);
 
         const pages = document.getElementById(`${id}_pages`);
         if (pages) pages.innerHTML = this._renderPageButtons();

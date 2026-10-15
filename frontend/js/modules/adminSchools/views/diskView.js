@@ -1,5 +1,5 @@
 /*
-* 磁盘管理视图（2026-08-27 容量策略配套；v2 批量筛选删除）
+* 磁盘管理视图（2026-08-27 容量策略配套；v2 批量筛选删除；v3 通用分页）
 * ------------------------------------------------------------
 * 控制台左侧「磁盘管理」入口：数据盘/系统盘水位、journal、日志文件、按天备份的
 * 查看与人工清理（所有数据不再被上限机制自动删除，清理动作一律人工触发+审计）。
@@ -10,8 +10,14 @@
 *   - 备份：按年筛选、按月分组（全选本月/删除本月）、多选天、删除所选天
 *     （批量删除走 days[] 数组端点，一次请求；月/范围删除=前端换算成天数集合）
 *
+* v3 分页（2026-10-13）：三张数据表（日志文件 / 租户业务日志统计 / 备份按天）统一接入
+*   系统通用分页组件 components/tablePager.js —— 每页 10/20/50/100/200 条、上一页/下一页、
+*   页码按钮、跳转指定页，与「备份运维」各列表同一设计风格与交互方式。
+*
 * 后端：/api/admin/disk/*（super_admin；变更操作写 AdminOpsLog 审计）
 */
+
+import { TablePager, paginateArray } from '../components/tablePager.js';
 
 function escapeHtml(s) {
     if (s == null) return '';
@@ -53,6 +59,17 @@ export function initDiskView({ API_BASE, authHeaders, notify }) {
         selDays: new Set(),              // 备份天选择
         backupDays: [],                  // [{day,size,count}]
     };
+
+    // 系统通用分页组件实例（每个列表独立；容器由骨架渲染，首次渲染列表时挂载）
+    const pagers = { logs: null, audit: null, backups: null };
+
+    /** 懒挂载分页器：每页档位走 TablePager 系统默认（10/20/50/100/200 条），默认 20 条/页 */
+    function usePager(key, containerId, onChange) {
+        if (!pagers[key]) {
+            pagers[key] = new TablePager({ id: `disk_${key}`, containerId, defaultPerPage: 20, onChange }).mount();
+        }
+        return pagers[key];
+    }
 
     async function api(path, opts = {}) {
         const resp = await fetch(`${API_BASE}/api/admin/disk${path}`, {
@@ -161,7 +178,8 @@ export function initDiskView({ API_BASE, authHeaders, notify }) {
                     </span>
                 </div>
                 <div id="diskLogSummary" class="text-xs text-gray-500 mb-2"></div>
-                <div id="diskLogFiles" class="text-sm text-gray-600 max-h-[420px] overflow-y-auto">加载中…</div>
+                <div id="diskLogFiles" class="text-sm text-gray-600 overflow-x-auto">加载中…</div>
+                <div id="diskLogPager" class="mt-3"></div>
             </div>
 
             <div class="admin-card mb-4">
@@ -182,7 +200,8 @@ export function initDiskView({ API_BASE, authHeaders, notify }) {
                     </div>
                 </div>
                 <div id="diskAuditSummary" class="text-xs text-gray-500 mb-2">默认<b>全部学校、按日</b>展示「期间 × 学校 → 条数 + 估算占用」（占用 = 表平均行宽×行数，含索引，供清理决策参考）；<b>截止日期</b>仅作用于导出/删除</div>
-                <div id="diskAuditTable" class="text-sm text-gray-600">加载中…</div>
+                <div id="diskAuditTable" class="text-sm text-gray-600 overflow-x-auto">加载中…</div>
+                <div id="diskAuditPager" class="mt-3"></div>
                 <div class="flex items-center gap-2 mt-3">
                     <button id="diskAuditExport" type="button" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"><i class="fas fa-file-export mr-1"></i>导出留档</button>
                     <button id="diskAuditDelete" type="button" class="px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 transition"><i class="fas fa-trash mr-1"></i>删除已留档部分</button>
@@ -204,25 +223,26 @@ export function initDiskView({ API_BASE, authHeaders, notify }) {
                     </div>
                 </div>
                 <div id="diskBkSummary" class="text-xs text-gray-500 mb-2"></div>
-                <div id="diskBackupDays" class="text-sm text-gray-600 max-h-[420px] overflow-y-auto">加载中…</div>
+                <div id="diskBackupDays" class="text-sm text-gray-600 overflow-x-auto">加载中…</div>
+                <div id="diskBkPager" class="mt-3"></div>
             </div>
         </div>`;
 
         const $ = (id) => document.getElementById(id);
         $('diskRefresh')?.addEventListener('click', () => load());
         $('diskJournalVacuum')?.addEventListener('click', () => vacuumJournal());
-        // 日志筛选绑定
-        $('diskLogGroup')?.addEventListener('change', (e) => { state.f.group = e.target.value; renderLogs(); });
-        $('diskLogStatus')?.addEventListener('change', (e) => { state.f.status = e.target.value; renderLogs(); });
-        $('diskLogFrom')?.addEventListener('change', (e) => { state.f.from = e.target.value; renderLogs(); });
-        $('diskLogTo')?.addEventListener('change', (e) => { state.f.to = e.target.value; renderLogs(); });
+        // 日志筛选绑定（筛选条件变化一律回到第 1 页，避免停留在越界页）
+        $('diskLogGroup')?.addEventListener('change', (e) => { state.f.group = e.target.value; applyLogFilter(); });
+        $('diskLogStatus')?.addEventListener('change', (e) => { state.f.status = e.target.value; applyLogFilter(); });
+        $('diskLogFrom')?.addEventListener('change', (e) => { state.f.from = e.target.value; applyLogFilter(); });
+        $('diskLogTo')?.addEventListener('change', (e) => { state.f.to = e.target.value; applyLogFilter(); });
         $('diskLogPreset7')?.addEventListener('click', () => { setLogPreset(7); });
         $('diskLogPreset30')?.addEventListener('click', () => { setLogPreset(30); });
         $('diskLogClearFilter')?.addEventListener('click', () => {
             state.f = { group: 'all', status: 'all', from: '', to: '' };
             $('diskLogGroup').value = 'all'; $('diskLogStatus').value = 'all';
             $('diskLogFrom').value = ''; $('diskLogTo').value = '';
-            renderLogs();
+            applyLogFilter();
         });
         $('diskLogSelFiltered')?.addEventListener('click', () => {
             for (const f of filteredLogs()) state.selLogs.add(f.path);
@@ -230,8 +250,8 @@ export function initDiskView({ API_BASE, authHeaders, notify }) {
         });
         $('diskLogSelNone')?.addEventListener('click', () => { state.selLogs.clear(); renderLogs(); });
         $('diskLogsDelete')?.addEventListener('click', () => deleteSelectedLogs());
-        // 备份筛选与批量绑定
-        $('diskBkYear')?.addEventListener('change', () => renderBackups());
+        // 备份筛选与批量绑定（换年份回到第 1 页）
+        $('diskBkYear')?.addEventListener('change', () => { pagers.backups?.setPage(1); renderBackups(); });
         $('diskBkSelAll')?.addEventListener('click', () => {
             for (const b of filteredBackupDays()) state.selDays.add(b.day);
             renderBackups();
@@ -249,9 +269,16 @@ export function initDiskView({ API_BASE, authHeaders, notify }) {
                 $('diskAuditGran').querySelectorAll('button[data-g]').forEach((b) => {
                     b.className = 'px-3 py-1.5 text-sm ' + (b === btn ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100');
                 });
+                pagers.audit?.setPage(1);   // 粒度变化 → 行集合完全变化，回到第 1 页
                 loadAuditStats();
             });
         });    }
+
+    /** 日志筛选条件变化：先回到第 1 页再渲染（分页与筛选结果保持一致） */
+    function applyLogFilter() {
+        pagers.logs?.setPage(1);
+        renderLogs();
+    }
 
     function setLogPreset(days) {
         const to = new Date();
@@ -260,7 +287,7 @@ export function initDiskView({ API_BASE, authHeaders, notify }) {
         const fe = document.getElementById('diskLogFrom'), te = document.getElementById('diskLogTo');
         if (fe) fe.value = state.f.from;
         if (te) te.value = state.f.to;
-        renderLogs();
+        applyLogFilter();
     }
 
     /* ─────────── 总览 ─────────── */
@@ -319,13 +346,17 @@ export function initDiskView({ API_BASE, authHeaders, notify }) {
         const el = document.getElementById('diskLogFiles');
         if (!el) return;
         const filtered = filteredLogs();
-        const selFiltered = filtered.filter((f) => state.selLogs.has(f.path));
-        const selBytes = [...state.selLogs].reduce((s, p) => s + (state.logs.find((f) => f.path === p)?.size || 0), 0);
+        const pager = usePager('logs', 'diskLogPager', () => renderLogs());
+        const p = paginateArray(filtered, pager.page, pager.perPage);
+        pager.setTotal(p.total).setPage(p.page);
+
+        const selBytes = [...state.selLogs].reduce((s, path) => s + (state.logs.find((f) => f.path === path)?.size || 0), 0);
         const sumEl = document.getElementById('diskLogSummary');
         if (sumEl) sumEl.textContent = `筛选结果 ${filtered.length} 个 / 共 ${state.logs.length} 个 · 已勾选 ${state.selLogs.size} 个（${fmtBytes(selBytes)}）`;
         const btn = document.getElementById('diskLogsDelete');
         if (btn) btn.disabled = state.selLogs.size === 0;
 
+        // 分组头按「筛选结果」整组统计（不随分页变化），表格行只渲染当前页
         const groups = [
             { key: 'app', title: '应用日志（/mnt/datadisk0/foodsentinel/logs）· 单进程多租户混合输出（含 3 校+超管，不分校）+ 定时任务输出', files: filtered.filter((f) => f.group === 'app') },
             { key: 'rsyslog', title: 'rsyslog（/mnt/datadisk0/system-logs/syslog）· 操作系统级（SSH/内核/cron，与应用无关）', files: filtered.filter((f) => f.group === 'rsyslog') },
@@ -333,9 +364,15 @@ export function initDiskView({ API_BASE, authHeaders, notify }) {
         let rows = '';
         for (const g of groups) {
             if (state.f.group !== 'all' && state.f.group !== g.key) continue;
+            const pageFiles = p.data.filter((f) => f.group === g.key);
+            const emptyGroup = !g.files.length;
+            if (!emptyGroup && !pageFiles.length) continue;   // 该来源本页无行（数据在其它页）
             rows += `<tr class="bg-gray-50"><td colspan="4" class="py-1.5 px-2 text-xs font-semibold text-gray-500">${escapeHtml(g.title)} · 合计 ${fmtBytes(g.files.reduce((s, f) => s + f.size, 0))}</td></tr>`;
-            if (!g.files.length) rows += `<tr><td colspan="4" class="py-1.5 px-2 text-xs text-gray-400">（无匹配文件）</td></tr>`;
-            for (const f of g.files) {
+            if (emptyGroup) {
+                rows += `<tr><td colspan="4" class="py-1.5 px-2 text-xs text-gray-400">（无匹配文件）</td></tr>`;
+                continue;
+            }
+            for (const f of pageFiles) {
                 const active = !f.rotated;
                 rows += `<tr class="border-b last:border-0">
                     <td class="py-1.5 px-2 w-8"><input type="checkbox" class="disk-log-check rounded" value="${escapeHtml(f.path)}" ${state.selLogs.has(f.path) ? 'checked' : ''} /></td>
@@ -377,6 +414,10 @@ export function initDiskView({ API_BASE, authHeaders, notify }) {
         }
 
         const list = filteredBackupDays();
+        const pager = usePager('backups', 'diskBkPager', () => renderBackups());
+        const p = paginateArray(list, pager.page, pager.perPage);
+        pager.setTotal(p.total).setPage(p.page);
+
         const selDaysList = [...state.selDays];
         const selSize = selDaysList.reduce((s, d) => s + (state.backupDays.find((b) => b.day === d)?.size || 0), 0);
         const sumEl = document.getElementById('diskBkSummary');
@@ -387,23 +428,31 @@ export function initDiskView({ API_BASE, authHeaders, notify }) {
         if (!list.length) { el.innerHTML = '<p class="text-xs text-gray-400 py-2">（无匹配备份）</p>'; return; }
 
         // 按月分组渲染：月份头行（全选本月/删除本月）+ 天行（勾选）
+        // byMonth=筛选结果整月（「全选本月/删除本月」跨页仍作用整月）；pageMonths=当前页的天
         const byMonth = new Map();
         for (const b of list) {
             const m = b.day.slice(0, 7);
             if (!byMonth.has(m)) byMonth.set(m, []);
             byMonth.get(m).push(b);
         }
+        const pageMonths = new Map();
+        for (const b of p.data) {
+            const m = b.day.slice(0, 7);
+            if (!pageMonths.has(m)) pageMonths.set(m, []);
+            pageMonths.get(m).push(b);
+        }
         let rows = '';
-        for (const [month, days] of [...byMonth.entries()].sort((a, b) => a[0] < b[0] ? 1 : -1)) {
-            const mSize = days.reduce((s, b) => s + b.size, 0);
-            const allChecked = days.every((b) => state.selDays.has(b.day));
+        for (const [month, days] of [...pageMonths.entries()].sort((a, b) => a[0] < b[0] ? 1 : -1)) {
+            const monthDays = byMonth.get(month) || days;
+            const mSize = monthDays.reduce((s, b) => s + b.size, 0);
+            const allChecked = monthDays.every((b) => state.selDays.has(b.day));
             rows += `<tr class="bg-gray-50">
                 <td colspan="3" class="py-1.5 px-2 text-xs font-semibold text-gray-500">
                     <label class="inline-flex items-center gap-1 mr-3">
                         <input type="checkbox" class="disk-month-check rounded" data-month="${month}" ${allChecked ? 'checked' : ''} />
                         ${escapeHtml(month)} 全选本月
                     </label>
-                    共 ${days.length} 天 · ${fmtBytes(mSize)}
+                    共 ${monthDays.length} 天 · ${fmtBytes(mSize)}
                 </td>
                 <td class="py-1.5 px-2 text-right"><button type="button" class="disk-month-del px-2 py-1 text-xs bg-red-50 text-red-700 rounded hover:bg-red-100 transition" data-month="${month}"><i class="fas fa-trash mr-1"></i>删除本月</button></td>
             </tr>`;
@@ -539,7 +588,7 @@ export function initDiskView({ API_BASE, authHeaders, notify }) {
 
     /** 按粒度 × 学校统计条数与估算占用（长表：期间×学校） */
     async function loadAuditStats() {
-        const { schoolCode, before } = auditParams();
+        const { schoolCode } = auditParams();
         const scopeCode = schoolCode || 'all';
         const gran = auditState.gran || 'day';
         const msg = document.getElementById('diskAuditMsg');
@@ -548,48 +597,68 @@ export function initDiskView({ API_BASE, authHeaders, notify }) {
             const q = new URLSearchParams({ schoolCode: scopeCode, granularity: gran });
             const d = await api(`/audit-logs/usage?${q}`);
             auditState.usage = d;
-            const el = document.getElementById('diskAuditTable');
-            const okSchools = d.schools.filter((s) => !s.error);
-            if (el) {
-                if (!d.rows.length) {
-                    el.innerHTML = '<p class="text-xs text-gray-400 py-2">（范围内无审计日志）</p>';
-                } else {
-                    // 长表：按期间倒序、同期间内按学校；附期间小计
-                    let html = `<table class="w-full text-sm">
-                        <thead><tr class="text-left text-gray-500 border-b">
-                            <th class="py-2">期间（${gran === 'day' ? '按日' : gran === 'week' ? '按周' : '按月'}）</th>
-                            <th>学校</th><th>条数</th><th>估算占用</th></tr></thead>
-                        <tbody>`;
-                    let curPeriod = null, pCount = 0, pBytes = 0;
-                    const flush = () => {
-                        if (curPeriod !== null && d.scope === 'all') {
-                            html += `<tr class="bg-gray-50 text-xs text-gray-500"><td colspan="2" class="py-1 px-2">${escapeHtml(curPeriod)} 小计</td><td>${pCount}</td><td>${fmtBytes(pBytes)}</td></tr>`;
-                        }
-                    };
-                    for (const r of d.rows) {
-                        const p = periodLabel(r.period, gran);
-                        if (p !== curPeriod) { flush(); curPeriod = p; pCount = 0; pBytes = 0; }
-                        pCount += r.count; pBytes += r.estBytes;
-                        html += `<tr class="border-b last:border-0">
-                            <td class="py-1.5 font-mono">${escapeHtml(p)}</td>
-                            <td class="font-mono">${escapeHtml(r.schoolCode)}</td>
-                            <td>${r.count}</td>
-                            <td>${fmtBytes(r.estBytes)}</td>
-                        </tr>`;
-                    }
-                    flush();
-                    const totalN = d.rows.reduce((s, r) => s + r.count, 0);
-                    const totalB = d.rows.reduce((s, r) => s + r.estBytes, 0);
-                    html += `<tr class="bg-blue-50 font-semibold"><td class="py-1.5" colspan="2">合计（${okSchools.length} 校 / ${d.rows.length} 行）</td><td>${totalN}</td><td>${fmtBytes(totalB)}</td></tr>`;
-                    html += '</tbody></table>';
-                    el.innerHTML = html;
-                }
-            }
+            renderAuditUsage();
             if (msg) msg.textContent = `统计完成（范围：${schoolLabel(scopeCode)}，粒度：按${gran === 'day' ? '日' : gran === 'week' ? '周' : '月'}）`;
         } catch (e) {
             if (msg) msg.textContent = `统计失败：${e.message}`;
             notify(e.message || '统计失败', 'error');
         }
+    }
+
+    /** 渲染统计长表（数据取自 auditState.usage）：分页只渲染当前页，期间小计/合计按完整数据计算 */
+    function renderAuditUsage() {
+        const d = auditState.usage;
+        const el = document.getElementById('diskAuditTable');
+        if (!d || !el) return;
+        const gran = auditState.gran || 'day';
+        const pager = usePager('audit', 'diskAuditPager', () => renderAuditUsage());
+        const p = paginateArray(d.rows, pager.page, pager.perPage);
+        pager.setTotal(p.total).setPage(p.page);
+
+        if (!d.rows.length) {
+            el.innerHTML = '<p class="text-xs text-gray-400 py-2">（范围内无审计日志）</p>';
+            return;
+        }
+
+        // 期间小计按完整期间计算（跨页仍准确）；lastIndexOfPeriod=该期间最后一行的下标，小计行跟在该行之后
+        const periodAgg = new Map();
+        const lastIndexOfPeriod = new Set();
+        d.rows.forEach((r, i) => {
+            const key = periodLabel(r.period, gran);
+            const agg = periodAgg.get(key) || { count: 0, bytes: 0 };
+            agg.count += r.count;
+            agg.bytes += r.estBytes;
+            periodAgg.set(key, agg);
+            const next = d.rows[i + 1];
+            if (!next || periodLabel(next.period, gran) !== key) lastIndexOfPeriod.add(i);
+        });
+
+        const okSchools = d.schools.filter((s) => !s.error);
+        const offset = (p.page - 1) * p.perPage;
+        // 长表：按期间倒序、同期间内按学校；附期间小计
+        let html = `<table class="w-full text-sm">
+            <thead><tr class="text-left text-gray-500 border-b">
+                <th class="py-2">期间（${gran === 'day' ? '按日' : gran === 'week' ? '按周' : '按月'}）</th>
+                <th>学校</th><th>条数</th><th>估算占用</th></tr></thead>
+            <tbody>`;
+        p.data.forEach((r, i) => {
+            const label = periodLabel(r.period, gran);
+            html += `<tr class="border-b last:border-0">
+                <td class="py-1.5 font-mono">${escapeHtml(label)}</td>
+                <td class="font-mono">${escapeHtml(r.schoolCode)}</td>
+                <td>${r.count}</td>
+                <td>${fmtBytes(r.estBytes)}</td>
+            </tr>`;
+            if (d.scope === 'all' && lastIndexOfPeriod.has(offset + i)) {
+                const agg = periodAgg.get(label) || { count: 0, bytes: 0 };
+                html += `<tr class="bg-gray-50 text-xs text-gray-500"><td colspan="2" class="py-1 px-2">${escapeHtml(label)} 小计</td><td>${agg.count}</td><td>${fmtBytes(agg.bytes)}</td></tr>`;
+            }
+        });
+        const totalN = d.rows.reduce((s, r) => s + r.count, 0);
+        const totalB = d.rows.reduce((s, r) => s + r.estBytes, 0);
+        html += `<tr class="bg-blue-50 font-semibold"><td class="py-1.5" colspan="2">合计（${okSchools.length} 校 / ${d.rows.length} 行）</td><td>${totalN}</td><td>${fmtBytes(totalB)}</td></tr>`;
+        html += '</tbody></table>';
+        el.innerHTML = html;
     }
 
     async function exportAuditLogs() {
