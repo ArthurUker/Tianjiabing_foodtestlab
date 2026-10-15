@@ -838,7 +838,10 @@ function showEditModal(record, currentUser) {
                 </div>
                 <div class="grid grid-cols-2 gap-2 text-xs mb-2">
                     <div><span class="text-gray-600">检测日期:</span> ${rep.testDate}</div>
-                    <div><span class="text-gray-600">检测员:</span> ${rep.inspector}</div>
+                    <div>
+                        <span class="text-gray-600">检测员:</span> ${escapeHtml(rep.inspector || '-')}
+                        ${rep.inspectorChanged ? `<span class="ml-1 text-amber-700">（初检：${escapeHtml(rep.prevInspector || '-')}）</span>` : ''}
+                    </div>
                     <div class="col-span-2">
                         <span class="text-gray-600">阳性项:</span> 
                         <span class="font-medium ${getRecheckTextClass(rep.riskLevel)}">${rep.positiveItems}</span>
@@ -1331,25 +1334,41 @@ function showDetailModal(recordId) {
     if (record.recheckReports && record.recheckReports.length > 0) {
         recheckCards = record.recheckReports.map((rep, idx) => {
             const recheckNum = record.recheckReports.length - idx;
+            // TD-DeviceRound（2026-10-15）：设备复测轮次与手动复检共用本卡片。
+            // 设备轮次额外呈现「芯片编号 / 检测时段 / 上传时间」，用于区分第一轮与复测。
+            const isDeviceRound = rep.source === 'device';
             const borderColor = rep.isPassed ? 'border-green-300' : 'border-red-300';
-            const badgeColor = rep.isPassed ? 'bg-green-600' : 'bg-red-600';
+            const badgeColor = isDeviceRound ? 'bg-indigo-600' : (rep.isPassed ? 'bg-green-600' : 'bg-red-600');
             const textColor = rep.isPassed ? 'text-green-600' : 'text-red-600';
-            
+            const roundTitle = isDeviceRound
+                ? escapeHtml(rep.roundLabel || `第 ${rep.roundNo || recheckNum + 1} 次检测`)
+                : `复检 ${recheckNum}`;
+            // TD-DeviceInspector（2026-10-15）：复测可能换人——检测员变更须在结果上显式体现
+            const inspectorBadge = (isDeviceRound && rep.inspectorChanged)
+                ? `<span class="px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-700" title="初检检测员：${escapeHtml(rep.prevInspector || '-')}">检测员变更</span>`
+                : '';
+            const subLine = isDeviceRound
+                ? `<span class="text-xs text-gray-500">芯片: ${escapeHtml(rep.chipNumber || '-')}</span>
+                   <span class="text-xs text-gray-500">检测时段: ${escapeHtml(rep.detectionStartAt || '-')} ~ ${escapeHtml(rep.detectionEndAt || '-')}</span>
+                   <span class="text-xs text-gray-500">上传时间: ${escapeHtml(rep.importTime || '-')}</span>
+                   ${inspectorBadge}`
+                : `<span class="text-xs text-gray-500">导入时间: ${escapeHtml(rep.importTime || '')}</span>`;
+
             return `
                 <div class="border-2 ${borderColor} rounded-lg p-4 ${getRiskColorClass(rep.riskLevel)} mb-3">
                     <div class="flex justify-between items-center mb-3">
-                        <div class="flex items-center">
-                            <span class="${badgeColor} text-white px-3 py-1 rounded-full text-xs font-bold mr-3">
-                                复检 ${recheckNum}
+                        <div class="flex items-center flex-wrap gap-2">
+                            <span class="${badgeColor} text-white px-3 py-1 rounded-full text-xs font-bold">
+                                ${roundTitle}
                             </span>
                             <span class="text-sm font-medium ${textColor}">
-                                ${rep.isPassed ? '✓ 复检通过' : '⚠ ' + rep.riskLevel}
+                                ${rep.isPassed ? '✓ 通过' : '⚠ ' + rep.riskLevel}
                             </span>
-                            <span class="text-xs text-gray-500 ml-3">导入时间: ${rep.importTime}</span>
+                            ${subLine}
                         </div>
-                        <button class="view-test-detail ${rep.isPassed ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'} text-white px-4 py-1.5 rounded text-sm flex items-center" 
+                        <button class="view-test-detail ${rep.isPassed ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'} text-white px-4 py-1.5 rounded text-sm flex items-center"
                                 data-test='${JSON.stringify({
-                                    title: `复检 ${recheckNum} 数据`,
+                                    title: isDeviceRound ? `${rep.roundLabel || '复测'} 数据` : `复检 ${recheckNum} 数据`,
                                     testDate: rep.testDate,
                                     sampleId: rep.sampleId,
                                     inspector: rep.inspector,
@@ -1359,7 +1378,13 @@ function showDetailModal(recordId) {
                                     riskReason: rep.riskReason,
                                     isPassed: rep.isPassed,
                                     importTime: rep.importTime,
-                                    importUser: rep.importUser
+                                    importUser: rep.importUser,
+                                    chipNumber: rep.chipNumber,
+                                    chipName: rep.chipName,
+                                    detectionStartAt: rep.detectionStartAt,
+                                    detectionEndAt: rep.detectionEndAt,
+                                    reportFile: rep.reportFile,
+                                    deviceNo: rep.deviceNo
                                 }).replace(/'/g, "&#39;")}'>
                             <i class="fas fa-eye mr-1"></i> 查看完整数据
                         </button>
@@ -1374,8 +1399,11 @@ function showDetailModal(recordId) {
                             <div class="font-medium text-gray-800 mt-1">${rep.sampleId}</div>
                         </div>
                         <div class="bg-white p-2 rounded">
-                            <span class="text-gray-500">检测员</span>
-                            <div class="font-medium text-gray-800 mt-1">${rep.inspector}</div>
+                            <span class="text-gray-500">检测员${isDeviceRound && rep.inspectorChanged ? '（与初检不同）' : ''}</span>
+                            <div class="font-medium text-gray-800 mt-1">
+                                ${escapeHtml(rep.inspector || '-')}
+                                ${isDeviceRound && rep.inspectorChanged ? `<span class="ml-1 text-xs text-amber-700">初检：${escapeHtml(rep.prevInspector || '-')}</span>` : ''}
+                            </div>
                         </div>
                         <div class="bg-white p-2 rounded">
                             <span class="text-gray-500">阳性项</span>
@@ -1415,6 +1443,23 @@ function showDetailModal(recordId) {
         </div>
     ` : '';
 
+    // TD-DeviceReview（2026-10-15）：同芯片编号重复上报且内容不一致 → 提醒人工复核
+    const reviewBanner = (Array.isArray(record.reviewFlags) && record.reviewFlags.length > 0) ? `
+        <div class="mb-4 p-3 rounded border bg-red-50 border-red-300">
+            <div class="flex items-start">
+                <i class="fas fa-exclamation-triangle text-red-600 mr-2 mt-0.5"></i>
+                <div class="text-sm text-red-800">
+                    <div class="font-bold">芯片编号重复，请人工复核（${record.reviewFlags.length} 次）</div>
+                    <div class="text-xs mt-1">
+                        最近一次：芯片 ${escapeHtml(record.reviewFlags[0].chip_number || '-')} ·
+                        上报样本编号 ${escapeHtml(record.reviewFlags[0].attempted_sample_id || '-')} ·
+                        ${escapeHtml((record.reviewFlags[0].at || '').slice(0, 19).replace('T', ' '))}
+                    </div>
+                    <div class="text-xs mt-1">该芯片编号已有数据且本次上报内容不一致；第二张同编号芯片数据请走人工上传导出的报告。</div>
+                </div>
+            </div>
+        </div>` : '';
+
     modal.innerHTML = `
         <div class="bg-white rounded-lg shadow-xl w-11/12 md:w-3/4 lg:w-2/3 max-h-[90vh] overflow-y-auto p-6">
             <div class="flex justify-between items-center border-b pb-3 mb-5">
@@ -1428,6 +1473,7 @@ function showDetailModal(recordId) {
             </div>
             
             ${statusHtml}
+            ${reviewBanner}
             
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 text-sm bg-gradient-to-r from-gray-50 to-gray-100 p-4 rounded-lg border">
                 <div>
@@ -1469,6 +1515,10 @@ function showDetailModal(recordId) {
                     <i class="fas fa-info-circle text-gray-600 mr-2"></i>样本信息
                 </h4>
                 <p class="text-sm text-gray-700 bg-gray-50 p-3 rounded border">${record.sampleInfo || '无'}</p>
+                ${record.source === 'device' ? `
+                <div class="mt-2 text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 rounded p-2">
+                    <i class="fas fa-microchip mr-1"></i>来源：检测设备自动采集（设备编号：${escapeHtml(record.deviceNo || '-')}${record.reportFile ? '，报告文件：' + escapeHtml(record.reportFile) : ''}）
+                </div>` : ''}
             </div>
 
             <div class="mb-4">
@@ -1639,6 +1689,16 @@ function renderTable() {
         }
         
         const positiveClass = displayPositiveItems !== '无' ? 'text-red-600 font-bold' : 'text-gray-600';
+
+        // TD-DeviceIngest: 设备自动采集（VirusHunter2.0B）记录显示来源徽标，与手动导入区分
+        const sourceBadge = item.source === 'device'
+            ? '<span class="ml-2 px-1.5 py-0.5 rounded text-xs font-medium bg-indigo-100 text-indigo-700" title="检测设备自动采集（设备编号：' + escapeHtml(item.deviceNo || '') + '）">设备</span>'
+            : '';
+
+        // TD-DeviceReview：芯片编号重复上报且内容不一致 → 列表直接告警「待复核」
+        const reviewBadge = (Array.isArray(item.reviewFlags) && item.reviewFlags.length > 0)
+            ? '<span class="ml-1 px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700" title="芯片编号重复，请人工复核">待复核</span>'
+            : '';
         
         let statusBadge = '';
         if (item.finalStatus) {
@@ -1649,7 +1709,7 @@ function renderTable() {
         return `
             <tr class="border-b hover:bg-gray-50">
                 <td class="px-4 py-3 text-center">${escapeHtml(item.testDate)}</td>
-                <td class="px-4 py-3 font-medium">${escapeHtml(item.sampleId)}</td>
+                <td class="px-4 py-3 font-medium">${escapeHtml(item.sampleId)}${sourceBadge}${reviewBadge}</td>
                 <td class="px-4 py-3 text-center">${escapeHtml(item.canteen)}</td>
                 <td class="px-4 py-3 text-center">${escapeHtml(item.sampleType)}</td>
                 <td class="px-4 py-3 ${positiveClass} cursor-pointer hover:underline result-value" data-id="${escapeHtml(item.id)}" title="点击查看详情">

@@ -676,20 +676,34 @@
                 </div>
             </div>
 
-            <!-- 6. 病原体检测 (Pathogen) - 新增 -->
+            <!-- 6. 病原体检测 (Pathogen) - 设备自动采集（2026-10-14）-->
             <div id="pathogen-test" class="content-section hidden">
                 <div class="glass p-6">
-                    <h2 class="text-2xl font-bold mb-4 border-b pb-2" data-title-key="section_pathogen">食源性细菌/病毒检测 (导入)</h2>
+                    <h2 class="text-2xl font-bold mb-4 border-b pb-2" data-title-key="section_pathogen">食源性细菌/病毒检测</h2>
                     <div class="bg-blue-50 border border-blue-200 p-4 rounded mb-4 text-sm text-blue-800">
-                    支持导入 Word 文档(.docx)格式的病原体检测数据报告。
+                        <p>已接入检测设备（VirusHunter2.0B）自动采集的学校，设备检测结果将自动进入下方列表（来源标记为「设备」），无需手动操作。</p>
+                        <p id="pathogenManualTip" class="mt-1">同时支持手动导入 Word 文档(.docx)格式的病原体检测数据报告。</p>
                     </div>
-                    <div class="flex gap-4 items-end mb-6 border p-4 rounded bg-gray-50">
+                    <div id="pathogenImportRow" class="flex gap-4 items-end mb-6 border p-4 rounded bg-gray-50">
                         <div class="flex-1">
                             <label class="block text-sm mb-1">选择文件 (.docx)</label>
                             <input type="file" id="pathogenFileInput" accept=".docx" class="w-full border p-2 rounded bg-white">
                         </div>
                         <button id="btnImportPathogen" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">导入</button>
                     </div>
+                    <script>
+                    // ═══ 病原体「手动导入」开关（2026-10-14，PATHOGEN_DEVICE_INTEGRATION §10）═══
+                    // 设备自动采集稳定运行后，将下方 true 改为 false 即隐藏手动导入入口（导入卡片 + 提示行）。
+                    // 前端为静态文件（Caddy 直接伺服）：改后刷新即生效，无需重启服务、无需变更窗口；
+                    // 手动导入的服务端能力保留（并行期兜底），仅隐藏 UI 入口。
+                    window.PATHOGEN_MANUAL_IMPORT = true;
+                    if (window.PATHOGEN_MANUAL_IMPORT === false) {
+                        var _pmRow = document.getElementById('pathogenImportRow');
+                        if (_pmRow) _pmRow.setAttribute('hidden', '');
+                        var _pmTip = document.getElementById('pathogenManualTip');
+                        if (_pmTip) _pmTip.setAttribute('hidden', '');
+                    }
+                    </script>
                     <div class="glass-table-wrap"><table class="glass-table"><thead><tr><th>日期</th><th>样本ID</th><th>食堂</th><th>类型</th><th>阳性项</th><th>风险</th><th>检测员</th><th>操作</th></tr></thead><tbody id="pathogenRecords"></tbody></table></div>
                 </div>
             </div>
