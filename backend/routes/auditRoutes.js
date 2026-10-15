@@ -341,9 +341,14 @@ export function createAuditRoutes(userManager, prisma) {
                 const knownIds = new Set(users.map((u) => u.id))
                 const groups = await req.db.auditLog.groupBy({ by: ['user_id'] })
                 const fromUserIds = groups.map((g) => g.user_id).filter((id) => id && !knownIds.has(id))
+                // principal_id 为 NOT NULL（schema：String 非可空 + AuditPrincipal Restrict 外键），恒有值；
+                // ⚠️ 2026-10-15 修复：原写法 `principal_id: { not: null }` 对非空字段是非法过滤，
+                //    Prisma 抛 PrismaClientValidationError（Argument `not` must not be null）→ 本端点 catch
+                //    一律返回 400，控制台/学校的「操作人」下拉全部加载失败。`user_id: null` 已完整表达
+                //    「无 user_id 归属、仅主体锚点」的意图（回归测试见 tests/records/audit-users-endpoint.unit.test.mjs）。
                 const principalGroups = await req.db.auditLog.groupBy({
                     by: ['principal_id'],
-                    where: { user_id: null, principal_id: { not: null } },
+                    where: { user_id: null },
                 })
                 const principalIds = principalGroups.map((g) => g.principal_id).filter(Boolean)
                 const principals = principalIds.length
