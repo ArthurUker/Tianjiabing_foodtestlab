@@ -305,6 +305,16 @@ const TENANT_MIGRATION_REGISTRY = Object.freeze({
   //      的逐租户回放覆盖（CREATE TABLE / CREATE INDEX 均带 IF NOT EXISTS，幂等）。
   //   ⚠️ 其后新增迁移必须继续追加（不得插队）：本文件为当前链尾。
   '20260928120000_friendly_links': { checksum: 'd895a2ca8c265912614c634d6fc6cb0e0df425a07398fa3a9c0b8294df57f309', scope: 'both', skip: ['a55f8344faeacc689674b90303875103ef7cd4d9c36bfaf758e63be2268872d6', '895f1a63f79e00cd71a0d5fa45b8f6dffaec198c34506358661a7b136b76d375'], stmtCount: 4 },
+  // P3-PATHOGEN-DEVICE（2026-10-14，第 18 位，`@scope: both`）：病原体设备自动采集映射表
+  // （public."PathogenDevice" 权威副本 + 各租户同名空表，结构对齐用）。6 条语句中**显式跳过 1 条**
+  // （逐租户回放不执行）：扫全库 DO 块（一次性为存量 school_* 建空表）——单 schema 效果由同文件
+  // 5 条普通 DDL（建表 + 4 索引，均带 IF NOT EXISTS，幂等）的逐租户回放覆盖。无种子数据。
+  '20261014120000_pathogen_devices': { checksum: '8cb1a3eb6c6e86006956715b7fd9cd4950cf294e711ac85a8fea8dd43cd4e577', scope: 'both', skip: ['89e97b6955f0cf070600a70ac67ea601275aa8fc0680a5bd7a2451a4a567d628'], stmtCount: 6 },
+  // 病原体设备「统一上传密钥」（B 方案，2026-10-15，第 19 位，`@scope: both`）：
+  // public."PathogenUploadKey" 权威副本 + 各租户同名空表（结构对齐）。4 条语句中**显式跳过 1 条**
+  // （逐租户回放不执行）：扫全库 DO 块（一次性为存量 school_* 建空表）——单 schema 效果由同文件
+  // 3 条普通 DDL（建表 + 2 索引，均带 IF NOT EXISTS，幂等）的逐租户回放覆盖。无种子数据。
+  '20261015120000_pathogen_upload_key': { checksum: '67977c2ec0405657822495d0f4e7a96a3afbcb7471ab6dd690c71d0fac39f9c1', scope: 'both', skip: ['6e013faa2e69940d2b8aa65a5cb34283ff2926b50fb103f7c09003c40c92a361'], stmtCount: 4 },
 })
 
 /** 分类协议对外的可审计快照（供 `--check`/证据输出；值即编译进上表的常量）。 */

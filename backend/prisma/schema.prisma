@@ -476,6 +476,73 @@ model OpenApiGrant {
   @@index([school_id])
 }
 
+// ========== 病原体设备自动采集（public schema 权威副本）==========
+// 背景（2026-10-14，VirusHunter2.0B 对接）：病原体检测原为手动导入 Word 报告，现升级为
+//   检测设备检测完成后主动推送 JSON（POST /api/open/pathogen-device/upload）。
+//   设备不感知任何租户信息：上报报文只带设备编号 DeviceNo，服务端按本表
+//   device_no → school_code 映射归属学校租户，物理隔离写入（schema-per-tenant）。
+//
+// ⚠️ 与 OpenApi* / FriendlyLink 同模式：权威副本在 public（由 prisma migrate 管理），
+//    provisionSchool 的全量 db push 会在各租户 schema 生成冗余空表 —— 忽略即可；
+//    应用层一律用基础 prisma 单例读写 public，**绝不用 req.db**（租户副本永不写入）。
+// ⚠️ 刻意不建外键：school_code 指向 public.School、binding_user_id 指向租户 schema 的 User，
+//    跨 schema 外键不可达（与 OpenApiGrant 同口径），两者均由应用层校验存在性与状态。
+// ⚠️ 备份恢复：public 段不参与恢复（restoreService 只取租户段），故设备配置需靠
+//    「超管导出 JSON」（POST /api/admin/pathogen-devices/import）留档。
+model PathogenDevice {
+  id             String    @id @default(cuid())
+  device_no      String    @unique // 设备编号（上报报文 DeviceNo；全局唯一，配置后不可变更）
+  school_code    String // 归属学校代码（schema 名 school_<code> 的来源）
+  name           String? // 设备备注名（如「食堂快检室 1 号机」）
+  // 记录创建人：该校租户内一名 editor 及以上用户的 id（上传时作为 TestRecord.created_by，
+  // 满足 not-null 外键同时保留人类审计归属）；设备密钥本身不是用户。
+  binding_user_id String
+  // 默认食堂：SampleStr 无法匹配该校食堂名单时回落（保证三键之 canteen 非空，不写「未知」污染看板）
+  default_canteen String?
+  status         String    @default("active") // active / disabled（disabled 立即拒绝上传）
+  // 设备密钥（与 OpenApiCredential 同口径）：sha256 哈希入库，明文仅创建/轮换时返回一次
+  key_hash       String    @unique
+  key_prefix     String // 展示用前缀（如 pdv_3f9c2a1b）
+  key_last4      String // 展示用后 4 位
+  // 运行统计（节流累加，非精确计数）
+  rate_limit_per_min Int      @default(60)
+  ip_whitelist   Json? // IP 白名单（JSON 数组，支持单个 IP 或 CIDR）；为空 = 不限制
+  upload_count   Int       @default(0)
+  last_used_at   DateTime?
+  last_upload_at DateTime?
+  disabled_at    DateTime?
+  disabled_reason String?
+  created_by     String? // 平台超管 user id（弱引用，不建外键）
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @updatedAt
+
+  @@index([school_code])
+  @@index([status])
+}
+
+// ========== 病原体设备「统一上传密钥」（B 方案，public 权威副本）==========
+// 背景（2026-10-15）：设备接入新增「统一上传密钥」推荐模式——全平台设备共用一把平台级密钥，
+//   归属**完全由报文 DeviceNo** 查 PathogenDevice「学校-设备编号」映射决定（设备必须先在学校登记）。
+//   每设备独立密钥模式继续保留（可选，更严格）；两种模式走同一上传接口。
+// ⚠️ 与 PathogenDevice / FriendlyLink 同模式：权威副本在 public（由 prisma migrate 管理），
+//    迁移链逐租户回放会在各租户 schema 建**同名空表**（纯结构对齐）——忽略即可；
+//    应用层一律用基础 prisma 单例读写 public，**绝不用 req.db**。
+// ⚠️ 单活语义：同一时刻至多一行 status='active'（创建/轮换 = 停用旧行 + 插入新行，保留历史用于审计）。
+model PathogenUploadKey {
+  id           String    @id @default(cuid())
+  key_hash     String    @unique
+  key_prefix   String
+  key_last4    String
+  status       String    @default("active") // active / disabled
+  disabled_at  DateTime?
+  last_used_at DateTime?
+  created_by   String? // 平台超管 user id（弱引用，不建外键）
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+
+  @@index([status])
+}
+
 // ========== 友情链接（登录页外链，public 权威副本）==========
 // 背景（2026-09-28）：登录卡下方的「友情链接」原为 frontend/pages/login.html 内硬编码的
 //   单条外链（https://foodsafety.digifluidic.com/）。现改为平台超管在 admin-schools.html
