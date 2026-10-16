@@ -238,6 +238,7 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
         users: [],          // 当前学校用户（绑定用户下拉）
         canteens: [],       // 当前学校食堂名单（默认食堂下拉）
         editing: null,      // null = 新增；否则为编辑中的设备
+        keyword: '',        // 设备列表客户端筛选关键词
         platformKey: null,  // 统一上传密钥当前视图（B 方案）
         bound: false,
     };
@@ -305,44 +306,58 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
         if (!host) return;
         host.innerHTML = `
         <div class="container mx-auto px-4 py-6 max-w-[2000px]">
-            <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
+            <!-- 平台级：标题 + 文档/导出/刷新（不随学校变化） -->
+            <div class="flex items-start justify-between flex-wrap gap-3 mb-3">
                 <div>
                     <h2 class="text-xl font-semibold text-gray-800"><i class="fas fa-microscope text-blue-500 mr-2"></i>病原体设备</h2>
                     <p class="text-xs text-gray-500 mt-1">
-                        维护各学校「检测设备编号 → 学校」映射：设备凭此处签发的密钥（<code>X-API-Key</code>）调用
-                        <code>POST ${UPLOAD_ENDPOINT}</code> 自动上报检测结果，系统按设备编号归属到对应学校租户（设备无需感知任何学校信息）。
+                        维护「检测设备编号 → 学校」映射：<strong>① 选择学校 → ② 新增设备编号</strong>，设备凭密钥调用
+                        <code>POST ${UPLOAD_ENDPOINT}</code> 上报，系统按设备编号归属到该校（设备无需感知学校信息）。
+                        报文字段与错误码见「接口使用指导」。
                     </p>
                 </div>
                 <div class="flex items-center gap-2">
                     <button type="button" data-act="guide" class="px-3 py-1.5 text-sm bg-indigo-50 text-indigo-700 rounded-lg hover:bg-indigo-100 transition" title="查看上传接口使用说明，并可下载 Markdown 指导文档"><i class="fas fa-book-open mr-1"></i>接口使用指导</button>
-                    <button type="button" data-act="export" class="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition"><i class="fas fa-download mr-1"></i>导出配置</button>
+                    <button type="button" data-act="export" class="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition" title="导出全部学校设备配置（含密钥哈希，不含明文）"><i class="fas fa-download mr-1"></i>导出配置</button>
                     <button type="button" data-act="refresh" class="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition"><i class="fas fa-sync-alt mr-1"></i>刷新</button>
-                    <button type="button" data-act="new" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition shadow"><i class="fas fa-plus mr-1"></i>新增设备</button>
                 </div>
             </div>
 
-            <!-- 统一上传密钥（B 方案推荐模式：全平台一把钥匙 + 报文设备编号归属） -->
-            <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-3 mb-4 flex flex-wrap items-center gap-3">
-                <div class="flex-1">
-                    <div class="text-sm font-medium text-gray-800"><i class="fas fa-key text-indigo-500 mr-2"></i>统一上传密钥<span id="pdPkBadge" class="ml-2 px-2 py-1 rounded-full text-xs font-medium bg-gray-200 text-gray-600">加载中…</span></div>
-                    <p class="text-xs text-gray-500 mt-1">
-                        推荐模式：全平台设备共用这一把密钥（请求头 <code>X-API-Key</code>），数据归属<strong>完全由报文中的设备编号</strong>查「学校-设备编号」映射决定——设备必须先在下方按学校完成绑定。
-                        轮换后旧密钥立即失效，请同步更新所有设备上的密钥配置。
-                    </p>
-                </div>
-                <div class="flex items-center gap-2">
+            <!-- 平台级：统一上传密钥（紧凑条；详细说明与危险操作收进「管理」面板） -->
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200 mb-3">
+                <div class="px-3 py-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span class="text-sm font-medium text-gray-700"><i class="fas fa-key text-indigo-500 mr-1"></i>统一上传密钥</span>
+                    <span id="pdPkBadge" class="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-200 text-gray-600">加载中…</span>
                     <span id="pdPkMeta" class="text-xs font-mono text-gray-500"></span>
-                    <button type="button" data-act="pk-create" class="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">创建/轮换</button>
-                    <button type="button" data-act="pk-toggle" class="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">停用</button>
+                    <button type="button" data-act="pk-panel" class="ml-auto px-3 py-1.5 text-xs bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200" title="展开：查看说明、创建/轮换、停用启用">管理</button>
+                </div>
+                <div id="pdPkPanel" class="hidden border-t border-gray-100 px-3 py-3 bg-gray-50 rounded-b-lg">
+                    <p class="text-xs text-gray-600 mb-2">
+                        推荐模式：全平台设备<strong>共用这一把密钥</strong>（请求头 <code>X-API-Key</code>），数据归属
+                        <strong>完全由报文中的设备编号</strong>查「学校-设备编号」映射决定——设备必须先在下方按学校完成绑定。
+                        <span class="text-red-600">轮换后旧密钥立即失效</span>，请同步更新所有设备上的密钥配置。
+                    </p>
+                    <div class="flex items-center gap-2">
+                        <button type="button" data-act="pk-create" class="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">创建 / 轮换</button>
+                        <button type="button" data-act="pk-toggle" class="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">停用</button>
+                    </div>
                 </div>
             </div>
 
-            <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-3 mb-4 flex flex-wrap items-center gap-3">
-                <label class="text-sm text-gray-600">学校租户：</label>
+            <!-- 主操作区：① 选学校 → ② 新增设备（动作跟随上下文，不再悬空） -->
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200 px-3 py-2.5 mb-3 flex flex-wrap items-center gap-3">
+                <span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold">1</span>
+                <label for="pdSchoolSelect" class="text-sm text-gray-600">选择学校</label>
                 <select id="pdSchoolSelect" class="border border-gray-300 rounded px-3 py-1.5 text-sm min-w-[240px]">
                     <option value="">— 请选择学校 —</option>
                 </select>
-                <span class="text-xs text-gray-400">选「全部学校」可跨校查看全部设备（多出「学校」列）；新增设备需先选定具体学校。停用学校下的设备上传会被拒绝。</span>
+                <input id="pdSearch" type="text" placeholder="筛选设备编号 / 备注 / 绑定用户" class="border border-gray-300 rounded px-3 py-1.5 text-sm w-64" autocomplete="off">
+                <span id="pdCount" class="text-xs text-gray-500"></span>
+                <span class="ml-auto flex items-center gap-2">
+                    <span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold">2</span>
+                    <button id="pdNewBtn" type="button" data-act="new" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow">新增设备</button>
+                </span>
+                <span id="pdModeHint" class="w-full text-xs text-gray-400"></span>
             </div>
 
             <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-x-auto">
@@ -471,16 +486,33 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
             const dis = s && s.status !== 'active' ? ' <span class="text-xs text-red-600">［已停用］</span>' : '';
             return `${escapeHtml(s ? (s.name || s.code) : code)} <span class="text-gray-400">（${escapeHtml(code)}）</span>${dis}`;
         };
-        if (empty) {
-            empty.textContent = showSchool ? '全部学校尚未配置检测设备' : '该学校尚未配置检测设备';
+        const schoolName = (code) => {
+            const s = state.schools.find((x) => x.code === code);
+            return s ? (s.name || s.code) : code;
+        };
+        // 客户端筛选：设备编号 / 备注 / 绑定用户 / 学校名（跨校视图下尤其实用）
+        const kw = String(state.keyword || '').trim().toLowerCase();
+        const list = kw
+            ? state.devices.filter((d) => [d.device_no, d.name, d.binding_user_id, d.school_code, schoolName(d.school_code)]
+                .some((v) => String(v || '').toLowerCase().includes(kw)))
+            : state.devices;
+        const counter = el('pdCount');
+        if (counter) counter.textContent = state.devices.length ? `显示 ${list.length} / 共 ${state.devices.length} 台` : '';
+        if (empty && !list.length) {
+            // 空态给出下一步动作（学校已有上下文时直接可新增）
+            empty.innerHTML = kw
+                ? `没有匹配「${escapeHtml(String(state.keyword).trim())}」的设备`
+                : (showSchool
+                    ? '全部学校尚未配置检测设备'
+                    : '该学校尚未配置检测设备 · <button type="button" data-act="new" class="text-indigo-600 hover:underline">新增设备</button>');
         }
-        if (!state.devices.length) {
+        if (!list.length) {
             tbody.innerHTML = '';
             if (empty) empty.classList.remove('hidden');
             return;
         }
         if (empty) empty.classList.add('hidden');
-        tbody.innerHTML = state.devices.map((d) => {
+        tbody.innerHTML = list.map((d) => {
             const active = d.status === 'active';
             return `
             <tr class="border-t hover:bg-gray-50">
@@ -509,8 +541,29 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
 
     function renderAll() {
         renderSchoolOptions();
+        const allMode = state.schoolCode === ALL_SCHOOLS;
         // 「学校」列仅在跨校视图（全部学校）下显示
-        el('pdColSchool')?.classList.toggle('hidden', state.schoolCode !== ALL_SCHOOLS);
+        el('pdColSchool')?.classList.toggle('hidden', !allMode);
+        // 「新增设备」必须落到具体学校：跨校/未选时禁用，避免动作悬空
+        const canCreate = !!state.schoolCode && !allMode;
+        const nb = el('pdNewBtn');
+        if (nb) {
+            nb.disabled = !canCreate;
+            nb.classList.toggle('opacity-50', !canCreate);
+            nb.classList.toggle('cursor-not-allowed', !canCreate);
+            nb.title = canCreate ? '为当前学校新增一个设备编号' : '跨校视图不可新增：请先在上方选择一个具体学校';
+        }
+        const hint = el('pdModeHint');
+        if (hint) {
+            if (allMode) {
+                hint.textContent = `跨校视图：显示全部 ${state.schools.length} 所学校的设备；要新增设备请先切到具体学校。`;
+            } else if (state.schoolCode) {
+                const s = state.schools.find((x) => x.code === state.schoolCode);
+                hint.textContent = `当前学校：${s ? (s.name || s.code) : state.schoolCode}（${state.schoolCode}）· 停用学校下的设备上传会被拒绝。`;
+            } else {
+                hint.textContent = '请选择学校（或「全部学校」跨校查看）以查看/配置设备。';
+            }
+        }
         renderRows();
     }
 
@@ -753,6 +806,7 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
             if (act === 'guide') return openGuide();
             if (act === 'pk-create') return createPlatformKey();
             if (act === 'pk-toggle') return togglePlatformKey();
+            if (act === 'pk-panel') { el('pdPkPanel')?.classList.toggle('hidden'); return; }
             if (act === 'refresh') { await loadSchools(); renderSchoolOptions(); await load(); return; }
             if (act === 'export') return exportConfig();
             if (act === 'edit') return openModal(state.devices.find((d) => d.id === id) || null);
@@ -767,6 +821,12 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
             state.schoolCode = schoolSel.value;
             await loadSchoolContext();
             await load();
+        });
+
+        // 设备列表客户端筛选（不触发服务端请求）
+        el('pdSearch')?.addEventListener('input', (e) => {
+            state.keyword = e.target.value || '';
+            renderRows();
         });
 
         el('pdSaveBtn')?.addEventListener('click', submit);
@@ -789,7 +849,10 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
     (async () => {
         try {
             await loadSchools();
-            renderSchoolOptions();
+            // 默认「全部学校」：进页面先给全局概览，而不是随机落在一所学校看到空表
+            state.schoolCode = ALL_SCHOOLS;
+            renderAll();
+            await load();
         } catch (e) {
             notify(`学校列表加载失败：${e.message}`, 'error');
         }
