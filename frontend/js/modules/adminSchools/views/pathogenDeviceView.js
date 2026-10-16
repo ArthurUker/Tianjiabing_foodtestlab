@@ -228,6 +228,9 @@ function fmtTime(iso) {
 export { GUIDE_MD, renderMdBlocks };
 
 export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
+    // 跨校查看哨兵：选中它 = 不按学校过滤（后端 GET /api/admin/pathogen-devices 不传 school_code 即返回全部）
+    const ALL_SCHOOLS = '__all__';
+
     const state = {
         schools: [],        // [{ code, name, status }]
         schoolCode: '',     // 当前筛选学校
@@ -260,17 +263,23 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
     }
 
     async function loadSchoolContext() {
+        if (state.schoolCode === ALL_SCHOOLS) { state.users = []; state.canteens = []; return; }
+        return loadSchoolContextFor(state.schoolCode);
+    }
+
+    /** 按指定学校加载「绑定用户候选 + 食堂名单」（跨校视图下编辑某设备时按其所属学校即时加载）。 */
+    async function loadSchoolContextFor(schoolCode) {
         state.users = [];
         state.canteens = [];
-        if (!state.schoolCode) return;
+        if (!schoolCode || schoolCode === ALL_SCHOOLS) return;
         try {
-            const resp = await fetch(`${API_BASE}/api/admin/schools/${encodeURIComponent(state.schoolCode)}/users`, { headers: authHeaders() });
+            const resp = await fetch(`${API_BASE}/api/admin/schools/${encodeURIComponent(schoolCode)}/users`, { headers: authHeaders() });
             const j = await resp.json().catch(() => ({}));
             const rows = Array.isArray(j.data) ? j.data : (Array.isArray(j.users) ? j.users : []);
             state.users = rows.map((u) => ({ id: u.id, username: u.username, full_name: u.full_name, role: u.role, status: u.status }));
         } catch { /* 绑定用户退化为手工输入 id */ }
         try {
-            const resp = await fetch(`${API_BASE}/api/admin/schools/${encodeURIComponent(state.schoolCode)}/customization`, { headers: authHeaders() });
+            const resp = await fetch(`${API_BASE}/api/admin/schools/${encodeURIComponent(schoolCode)}/customization`, { headers: authHeaders() });
             const j = await resp.json().catch(() => ({}));
             const cfg = j.data || {};
             const list = Array.isArray(cfg.canteens) ? cfg.canteens : (Array.isArray(cfg.field_options?.canteen) ? cfg.field_options.canteen : []);
@@ -279,6 +288,12 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
     }
 
     async function load() {
+        if (state.schoolCode === ALL_SCHOOLS) {
+            // 全部学校：不传 school_code，后端按 school_code, created_at 排序返回全部设备（跨校视图）
+            state.devices = await api('');
+            renderAll();
+            return;
+        }
         if (!state.schoolCode) { state.devices = []; renderAll(); return; }
         state.devices = await api(`?school_code=${encodeURIComponent(state.schoolCode)}`);
         renderAll();
@@ -327,13 +342,14 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
                 <select id="pdSchoolSelect" class="border border-gray-300 rounded px-3 py-1.5 text-sm min-w-[240px]">
                     <option value="">— 请选择学校 —</option>
                 </select>
-                <span class="text-xs text-gray-400">仅可查看/配置已启用学校的设备；停用学校下的设备上传会被拒绝。</span>
+                <span class="text-xs text-gray-400">选「全部学校」可跨校查看全部设备（多出「学校」列）；新增设备需先选定具体学校。停用学校下的设备上传会被拒绝。</span>
             </div>
 
             <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-x-auto">
                 <table class="w-full text-sm">
                     <thead class="bg-gray-50 text-gray-600">
                         <tr>
+                            <th id="pdColSchool" class="px-4 py-3 text-left hidden">学校</th>
                             <th class="px-4 py-3 text-left">设备编号</th>
                             <th class="px-4 py-3 text-left">备注</th>
                             <th class="px-4 py-3 text-left">绑定用户</th>
@@ -440,6 +456,7 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
         const sel = el('pdSchoolSelect');
         if (!sel) return;
         sel.innerHTML = '<option value="">— 请选择学校 —</option>' +
+            `<option value="${ALL_SCHOOLS}" ${state.schoolCode === ALL_SCHOOLS ? 'selected' : ''}>全部学校（跨校查看）</option>` +
             state.schools.map((s) => `<option value="${escapeHtml(s.code)}" ${s.code === state.schoolCode ? 'selected' : ''}>${escapeHtml(s.name || s.code)}（${escapeHtml(s.code)}）${s.status !== 'active' ? '［已停用］' : ''}</option>`).join('');
     }
 
@@ -447,6 +464,16 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
         const tbody = el('pdDeviceRows');
         const empty = el('pdEmptyHint');
         if (!tbody) return;
+        // 跨校视图（全部学校）：多出一列「学校」用于区分归属
+        const showSchool = state.schoolCode === ALL_SCHOOLS;
+        const schoolLabel = (code) => {
+            const s = state.schools.find((x) => x.code === code);
+            const dis = s && s.status !== 'active' ? ' <span class="text-xs text-red-600">［已停用］</span>' : '';
+            return `${escapeHtml(s ? (s.name || s.code) : code)} <span class="text-gray-400">（${escapeHtml(code)}）</span>${dis}`;
+        };
+        if (empty) {
+            empty.textContent = showSchool ? '全部学校尚未配置检测设备' : '该学校尚未配置检测设备';
+        }
         if (!state.devices.length) {
             tbody.innerHTML = '';
             if (empty) empty.classList.remove('hidden');
@@ -457,6 +484,7 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
             const active = d.status === 'active';
             return `
             <tr class="border-t hover:bg-gray-50">
+                ${showSchool ? `<td class="px-4 py-3 text-gray-700">${schoolLabel(d.school_code)}</td>` : ''}
                 <td class="px-4 py-3 font-medium font-mono">${escapeHtml(d.device_no)}</td>
                 <td class="px-4 py-3 text-gray-600">${escapeHtml(d.name || '—')}</td>
                 <td class="px-4 py-3 text-gray-600 text-xs font-mono">${escapeHtml(d.binding_user_id || '—')}</td>
@@ -481,12 +509,18 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
 
     function renderAll() {
         renderSchoolOptions();
+        // 「学校」列仅在跨校视图（全部学校）下显示
+        el('pdColSchool')?.classList.toggle('hidden', state.schoolCode !== ALL_SCHOOLS);
         renderRows();
     }
 
     /* ─────────── 弹层 ─────────── */
-    function openModal(device) {
+    async function openModal(device) {
         state.editing = device || null;
+        // 跨校视图（全部学校）下编辑：按该设备所属学校即时加载「绑定用户候选 / 食堂名单」
+        if (device && state.schoolCode === ALL_SCHOOLS && device.school_code) {
+            await loadSchoolContextFor(device.school_code);
+        }
         const modal = el('pdModal');
         if (!modal) return;
         el('pdModalTitle').textContent = device ? `编辑设备 ${device.device_no}` : '新增设备';
@@ -625,7 +659,7 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
                 closeModal();
             } else {
                 if (!deviceNo) { notify('请填写设备编号', 'error'); return; }
-                if (!state.schoolCode) { notify('请先选择学校租户', 'error'); return; }
+                if (!state.schoolCode || state.schoolCode === ALL_SCHOOLS) { notify('请先选择具体的学校租户', 'error'); return; }
                 body.device_no = deviceNo;
                 body.school_code = state.schoolCode;
                 const data = await api('', { method: 'POST', body });
@@ -708,13 +742,21 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
             if (!btn) return;
             const act = btn.getAttribute('data-act');
             const id = btn.getAttribute('data-id');
-            if (act === 'new') return openModal(null);
+            if (act === 'new') {
+                // 新增必须落到某个学校（设备编号→学校绑定）；跨校视图下先让用户选具体学校
+                if (state.schoolCode === ALL_SCHOOLS || !state.schoolCode) {
+                    notify('请先在上方「学校租户」中选择一个具体学校，再新增设备', 'error');
+                    return;
+                }
+                return openModal(null);
+            }
             if (act === 'guide') return openGuide();
             if (act === 'pk-create') return createPlatformKey();
             if (act === 'pk-toggle') return togglePlatformKey();
             if (act === 'refresh') { await loadSchools(); renderSchoolOptions(); await load(); return; }
             if (act === 'export') return exportConfig();
             if (act === 'edit') return openModal(state.devices.find((d) => d.id === id) || null);
+
             if (act === 'rotate') return rotate(id);
             if (act === 'toggle') return toggle(id);
             if (act === 'del') return remove(id);

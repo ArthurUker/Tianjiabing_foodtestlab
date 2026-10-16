@@ -915,3 +915,24 @@ test('复测同人：检测员未变 → inspectorChanged=false，不误标变�
   assert.equal(round.inspector, '张三')
   assert.equal(round.inspectorChanged, false)
 })
+
+test('超管：设备列表不带 school_code → 返回全部学校设备（跨校「全部学校」视图）；带 school_code 仍按校过滤', async () => {
+  const { prisma, tenantClientFactory } = makeAdminStubs({
+    schools: [{ code: 'school-a', status: 'active', name: 'A校' }, { code: 'school-b', status: 'active', name: 'B校' }],
+    devices: [
+      { id: 'dev-1', device_no: 'VH-A-001', school_code: 'school-a', binding_user_id: 'u-1', status: 'active', key_hash: 'h1', key_prefix: 'pdv_a', key_last4: '1111', rate_limit_per_min: 60, upload_count: 0 },
+      { id: 'dev-2', device_no: 'VH-B-001', school_code: 'school-b', binding_user_id: 'u-1', status: 'active', key_hash: 'h2', key_prefix: 'pdv_b', key_last4: '2222', rate_limit_per_min: 60, upload_count: 0 },
+    ],
+  })
+  const router = makeAdminRouter(prisma, tenantClientFactory)
+  const all = await invokeAdmin(router, 'get', '/')
+  assert.equal(all.statusCode, 200)
+  assert.equal(all.body.data.length, 2, '不带 school_code 必须返回全部学校设备')
+  assert.deepEqual(all.body.data.map((d) => d.school_code).sort(), ['school-a', 'school-b'])
+  // 每行带 school_code，供前端跨校视图渲染「学校」列
+  assert.ok(all.body.data.every((d) => typeof d.school_code === 'string' && d.school_code))
+
+  const filtered = await invokeAdmin(router, 'get', '/', { query: { school_code: 'school-b' } })
+  assert.equal(filtered.body.data.length, 1)
+  assert.equal(filtered.body.data[0].device_no, 'VH-B-001')
+})
