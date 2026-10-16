@@ -13,8 +13,9 @@ const SCHOOLS = [
     { code: 'school-c', name: '丙中学', status: 'active' },
 ];
 const DEVICES = [
-    { id: 'd1', school_code: 'school-a', device_no: 'VH-A-001', name: '甲校设备', binding_user_id: 'u1', default_canteen: '一食堂', status: 'active', key_prefix: 'pdv_aaaa', key_last4: '1111', upload_count: 1, last_upload_at: null, ip_whitelist: [], rate_limit_per_min: 60 },
-    { id: 'd2', school_code: 'school-b', device_no: 'VH-B-001', name: '乙校设备', binding_user_id: 'u2', default_canteen: '二食堂', status: 'active', key_prefix: 'pdv_bbbb', key_last4: '2222', upload_count: 2, last_upload_at: null, ip_whitelist: [], rate_limit_per_min: 60 },
+    { id: 'd1', school_code: 'school-a', device_no: 'VH-A-001', name: '甲校设备', binding_user_id: 'u1', binding_user_name: '郭仁康', binding_user_username: 'renkang', binding_user_status: 'active', default_canteen: '一食堂', status: 'active', key_prefix: 'pdv_aaaa', key_last4: '1111', upload_count: 1, last_upload_at: null, ip_whitelist: [], rate_limit_per_min: 60 },
+    { id: 'd2', school_code: 'school-b', device_no: 'VH-B-001', name: '乙校设备', binding_user_id: 'b26f1ea6-cd54-49ae-b716-632cc247ffab', binding_user_name: null, binding_user_username: null, binding_user_status: null, default_canteen: '二食堂', status: 'active', key_prefix: 'pdv_bbbb', key_last4: '2222', upload_count: 2, last_upload_at: null, ip_whitelist: [], rate_limit_per_min: 60 },
+    { id: 'd3', school_code: 'school-a', device_no: 'VH-A-002', name: '甲校设备2', binding_user_id: 'u3', binding_user_name: 'renkang', binding_user_username: 'renkang', binding_user_status: 'disabled', default_canteen: '二食堂', status: 'active', key_prefix: 'pdv_cccc', key_last4: '3333', upload_count: 0, last_upload_at: null, ip_whitelist: [], rate_limit_per_min: 60 },
 ];
 
 const flush = async (times = 5) => { for (let i = 0; i < times; i++) await new Promise((r) => setTimeout(r, 0)); };
@@ -70,7 +71,7 @@ describe('病原体设备视图 · 学校筛选与操作顺序', () => {
         expect(rows).toContain('甲中学');
         expect(rows).toContain('乙中学');
         expect(document.getElementById('pdColSchool').classList.contains('hidden')).toBe(false);
-        expect(document.getElementById('pdCount').textContent).toContain('共 2 台');
+        expect(document.getElementById('pdCount').textContent).toContain('共 3 台');
     });
 
     test('② 选择具体学校 → 请求带 school_code，隐藏「学校」列并修正模式提示', async () => {
@@ -120,7 +121,7 @@ describe('病原体设备视图 · 学校筛选与操作顺序', () => {
         let rows = document.getElementById('pdDeviceRows').innerHTML;
         expect(rows).toContain('VH-B-001');
         expect(rows).not.toContain('VH-A-001');
-        expect(document.getElementById('pdCount').textContent).toContain('显示 1 / 共 2 台');
+        expect(document.getElementById('pdCount').textContent).toContain('显示 1 / 共 3 台');
 
         input.value = 'VH-A';
         input.dispatchEvent(new Event('input'));
@@ -142,5 +143,23 @@ describe('病原体设备视图 · 学校筛选与操作顺序', () => {
         expect(hint.classList.contains('hidden')).toBe(false);
         expect(hint.innerHTML).toContain('尚未配置检测设备');
         expect(hint.innerHTML).toContain('data-act="new"'); // 空态可直接新增
+    });
+});
+
+describe('病原体设备视图 · 绑定用户展示', () => {
+    test('展示姓名（账号）而不是 UUID；解析不到时降级为截断 id + 完整 id 放 tooltip', async () => {
+        await mount();
+        const rows = document.getElementById('pdDeviceRows').innerHTML;
+        expect(rows).toContain('郭仁康');
+        expect(rows).toContain('（renkang）');
+        expect(rows).toContain('b26f1ea6…');                                  // 降级：截断形态
+        expect(rows).toContain('title="绑定用户 ID（未解析到姓名）：b26f1ea6'); // 完整 id 只放 tooltip 备查
+        // 完整 UUID 不得作为可见文本出现（剔除 title 属性后再断言）
+        const visible = rows.replace(/title="[^"]*"/g, '');
+        expect(visible).not.toContain('b26f1ea6-cd54-49ae-b716-632cc247ffab');
+        // 姓名与账号相同（只有 username）→ 不重复显示括号账号；停用用户标注
+        const parenCount = rows.split('（renkang）').length - 1;
+        expect(parenCount).toBe(1);
+        expect(rows).toContain('［已停用］');
     });
 });

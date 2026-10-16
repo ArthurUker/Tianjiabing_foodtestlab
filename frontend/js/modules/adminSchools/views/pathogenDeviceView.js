@@ -367,8 +367,8 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
                             <th id="pdColSchool" class="px-4 py-3 text-left hidden">学校</th>
                             <th class="px-4 py-3 text-left">设备编号</th>
                             <th class="px-4 py-3 text-left">备注</th>
-                            <th class="px-4 py-3 text-left">绑定用户</th>
-                            <th class="px-4 py-3 text-left">默认食堂</th>
+                            <th class="px-4 py-3 text-left" title="设备上报的数据将以该用户为「创建人」（审计归属），必须是该校的有效用户">绑定用户</th>
+                            <th class="px-4 py-3 text-left whitespace-nowrap" title="仅当报文样本信息里认不出食堂时使用；必须是该校食堂列表中的名称">默认食堂</th>
                             <th class="px-4 py-3 text-center">状态</th>
                             <th class="px-4 py-3 text-left">密钥</th>
                             <th class="px-4 py-3 text-right">上传次数</th>
@@ -519,8 +519,12 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
                 ${showSchool ? `<td class="px-4 py-3 text-gray-700">${schoolLabel(d.school_code)}</td>` : ''}
                 <td class="px-4 py-3 font-medium font-mono">${escapeHtml(d.device_no)}</td>
                 <td class="px-4 py-3 text-gray-600">${escapeHtml(d.name || '—')}</td>
-                <td class="px-4 py-3 text-gray-600 text-xs font-mono">${escapeHtml(d.binding_user_id || '—')}</td>
-                <td class="px-4 py-3 text-gray-600">${escapeHtml(d.default_canteen || '—')}</td>
+                <td class="px-4 py-3 text-gray-600 text-xs">
+                    ${d.binding_user_name
+                        ? `${escapeHtml(d.binding_user_name)}${d.binding_user_username && d.binding_user_username !== d.binding_user_name ? ` <span class="text-gray-400">（${escapeHtml(d.binding_user_username)}）</span>` : ''}${d.binding_user_status && d.binding_user_status !== 'active' ? ' <span class="text-red-600">［已停用］</span>' : ''}`
+                        : `<span class="font-mono text-gray-400" title="绑定用户 ID（未解析到姓名）：${escapeHtml(d.binding_user_id || '')}">${escapeHtml(d.binding_user_id ? `${String(d.binding_user_id).slice(0, 8)}…` : '—')}</span>`}
+                </td>
+                <td class="px-4 py-3 text-gray-600 whitespace-nowrap">${escapeHtml(d.default_canteen || '—')}</td>
                 <td class="px-4 py-3 text-center">
                     ${active
                         ? '<span class="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">启用</span>'

@@ -536,7 +536,16 @@ function makeAdminStubs({ users = [{ id: 'u-1', status: 'active' }], schools = [
     systemLog: { async create() { return { id: 'log-1' } } },
   }
   prisma.$transaction = async (ops) => Promise.all(ops)
-  const tenantClientFactory = () => ({ user: { async findUnique({ where }) { return users.find((u) => u.id === where.id) || null } } })
+  const tenantClientFactory = () => ({
+    user: {
+      async findUnique({ where }) { return users.find((u) => u.id === where.id) || null },
+      // 设备列表「绑定用户 → 姓名」批量解析用
+      async findMany({ where } = {}) {
+        const ids = where?.id?.in || []
+        return users.filter((u) => ids.includes(u.id))
+      },
+    },
+  })
   return { prisma, rows, pkRows, tenantClientFactory }
 }
 
@@ -935,4 +944,37 @@ test('超管：设备列表不带 school_code → 返回全部学校设备（跨
   const filtered = await invokeAdmin(router, 'get', '/', { query: { school_code: 'school-b' } })
   assert.equal(filtered.body.data.length, 1)
   assert.equal(filtered.body.data[0].device_no, 'VH-B-001')
+})
+
+test('超管：设备列表把「绑定用户」解析为姓名（控制台不展示 UUID）；跨校各自解析', async () => {
+  const { prisma, tenantClientFactory } = makeAdminStubs({
+    users: [
+      { id: 'u-1', username: 'renkang', full_name: '郭仁康', status: 'active' },
+      { id: 'u-2', username: 'zhangsan', full_name: null, status: 'disabled' },
+    ],
+    devices: [
+      { id: 'dev-1', device_no: 'VH-A-001', school_code: 'school-a', binding_user_id: 'u-1', status: 'active', key_hash: 'h1', key_prefix: 'pdv_a', key_last4: '1111', rate_limit_per_min: 60, upload_count: 0 },
+      { id: 'dev-2', device_no: 'VH-B-001', school_code: 'school-b', binding_user_id: 'u-2', status: 'active', key_hash: 'h2', key_prefix: 'pdv_b', key_last4: '2222', rate_limit_per_min: 60, upload_count: 0 },
+    ],
+  })
+  const res = await invokeAdmin(makeAdminRouter(prisma, tenantClientFactory), 'get', '/')
+  assert.equal(res.statusCode, 200)
+  const byNo = Object.fromEntries(res.body.data.map((d) => [d.device_no, d]))
+  assert.equal(byNo['VH-A-001'].binding_user_name, '郭仁康')
+  assert.equal(byNo['VH-A-001'].binding_user_username, 'renkang')
+  assert.equal(byNo['VH-A-001'].binding_user_id, 'u-1')          // id 仍返回（供编辑回填）
+  assert.equal(byNo['VH-B-001'].binding_user_name, 'zhangsan')   // 无 full_name → 回落 username
+  assert.equal(byNo['VH-B-001'].binding_user_status, 'disabled') // 停用可提示
+})
+
+test('超管：绑定用户解析失败（租户不可达）→ 列表仍返回，姓名降级为 null', async () => {
+  const { prisma } = makeAdminStubs({
+    devices: [{ id: 'dev-1', device_no: 'VH-A-001', school_code: 'school-a', binding_user_id: 'u-1', status: 'active', key_hash: 'h1', key_prefix: 'pdv_a', key_last4: '1111', rate_limit_per_min: 60, upload_count: 0 }],
+  })
+  const failingFactory = () => ({ user: { async findMany() { throw new Error('tenant unreachable') } } })
+  const res = await invokeAdmin(makeAdminRouter(prisma, failingFactory), 'get', '/')
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.body.data.length, 1)
+  assert.equal(res.body.data[0].binding_user_name, null)      // 降级不阻断
+  assert.equal(res.body.data[0].binding_user_id, 'u-1')
 })

@@ -78,13 +78,51 @@ function badRequest(res, message) {
 }
 
 /** 列表/详情投影：绝不外泄 key_hash。 */
-function toDeviceView(row) {
+/**
+ * 批量解析「绑定用户 id → 姓名/账号」：按学校分组查各自租户的 User 表（一次查询/校），
+ * 供控制台列表直接展示人名而不是 UUID。任何学校解析失败仅降级为 null（不阻断列表）。
+ */
+async function resolveBindingUsers(prisma, rows, tenantClientFactory) {
+  const factory = tenantClientFactory || createTenantClient
+  const bySchool = new Map()
+  for (const r of rows) {
+    if (!r.binding_user_id) continue
+    if (!bySchool.has(r.school_code)) bySchool.set(r.school_code, new Set())
+    bySchool.get(r.school_code).add(r.binding_user_id)
+  }
+  const map = new Map() // `${school_code}:${userId}` → { name, username, status }
+  for (const [schoolCode, idSet] of bySchool) {
+    try {
+      const db = factory(prisma, schoolCode)
+      const users = await db.user.findMany({
+        where: { id: { in: [...idSet] } },
+        select: { id: true, username: true, full_name: true, status: true },
+      })
+      for (const u of users) {
+        map.set(`${schoolCode}:${u.id}`, {
+          name: u.full_name || u.username || u.id,
+          username: u.username || null,
+          status: u.status || null,
+        })
+      }
+    } catch (e) {
+      console.warn(`${TAG} 绑定用户解析失败（学校 ${schoolCode}）:`, e.message)
+    }
+  }
+  return map
+}
+
+function toDeviceView(row, bindingUser = null) {
   return {
     id: row.id,
     device_no: row.device_no,
     school_code: row.school_code,
     name: row.name ?? null,
     binding_user_id: row.binding_user_id ?? null,
+    // 绑定用户的展示信息（控制台显示「姓名（账号）」而不是 UUID；解析不到时为 null，前端降级）
+    binding_user_name: bindingUser?.name ?? null,
+    binding_user_username: bindingUser?.username ?? null,
+    binding_user_status: bindingUser?.status ?? null,
     default_canteen: row.default_canteen ?? null,
     status: row.status,
     key_prefix: row.key_prefix,
@@ -629,7 +667,12 @@ export function createAdminPathogenDeviceRoutes({ prisma, authenticateUser, requ
         where,
         orderBy: [{ school_code: 'asc' }, { created_at: 'asc' }],
       })
-      res.json({ success: true, data: rows.map(toDeviceView), total: rows.length })
+      const bindingUsers = await resolveBindingUsers(prisma, rows, tenantClientFactory)
+      res.json({
+        success: true,
+        data: rows.map((r) => toDeviceView(r, bindingUsers.get(`${r.school_code}:${r.binding_user_id}`) || null)),
+        total: rows.length,
+      })
     } catch (e) {
       console.error(`${TAG} 设备列表查询失败:`, e)
       res.status(500).json({ success: false, error: '查询失败' })
