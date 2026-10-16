@@ -120,12 +120,12 @@ test('R3 能力保留：链/注册表 checksum 绑定 + 分类协议 fail-closed
   // P3-PATHOGEN-DEVICE（2026-10-14）再追加 1 个 `@scope: both`（病原体设备映射表，第 18 位）；
   // 病原体统一上传密钥（B 方案，2026-10-15）再追加 1 个 `@scope: both`（第 19 位 = 当前链尾）：
   // 场景与断言保持（链 = 磁盘事实源、checksum 与文件一致），仅计数 11 → 13 → 14 → 16 → 17 → 18 → 19。
-  assert.equal(files.length, 19)
+  assert.equal(files.length, 20)
   for (const m of chainManifest()) assert.equal(fileChecksum(m.name), m.checksum)
   const reg = migrationClassificationRegistry()
-  // 注册表 13 → 14：新增 `20261015120000_pathogen_upload_key`（skip = 扫全库 DO 块，1 条）
-  assert.equal(reg.length, 14)
-  assert.equal(reg.reduce((a, r) => a + r.skippedStatements, 0), 7)
+  // 注册表 14 → 15：新增 `20261016120000_pathogen_device_bindings`（skip = 扫全库 DO 块，1 条）
+  assert.equal(reg.length, 15)
+  assert.equal(reg.reduce((a, r) => a + r.skippedStatements, 0), 8)
   for (const m of chainManifest()) {
     const proj = buildTenantProjection({ name: m.name, sql: read(`backend/prisma/migrations/${m.name}/migration.sql`), checksum: m.checksum })
     const stmts = splitSqlStatements(read(`backend/prisma/migrations/${m.name}/migration.sql`))

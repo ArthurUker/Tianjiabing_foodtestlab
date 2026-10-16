@@ -98,7 +98,7 @@ test('⑤ 锁表版本化：排期方案已由 P3-PUBLIC-INFRA-CHAIN-R1 落地�
   //     病原体统一上传密钥（B 方案，2026-10-15）再追加 1 个 `@scope: both`（第 19 位）→ 19；
   //   · 锁表 DDL 只出现在**唯一**的 public migration 内（旧 11 文件与后续文件（含 M1/M2）仍不得包含）；
   //   · 运行时 ensure 不再执行 DDL（静态护栏：函数体内无 $executeRawUnsafe / CREATE / ALTER）。
-  assert.equal(listMigrationFiles().length, 19, '迁移链 = 原 11 + 公共基础设施 2（第 12/13 位）+ public 前向修复 1（第 14 位）+ M1/M2 2（第 15/16 位）+ 友情链接 1（第 17 位）+ 病原体两表 2（第 18/19 位；R17 B-6）')
+  assert.equal(listMigrationFiles().length, 20, '迁移链 = 原 11 + 公共基础设施 2（第 12/13 位）+ public 前向修复 1（第 14 位）+ M1/M2 2（第 15/16 位）+ 友情链接 1（第 17 位）+ 病原体两表 2（第 18/19 位；R17 B-6）')
   const legacy = listMigrationFiles().slice(0, 11)
   for (const m of legacy) {
     const sql = read(`backend/prisma/migrations/${m.name}/migration.sql`)

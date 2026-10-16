@@ -13,9 +13,9 @@ const SCHOOLS = [
     { code: 'school-c', name: '丙中学', status: 'active' },
 ];
 const DEVICES = [
-    { id: 'd1', school_code: 'school-a', device_no: 'VH-A-001', name: '甲校设备', binding_user_id: 'u1', binding_user_name: '郭仁康', binding_user_username: 'renkang', binding_user_status: 'active', default_canteen: '一食堂', status: 'active', key_prefix: 'pdv_aaaa', key_last4: '1111', upload_count: 1, last_upload_at: null, ip_whitelist: [], rate_limit_per_min: 60 },
-    { id: 'd2', school_code: 'school-b', device_no: 'VH-B-001', name: '乙校设备', binding_user_id: 'b26f1ea6-cd54-49ae-b716-632cc247ffab', binding_user_name: null, binding_user_username: null, binding_user_status: null, default_canteen: '二食堂', status: 'active', key_prefix: 'pdv_bbbb', key_last4: '2222', upload_count: 2, last_upload_at: null, ip_whitelist: [], rate_limit_per_min: 60 },
-    { id: 'd3', school_code: 'school-a', device_no: 'VH-A-002', name: '甲校设备2', binding_user_id: 'u3', binding_user_name: 'renkang', binding_user_username: 'renkang', binding_user_status: 'disabled', default_canteen: '二食堂', status: 'active', key_prefix: 'pdv_cccc', key_last4: '3333', upload_count: 0, last_upload_at: null, ip_whitelist: [], rate_limit_per_min: 60 },
+    { id: 'd1', school_code: 'school-a', device_no: 'VH-A-001', name: '甲校设备', binding_state: 'active', valid_from: '2025-01-01T00:00:00', valid_to: null, binding_range: '2025-01-01 ~ 至今', binding_user_id: 'u1', binding_user_name: '郭仁康', binding_user_username: 'renkang', binding_user_status: 'active', default_canteen: '一食堂', status: 'active', key_prefix: 'pdv_aaaa', key_last4: '1111', upload_count: 1, last_upload_at: null, ip_whitelist: [], rate_limit_per_min: 60 },
+    { id: 'd2', school_code: 'school-b', device_no: 'VH-B-001', name: '乙校设备', binding_state: 'ended', valid_from: '2025-01-01T00:00:00', valid_to: '2026-09-30T00:00:00', binding_range: '2025-01-01 ~ 2026-09-30', binding_user_id: 'b26f1ea6-cd54-49ae-b716-632cc247ffab', binding_user_name: null, binding_user_username: null, binding_user_status: null, default_canteen: '二食堂', status: 'active', key_prefix: 'pdv_bbbb', key_last4: '2222', upload_count: 2, last_upload_at: null, ip_whitelist: [], rate_limit_per_min: 60 },
+    { id: 'd3', school_code: 'school-a', device_no: 'VH-A-002', name: '甲校设备2', binding_state: 'active', valid_from: '2025-06-01T00:00:00', valid_to: null, binding_range: '2025-06-01 ~ 至今', binding_user_id: 'u3', binding_user_name: 'renkang', binding_user_username: 'renkang', binding_user_status: 'disabled', default_canteen: '二食堂', status: 'active', key_prefix: 'pdv_cccc', key_last4: '3333', upload_count: 0, last_upload_at: null, ip_whitelist: [], rate_limit_per_min: 60 },
 ];
 
 const flush = async (times = 5) => { for (let i = 0; i < times; i++) await new Promise((r) => setTimeout(r, 0)); };
@@ -34,6 +34,8 @@ function setupFetchSpy() {
             const canteens = code === 'school-a' ? ['教工餐厅', '学生餐厅'] : []; // 其余校未配置 → 前端内置兜底
             return json({ success: true, data: { canteens, field_options: {} } });
         }
+        if (u.includes('/replace')) return json({ success: true, data: { apiKey: 'pdv_NEWKEY_abcdefghijklmnopqrstuvwxyz012345678', device: { id: 'd1-new', device_no: 'VH-A-002' } } });
+        if (u.includes('/close')) return json({ success: true, data: { id: 'd1', binding_state: 'ended' } });
         if (u.includes('/api/admin/pathogen-devices')) {
             const m = /school_code=([^&]+)/.exec(u);
             const list = m ? DEVICES.filter((d) => d.school_code === decodeURIComponent(m[1])) : DEVICES; // 不带 school_code → 全部
@@ -196,5 +198,81 @@ describe('病原体设备视图 · 默认食堂选项来源（与手动录入同
         expect(opts).toContain('学生餐厅');
         expect(opts).not.toContain('一食堂');            // 内置默认不再混入
         expect(document.getElementById('pdCanteenHint').classList.contains('hidden')).toBe(true);
+    });
+});
+
+describe('病原体设备视图 · 绑定台账（绑定期间 / 仅看在用 / 变更编号）', () => {
+    test('绑定期间列与状态徽标：在用显示「起 ~ 至今」，已结束显示区间与「已结束」', async () => {
+        await mount();
+        const rows = document.getElementById('pdDeviceRows').innerHTML;
+        expect(rows).toContain('2025-01-01 ~ 至今');      // d1 在用
+        expect(rows).toContain('在用');
+        expect(rows).toContain('2025-01-01 ~ 2026-09-30'); // d2 已结束
+        expect(rows).toContain('已结束');
+    });
+
+    test('「仅看在用」勾选后过滤掉历史（已结束）绑定行', async () => {
+        await mount();
+        const before = document.getElementById('pdDeviceRows').innerHTML;
+        expect(before).toContain('VH-B-001');              // 已结束行默认可见（台账保留历史）
+
+        const cb = document.getElementById('pdOnlyActive');
+        cb.checked = true;
+        cb.dispatchEvent(new Event('change'));
+        await flush(2);
+        const after = document.getElementById('pdDeviceRows').innerHTML;
+        expect(after).not.toContain('VH-B-001');
+        expect(after).toContain('VH-A-001');
+    });
+
+    test('已结束的绑定不显示「变更编号 / 结束绑定 / 轮换」动作（仅历史可查、可删）', async () => {
+        await mount();
+        const rowsHtml = document.getElementById('pdDeviceRows').innerHTML;
+        const endedRow = rowsHtml.split('<tr').find((r) => r.includes('VH-B-001')) || '';
+        expect(endedRow).not.toContain('data-act="replace"');
+        expect(endedRow).not.toContain('data-act="close"');
+        expect(endedRow).not.toContain('data-act="rotate"');
+        expect(endedRow).toContain('data-act="del"');
+
+        const activeRow = rowsHtml.split('<tr').find((r) => r.includes('VH-A-001')) || '';
+        expect(activeRow).toContain('data-act="replace"');
+        expect(activeRow).toContain('data-act="close"');
+    });
+
+    test('变更编号流程：弹层回显原绑定 → 提交调用 replace 接口并弹出新密钥', async () => {
+        const { calls } = await mount();
+        document.querySelector('[data-act="replace"][data-id="d1"]').click();
+        await flush(2);
+
+        const modal = document.getElementById('pdReplaceModal');
+        expect(modal.classList.contains('hidden')).toBe(false);
+        expect(document.getElementById('pdReplaceFrom').textContent).toContain('VH-A-001');
+        expect(document.getElementById('pdReplaceDate').value).toMatch(/^\d{4}-\d{2}-\d{2}$/); // 默认今天
+
+        // 填新编号 + 确认（window.confirm 桩返回 true）
+        document.getElementById('pdReplaceTo').value = 'VH-A-002';
+        jest.spyOn(window, 'confirm').mockReturnValue(true);
+        document.querySelector('[data-act="replace-save"]').click();
+        await flush(6);
+
+        const replaceCall = calls.find((u) => u.includes('/replace'));
+        expect(replaceCall).toBeTruthy();
+        expect(replaceCall).toContain('/d1/replace');
+        expect(document.getElementById('pdReplaceModal').classList.contains('hidden')).toBe(true);
+        // 新密钥弹层（明文仅一次）
+        expect(document.getElementById('pdKeyModal').classList.contains('hidden')).toBe(false);
+        expect(document.getElementById('pdKeyPlain').value).toMatch(/^pdv_/);
+        window.confirm.mockRestore();
+    });
+
+    test('结束绑定：确认日期后调用 close 接口', async () => {
+        const { calls } = await mount();
+        jest.spyOn(window, 'prompt').mockReturnValue('2026-10-16');
+        document.querySelector('[data-act="close"][data-id="d1"]').click();
+        await flush(6);
+        const closeCall = calls.find((u) => u.includes('/close'));
+        expect(closeCall).toBeTruthy();
+        expect(closeCall).toContain('/d1/close');
+        window.prompt.mockRestore();
     });
 });

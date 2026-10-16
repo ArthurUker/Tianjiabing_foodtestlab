@@ -74,7 +74,8 @@ function makePayload(overrides = {}) {
 }
 
 /** 上传面内存桩 prisma + 租户桩。 */
-function makeUploadStubs({ device, platformKey = null, school = { code: 'school-a', status: 'active' }, canteens = ['一食堂', '二食堂'], tenantUser = { id: 'u-1', status: 'active' }, existingRecord = null, existingRecords = [] } = {}) {
+function makeUploadStubs({ device, extraBindings = [], platformKey = null, school = { code: 'school-a', status: 'active' }, canteens = ['一食堂', '二食堂'], tenantUser = { id: 'u-1', status: 'active' }, existingRecord = null, existingRecords = []   } = {}) {
+  const existingBindings = Array.isArray(extraBindings) ? extraBindings : [] // 台账：额外绑定行（跨校流转/历史）
   const key = generateDeviceKey()
   const row = {
     id: 'dev-1',
@@ -100,7 +101,16 @@ function makeUploadStubs({ device, platformKey = null, school = { code: 'school-
         if (where.device_no && where.device_no !== row.device_no) return null
         return row
       },
-      async update({ data }) { Object.assign(row, data); return row },
+      /** 绑定台账（2026-10-16）：按 device_no 返回全部绑定行（含历史），路由按检测时间挑选 */
+      async findMany({ where } = {}) {
+        const all = [row, ...existingBindings]
+        return where?.device_no ? all.filter((r) => r.device_no === where.device_no) : all
+      },
+      async update({ where, data }) {
+        if (where?.id && where.id !== row.id) throw new Error('not found')
+        Object.assign(row, data)
+        return row
+      },
     },
     // 统一上传密钥桩（B 方案）：仅 key_hash 命中 active 行时被路由采用
     pathogenUploadKey: {
@@ -514,9 +524,21 @@ function makeAdminStubs({ users = [{ id: 'u-1', status: 'active' }], schools = [
     school: { async findUnique({ where }) { return schools.find((s) => s.code === where.code) || null } },
     schoolCustomization: { async findUnique() { return { canteens } } },
     pathogenDevice: {
+      /** 绑定台账过滤（device_no / school_code / id(含 not) / valid_to=null 视为在用） */
+      _filter(where = {}) {
+        return rows.filter((r) => {
+          if (where.device_no && r.device_no !== where.device_no) return false
+          if (where.school_code && r.school_code !== where.school_code) return false
+          if (where.id && typeof where.id === 'object' && where.id.not && r.id === where.id.not) return false
+          if (where.id && typeof where.id === 'string' && r.id !== where.id) return false
+          if (where.valid_to === null && r.valid_to) return false
+          return true
+        })
+      },
       async findUnique({ where }) { return rows.find((r) => r.id === where.id || r.device_no === where.device_no) || null },
-      async findMany({ where } = {}) { return where && where.school_code ? rows.filter((r) => r.school_code === where.school_code) : rows },
-      async create({ data }) { const row = { id: `dev-${rows.length + 1}`, upload_count: 0, last_used_at: null, last_upload_at: null, disabled_at: null, disabled_reason: null, created_at: new Date(), updated_at: new Date(), ...data }; rows.push(row); return row },
+      async findMany({ where } = {}) { return this._filter(where) },
+      async findFirst({ where } = {}) { return this._filter(where)[0] || null },
+      async create({ data }) { const row = { id: `dev-${rows.length + 1}`, status: 'active', valid_to: null, valid_from: new Date(), upload_count: 0, last_used_at: null, last_upload_at: null, disabled_at: null, disabled_reason: null, ip_whitelist: null, created_at: new Date(), updated_at: new Date(), ...data }; rows.push(row); return row },
       async update({ where, data }) { const row = rows.find((r) => r.id === where.id); if (!row) throw new Error('not found'); Object.assign(row, data); return row },
       async delete({ where }) { const i = rows.findIndex((r) => r.id === where.id); if (i >= 0) rows.splice(i, 1) },
       async upsert() { return {} },
@@ -582,13 +604,28 @@ test('超管新增：学校不存在 / 绑定用户缺失 / 默认食堂不在�
   assert.ok(res.body.error.includes('不在该校食堂名单'))
 })
 
-test('超管新增：设备编号全局唯一（重复 → 400）', async () => {
+test('超管新增（台账口径）：同一编号已有「在用」绑定 → 400，并提示变更编号/跨校流转的正确做法', async () => {
   const { prisma, tenantClientFactory } = makeAdminStubs({
-    devices: [{ id: 'dev-1', device_no: 'VH-2B-001', school_code: 'school-a', binding_user_id: 'u-1', status: 'active', key_hash: 'h', key_prefix: 'pdv_x', key_last4: '1234', rate_limit_per_min: 60 }],
+    devices: [{ id: 'dev-1', device_no: 'VH-2B-001', school_code: 'school-a', binding_user_id: 'u-1', status: 'active', key_hash: 'h', key_prefix: 'pdv_x', key_last4: '1234', rate_limit_per_min: 60, valid_from: new Date('2026-09-01T00:00:00') }],
   })
   const res = await invokeAdmin(makeAdminRouter(prisma, tenantClientFactory), 'post', '/', { body: { device_no: 'VH-2B-001', school_code: 'school-a', binding_user_id: 'u-1' } })
   assert.equal(res.statusCode, 400)
-  assert.ok(res.body.error.includes('已存在'))
+  assert.ok(res.body.error.includes('在用'), '应说明冲突原因是用绑定')
+  assert.ok(res.body.error.includes('变更编号'), '应给出正确做法指引')
+})
+
+test('超管新增（台账口径）：同一编号的**已结束**绑定不阻止新增（跨校流转/换机后复用编号）', async () => {
+  const { prisma, tenantClientFactory, rows } = makeAdminStubs({
+    schools: [{ code: 'school-a', status: 'active', name: 'A校' }, { code: 'school-b', status: 'active', name: 'B校' }],
+    devices: [{ id: 'dev-1', device_no: 'VH-2B-001', school_code: 'school-a', binding_user_id: 'u-1', status: 'active', key_hash: 'h', key_prefix: 'pdv_x', key_last4: '1234', rate_limit_per_min: 60, valid_from: new Date('2026-09-01T00:00:00'), valid_to: new Date('2026-09-30T00:00:00') }],
+  })
+  const res = await invokeAdmin(makeAdminRouter(prisma, tenantClientFactory), 'post', '/', {
+    body: { device_no: 'VH-2B-001', school_code: 'school-b', binding_user_id: 'u-1', valid_from: '2026-10-01' },
+  })
+  assert.equal(res.statusCode, 200, `已结束绑定不应阻止新增：${JSON.stringify(res.body)}`)
+  assert.equal(rows.length, 2, '历史绑定行必须保留')
+  assert.equal(res.body.data.school_code, 'school-b')
+  assert.equal(res.body.data.binding_state, 'active')
 })
 
 test('超管新增：成功返回明文密钥一次，列表投影不含 key_hash', async () => {
@@ -1017,4 +1054,132 @@ test('上报归属：学校未配置食堂列表时，报文样本信息仍能�
   assert.equal(res.statusCode, 200)
   assert.equal(created.length, 1)
   assert.equal(created[0].sample_info.canteen, '二食堂', '应从 SampleStr 识别出「二食堂」（内置默认名单兜底）')
+})
+
+// ───────────────────────── 绑定台账：上报按检测时间归属 ─────────────────────────
+
+test('台账归属：绑定已结束，但报文检测时间落在其区间内 → 允许入库（离线/延迟补传不丢数据）', async () => {
+  const { prisma, tenantClientFactory, plainKey, created } = makeUploadStubs({
+    device: { valid_from: new Date('2026-09-01T00:00:00'), valid_to: new Date('2026-10-10T00:00:00') },
+  })
+  // makePayload 默认检测时间 2026-09-17 08:30，落在 [09-01, 10-10) 内
+  const res = await invokeUpload({ prisma, tenantClientFactory, plainKey, body: makePayload(), apiKey: plainKey })
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body))
+  assert.equal(created.length, 1)
+})
+
+test('台账归属：报文检测时间落在所有绑定区间之外 → 403 DEVICE_BINDING_EXPIRED（附检测时间与区间）', async () => {
+  const { prisma, tenantClientFactory, plainKey, created } = makeUploadStubs({
+    device: { valid_from: new Date('2026-08-01T00:00:00'), valid_to: new Date('2026-08-31T00:00:00') },
+  })
+  const res = await invokeUpload({ prisma, tenantClientFactory, plainKey, body: makePayload(), apiKey: plainKey })
+  assert.equal(res.statusCode, 403)
+  assert.equal(res.body.code, 'DEVICE_BINDING_EXPIRED')
+  assert.match(res.body.message, /没有有效绑定/)
+  assert.match(res.body.message, /2026-09-17/, '应回显报文检测时间便于定位')
+  assert.equal(created.length, 0)
+})
+
+test('台账归属（统一密钥）：检测时间决定归属 —— 落在哪条绑定区间就归哪个学校', async () => {
+  const pk = makePlatformKey()
+  const { prisma, tenantClientFactory, created } = makeUploadStubs({
+    platformKey: pk,
+    // 第一段：school-a（2026-09-01 ~ 2026-09-30）；第二段：school-b（2026-10-01 起）
+    device: { valid_from: new Date('2026-09-01T00:00:00'), valid_to: new Date('2026-09-30T00:00:00') },
+    extraBindings: [{
+      id: 'dev-2', device_no: 'VH-2B-001', school_code: 'school-b', binding_user_id: 'u-1',
+      status: 'active', key_hash: 'h2', key_prefix: 'pdv_y', key_last4: '9999',
+      rate_limit_per_min: 60, ip_whitelist: null, valid_from: new Date('2026-10-01T00:00:00'), valid_to: null,
+    }],
+  })
+  // 报文检测时间 2026-09-17 → 命中 school-a 段（tenantClientFactory 断言 school-a）
+  const res = await invokeUpload({ prisma, tenantClientFactory, body: makePayload(), apiKey: pk.plain })
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body))
+  assert.equal(created.length, 1)
+})
+
+test('台账归属（设备密钥）：密钥对应绑定已结束且检测时间落在另一条绑定内 → 403 并提示改用当前密钥', async () => {
+  const { prisma, tenantClientFactory, plainKey, created } = makeUploadStubs({
+    device: { valid_from: new Date('2026-08-01T00:00:00'), valid_to: new Date('2026-08-31T00:00:00') },
+    extraBindings: [{
+      id: 'dev-2', device_no: 'VH-2B-001', school_code: 'school-b', binding_user_id: 'u-1',
+      status: 'active', key_hash: 'h2', key_prefix: 'pdv_y', key_last4: '9999',
+      rate_limit_per_min: 60, ip_whitelist: null, valid_from: new Date('2026-09-01T00:00:00'), valid_to: null,
+    }],
+  })
+  const res = await invokeUpload({ prisma, tenantClientFactory, plainKey, body: makePayload(), apiKey: plainKey })
+  assert.equal(res.statusCode, 403)
+  assert.equal(res.body.code, 'DEVICE_BINDING_EXPIRED')
+  assert.match(res.body.message, /当前设备密钥/)
+  assert.equal(created.length, 0)
+})
+
+// ───────────────────────── 绑定台账：变更编号 / 结束绑定 ─────────────────────────
+
+test('超管变更编号：关旧建新（同事务）——旧行写 valid_to、新行 valid_from=生效日并返回新密钥', async () => {
+  const { prisma, tenantClientFactory, rows } = makeAdminStubs({
+    devices: [{
+      id: 'dev-1', device_no: 'VH-2B-001', school_code: 'school-a', binding_user_id: 'u-1', name: '原设备',
+      status: 'active', key_hash: 'h1', key_prefix: 'pdv_old', key_last4: '0001', rate_limit_per_min: 60,
+      ip_whitelist: [], upload_count: 3, valid_from: new Date('2026-09-01T00:00:00'), valid_to: null,
+    }],
+  })
+  const res = await invokeAdmin(makeAdminRouter(prisma, tenantClientFactory), 'post', '/:id/replace', {
+    params: { id: 'dev-1' },
+    body: { new_device_no: 'VH-2B-002', effective_date: '2026-10-16' },
+  })
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body))
+  assert.match(res.body.data.apiKey, /^pdv_/)
+  assert.equal(rows.length, 2, '必须保留历史行')
+  const oldRow = rows.find((r) => r.id === 'dev-1')
+  const newRow = rows.find((r) => r.id !== 'dev-1')
+  const localDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  assert.equal(localDate(oldRow.valid_to), '2026-10-16', '旧绑定结束于生效日（本地口径）')
+  assert.equal(localDate(newRow.valid_from), '2026-10-16', '新绑定自生效日起（本地口径）')
+  assert.equal(newRow.device_no, 'VH-2B-002')
+  assert.equal(newRow.school_code, 'school-a', '同一学校换机：学校不变')
+  assert.equal(newRow.name, '原设备', '未传字段继承原绑定配置')
+  assert.equal(res.body.data.closed.binding_state, 'ended')
+  assert.equal(res.body.data.device.binding_state, 'active')
+})
+
+test('超管变更编号：参数校验（同编号 / 生效日早于起始 / 新编号已有在用绑定）', async () => {
+  const base = () => makeAdminStubs({
+    schools: [{ code: 'school-a', status: 'active', name: 'A校' }, { code: 'school-b', status: 'active', name: 'B校' }],
+    devices: [
+      { id: 'dev-1', device_no: 'VH-2B-001', school_code: 'school-a', binding_user_id: 'u-1', status: 'active', key_hash: 'h1', key_prefix: 'pdv_a', key_last4: '0001', rate_limit_per_min: 60, ip_whitelist: [], valid_from: new Date('2026-09-01T00:00:00'), valid_to: null },
+      { id: 'dev-9', device_no: 'VH-2B-999', school_code: 'school-b', binding_user_id: 'u-1', status: 'active', key_hash: 'h9', key_prefix: 'pdv_z', key_last4: '9999', rate_limit_per_min: 60, ip_whitelist: [], valid_from: new Date('2026-09-01T00:00:00'), valid_to: null },
+    ],
+  })
+  let st = base()
+  let res = await invokeAdmin(makeAdminRouter(st.prisma, st.tenantClientFactory), 'post', '/:id/replace', { params: { id: 'dev-1' }, body: { new_device_no: 'VH-2B-001' } })
+  assert.equal(res.statusCode, 400)
+  assert.ok(res.body.error.includes('不能与原编号相同'))
+
+  st = base()
+  res = await invokeAdmin(makeAdminRouter(st.prisma, st.tenantClientFactory), 'post', '/:id/replace', { params: { id: 'dev-1' }, body: { new_device_no: 'VH-2B-003', effective_date: '2026-08-01' } })
+  assert.equal(res.statusCode, 400)
+  assert.ok(res.body.error.includes('晚于原绑定起始时间'))
+
+  st = base()
+  res = await invokeAdmin(makeAdminRouter(st.prisma, st.tenantClientFactory), 'post', '/:id/replace', { params: { id: 'dev-1' }, body: { new_device_no: 'VH-2B-999', effective_date: '2026-10-16' } })
+  assert.equal(res.statusCode, 400)
+  assert.ok(res.body.error.includes('在用'))
+})
+
+test('超管结束绑定：写 valid_to 且历史保留；重复结束 → 400', async () => {
+  const { prisma, tenantClientFactory, rows } = makeAdminStubs({
+    devices: [{ id: 'dev-1', device_no: 'VH-2B-001', school_code: 'school-a', binding_user_id: 'u-1', status: 'active', key_hash: 'h1', key_prefix: 'pdv_a', key_last4: '0001', rate_limit_per_min: 60, ip_whitelist: [], valid_from: new Date('2026-09-01T00:00:00'), valid_to: null }],
+  })
+  const router = makeAdminRouter(prisma, tenantClientFactory)
+  let res = await invokeAdmin(router, 'post', '/:id/close', { params: { id: 'dev-1' }, body: { end_date: '2026-10-16' } })
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.body.data.binding_state, 'ended')
+  const localDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  assert.equal(localDate(res.body.data.valid_to), '2026-10-16')
+  assert.equal(rows.length, 1, '结束绑定不删除历史行')
+
+  res = await invokeAdmin(router, 'post', '/:id/close', { params: { id: 'dev-1' }, body: { end_date: '2026-10-20' } })
+  assert.equal(res.statusCode, 400)
+  assert.ok(res.body.error.includes('已'))
 })

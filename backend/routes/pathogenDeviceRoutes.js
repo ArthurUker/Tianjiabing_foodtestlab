@@ -40,6 +40,7 @@ import {
   buildCaseKey,
   isSameCase,
   buildDeviceRound,
+  toBusinessDateStr,
 } from '../lib/pathogenDevice.js'
 import { ipAllowed, normalizeIp } from '../lib/openApiKeys.js'
 
@@ -58,6 +59,44 @@ const DEFAULT_RATE_LIMIT = 60
 // 统一上传密钥平台级限流（兜底闸门：防止一把共享钥匙被滥用刷全平台；设备级限流另行执行）
 const PLATFORM_RATE_LIMIT = 600
 const MAX_RATE_LIMIT = 600
+
+// ───────────────────────── 绑定台账工具（2026-10-16） ─────────────────────────
+
+/** 本地时区日期格式化（YYYY-MM-DD）；跨时区不偏移。 */
+function fmtLocalDate(v) {
+  if (!v) return null
+  const t = new Date(v)
+  if (Number.isNaN(t.getTime())) return null
+  const p = (n) => String(n).padStart(2, '0')
+  return `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())}`
+}
+
+/** 绑定区间展示：「起 ~ 止」或「起 ~ 至今」。 */
+function fmtBindingRange(row) {
+  return `${fmtLocalDate(row?.valid_from) || '—'} ~ ${row?.valid_to ? fmtLocalDate(row.valid_to) : '至今'}`
+}
+
+/** 绑定区间命中：检测时间 ∈ [valid_from, valid_to)；valid_to 为空 = 至今。 */
+function bindingCovers(row, atMs) {
+  const from = row?.valid_from ? new Date(row.valid_from).getTime() : -Infinity
+  const to = row?.valid_to ? new Date(row.valid_to).getTime() : Infinity
+  return atMs >= from && atMs < to
+}
+
+/** 解析 YYYY-MM-DD 为**本地零点**（与报文检测时间的本地口径一致）；也接受完整时间串。 */
+function parseLocalDate(v) {
+  if (v === null || v === undefined || v === '') return null
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v
+  const s = String(v).trim()
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s)
+  if (m) {
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+    return Number.isNaN(d.getTime()) ? null : d
+  }
+  const d = new Date(s)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
 const OPS_ACTION = {
   create: 'pathogen_device_create',
   update: 'pathogen_device_update',
@@ -66,6 +105,8 @@ const OPS_ACTION = {
   import: 'pathogen_device_import',
   platformKey: 'pathogen_platform_key_create', // 创建/轮换统一上传密钥（单活：停旧建新）
   platformKeyToggle: 'pathogen_platform_key_toggle', // 统一上传密钥启停
+  replace: 'pathogen_device_replace', // 变更设备编号（关旧建新，台账留痕）
+  close: 'pathogen_device_close_binding', // 结束绑定（写 valid_to，设备报废/退租）
 }
 
 /** 设备上传面响应：{ code, message, data }（与厂商对接文档一致）。 */
@@ -113,10 +154,18 @@ async function resolveBindingUsers(prisma, rows, tenantClientFactory) {
 }
 
 function toDeviceView(row, bindingUser = null) {
+  // 台账展示状态：停用 > 已结束 > 在用（"已结束"由 valid_to 决定，不是 status 变更）
+  const bindingState = (row.status !== 'active' || row.disabled_at)
+    ? 'disabled'
+    : (row.valid_to ? 'ended' : 'active')
   return {
     id: row.id,
     device_no: row.device_no,
     school_code: row.school_code,
+    valid_from: row.valid_from ?? null,
+    valid_to: row.valid_to ?? null,
+    binding_state: bindingState,
+    binding_range: fmtBindingRange(row),
     name: row.name ?? null,
     binding_user_id: row.binding_user_id ?? null,
     // 绑定用户的展示信息（控制台显示「姓名（账号）」而不是 UUID；解析不到时为 null，前端降级）
@@ -302,25 +351,53 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
     }
     const payload = validation.data
 
-    // ── ④ 设备定位与一致性 ──
+    // ── ④ 设备定位与一致性（绑定台账口径：按**报文检测时间**匹配 [valid_from, valid_to)）──
+    //   同一设备编号可有多个历史绑定（跨校流转/换机），归属取检测时间所在的那一条；
+    //   已结束的绑定只要检测时间落在其区间内仍允许入库（离线/延迟补传不丢数据）。
+    const detectionAtMs = payload.startDt instanceof Date && !Number.isNaN(payload.startDt.getTime())
+      ? payload.startDt.getTime()
+      : Date.now()
+    const detectionText = payload.startDt instanceof Date && !Number.isNaN(payload.startDt.getTime())
+      ? `${toBusinessDateStr(payload.startDt)} ${String(payload.startDt.getHours()).padStart(2, '0')}:${String(payload.startDt.getMinutes()).padStart(2, '0')}`
+      : '（报文未提供，按接收时间）'
+    let bindings = []
+    try {
+      bindings = await prisma.pathogenDevice.findMany({
+        where: { device_no: payload.deviceNo },
+        orderBy: { valid_from: 'asc' },
+      })
+    } catch (e) {
+      console.error(`${TAG} 设备绑定查询异常:`, e)
+      return reply(res, 500, 'INTERNAL_ERROR', '服务暂时不可用，请稍后重试')
+    }
     if (authMode === 'device') {
       // 设备密钥模式：报文设备编号必须与密钥所属设备一致（防跨校冒用 / 租户冲突）
       if (payload.deviceNo !== device.device_no) {
         logDeniedThrottled(ip, 'DEVICE_MISMATCH', { path, deviceNo: device.device_no })
         return reply(res, 403, 'DEVICE_MISMATCH', `报文设备编号 ${payload.deviceNo} 与密钥所属设备不一致`)
       }
-    } else {
-      // 统一密钥模式：按报文设备编号定位设备（必须已在学校登记且启用）
-      try {
-        device = await prisma.pathogenDevice.findUnique({ where: { device_no: payload.deviceNo } })
-      } catch (e) {
-        console.error(`${TAG} 设备定位异常:`, e)
-        return reply(res, 500, 'INTERNAL_ERROR', '服务暂时不可用，请稍后重试')
-      }
-      if (!device) {
-        logDeniedThrottled(ip, 'DEVICE_NOT_REGISTERED', { path, deviceNo: payload.deviceNo })
-        return reply(res, 403, 'DEVICE_NOT_REGISTERED', `设备编号 ${payload.deviceNo} 未在任何学校登记：请先在控制台「病原体设备」为所属学校绑定该设备编号`)
-      }
+    } else if (!bindings.length) {
+      logDeniedThrottled(ip, 'DEVICE_NOT_REGISTERED', { path, deviceNo: payload.deviceNo })
+      return reply(res, 403, 'DEVICE_NOT_REGISTERED', `设备编号 ${payload.deviceNo} 未在任何学校登记：请先在控制台「病原体设备」为所属学校绑定该设备编号`)
+    }
+
+    const hitBinding = bindings.find((r) => bindingCovers(r, detectionAtMs)) || null
+    if (!hitBinding) {
+      const ranges = bindings.map((r) => fmtBindingRange(r)).join('；') || '（该编号无任何绑定记录）'
+      logDeniedThrottled(ip, 'DEVICE_BINDING_EXPIRED', { path, deviceNo: payload.deviceNo })
+      return reply(res, 403, 'DEVICE_BINDING_EXPIRED',
+        `设备编号 ${payload.deviceNo} 在报文检测时间（${detectionText}）没有有效绑定，无法确定所属学校；该编号的绑定期间：${ranges}。请人工复核，或由管理员在控制台核对绑定起止时间`,
+        { detectionTime: detectionText, bindings: bindings.map((r) => ({ school_code: r.school_code, range: fmtBindingRange(r) })) })
+    }
+    if (authMode === 'device' && hitBinding.id !== device.id) {
+      // 密钥所属绑定与检测时间命中的绑定不是同一条（换机/跨校流转后仍用旧密钥）
+      logDeniedThrottled(ip, 'DEVICE_BINDING_EXPIRED', { path, deviceNo: device.device_no })
+      return reply(res, 403, 'DEVICE_BINDING_EXPIRED',
+        `该设备密钥对应的绑定期间为 ${fmtBindingRange(device)}，报文检测时间（${detectionText}）落在另一条绑定（${fmtBindingRange(hitBinding)}）内；请使用当前设备密钥上报`)
+    }
+    device = hitBinding
+    if (authMode !== 'device') {
+      // 统一密钥模式：命中的绑定行仍需通过停用/IP 白名单检查
       if (device.status !== 'active' || device.disabled_at) {
         logDeniedThrottled(ip, 'DEVICE_DISABLED', { path, deviceNo: device.device_no })
         return reply(res, 403, 'DEVICE_DISABLED', `设备 ${device.device_no} 已停用，请联系平台管理员启用`)
@@ -678,6 +755,27 @@ export function createAdminPathogenDeviceRoutes({ prisma, authenticateUser, requ
     }
   }
 
+  /** 同编号是否已有「在用」绑定（valid_to 为空）。 */
+  async function findActiveBinding(deviceNo, excludeId = null) {
+    return prisma.pathogenDevice.findFirst({
+      where: { device_no: deviceNo, valid_to: null, ...(excludeId ? { id: { not: excludeId } } : {}) },
+    })
+  }
+
+  /** 同编号区间重叠检测：[from, to) 与既有绑定区间不得重叠（to 为空 = 至今）。 */
+  async function findOverlappingBinding(deviceNo, from, to, excludeId = null) {
+    const rows = await prisma.pathogenDevice.findMany({
+      where: { device_no: deviceNo, ...(excludeId ? { id: { not: excludeId } } : {}) },
+    })
+    const fromMs = from ? new Date(from).getTime() : -Infinity
+    const toMs = to ? new Date(to).getTime() : Infinity
+    return rows.find((r) => {
+      const rf = r.valid_from ? new Date(r.valid_from).getTime() : -Infinity
+      const rt = r.valid_to ? new Date(r.valid_to).getTime() : Infinity
+      return fromMs < rt && rf < toMs
+    }) || null
+  }
+
   // ── 查询 ──
   router.get('/', async (req, res) => {
     try {
@@ -696,6 +794,117 @@ export function createAdminPathogenDeviceRoutes({ prisma, authenticateUser, requ
     } catch (e) {
       console.error(`${TAG} 设备列表查询失败:`, e)
       res.status(500).json({ success: false, error: '查询失败' })
+    }
+  })
+
+  // ── 变更设备编号（台账：关旧建新，同一事务；换机/替代设备场景） ──
+  router.post('/:id/replace', async (req, res) => {
+    try {
+      const row = await prisma.pathogenDevice.findUnique({ where: { id: req.params.id } })
+      if (!row) return res.status(404).json({ success: false, error: '设备不存在' })
+      if (row.valid_to) return badRequest(res, '该绑定已结束，无法变更；如需恢复请在控制台重新新增该设备编号')
+
+      const body = req.body || {}
+      const newDeviceNo = String(body.new_device_no || '').trim()
+      if (!DEVICE_NO_RE.test(newDeviceNo)) return badRequest(res, 'new_device_no 仅允许字母/数字/连字符/下划线（1~64 位）')
+      if (newDeviceNo === row.device_no) return badRequest(res, '新设备编号不能与原编号相同（同编号重传请直接使用原密钥）')
+
+      const effectiveAt = parseLocalDate(body.effective_date) || new Date()
+      if (effectiveAt.getTime() <= new Date(row.valid_from).getTime()) {
+        return badRequest(res, `生效日期必须晚于原绑定起始时间（${fmtBindingRange(row)}）`)
+      }
+      const activeConflict = await findActiveBinding(newDeviceNo)
+      if (activeConflict) {
+        return badRequest(res, `新设备编号 ${newDeviceNo} 已存在「在用」绑定（${fmtBindingRange(activeConflict)}，归属 ${activeConflict.school_code}）`)
+      }
+      const overlapped = await findOverlappingBinding(newDeviceNo, effectiveAt, null)
+      if (overlapped) {
+        return badRequest(res, `新设备编号 ${newDeviceNo} 的绑定区间与既有绑定重叠（${fmtBindingRange(overlapped)}，归属 ${overlapped.school_code}）`)
+      }
+
+      // 继承原绑定的运维配置（body 有传则以 body 为准）
+      const norm = await normalizeDeviceInput({
+        device_no: newDeviceNo,
+        school_code: row.school_code,
+        binding_user_id: body.binding_user_id || row.binding_user_id,
+        name: body.name !== undefined ? body.name : row.name,
+        default_canteen: body.default_canteen !== undefined ? body.default_canteen : row.default_canteen,
+        rate_limit_per_min: body.rate_limit_per_min ?? row.rate_limit_per_min,
+        ip_whitelist: body.ip_whitelist !== undefined ? body.ip_whitelist : (Array.isArray(row.ip_whitelist) ? row.ip_whitelist : []),
+      }, { schoolCodeFixed: row.school_code })
+      if (!norm.ok) return badRequest(res, norm.message)
+      const d = norm.data
+
+      const key = generateDeviceKey()
+      const [closed, created] = await prisma.$transaction([
+        prisma.pathogenDevice.update({ where: { id: row.id }, data: { valid_to: effectiveAt } }),
+        prisma.pathogenDevice.create({
+          data: {
+            device_no: d.deviceNo,
+            school_code: d.schoolCode,
+            binding_user_id: d.bindingUserId,
+            name: d.name,
+            default_canteen: d.defaultCanteen,
+            rate_limit_per_min: d.rateLimit,
+            ip_whitelist: d.ipWhitelist,
+            key_hash: key.hash,
+            key_prefix: key.prefix,
+            key_last4: key.last4,
+            valid_from: effectiveAt,
+            created_by: req.user?.userId || null,
+          },
+        }),
+      ])
+      await writeAdminOpsLog(prisma, {
+        action: OPS_ACTION.replace,
+        actor: req.user?.userId || null,
+        targetId: created.id,
+        targetSchoolCode: row.school_code,
+        details: {
+          from_device_no: row.device_no,
+          to_device_no: d.deviceNo,
+          effective_date: fmtLocalDate(effectiveAt),
+          closed_binding_id: closed.id,
+          closed_range: fmtBindingRange(closed),
+        },
+      })
+      res.json({
+        success: true,
+        data: {
+          apiKey: key.plain,
+          device: toDeviceView(created),
+          closed: toDeviceView(closed),
+          message: `旧绑定（${row.device_no}）已结束于 ${fmtLocalDate(effectiveAt)}，新绑定（${d.deviceNo}）自该日生效；旧密钥立即失效，请配置到替代设备`,
+        },
+      })
+    } catch (e) {
+      console.error(`${TAG} 变更设备编号失败:`, e)
+      res.status(500).json({ success: false, error: '变更失败' })
+    }
+  })
+
+  // ── 结束绑定（设备报废/退租；只写 valid_to，历史永久保留） ──
+  router.post('/:id/close', async (req, res) => {
+    try {
+      const row = await prisma.pathogenDevice.findUnique({ where: { id: req.params.id } })
+      if (!row) return res.status(404).json({ success: false, error: '设备不存在' })
+      if (row.valid_to) return badRequest(res, `该绑定已于 ${fmtLocalDate(row.valid_to)} 结束`)
+      const endAt = parseLocalDate(req.body?.end_date) || new Date()
+      if (endAt.getTime() <= new Date(row.valid_from).getTime()) {
+        return badRequest(res, `结束日期必须晚于绑定起始时间（${fmtBindingRange(row)}）`)
+      }
+      const updated = await prisma.pathogenDevice.update({ where: { id: row.id }, data: { valid_to: endAt } })
+      await writeAdminOpsLog(prisma, {
+        action: OPS_ACTION.close,
+        actor: req.user?.userId || null,
+        targetId: row.id,
+        targetSchoolCode: row.school_code,
+        details: { device_no: row.device_no, end_date: fmtLocalDate(endAt), range: fmtBindingRange(updated) },
+      })
+      res.json({ success: true, data: toDeviceView(updated) })
+    } catch (e) {
+      console.error(`${TAG} 结束绑定失败:`, e)
+      res.status(500).json({ success: false, error: '操作失败' })
     }
   })
 
@@ -723,6 +932,9 @@ export function createAdminPathogenDeviceRoutes({ prisma, authenticateUser, requ
             key_last4: r.key_last4,
             rate_limit_per_min: r.rate_limit_per_min,
             ip_whitelist: Array.isArray(r.ip_whitelist) ? r.ip_whitelist : [],
+            // 绑定台账：区间随导出保留，便于灾后重建还原历史（2026-10-16）
+            valid_from: r.valid_from ?? null,
+            valid_to: r.valid_to ?? null,
           })),
           // 统一上传密钥（B 方案）：仅最新一行（单活）；不含明文
           platform_key: pkRow ? {
@@ -902,8 +1114,16 @@ export function createAdminPathogenDeviceRoutes({ prisma, authenticateUser, requ
       if (!norm.ok) return badRequest(res, norm.message)
       const { deviceNo, schoolCode, bindingUserId, name, defaultCanteen, rateLimit, ipWhitelist } = norm.data
 
-      const dup = await prisma.pathogenDevice.findUnique({ where: { device_no: deviceNo }, select: { id: true } })
-      if (dup) return badRequest(res, `设备编号 ${deviceNo} 已存在（全局唯一）`)
+      // 台账口径：同一编号可有多条历史绑定，但**至多一条在用**，且区间不得重叠
+      const validFrom = parseLocalDate(req.body?.valid_from) || new Date()
+      const activeConflict = await findActiveBinding(deviceNo)
+      if (activeConflict) {
+        return badRequest(res, `设备编号 ${deviceNo} 已有一条「在用」绑定（${fmtBindingRange(activeConflict)}，归属 ${activeConflict.school_code}）；如需换设备请使用「变更编号」，跨校流转请先结束旧绑定`)
+      }
+      const overlapped = await findOverlappingBinding(deviceNo, validFrom, null)
+      if (overlapped) {
+        return badRequest(res, `绑定起始时间与既有绑定区间重叠（${fmtBindingRange(overlapped)}，归属 ${overlapped.school_code}）：同一设备编号的绑定区间不得重叠`)
+      }
 
       const key = generateDeviceKey()
       const row = await prisma.pathogenDevice.create({
@@ -918,6 +1138,7 @@ export function createAdminPathogenDeviceRoutes({ prisma, authenticateUser, requ
           key_hash: key.hash,
           key_prefix: key.prefix,
           key_last4: key.last4,
+          valid_from: validFrom,
           created_by: req.user?.userId || null,
         },
       })

@@ -491,7 +491,11 @@ model OpenApiGrant {
 //    「超管导出 JSON」（POST /api/admin/pathogen-devices/import）留档。
 model PathogenDevice {
   id             String    @id @default(cuid())
-  device_no      String    @unique // 设备编号（上报报文 DeviceNo；全局唯一，配置后不可变更）
+  // 设备编号（上报报文 DeviceNo）。⚠️ 2026-10-16 起**不再全局唯一**：
+  //   本表同时充当「设备绑定台账」——同一编号在不同时间可归属不同学校（跨校流转），
+  //   同一学校也可同时有多个在用设备。唯一性约束改为「同一编号只能有一个**在用**绑定」，
+  //   由迁移里的**部分唯一索引**（WHERE valid_to IS NULL）保证（Prisma schema 无法表达条件索引）。
+  device_no      String
   school_code    String // 归属学校代码（schema 名 school_<code> 的来源）
   name           String? // 设备备注名（如「食堂快检室 1 号机」）
   // 记录创建人：该校租户内一名 editor 及以上用户的 id（上传时作为 TestRecord.created_by，
@@ -513,11 +517,18 @@ model PathogenDevice {
   disabled_at    DateTime?
   disabled_reason String?
   created_by     String? // 平台超管 user id（弱引用，不建外键）
+  // ── 绑定有效期（台账口径，2026-10-16）──
+  // 归属判定按**报文检测时间**落在 [valid_from, valid_to) 内确定；valid_to 为空 = 当前在用。
+  // 变更设备编号 = 旧绑定写 valid_to（变更当天）+ 新绑定 valid_from（变更当天）；历史行永久保留。
+  // 同一 device_no 的区间**不得重叠**（应用层校验 + 部分唯一索引兜底"在用"这一条）。
+  valid_from     DateTime  @default(now())
+  valid_to       DateTime?
   created_at     DateTime  @default(now())
   updated_at     DateTime  @updatedAt
 
   @@index([school_code])
   @@index([status])
+  @@index([device_no])
 }
 
 // ========== 病原体设备「统一上传密钥」（B 方案，public 权威副本）==========

@@ -216,6 +216,15 @@ function renderMdBlocks(lines) {
     return out.join('');
 }
 
+/** 本地日期（YYYY-MM-DD）；绑定期间展示用（不受 UTC 偏移影响）。 */
+function fmtDay(v) {
+    if (!v) return '—';
+    const d = new Date(v);
+    if (Number.isNaN(d.getTime())) return '—';
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
 function fmtTime(iso) {
     if (!iso) return '—';
     const d = new Date(iso);
@@ -239,6 +248,8 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
         canteens: [],       // 当前学校食堂名单（默认食堂下拉）
         editing: null,      // null = 新增；否则为编辑中的设备
         keyword: '',        // 设备列表客户端筛选关键词
+        onlyActive: false,  // 仅看「在用」绑定（台账含历史行）
+        replacing: null,    // 正在变更编号的绑定行
         canteensFallback: false, // 当前学校的食堂名单是否来自内置默认（未配置）
         platformKey: null,  // 统一上传密钥当前视图（B 方案）
         bound: false,
@@ -358,6 +369,9 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
                     <option value="">— 请选择学校 —</option>
                 </select>
                 <input id="pdSearch" type="text" placeholder="筛选设备编号 / 备注 / 绑定用户" class="border border-gray-300 rounded px-3 py-1.5 text-sm w-64" autocomplete="off">
+                <label class="inline-flex items-center gap-1 text-xs text-gray-600" title="台账含历史绑定行；勾选后只看当前在用的设备">
+                    <input id="pdOnlyActive" type="checkbox" class="rounded border-gray-300"> 仅看在用
+                </label>
                 <span id="pdCount" class="text-xs text-gray-500"></span>
                 <span class="ml-auto flex items-center gap-2">
                     <span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold">2</span>
@@ -375,6 +389,7 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
                             <th class="px-4 py-3 text-left">备注</th>
                             <th class="px-4 py-3 text-left" title="设备上报的数据将以该用户为「创建人」（审计归属），必须是该校的有效用户">绑定用户</th>
                             <th class="px-4 py-3 text-left whitespace-nowrap" title="仅当报文样本信息里认不出食堂时使用；必须是该校食堂列表中的名称">默认食堂</th>
+                            <th class="px-4 py-3 text-left whitespace-nowrap" title="该设备编号的绑定有效期（台账）：变更编号时旧绑定结束、新绑定生效，历史永久保留">绑定期间</th>
                             <th class="px-4 py-3 text-center">状态</th>
                             <th class="px-4 py-3 text-left">密钥</th>
                             <th class="px-4 py-3 text-right">上传次数</th>
@@ -385,6 +400,37 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
                     <tbody id="pdDeviceRows"></tbody>
                 </table>
                 <div id="pdEmptyHint" class="hidden text-center text-gray-400 py-8 text-sm">该学校尚未配置检测设备</div>
+            </div>
+        </div>
+
+        <!-- 变更设备编号弹层（台账：关旧建新） -->
+        <div id="pdReplaceModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+            <div class="bg-white rounded-lg shadow-2xl w-full max-w-lg">
+                <div class="px-5 py-4 border-b flex items-center justify-between">
+                    <h3 class="font-bold text-gray-800"><i class="fas fa-exchange-alt text-indigo-600 mr-2"></i>变更设备编号</h3>
+                    <button type="button" data-act="replace-cancel" class="text-gray-500 hover:text-gray-700"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="p-5 space-y-4">
+                    <div class="text-sm text-gray-600 bg-gray-50 border border-gray-200 rounded p-3">
+                        原绑定：<span id="pdReplaceFrom" class="font-medium text-gray-800"></span>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">新设备编号 <span class="text-red-500">*</span></label>
+                        <input id="pdReplaceTo" type="text" class="w-full border border-gray-300 rounded px-3 py-2 text-sm" placeholder="替代设备的编号（如 VH-2B-002）" autocomplete="off">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">生效日期</label>
+                        <input id="pdReplaceDate" type="date" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+                    </div>
+                    <p class="text-xs text-amber-700">
+                        变更后：旧绑定结束于生效日（<strong>历史保留可查</strong>），新绑定自生效日启用并签发新密钥；
+                        <strong>旧密钥立即失效</strong>，请同步配置到替代设备。生效日期之前检测的数据（检测时间落在原绑定期间内）仍归原学校。
+                    </p>
+                </div>
+                <div class="px-5 py-4 border-t flex justify-end gap-2">
+                    <button type="button" data-act="replace-cancel" class="px-4 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">取消</button>
+                    <button type="button" data-act="replace-save" class="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">确认变更</button>
+                </div>
             </div>
         </div>
 
@@ -499,10 +545,20 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
         };
         // 客户端筛选：设备编号 / 备注 / 绑定用户 / 学校名（跨校视图下尤其实用）
         const kw = String(state.keyword || '').trim().toLowerCase();
-        const list = kw
+        // 台账视图：默认列出全部（含历史），「仅看在用」可过滤；排序为 在用优先 → 学校 → 绑定起始倒序
+        const stateRank = (d) => (d.binding_state === 'active' ? 0 : (d.binding_state === 'ended' ? 1 : 2));
+        const list = (kw
             ? state.devices.filter((d) => [d.device_no, d.name, d.binding_user_id, d.school_code, schoolName(d.school_code)]
                 .some((v) => String(v || '').toLowerCase().includes(kw)))
-            : state.devices;
+            : state.devices.slice())
+            .filter((d) => (state.onlyActive ? d.binding_state === 'active' : true))
+            .sort((a, b) => {
+                const r = stateRank(a) - stateRank(b);
+                if (r !== 0) return r;
+                const s = String(a.school_code || '').localeCompare(String(b.school_code || ''));
+                if (s !== 0) return s;
+                return String(b.valid_from || '').localeCompare(String(a.valid_from || ''));
+            });
         const counter = el('pdCount');
         if (counter) counter.textContent = state.devices.length ? `显示 ${list.length} / 共 ${state.devices.length} 台` : '';
         if (empty && !list.length) {
@@ -521,6 +577,14 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
         if (empty) empty.classList.add('hidden');
         tbody.innerHTML = list.map((d) => {
             const active = d.status === 'active';
+            // 台账状态：停用 > 已结束 > 在用（"已结束"由 valid_to 决定）
+            const bindState = d.binding_state || (active ? 'active' : 'disabled');
+            const isActiveRow = bindState === 'active';
+            const stateBadge = bindState === 'active'
+                ? '<span class="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">在用</span>'
+                : bindState === 'ended'
+                    ? '<span class="px-2 py-1 rounded-full text-xs font-medium bg-gray-200 text-gray-600" title="该绑定已结束，历史保留">已结束</span>'
+                    : `<span class="px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700" title="${escapeHtml(d.disabled_reason || '')}">已停用</span>`;
             return `
             <tr class="border-t hover:bg-gray-50">
                 ${showSchool ? `<td class="px-4 py-3 text-gray-700">${schoolLabel(d.school_code)}</td>` : ''}
@@ -532,19 +596,20 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
                         : `<span class="font-mono text-gray-400" title="绑定用户 ID（未解析到姓名）：${escapeHtml(d.binding_user_id || '')}">${escapeHtml(d.binding_user_id ? `${String(d.binding_user_id).slice(0, 8)}…` : '—')}</span>`}
                 </td>
                 <td class="px-4 py-3 text-gray-600 whitespace-nowrap">${escapeHtml(d.default_canteen || '—')}</td>
-                <td class="px-4 py-3 text-center">
-                    ${active
-                        ? '<span class="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">启用</span>'
-                        : `<span class="px-2 py-1 rounded-full text-xs font-medium bg-gray-200 text-gray-600" title="${escapeHtml(d.disabled_reason || '')}">停用</span>`}
-                </td>
+                <td class="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">${escapeHtml(d.binding_range || `${fmtDay(d.valid_from)} ~ ${d.valid_to ? fmtDay(d.valid_to) : '至今'}`)}</td>
+                <td class="px-4 py-3 text-center">${stateBadge}</td>
                 <td class="px-4 py-3 text-xs font-mono text-gray-500">${escapeHtml(d.key_prefix)}…${escapeHtml(d.key_last4)}</td>
                 <td class="px-4 py-3 text-right">${Number(d.upload_count || 0)}</td>
                 <td class="px-4 py-3 text-gray-500 text-xs">${fmtTime(d.last_upload_at)}</td>
                 <td class="px-4 py-3 text-center whitespace-nowrap">
+                    ${isActiveRow ? `
+                    <button class="px-2.5 py-1.5 text-xs bg-indigo-50 text-indigo-700 rounded hover:bg-indigo-100" data-act="replace" data-id="${escapeHtml(d.id)}" title="设备故障换替代设备：结束当前绑定并启用新设备编号（历史保留）"><i class="fas fa-exchange-alt mr-1"></i>变更编号</button>` : ''}
                     <button class="px-2.5 py-1.5 text-xs bg-blue-50 text-blue-700 rounded hover:bg-blue-100" data-act="edit" data-id="${escapeHtml(d.id)}"><i class="fas fa-edit mr-1"></i>编辑</button>
+                    ${isActiveRow ? `
                     <button class="px-2.5 py-1.5 text-xs bg-amber-50 text-amber-700 rounded hover:bg-amber-100" data-act="rotate" data-id="${escapeHtml(d.id)}" title="轮换后旧密钥立即失效"><i class="fas fa-key mr-1"></i>轮换</button>
                     <button class="px-2.5 py-1.5 text-xs ${active ? 'bg-gray-100 text-gray-600 hover:bg-gray-200' : 'bg-green-50 text-green-700 hover:bg-green-100'}" data-act="toggle" data-id="${escapeHtml(d.id)}">${active ? '停用' : '启用'}</button>
-                    <button class="px-2.5 py-1.5 text-xs bg-red-50 text-red-700 rounded hover:bg-red-100" data-act="del" data-id="${escapeHtml(d.id)}"><i class="fas fa-trash mr-1"></i>删除</button>
+                    <button class="px-2.5 py-1.5 text-xs bg-gray-100 text-gray-600 rounded hover:bg-gray-200" data-act="close" data-id="${escapeHtml(d.id)}" title="设备报废/退租：结束绑定但不新增设备（历史保留）"><i class="fas fa-stop-circle mr-1"></i>结束绑定</button>` : ''}
+                    <button class="px-2.5 py-1.5 text-xs bg-red-50 text-red-700 rounded hover:bg-red-100" data-act="del" data-id="${escapeHtml(d.id)}" ${isActiveRow ? '' : 'title="删除历史绑定行（将丢失台账记录，建议保留）"'}><i class="fas fa-trash mr-1"></i>删除</button>
                 </td>
             </tr>`;
         }).join('');
@@ -713,6 +778,67 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
         }
     }
 
+    /* ─────────── 台账：变更设备编号 / 结束绑定 ─────────── */
+    function todayLocal() {
+        const d = new Date();
+        const p = (n) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+    }
+
+    function openReplaceModal(row) {
+        if (!row) return;
+        state.replacing = row;
+        const modal = el('pdReplaceModal');
+        if (!modal) return;
+        el('pdReplaceFrom').textContent = `${row.device_no}（${row.school_code} · ${row.binding_range || ''}）`;
+        el('pdReplaceTo').value = '';
+        el('pdReplaceDate').value = todayLocal();
+        modal.classList.remove('hidden');
+        el('pdReplaceTo')?.focus();
+    }
+
+    async function submitReplace() {
+        const row = state.replacing;
+        if (!row) return;
+        const newNo = el('pdReplaceTo').value.trim();
+        const date = el('pdReplaceDate').value;
+        if (!newNo) { notify('请填写新的设备编号', 'error'); return; }
+        if (!date) { notify('请选择生效日期', 'error'); return; }
+        if (!window.confirm(`确认变更设备编号？\n\n原编号：${row.device_no}\n新编号：${newNo}\n生效日期：${date}\n\n旧密钥将于生效日失效，请把新密钥配置到替代设备。`)) return;
+        try {
+            const data = await api(`/${encodeURIComponent(row.id)}/replace`, {
+                method: 'POST',
+                body: { new_device_no: newNo, effective_date: date },
+            });
+            el('pdReplaceModal')?.classList.add('hidden');
+            state.replacing = null;
+            if (data?.apiKey) showKeyModal(data.apiKey, '变更后的设备密钥（仅此一次展示）');
+            notify(`✅ 已变更：${row.device_no} 结束于 ${date}，${newNo} 自该日生效`, 'success');
+            await load();
+        } catch (e) {
+            notify(`变更失败：${e.message}`, 'error');
+        }
+    }
+
+    async function closeBinding(id) {
+        const row = state.devices.find((d) => d.id === id);
+        if (!row) return;
+        const input = window.prompt(
+            `结束绑定：${row.device_no}（${row.school_code}）\n\n请输入结束日期（YYYY-MM-DD，默认今天）。\n结束后历史记录保留；该编号只接受「检测时间落在原绑定期间内」的补传数据。`,
+            todayLocal(),
+        );
+        if (input === null) return;
+        const date = String(input).trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { notify('日期格式应为 YYYY-MM-DD', 'error'); return; }
+        try {
+            await api(`/${encodeURIComponent(id)}/close`, { method: 'POST', body: { end_date: date } });
+            notify('✅ 已结束绑定（历史保留）', 'success');
+            await load();
+        } catch (e) {
+            notify(`结束绑定失败：${e.message}`, 'error');
+        }
+    }
+
     async function submit() {
         const deviceNo = el('pdDeviceNo').value.trim();
         const bindingSel = el('pdBindingUser');
@@ -833,6 +959,10 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
             if (act === 'rotate') return rotate(id);
             if (act === 'toggle') return toggle(id);
             if (act === 'del') return remove(id);
+            if (act === 'replace') return openReplaceModal(state.devices.find((d) => d.id === id) || null);
+            if (act === 'close') return closeBinding(id);
+            if (act === 'replace-cancel') { el('pdReplaceModal')?.classList.add('hidden'); state.replacing = null; return; }
+            if (act === 'replace-save') return submitReplace();
         });
 
         const schoolSel = el('pdSchoolSelect');
@@ -845,6 +975,12 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
         // 设备列表客户端筛选（不触发服务端请求）
         el('pdSearch')?.addEventListener('input', (e) => {
             state.keyword = e.target.value || '';
+            renderRows();
+        });
+
+        // 台账：仅看在用
+        el('pdOnlyActive')?.addEventListener('change', (e) => {
+            state.onlyActive = !!e.target.checked;
             renderRows();
         });
 
