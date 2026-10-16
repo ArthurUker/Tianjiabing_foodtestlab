@@ -978,3 +978,43 @@ test('超管：绑定用户解析失败（租户不可达）→ 列表仍返回�
   assert.equal(res.body.data[0].binding_user_name, null)      // 降级不阻断
   assert.equal(res.body.data[0].binding_user_id, 'u-1')
 })
+
+test('食堂口径（与手动录入一致）：学校未配置食堂列表 → 用内置默认名单校验默认食堂', async () => {
+  // 真实学校（tjb/zhsy/zhyz）实测就是这种状态：canteens=[] 且 field_options 为空
+  const s1 = makeAdminStubs({ canteens: [] })
+  let res = await invokeAdmin(makeAdminRouter(s1.prisma, s1.tenantClientFactory), 'post', '/', {
+    body: { device_no: 'VH-2B-001', school_code: 'school-a', binding_user_id: 'u-1', default_canteen: '一食堂' },
+  })
+  assert.equal(res.statusCode, 200, '内置默认名单中的「一食堂」应被接受')
+
+  const s2 = makeAdminStubs({ canteens: [] })
+  res = await invokeAdmin(makeAdminRouter(s2.prisma, s2.tenantClientFactory), 'post', '/', {
+    body: { device_no: 'VH-2B-002', school_code: 'school-a', binding_user_id: 'u-1', default_canteen: '教工餐厅' },
+  })
+  assert.equal(res.statusCode, 400)
+  assert.ok(res.body.error.includes('一食堂'), '错误信息应列出实际使用的名单')
+  assert.ok(res.body.error.includes('学校管理 → 基本信息'), '错误信息应给出配置指引')
+})
+
+test('食堂口径：学校配置了自定义食堂 → 以配置为准（内置默认不再兜底）', async () => {
+  const s1 = makeAdminStubs({ canteens: ['教工餐厅', '学生餐厅'] })
+  let res = await invokeAdmin(makeAdminRouter(s1.prisma, s1.tenantClientFactory), 'post', '/', {
+    body: { device_no: 'VH-2B-001', school_code: 'school-a', binding_user_id: 'u-1', default_canteen: '一食堂' },
+  })
+  assert.equal(res.statusCode, 400, '已配置自定义名单时，内置默认名字不应被接受')
+
+  const s2 = makeAdminStubs({ canteens: ['教工餐厅', '学生餐厅'] })
+  res = await invokeAdmin(makeAdminRouter(s2.prisma, s2.tenantClientFactory), 'post', '/', {
+    body: { device_no: 'VH-2B-003', school_code: 'school-a', binding_user_id: 'u-1', default_canteen: '教工餐厅' },
+  })
+  assert.equal(res.statusCode, 200)
+})
+
+test('上报归属：学校未配置食堂列表时，报文样本信息仍能按内置默认名单识别食堂', async () => {
+  // 事故场景：真实学校 canteens=[] → 设备链路曾取到空名单 → 只能靠设备默认食堂（或 422）
+  const { prisma, tenantClientFactory, plainKey, created } = makeUploadStubs({ canteens: [] })
+  const res = await invokeUpload({ prisma, tenantClientFactory, plainKey, body: makePayload(), apiKey: plainKey })
+  assert.equal(res.statusCode, 200)
+  assert.equal(created.length, 1)
+  assert.equal(created[0].sample_info.canteen, '二食堂', '应从 SampleStr 识别出「二食堂」（内置默认名单兜底）')
+})

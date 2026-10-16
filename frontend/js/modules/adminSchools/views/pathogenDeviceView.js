@@ -239,6 +239,7 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
         canteens: [],       // 当前学校食堂名单（默认食堂下拉）
         editing: null,      // null = 新增；否则为编辑中的设备
         keyword: '',        // 设备列表客户端筛选关键词
+        canteensFallback: false, // 当前学校的食堂名单是否来自内置默认（未配置）
         platformKey: null,  // 统一上传密钥当前视图（B 方案）
         bound: false,
     };
@@ -283,8 +284,13 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
             const resp = await fetch(`${API_BASE}/api/admin/schools/${encodeURIComponent(schoolCode)}/customization`, { headers: authHeaders() });
             const j = await resp.json().catch(() => ({}));
             const cfg = j.data || {};
-            const list = Array.isArray(cfg.canteens) ? cfg.canteens : (Array.isArray(cfg.field_options?.canteen) ? cfg.field_options.canteen : []);
-            state.canteens = list.map(String);
+            // 与手动录入/看板同一口径（frontend/js/utils/schoolCustomization/fields.js#getSchoolCanteens）：
+            // ① field_options.canteen（最权威） → ② canteens（兼容历史） → ③ 内置默认 一/二/三食堂
+            const pick = (v) => (Array.isArray(v) ? v.map((x) => String(x).trim()).filter(Boolean) : []);
+            const byFieldOptions = pick(cfg.field_options?.canteen);
+            const byCanteens = pick(cfg.canteens);
+            state.canteensFallback = !byFieldOptions.length && !byCanteens.length; // true = 用的是内置默认名单
+            state.canteens = byFieldOptions.length ? byFieldOptions : (byCanteens.length ? byCanteens : ['一食堂', '二食堂', '三食堂']);
         } catch { /* 食堂名单缺失时由后端校验兜底 */ }
     }
 
@@ -407,7 +413,8 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">默认食堂</label>
                         <select id="pdDefaultCanteen" class="w-full border border-gray-300 rounded px-3 py-2 text-sm"></select>
-                        <p class="text-xs text-gray-400 mt-1">样本信息中识别不到食堂时回落此值；不设置且无法识别时上报将被拒绝（不会写入「未知食堂」）。</p>
+                        <p class="text-xs text-gray-400 mt-1">选项来自该校食堂列表（学校管理 → 基本信息 维护）；样本信息中识别不到食堂时回落此值，不设置且无法识别时上报将被拒绝（不会写入「未知食堂」）。</p>
+                        <p id="pdCanteenHint" class="text-xs text-amber-700 mt-1 hidden"></p>
                     </div>
                     <div class="grid grid-cols-2 gap-4">
                         <div>
@@ -597,6 +604,14 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
         const canteenOpts = ['<option value="">— 不设置 —</option>']
             .concat(state.canteens.map((c) => `<option value="${escapeHtml(c)}" ${device?.default_canteen === c ? 'selected' : ''}>${escapeHtml(c)}</option>`));
         canSel.innerHTML = canteenOpts.join('');
+        // 食堂名单是内置兜底时明确告知（避免管理员以为这是该校真实配置）
+        const ch = el('pdCanteenHint');
+        if (ch) {
+            ch.classList.toggle('hidden', !state.canteensFallback);
+            ch.textContent = state.canteensFallback
+                ? `该校尚未配置食堂列表，暂用默认名单（${state.canteens.join('、')}）；如与实际不符，请先在 学校管理 → 基本信息 维护食堂列表。`
+                : '';
+        }
         el('pdRateLimit').value = device?.rate_limit_per_min || 60;
         el('pdIpWhitelist').value = Array.isArray(device?.ip_whitelist) ? device.ip_whitelist.join(',') : '';
         modal.classList.remove('hidden');

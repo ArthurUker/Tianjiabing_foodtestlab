@@ -140,13 +140,30 @@ function toDeviceView(row, bindingUser = null) {
 }
 
 /** 取该校食堂名单（SchoolCustomization.canteens 优先，回落 field_options.canteen）。 */
+/** 内置食堂兜底（与前端 getSchoolCanteens 第三级一致，保证设备链路与手动录入同口径）。 */
+const BUILTIN_DEFAULT_CANTEENS = ['一食堂', '二食堂', '三食堂']
+
+/**
+ * 取该校食堂名单 —— **与手动录入/看板同一口径**
+ * （frontend/js/utils/schoolCustomization/fields.js#getSchoolCanteens）：
+ *   ① field_options.canteen（学校管理「基本信息」保存时同步写入，最权威）
+ *   ② canteens（顶层 JSON 列，兼容历史定制）
+ *   ③ 内置兜底 ['一食堂','二食堂','三食堂']（学校从未配置过食堂列表时使用）
+ * ⚠️ 任一级为**空数组**都要继续下探：历史实现用 `??` 会被空数组短路，导致设备链路永远取不到食堂
+ *   （真实学校 tjb/zhsy/zhyz 实测均为「canteens=[] 且 field_options 为空」）。
+ */
 async function loadSchoolCanteens(prisma, schoolCode) {
-  const customization = await prisma.schoolCustomization.findUnique({ where: { school_code: schoolCode } })
-  const fromCanteens = Array.isArray(customization?.canteens) ? customization.canteens.map(String) : null
-  const fromFieldOptions = Array.isArray(customization?.field_options?.canteen)
-    ? customization.field_options.canteen.map(String)
-    : null
-  return fromCanteens ?? fromFieldOptions ?? []
+  const pick = (v) => (Array.isArray(v) ? v.map(String).map((s) => s.trim()).filter(Boolean) : [])
+  try {
+    const customization = await prisma.schoolCustomization.findUnique({ where: { school_code: schoolCode } })
+    const byFieldOptions = pick(customization?.field_options?.canteen)
+    if (byFieldOptions.length) return byFieldOptions
+    const byCanteens = pick(customization?.canteens)
+    if (byCanteens.length) return byCanteens
+  } catch (e) {
+    console.warn(`${TAG} 食堂名单读取失败（学校 ${schoolCode}），使用内置兜底:`, e.message)
+  }
+  return BUILTIN_DEFAULT_CANTEENS
 }
 
 /** 校验绑定用户存在于该校租户（返回 { ok } 或 { ok:false, message }）。 */
@@ -354,8 +371,8 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
     try {
       canteens = await loadSchoolCanteens(prisma, device.school_code)
     } catch (e) {
-      console.warn(`${TAG} 食堂名单读取失败（回落设备默认食堂）:`, e.message)
-      canteens = []
+      console.warn(`${TAG} 食堂名单读取失败（回落内置默认名单，与手动录入同口径）:`, e.message)
+      canteens = BUILTIN_DEFAULT_CANTEENS
     }
     const built = buildPathogenRecordPayload({
       payload,
@@ -644,7 +661,10 @@ export function createAdminPathogenDeviceRoutes({ prisma, authenticateUser, requ
     if (defaultCanteen) {
       const canteens = await loadSchoolCanteens(prisma, schoolCode)
       if (canteens.length && !canteens.includes(defaultCanteen)) {
-        return { ok: false, message: `默认食堂「${defaultCanteen}」不在该校食堂名单（${canteens.join('、')}）内` }
+        return {
+          ok: false,
+          message: `默认食堂「${defaultCanteen}」不在该校食堂名单（${canteens.join('、')}）内；如该校食堂名称不同，请先在 学校管理 → 基本信息 维护食堂列表`,
+        }
       }
     }
 

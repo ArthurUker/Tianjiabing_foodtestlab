@@ -28,6 +28,12 @@ function setupFetchSpy() {
         const json = (body) => ({ ok: true, status: 200, json: async () => body });
         if (u.includes('/api/admin/schools?')) return json({ success: true, data: SCHOOLS });
         if (u.includes('/platform-key')) return json({ success: true, data: { exists: false, key: null } });
+        if (u.includes('/customization')) {
+            const m = /\/schools\/([^/]+)\/customization/.exec(u);
+            const code = m ? decodeURIComponent(m[1]) : '';
+            const canteens = code === 'school-a' ? ['教工餐厅', '学生餐厅'] : []; // 其余校未配置 → 前端内置兜底
+            return json({ success: true, data: { canteens, field_options: {} } });
+        }
         if (u.includes('/api/admin/pathogen-devices')) {
             const m = /school_code=([^&]+)/.exec(u);
             const list = m ? DEVICES.filter((d) => d.school_code === decodeURIComponent(m[1])) : DEVICES; // 不带 school_code → 全部
@@ -161,5 +167,34 @@ describe('病原体设备视图 · 绑定用户展示', () => {
         const parenCount = rows.split('（renkang）').length - 1;
         expect(parenCount).toBe(1);
         expect(rows).toContain('［已停用］');
+    });
+});
+
+describe('病原体设备视图 · 默认食堂选项来源（与手动录入同口径）', () => {
+    test('学校未配置食堂列表 → 用内置默认名单，并在表单里明确提示去维护', async () => {
+        await mount();
+        await chooseSchool('school-b');                 // 未配置
+        document.querySelector('[data-act="new"]').click();
+        await flush(5);
+
+        const opts = Array.from(document.getElementById('pdDefaultCanteen').options).map((o) => o.value);
+        expect(opts).toEqual(expect.arrayContaining(['一食堂', '二食堂', '三食堂']));
+        const hint = document.getElementById('pdCanteenHint');
+        expect(hint.classList.contains('hidden')).toBe(false);
+        expect(hint.textContent).toContain('尚未配置食堂列表');
+        expect(hint.textContent).toContain('学校管理 → 基本信息');
+    });
+
+    test('学校已配置自定义食堂 → 以配置为准，且不再显示兜底提示', async () => {
+        await mount();
+        await chooseSchool('school-a');                 // 已配置 教工餐厅/学生餐厅
+        document.querySelector('[data-act="new"]').click();
+        await flush(5);
+
+        const opts = Array.from(document.getElementById('pdDefaultCanteen').options).map((o) => o.value);
+        expect(opts).toContain('教工餐厅');
+        expect(opts).toContain('学生餐厅');
+        expect(opts).not.toContain('一食堂');            // 内置默认不再混入
+        expect(document.getElementById('pdCanteenHint').classList.contains('hidden')).toBe(true);
     });
 });
