@@ -473,17 +473,22 @@ export function normalizeSampleText(text) {
   return String(text || '').replace(/[\s\u3000]+/g, ' ').trim()
 }
 
-export function buildCaseKey({ canteen, sampleType, sampleInfo, deviceNo }) {
-  return [canteen, sampleType, normalizeSampleText(sampleInfo), deviceNo].join('||')
+export function buildCaseKey({ canteen, sampleType, sampleInfo, deviceNo, sampleId }) {
+  return [canteen, sampleType, normalizeSampleText(sampleInfo), String(sampleId || '').trim(), deviceNo].join('||')
 }
 
-/** 记录是否属于同一档案（键相同 + 检测日期在窗口内）。 */
+/**
+ * 记录是否属于同一档案（键相同 + 检测日期在窗口内）。
+ * ⚠️ 2026-10-16 修正：档案键**纳入样本编号（DetectionNumber）**——「同一个样本」的身份必须包含样本编号，
+ *   否则同食堂、同样本描述、同日、同设备的两份**不同样本**会被误并成同一档案的复测轮次
+ *   （实测中已发生：真实上传被既有档案吸收）。
+ */
 export function isSameCase(existing, candidate) {
   const rd = existing?.result_data || {}
   const si = existing?.sample_info || {}
-  const keyOf = (sampleInfo, sampleType, canteen, deviceNo) => buildCaseKey({ canteen, sampleType, sampleInfo, deviceNo })
-  const existingKey = keyOf(rd.sampleInfo, rd.sampleType, si.canteen, rd.deviceNo)
-  const candidateKey = keyOf(candidate.sampleInfo, candidate.sampleType, candidate.canteen, candidate.deviceNo)
+  const keyOf = (sampleInfo, sampleType, canteen, deviceNo, sampleId) => buildCaseKey({ canteen, sampleType, sampleInfo, deviceNo, sampleId })
+  const existingKey = keyOf(rd.sampleInfo, rd.sampleType, si.canteen, rd.deviceNo, rd.sampleId)
+  const candidateKey = keyOf(candidate.sampleInfo, candidate.sampleType, candidate.canteen, candidate.deviceNo, candidate.sampleId)
   if (existingKey !== candidateKey) return false
   const d1 = new Date(`${si.testDate || ''}T00:00:00Z`).getTime()
   const d2 = new Date(`${candidate.testDate || ''}T00:00:00Z`).getTime()

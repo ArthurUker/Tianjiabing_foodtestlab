@@ -404,12 +404,12 @@ test('芯片语义：同芯片 + 内容不一致 → 409 CHIP_REVIEW_REQUIRED「
   assert.equal(all[0].result_data.rawDetection.ctList['FAM-1'], '25.3')
 })
 
-test('档案语义：同档案不同芯片（同日）→ 并入为复测轮次（round 2、检测次数 +1、结论以新轮次为准）', async () => {
+test('档案语义：同样本编号 + 新芯片（同日）→ 并入为复测轮次（round 2、检测次数 +1、结论以新轮次为准）', async () => {
   const stored = makeStoredRecord() // 父记录 = 第 1 轮（ORF1ab 阳性 Ct25.3 → 中风险）
   const { prisma, tenantClientFactory, plainKey, created, stored: all } = makeUploadStubs({ existingRecord: stored })
   const second = makePayload({
-    ChipNumber: 'SN20260917002',       // 第二张芯片
-    DetectionNumber: '20260917002',
+    ChipNumber: 'SN20260917002',       // 第二张芯片（同一样本复测）
+    // 样本编号保持一致：同一档案的身份 = 食堂+样本类型+样本描述+**样本编号**+设备
     CTList: { 'FAM-1': '-', 'FAM-2': '-', 'HEX-1': '27.9' },
     ResultList: { 'FAM-1': false, 'FAM-2': false, 'HEX-1': true },
   })
@@ -424,7 +424,7 @@ test('档案语义：同档案不同芯片（同日）→ 并入为复测轮次�
   assert.equal(rd.recheckReports[0].roundNo, 2)
   assert.equal(rd.recheckReports[0].roundLabel, '第 2 次检测（复测）')
   assert.equal(rd.recheckReports[0].chipNumber, 'SN20260917002')
-  assert.equal(rd.recheckReports[0].sampleId, '20260917002')
+  assert.equal(rd.recheckReports[0].sampleId, '20260917001')
   assert.equal(rd.recheckReports[0].source, 'device')
   // 结论以最新轮次为准（与手动复检 TD-Recheck-Sync 同口径）
   assert.equal(rd.finalStatus, '复检通过')
@@ -438,7 +438,7 @@ test('档案语义：同档案不同芯片（同日）→ 并入为复测轮次�
 test('档案语义：第三轮继续并入（round 3），且轮次按新在前排列', async () => {
   const stored = makeStoredRecord({ rounds: [{ source: 'device', roundNo: 2, chipNumber: 'SN-X2' }] })
   const { prisma, tenantClientFactory, plainKey, stored: all } = makeUploadStubs({ existingRecord: stored })
-  const third = makePayload({ ChipNumber: 'SN20260917003', DetectionNumber: '20260917003' })
+  const third = makePayload({ ChipNumber: 'SN20260917003' }) // 同样本编号 + 第三张芯片
   const res = await invokeUpload({ prisma, tenantClientFactory, body: third, apiKey: plainKey })
   assert.equal(res.body.data.round, 3)
   const rounds = all[0].result_data.recheckReports
@@ -447,12 +447,12 @@ test('档案语义：第三轮继续并入（round 3），且轮次按新在前�
   assert.equal(rounds[1].roundNo, 2)
 })
 
-test('档案语义：超出时间窗（>7 天）→ 不并入，新建独立记录（芯片码为 reportId）', async () => {
+test('档案语义：同样本编号但超出时间窗（>7 天）→ 不并入，新建独立记录', async () => {
   const stored = makeStoredRecord() // 检测日期 2026-09-17
   const { prisma, tenantClientFactory, plainKey, created } = makeUploadStubs({ existingRecord: stored })
   const later = makePayload({
     ChipNumber: 'SN20261015009',
-    DetectionNumber: '20261015009',
+    // 样本编号保持一致，仅日期超出窗口 → 唯一拦截因素应是时间窗
     DetectionDateTime: '2026-10-15 08:30:00',
     DetectionEndDateTime: '2026-10-15 10:45:00',
   })
@@ -466,11 +466,25 @@ test('档案语义：超出时间窗（>7 天）→ 不并入，新建独立记�
 test('档案语义：同食堂但样本描述不同 → 不并入（视为不同样本，新建）', async () => {
   const stored = makeStoredRecord()
   const { prisma, tenantClientFactory, plainKey, created } = makeUploadStubs({ existingRecord: stored })
-  const other = makePayload({ ChipNumber: 'SN20260917005', DetectionNumber: '20260917005', SampleStr: '二食堂 操作台面涂抹样' })
+  const other = makePayload({ ChipNumber: 'SN20260917005', SampleStr: '二食堂 操作台面涂抹样' })
   const res = await invokeUpload({ prisma, tenantClientFactory, body: other, apiKey: plainKey })
   assert.equal(res.statusCode, 200)
   assert.equal(res.body.data.appended, undefined)
   assert.equal(created.length, 1)
+})
+
+test('档案语义（回归）：同食堂 + 同样本描述 + 同日 + 同设备，但**样本编号不同** → 不得并入（各自独立记录）', async () => {
+  // 事故背景（2026-10-16）：真实上传因「样本编号不同」却同样本描述而被既有档案吸收。
+  // 修复：档案键纳入样本编号。
+  const stored = makeStoredRecord() // 样本编号 20260917001（同日、同描述、同设备）
+  const { prisma, tenantClientFactory, plainKey, created, stored: all } = makeUploadStubs({ existingRecord: stored })
+  const differentSample = makePayload({ ChipNumber: 'SN20260917003', DetectionNumber: '20260917003' })
+  const res = await invokeUpload({ prisma, tenantClientFactory, body: differentSample, apiKey: plainKey })
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.body.data.appended, undefined)          // 不并入
+  assert.equal(created.length, 1)                          // 独立新建
+  assert.equal(created[0].result_data.sampleId, '20260917003')
+  assert.equal((all[0].result_data.recheckReports || []).length, 0) // 既有档案不被改动
 })
 
 test('上传：正常入库 → 写入 school-a 租户、返回 reportId、三键与来源键正确', async () => {
@@ -799,7 +813,7 @@ test('档案语义：最近一条同食堂记录样本描述不同、更早一�
     created_at: '2026-09-18T00:00:00.000Z',
   })
   const { prisma, tenantClientFactory, plainKey, created } = makeUploadStubs({ existingRecords: [matched, decoy] })
-  const incoming = makePayload({ ChipNumber: 'SN20260917077', DetectionNumber: '20260917077' })
+  const incoming = makePayload({ ChipNumber: 'SN20260917077' }) // 同样本编号 + 新芯片
   const res = await invokeUpload({ prisma, tenantClientFactory, body: incoming, apiKey: plainKey })
   assert.equal(res.statusCode, 200)
   assert.equal(res.body.data.appended, true)
@@ -875,7 +889,7 @@ test('复测换人：轮次记录本人检测员 + inspectorChanged 标记；父
   const { prisma, tenantClientFactory, plainKey } = makeUploadStubs({ existingRecord: stored })
   const res = await invokeUpload({
     prisma, tenantClientFactory, plainKey,
-    body: makePayload({ ChipNumber: 'SN20260917002', DetectionNumber: '20260917002', DetectionPeopleStr: '郭仁康' }),
+    body: makePayload({ ChipNumber: 'SN20260917002', DetectionPeopleStr: '郭仁康' }),
     apiKey: plainKey,
   })
   assert.equal(res.statusCode, 200)
@@ -893,7 +907,7 @@ test('复测同人：检测员未变 → inspectorChanged=false，不误标变�
   const { prisma, tenantClientFactory, plainKey } = makeUploadStubs({ existingRecord: stored })
   const res = await invokeUpload({
     prisma, tenantClientFactory, plainKey,
-    body: makePayload({ ChipNumber: 'SN20260917003', DetectionNumber: '20260917003' }), // DetectionPeopleStr 默认 张三
+    body: makePayload({ ChipNumber: 'SN20260917003' }), // DetectionPeopleStr 默认 张三
     apiKey: plainKey,
   })
   assert.equal(res.statusCode, 200)
