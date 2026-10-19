@@ -48,6 +48,9 @@ const VOLATILE_FIELDS = new Set([
     'sync_time', 'last_sync_at', 'modificationLogs',
     'recheckRecords', 'recheckReports', 'importTime',
     'importUser', 'lastModified',
+    // Server-assigned provenance is excluded from content deduplication; a
+    // photo entry still has its distinct photoRecognition.entryId fingerprint.
+    'resultSource', 'entryPath',
     // P3-W4-T01：本地同步态的元字段（状态机/冲突附件/基线声明）不得进入内容指纹与三路合并
     '_syncState', '_base', '_conflict', 'base_version', 'base_updated_at',
 ]);
@@ -168,7 +171,7 @@ export class StorageService {
             return { ...localDup };
         }
 
-        const tempId = `temp_${crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
+        const tempId = `temp_${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
         // 显式状态机入口：TEMP_CREATED（AUD-021）
         const tempRecord = { ...clean, id: tempId, _status: 'pending', _syncState: SYNC_STATES.TEMP_CREATED };
 
@@ -299,6 +302,28 @@ export class StorageService {
     // 租户命名空间 + 员工/访客令牌回退逻辑，避免各模块各写一份导致鉴权口径分叉。
     getAuthHeaders() {
         return this._getHeaders();
+    }
+
+    // Photos and recognition receipts are online-only resources, while regular
+    // manual records retain the existing offline queue. Keep both transports
+    // behind this account/tenant-scoped access layer.
+    async requestOnlineResource(resourcePath, options = {}) {
+        if (resolveSyncScope().scopeId !== this._scopeFingerprint) throw new Error('账号或学校已改变，请刷新后继续');
+        const url = new URL(resourcePath, location.origin);
+        if (url.origin !== location.origin || !url.pathname.startsWith('/api/')) throw new Error('无效业务接口');
+        const { responseType = 'json', timeout = options.body instanceof Blob ? 120000 : 30000, ...request } = options;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeout);
+        try {
+            const response = await fetch(url.href, { ...request, headers: { ...this.getAuthHeaders(), ...(request.headers || {}) }, signal: controller.signal });
+            if (!response.ok) {
+                const body = await response.json().catch(() => ({}));
+                throw Object.assign(new Error(body.error || `请求失败（${response.status}）`), { status: response.status, code: body.code });
+            }
+            const data = responseType === 'blob' ? await response.blob() : await response.json();
+            if (resolveSyncScope().scopeId !== this._scopeFingerprint) throw new Error('账号或学校已改变，已丢弃原会话响应');
+            return data;
+        } finally { clearTimeout(timer); }
     }
 
     _getAuthToken() {

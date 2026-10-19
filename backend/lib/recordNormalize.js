@@ -7,6 +7,7 @@ import { fillTablewareAggregate } from './tablewareVerdict.js'
 // 结论归一唯一事实源（RC-09a / AUD-025）：复检结论提取与 colorLevel 枚举校验同源。
 // 注意：本文件只从 conclusionVerdict 单向导入（对方不反向依赖本文件），无循环依赖。
 import { findInvalidColorLevels, getLatestRecheckPassed } from './conclusionVerdict.js'
+import { canonical } from './colloidalReader.js'
 
 const RECORD_ROUTE_TYPES = new Set([
     'tableware',
@@ -186,6 +187,19 @@ function normalizeWriteJson({
     payload = {}, resultData, sampleInfo, existingSampleInfo = null, existingResultData = null,
     resultDataMode = 'merge', mode = 'update', testType = null,
 } = {}) {
+    // Recognition provenance can only be created by the entry finalizer.
+    // All generic/bulk/sync write paths use this normalization gate.
+    const originalRecognition = existingResultData?.photoRecognition
+    for (const source of [payload, resultData, sampleInfo]) {
+        if (isPlainObject(source) && Object.prototype.hasOwnProperty.call(source, 'photoRecognition') &&
+            (!originalRecognition || canonical(source.photoRecognition) !== canonical(originalRecognition))) {
+            return { ok: false, code: 'RECOGNITION_PROVENANCE_READONLY', message: '照片识别来源信息只能由识别录入流程生成，不可修改' }
+        }
+        if (isPlainObject(source) && Object.prototype.hasOwnProperty.call(source, 'resultSource') &&
+            source.resultSource !== (existingResultData?.resultSource || 'manual')) {
+            return { ok: false, code: 'RECOGNITION_PROVENANCE_READONLY', message: '不能伪造或修改结果来源' }
+        }
+    }
     if (resultData !== undefined && resultData !== null && !isPlainObject(resultData)) {
         return { ok: false, code: 'INVALID_RESULT_DATA', message: 'result_data 必须是 JSON 对象（不接受字符串/数组）' }
     }
@@ -270,6 +284,18 @@ function normalizeWriteJson({
         resultDataOut = fillTablewareAggregate(resultDataOut, submitted)
     }
 
+    if (originalRecognition && resultDataOut) {
+        resultDataOut.photoRecognition = { ...originalRecognition }
+        if (resultDataOut.result !== undefined && resultDataOut.result !== existingResultData.result) {
+            resultDataOut.photoRecognition.resultSource = 'manual'
+            resultDataOut.photoRecognition.entryPath = 'manual_edit_after_photo'
+        }
+        resultDataOut.resultSource = resultDataOut.photoRecognition.resultSource
+        resultDataOut.entryPath = resultDataOut.photoRecognition.entryPath
+    } else if (resultDataOut && ['pesticide', 'leanMeat'].includes(testType)) {
+        resultDataOut.resultSource = 'manual'
+        resultDataOut.entryPath = 'direct_manual'
+    }
     return {
         ok: true,
         sampleInfo: sampleInfoOut,

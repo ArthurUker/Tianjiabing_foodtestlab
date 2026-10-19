@@ -16,6 +16,7 @@ import { html, mount, setText } from '../core/domSafe.js';
 import { getLocalDateStr } from '../utils/dateUtil.js';
 // 油脂结论口径（与后端 lib/conclusionVerdict.js 同规则的前端副本；未知等级不计合格）
 import { oilLevelOf, isOilPass } from '../core/conclusionVerdict.js';
+import { attachPhotoEntries, addPhotoDetails } from '../colloidal/PhotoEntry.js';
 
 export class GenericTestModule {
     constructor(config) {
@@ -67,6 +68,7 @@ export class GenericTestModule {
             }
         }
 
+        attachPhotoEntries(this);
         document.getElementById(this.tableId)?.addEventListener('click', async (e) => {
             const deleteBtn = e.target.closest('.btn-delete');
             if (deleteBtn) {
@@ -724,6 +726,7 @@ export class GenericTestModule {
 
         document.body.appendChild(modal);
         document.getElementById('closeDetailModal').onclick = () => modal.remove();
+        addPhotoDetails(modal, record, this.storage);
     }
 
     // ======== 油品双比色逻辑 ========
@@ -879,6 +882,7 @@ export class GenericTestModule {
             dataSection.parentNode.insertBefore(sectionTitle, dataSection);
 
             dataSection.id = `${this.moduleName}DataSection`;
+            dataSection.dataset.testPoint = '';
 
             const pointsContainer = document.createElement('div');
             pointsContainer.id = `${this.moduleName}PointsContainer`;
@@ -1069,6 +1073,7 @@ export class GenericTestModule {
 
         const newSection = originalSection.cloneNode(true);
         newSection.id = '';
+        newSection.querySelector('[data-colloidal-panel]')?.remove();
 
         pointWrapper.appendChild(newSection);
 
@@ -1170,10 +1175,12 @@ export class GenericTestModule {
         }
 
         pointsContainer.appendChild(pointWrapper);
+        attachPhotoEntries(this);
     }
 
-    handleSubmit(e) {
+    async handleSubmit(e) {
         e.preventDefault();
+        if (this._submitting) return;
         // FIX-15: viewer/guest 越权新增检测记录拦截（事件处理层纵深防御）。
         // 视觉层隐藏"新增"入口不可信，这里在提交前再次校验 records:create 权限。
         if (!permissionService.hasPermission('records:create')) {
@@ -1216,7 +1223,7 @@ export class GenericTestModule {
             return;
         }
 
-        const allPoints = pointsContainer.querySelectorAll('.grid');
+        const allPoints = pointsContainer.querySelectorAll('[data-test-point]');
         if (allPoints.length === 0) {
             UINotification.warning('⚠️ 请至少添加一个检测点位');
             return;
@@ -1224,11 +1231,19 @@ export class GenericTestModule {
 
         let savedCount = 0;
         let skippedCount = 0;
+        let serverSavedCount = 0;
+        this._submitting = true;
 
-        allPoints.forEach((point, index) => {
+        for (const [index, point] of [...allPoints].entries()) {
             const pointData = { ...baseInfo };
 
             try {
+                const photoRecords = await this.photoEntries?.get(point)?.saveIfNeeded();
+                if (photoRecords) {
+                    savedCount += photoRecords.length;
+                    serverSavedCount += photoRecords.length;
+                    continue;
+                }
                 if (this.moduleName === 'pesticide') {
                     const vegetableType = point.querySelector('input[name="vegetableType"], input[name="vegetableType[]"]')?.value;
                     const batchNo = point.querySelector('select[name="batchNo"], select[name="batchNo[]"]')?.value;
@@ -1238,7 +1253,7 @@ export class GenericTestModule {
                     if (!vegetableType || !batchNo || !result) {
                         console.warn(`检测点位 ${index + 1} 数据不完整，跳过`);
                         skippedCount++;
-                        return;
+                        continue;
                     }
 
                     pointData.vegetableType = vegetableType;
@@ -1255,7 +1270,7 @@ export class GenericTestModule {
                     if (!oilTemp || !tpmValue || !acidValue || !colorLevel) {
                         console.warn(`检测点位 ${index + 1} 数据不完整，跳过`);
                         skippedCount++;
-                        return;
+                        continue;
                     }
 
                     pointData.oilTemp = oilTemp;
@@ -1272,7 +1287,7 @@ export class GenericTestModule {
                     if (!meatType || !batchNo || !result) {
                         console.warn(`检测点位 ${index + 1} 数据不完整，跳过`);
                         skippedCount++;
-                        return;
+                        continue;
                     }
 
                     pointData.meatType = meatType;
@@ -1285,25 +1300,34 @@ export class GenericTestModule {
                 if (success) savedCount++;
             } catch (error) {
                 console.error(`保存点位 ${index + 1} 出错:`, error);
+                UINotification.error(`点位${index + 1}：${error.message}`);
                 skippedCount++;
             }
-        });
+        }
+        this._submitting = false;
+        if (serverSavedCount) {
+            try { await this.storage.getAllFresh(); } catch (error) { console.warn('照片记录已入库，列表刷新失败', error.message); }
+        }
 
         // 结果提示
         if (savedCount > 0) {
-            let message = `✅ 成功保存 ${savedCount} 条检测记录`;
+            let message = `✅ ${serverSavedCount}条已保存到服务器，${savedCount - serverSavedCount}条已本地暂存并等待同步`;
             if (skippedCount > 0) {
                 message += `，${skippedCount} 条数据不完整被跳过`;
             }
             UINotification.success(message);
+            if (skippedCount) { this.render(); return; }
             
             e.target.reset();
             FormValidator.clearErrors(e.target);
             this.setDefaultTestDate();
 
             const firstPoint = pointsContainer.children[0];
+            for (const point of pointsContainer.querySelectorAll('[data-test-point]')) this.photoEntries?.get(point)?.destroy();
+            this.photoEntries = new WeakMap();
             pointsContainer.innerHTML = '';
             pointsContainer.appendChild(firstPoint);
+            attachPhotoEntries(this);
 
             if (this.moduleName === 'oil') {
                 const colorSelect = firstPoint.querySelector('select[name="tpmValue"]');

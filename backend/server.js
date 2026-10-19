@@ -27,6 +27,7 @@ import { createAdminDiskRoutes } from './routes/adminDiskRoutes.js'
 import { createSchoolBackupRoutes } from './routes/schoolBackupRoutes.js'
 import { createTestResultRoutes } from './routes/testResultRoutes.js'
 import { createRecognitionRoutes } from './routes/recognitionRoutes.js'
+import { createColloidalRoutes } from './routes/colloidalRoutes.js'
 import { createSchoolRoutes, ensureRecycleBinInfra } from './routes/schoolRoutes.js'
 import { createRecordRoutes } from './routes/recordRoutes.js'
 import frequencyRoutes from './routes/frequencyRoutes.js'
@@ -190,6 +191,9 @@ app.use('/api/feedback', express.json({ limit: process.env.BODY_LIMIT_FEEDBACK |
 // 病原体设备上报（VirusHunter2.0B）：单次报告含荧光数组，2MB 上限先于全局放行，
 // 超限由本路径级解析器以 413 拒绝（厂商文档：失败需返回可读原因，设备退避重试）
 app.use('/api/open/pathogen-device', express.json({ limit: '2mb' }))
+// Compact recognition metadata only. Original photographs use a separate raw
+// binary parser on the authenticated endpoint, never base64 JSON.
+app.use('/api/colloidal', express.json({ limit: '32kb' }))
 app.use(express.json({ limit: process.env.BODY_LIMIT || '8mb' }))
 
 // P1 维护模式写阻断：READONLY_MODE=true 时所有写请求返回 503（配合 Caddy 网关层双保险，
@@ -500,6 +504,9 @@ const testResultRoutes = createTestResultRoutes(userManager, prisma)
 app.use('/api/test-results', testResultRoutes)
 
 // ====== Detergent Colorimetry Recognition（后端 opencv 方案，单 Worker 排队）======
+// Independent selected-v5 photo entry API. Authentication/tenant isolation stays
+// in the existing guards; the detergent algorithm and queue are never reused.
+app.use('/api/colloidal', createColloidalRoutes({ authenticateUser, requireEditorOrAbove, requireGuestReadOnly, authorizeRoles }))
 const recognitionRoutes = createRecognitionRoutes(userManager, prisma)
 app.use('/api', recognitionRoutes)
 

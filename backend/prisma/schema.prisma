@@ -153,6 +153,54 @@ model TestRecord {
 
 // ========== 测试项目 ==========
 
+// One physical card test; retries share this entry and never duplicate records.
+model ColloidalEntry {
+  id                 String   @id
+  project_id         String
+  module_code        String
+  context            Json
+  created_by         String
+  status             String   @default("open")
+  record_ids         String[] @default([])
+  result_source      String?
+  entry_path         String?
+  adopted_attempt_id String?
+  created_at         DateTime @default(now())
+  completed_at       DateTime?
+  attempts           ColloidalAttempt[]
+
+  @@index([created_by, created_at])
+  @@index([record_ids], type: Gin)
+}
+
+// Original upload only. Compact status/channel logs never contain image arrays.
+model ColloidalAttempt {
+  id              String   @id
+  entry_id        String
+  status          String   @default("uploading")
+  elapsed_seconds Float?
+  time_source     String
+  input_mode      String
+  source          String
+  photo_name      String?
+  photo_key       String?
+  photo_mime      String?
+  photo_sha256    String?
+  photo_size      Int      @default(0)
+  photo_state     String   @default("absent")
+  photo_purged_at DateTime?
+  pipeline        String
+  core_commit     String
+  result          Json?
+  created_at      DateTime @default(now())
+  completed_at    DateTime?
+  entry           ColloidalEntry @relation(fields: [entry_id], references: [id], onDelete: Restrict)
+
+  @@index([entry_id, created_at])
+  @@index([status, created_at])
+  @@index([photo_state, created_at])
+}
+
 model TestItem {
   id            String   @id @default(cuid())
   test_record_id String

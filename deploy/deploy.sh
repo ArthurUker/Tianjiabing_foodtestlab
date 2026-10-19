@@ -716,6 +716,7 @@ cd "$REPO_ROOT" || fail "找不到前端目录"
 if [ "$FRONTEND_NPM_INSTALL" = "true" ]; then
   if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
 fi
+node scripts/prepare-colloidal-reader.mjs || fail "胶体金v5浏览器运行时准备失败（固定版本与SHA256校验）"
 node scripts/build-static.js || fail "前端构建失败（scripts/build-static.js）"
 [ -f "$REPO_ROOT/dist/index.html" ] || fail "前端构建异常：dist/index.html 不存在"
 # 让 caddy 用户可读静态资源
@@ -986,8 +987,16 @@ $CADDY_ADDR {
     # 导致所有 API 请求落到静态文件（返回 SPA HTML / 405）。用 handle 块保证
     # /api/* 优先反代、其余请求才走 SPA 回退。
     handle /api/* {
+        @colloidalOriginal path_regexp colloidalOriginal ^/api/colloidal/attempts/[0-9A-Fa-f-]{36}/photo$
+        @regularApi {
+            not path_regexp colloidalOriginal ^/api/colloidal/attempts/[0-9A-Fa-f-]{36}/photo$
+        }
+        # Original image endpoint uses raw bytes; Node additionally enforces 15MiB.
+        request_body @colloidalOriginal {
+            max_size 16MB
+        }
         # RK39: 限制请求体大小，防止超大 payload（定制配置/批量导入）打满内存
-        request_body {
+        request_body @regularApi {
             max_size 8MB
         }
         reverse_proxy 127.0.0.1:$API_PORT

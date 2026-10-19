@@ -64,7 +64,7 @@ export const MODULE_FIELDS = {
         { name: 'meatType', label: '肉类品种', builtin: true, type: 'select', section: 'points', options: ['猪肉', '牛肉', '羊肉', '鸡肉', '鸭肉', '其他'] },
         // P2-定制修复：batchNo 由 text 改为 select（与录入端静态下拉一致），
         // 使界面定制中「检测项目」出现选项增删入口，避免"新增检测项目无显示/无可删除项目"。
-        { name: 'batchNo', label: '检测项目', builtin: true, type: 'select', section: 'points', options: ['恩诺沙星-胶体金检测卡', '氟苯尼考-胶体金检测卡', '盐酸克伦特罗-胶体金检测卡', '莱克多巴胺-胶体金检测卡', '沙丁胺醇-胶体金检测卡', '铅-重金属检测（GB 2762 鱼虾类≤0.5mg/kg）', '镉-重金属检测（GB 2762 鱼虾类≤0.1mg/kg）'] },
+        { name: 'batchNo', label: '检测项目', builtin: true, type: 'select', section: 'points', options: ['恩诺沙星-胶体金检测卡', '氟苯尼考-胶体金检测卡', '瘦肉精三联-胶体金检测卡', '盐酸克伦特罗-胶体金检测卡', '莱克多巴胺-胶体金检测卡', '沙丁胺醇-胶体金检测卡', '铅-重金属检测（GB 2762 鱼虾类≤0.5mg/kg）', '镉-重金属检测（GB 2762 鱼虾类≤0.1mg/kg）'] },
         { name: 'result', label: '结果', builtin: true, type: 'select', section: 'points', options: ['合格', '不合格'] },
     ],
 };
