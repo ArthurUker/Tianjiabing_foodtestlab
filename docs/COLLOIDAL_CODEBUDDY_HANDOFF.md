@@ -1,6 +1,17 @@
 # 胶体金照片录入：服务器 CodeBuddy 部署交接
 
-日期：2026-10-19。状态：**代码已完成本地实现和隔离验证，服务器部署及真实手机验收待执行。**
+> **2026-10-20 更新（部署已完成，方案有变更）**
+>
+> - 功能已上线生产，实际部署 HEAD `a6f7f4e6f83a22f41bd1e154c45ce3d684ba3408`；迁移 `20261019120000_colloidal_photo_entries` 已在 public + 4 所学校应用。
+> - **识别改为服务端**：浏览器端识别（Pyodide/WASM Worker）已全部移除，改为 Node 队列 + 常驻 Python 进程
+>   `backend/recognizer/worker.py`（原生 NumPy/SciPy/Pillow/OpenCV，不监听端口）。
+> - 阅读本文第 4、6、7 节时请以 `docs/COLLOIDAL_READER_INTEGRATION.md` 的“运行环境”一节为准；
+>   本文中关于 `prepare:colloidal`、`vendor/colloidal/runtime`、`reader.worker.js` 的描述属于历史方案。
+> - 新增运维：`sudo bash scripts/install-colloidal-recognizer.sh` 安装识别运行时；
+>   环境变量 `COLLOIDAL_RECOGNIZER_HOME` / `_CONCURRENCY` / `_MAX_QUEUE`；队列状态 `GET /api/colloidal/recognition`。
+> - 交互变更：单检复用“检测结果”下拉（合格/不合格/上传照片识别/拍照识别）；三联隐藏该字段，改为 3 个通道下拉 + 两个识别按钮；不再采集加样时距（按判读时限内处理）。
+
+日期：2026-10-19。状态：**已生产部署（2026-10-19），识别方式已于 2026-10-20 改为服务端；真实手机与实体卡准确率仍需现场验收。**
 
 ## 1. 本次任务与固定版本
 

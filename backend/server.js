@@ -28,6 +28,7 @@ import { createSchoolBackupRoutes } from './routes/schoolBackupRoutes.js'
 import { createTestResultRoutes } from './routes/testResultRoutes.js'
 import { createRecognitionRoutes } from './routes/recognitionRoutes.js'
 import { createColloidalRoutes } from './routes/colloidalRoutes.js'
+import { colloidalRecognizer } from './lib/colloidalRecognizer.js'
 import { createSchoolRoutes, ensureRecycleBinInfra } from './routes/schoolRoutes.js'
 import { createRecordRoutes } from './routes/recordRoutes.js'
 import frequencyRoutes from './routes/frequencyRoutes.js'
@@ -655,6 +656,9 @@ const server = app.listen(PORT, () => {
     ensureRecycleBinInfra(prisma)
         .then(() => console.log('✅ 系统表 recycle_bin 已就绪'))
         .catch((e) => console.error('⚠️  系统表 recycle_bin 建表失败（不影响服务运行，路由将在首次访问时重试）:', e.message))
+
+    // 胶体金服务端识别：启动即拉起常驻 Python 进程（不监听端口），首次识别少等约 0.6s。
+    try { colloidalRecognizer().prewarm() } catch (e) { console.warn('⚠️  识别进程预热失败（首次识别时重试）:', e.message) }
 
     // 第六轮·检查项2：SECURITY:* 安全事件告警扫描（REVOCATION_WRITE_FAILED /
     // REFRESH_TOKEN_REPLAY / REFRESH_CONCURRENT_ROTATION / TENANT_SCHEMA_MISMATCH），

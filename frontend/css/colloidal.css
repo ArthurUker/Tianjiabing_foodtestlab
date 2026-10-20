@@ -1,13 +1,94 @@
-.colloidal-panel { grid-column: 1 / -1; min-width: 0; margin-top: .75rem; padding: .9rem; border: 1px solid #cbd5e1; border-radius: .6rem; background: #f8fafc; color: #334155; }
+/* 照片识别结果录入：与原有“检测结果”字段同区，只做轻量提示，不另起面板。 */
+.colloidal-inline {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .4rem .6rem;
+    margin-top: .35rem;
+}
+
+.colloidal-thumb {
+    width: 84px;
+    height: 84px;
+    object-fit: cover;
+    border: 1px solid #cbd5e1;
+    border-radius: .4rem;
+    background: #f8fafc;
+}
+
+.colloidal-status,
+.colloidal-channel-status {
+    display: block;
+    flex-basis: 100%;
+    font-size: .78rem;
+    line-height: 1.45;
+    color: #475569;
+    overflow-wrap: anywhere;
+}
+
+.colloidal-status:empty,
+.colloidal-channel-status:empty { display: none; }
+
+.colloidal-link {
+    border: 0;
+    background: none;
+    padding: 0;
+    color: #1d4ed8;
+    font-size: .78rem;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.colloidal-link:disabled { opacity: .5; cursor: wait; }
+
+.colloidal-channels {
+    grid-column: 1 / -1;
+    border-top: 1px dashed #cbd5e1;
+    padding-top: .6rem;
+    margin-top: .2rem;
+}
+
+.colloidal-channel-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: .5rem .9rem;
+}
+
+.colloidal-channel-controls label {
+    display: flex;
+    flex-direction: column;
+    gap: .25rem;
+    font-size: .8rem;
+    color: #334155;
+}
+
+.colloidal-channel-controls select {
+    border: 1px solid #94a3b8;
+    border-radius: .35rem;
+    padding: .3rem .5rem;
+    background: #fff;
+    max-width: 100%;
+}
+
+.colloidal-hint { font-size: .8rem; color: #475569; }
+
+/* 记录详情：原图与识别过程仍以折叠面板展示。 */
+.colloidal-panel { margin-top: .75rem; padding: .75rem; border: 1px solid #cbd5e1; border-radius: .5rem; background: #f8fafc; color: #334155; }
+.colloidal-panel summary { cursor: pointer; font-weight: 600; }
+.colloidal-preview { display: block; max-width: min(100%, 320px); max-height: 260px; object-fit: contain; border-radius: .35rem; margin: .5rem 0; }
+
 #pesticidePointsContainer [data-test-point] > .remark-field,
 #leanMeatPointsContainer [data-test-point] > .remark-field { grid-column: 1 / -1; }
-.colloidal-panel[hidden],.colloidal-controls[hidden],.colloidal-preview[hidden] { display: none; }
-.colloidal-panel > select { margin: .4rem .7rem; }
-.colloidal-controls { display: flex; flex-wrap: wrap; align-items: end; gap: .65rem; margin-top: .75rem; }
-.colloidal-controls label { display: flex; flex-direction: column; gap: .25rem; font-size: .875rem; }
-.colloidal-panel button,.colloidal-panel select,.colloidal-panel input[type=number] { border: 1px solid #94a3b8; border-radius: .35rem; padding: .45rem .65rem; background: white; max-width: 100%; }
-.colloidal-panel button { cursor: pointer; color: #1d4ed8; }
-.colloidal-panel button:disabled { opacity: .5; cursor: wait; }
-.colloidal-panel small,.colloidal-panel p { flex-basis: 100%; overflow-wrap: anywhere; margin-top: .5rem; }
-.colloidal-panel summary { cursor: pointer; font-weight: 600; }
-.colloidal-preview { display: block; max-width: min(100%, 360px); max-height: 300px; object-fit: contain; border-radius: .35rem; margin: .5rem 0; }
+
+/* 三联通道区：识别入口用按钮表达，避免下拉“选完就跳回”的错觉。 */
+.colloidal-action {
+    border: 1px solid #93c5fd;
+    background: #eff6ff;
+    color: #1d4ed8;
+    border-radius: .35rem;
+    padding: .35rem .7rem;
+    font-size: .8rem;
+    cursor: pointer;
+}
+.colloidal-action:disabled { opacity: .5; cursor: wait; }

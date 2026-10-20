@@ -716,7 +716,6 @@ cd "$REPO_ROOT" || fail "找不到前端目录"
 if [ "$FRONTEND_NPM_INSTALL" = "true" ]; then
   if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
 fi
-node scripts/prepare-colloidal-reader.mjs || fail "胶体金v5浏览器运行时准备失败（固定版本与SHA256校验）"
 node scripts/build-static.js || fail "前端构建失败（scripts/build-static.js）"
 [ -f "$REPO_ROOT/dist/index.html" ] || fail "前端构建异常：dist/index.html 不存在"
 # 让 caddy 用户可读静态资源

@@ -7,6 +7,7 @@ import { ExportService } from './services/ExportService.js';
 import { initializeSampleData } from './utils/SampleDataGenerator.js';
 // ✨ 学校个性化配置：提取 schoolCode + 应用 SchoolCustomization 到静态录入表单
 import { extractSchoolCode } from './utils/schoolCode.js';
+import { installInspectorMemory } from './utils/inspectorDefault.js';
 import { escapeHtml } from './utils/schoolCustomization/shared.js';
 import { ensureSchoolConfig, getSchoolCustomization, applyCustomizationToAllForms, applySchoolCustomizationToTitles, applySchoolBranding, applyVisibleTypesToNav, applyVisibleMenuItemsToNav, onSchoolConfigChanged, onSchoolInfoChanged, revalidateSchoolInfo } from './utils/schoolCustomization.js';
 // 1. ✨ 引入新模块
@@ -134,6 +135,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     try {
         document.body.classList.add('loaded');
+        // 检测员默认值：记住本账号上次填写，所有检测模块共用。
+        installInspectorMemory();
         
         // 🎯 检查是否为快速访问模式（P0-quickAccess: 统一收敛至 quickAccess.js 单一来源）
         // FIX: 原写法 `const isQuickAccessMode = isQuickAccessMode()` 因同名遮蔽触发 TDZ 报错，

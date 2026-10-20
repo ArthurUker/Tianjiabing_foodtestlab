@@ -125,7 +125,7 @@ backups/
 # 测试证据图片运行时存储（不入库）
 backend/uploads/
 
-# Downloaded, checksum-verified WASM runtime (prepare:colloidal before build).
+# 历史：浏览器识别用的 WASM 运行时（已改服务端识别，仅 manual prepare:colloidal 时产生）。
 frontend/vendor/colloidal/runtime/
 
 # 测试结果同步产物（docs/test-results/latest/）：权威数据在数据库，运行时由 testReportSync 生成，

@@ -1,4 +1,4 @@
-import { fail, projectById, PIPELINE, CORE_COMMIT } from '../lib/colloidalReader.js';
+import { fail, projectById, PIPELINE, CORE_COMMIT, normalizeContext, canonical } from '../lib/colloidalReader.js';
 import { buildRecordWriteData } from '../lib/recordNormalize.js';
 import { writeTenantAuditLog } from '../lib/auditLog.js';
 import { resultText } from '../../frontend/js/colloidal/contract.js';
@@ -15,6 +15,12 @@ export async function finalizeColloidalEntry({ db, entryId, userId, body, ip }) 
                 throw fail(409, 'ENTRY_BUSY', '检测正在保存，请稍后查询');
             }
             const project = projectById(entry.project_id);
+            // 保存前复核上下文完整性；允许客户端在保存这一刻补齐/修正样本信息。
+            const context = normalizeContext(body.context || entry.context, project);
+            if (canonical(context) !== canonical(entry.context)) {
+                await tx.colloidalEntry.update({ where: { id: entry.id }, data: { context } });
+                entry.context = context;
+            }
             const attempts = await tx.colloidalAttempt.findMany({ where: { entry_id: entry.id }, orderBy: { created_at: 'asc' } });
             if (attempts.some(a => !a.completed_at)) throw fail(409, 'ATTEMPT_RUNNING', '请先完成或结束正在进行的识别');
             const adopted = attempts.find(a => a.id === body.attemptId);

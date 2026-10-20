@@ -2,8 +2,8 @@
 
 食品检验系统（代码仓库/系统标识 `foodsentinel`）的**文档导航中枢与代码地图**。
 
-胶体金照片录入新增功能：[固定 v5 方案的接入、原图管理与本地验证](COLLOIDAL_READER_INTEGRATION.md)（本地实现，尚未生产发布）。
-服务器接续入口：[CodeBuddy 部署交接与可复制提示词](COLLOIDAL_CODEBUDDY_HANDOFF.md)（含迁移、原图目录、运行时、验收及回退）。
+胶体金照片录入：[固定 v5 方案接入、服务端识别与原图管理](COLLOIDAL_READER_INTEGRATION.md)（2026-10-19 上线，2026-10-20 起识别改由服务端常驻进程执行）。
+部署交接与历史背景：[CodeBuddy 部署交接](COLLOIDAL_CODEBUDDY_HANDOFF.md)（含迁移、原图目录、验收与回退；浏览器识别部分已退役）。
 
 > 本文与根 [`README.md`](../README.md) 分工不同：
 > - **根 `README.md`** 是**系统级技术总览**（架构图 / API / 认证 / 部署 / 安全 / 运维 的内容本体），回答"系统是怎么设计和运行的"。

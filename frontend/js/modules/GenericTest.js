@@ -10,13 +10,16 @@ import { collectCustomFieldValues, getSchoolCustomization, getSchoolCanteens } f
 // 过滤"已隐藏的自定义字段"；若 getSchoolCustomization 不传 schoolCode 则恒为 {}，
 // 隐藏规则失效，被管理端隐藏的字段会随提交再次落库。
 import { extractSchoolCode } from '../utils/schoolCode.js';
+import { applyInspectorDefaults } from '../utils/inspectorDefault.js';
+
 // P3-W5-T01（AUD-003/RC-05）：业务数据 → DOM 一律经共享安全渲染通道（文本=textContent、属性=setAttribute），
 // 本模块不再自持转义实现（原 escapeHtml 分叉已由 domSafe 收编）。
 import { html, mount, setText } from '../core/domSafe.js';
 import { getLocalDateStr } from '../utils/dateUtil.js';
 // 油脂结论口径（与后端 lib/conclusionVerdict.js 同规则的前端副本；未知等级不计合格）
 import { oilLevelOf, isOilPass } from '../core/conclusionVerdict.js';
-import { attachPhotoEntries, addPhotoDetails } from '../colloidal/PhotoEntry.js';
+// 版本化 URL：改造后强制刷新已缓存的旧模块（浏览器对已加载的 ESM 不会自动更新）。
+import { attachPhotoEntries, addPhotoDetails } from '../colloidal/PhotoEntry.js?v=20261020c';
 
 export class GenericTestModule {
     constructor(config) {
@@ -1073,7 +1076,7 @@ export class GenericTestModule {
 
         const newSection = originalSection.cloneNode(true);
         newSection.id = '';
-        newSection.querySelector('[data-colloidal-panel]')?.remove();
+        newSection.querySelectorAll('[data-colloidal-panel],[data-colloidal-inline]').forEach(node => node.remove());
 
         pointWrapper.appendChild(newSection);
 
@@ -1240,6 +1243,9 @@ export class GenericTestModule {
             try {
                 const photoRecords = await this.photoEntries?.get(point)?.saveIfNeeded();
                 if (photoRecords) {
+                    // 服务端已建记录：立即并入本地缓存，列表不必等待下一次全量同步。
+                    this.storage.mergeServerRecords?.(photoRecords);
+                    this.currentPage = 1;
                     savedCount += photoRecords.length;
                     serverSavedCount += photoRecords.length;
                     continue;
@@ -1320,6 +1326,7 @@ export class GenericTestModule {
             
             e.target.reset();
             FormValidator.clearErrors(e.target);
+            applyInspectorDefaults(e.target);
             this.setDefaultTestDate();
 
             const firstPoint = pointsContainer.children[0];

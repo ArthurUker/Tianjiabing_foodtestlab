@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { PROJECTS, PIPELINE, CORE_COMMIT, projectById, uuid, fail, digest, canonical, normalizeContext, photoType, compactResult, elapsedValue, readRetentionDays } from '../lib/colloidalReader.js';
 import { buildRecordPayload } from '../lib/recordNormalize.js';
 import { finalizeColloidalEntry } from '../modules/ColloidalEntryService.js';
+import { colloidalRecognizer } from '../lib/colloidalRecognizer.js';
 
 export const photoRoot = () => path.resolve(process.env.COLLOIDAL_PHOTO_DIR || path.join(path.dirname(fileURLToPath(import.meta.url)), '../uploads/colloidal-originals'));
 const safe = fn => async (req, res, next) => { try { await fn(req, res); } catch (e) { if (e.status) res.status(e.status).json({ error: e.message, code: e.code }); else next(e); } };
@@ -32,12 +33,17 @@ export function createColloidalRoutes({ authenticateUser, requireEditorOrAbove, 
         const { id, projectId, context } = req.body || {};
         const project = projectById(projectId);
         if (!uuid(id) || !project) throw fail(400, 'INVALID_ENTRY', '检测标识或项目无效');
-        const normalized = normalizeContext(context, project);
+        // 建单不再要求上下文完整（现场可能先拍照、后补检测员等）；完整性在 finalize 校验。
+        const normalized = normalizeContext(context, project, { requireComplete: false });
         const existing = await req.db.colloidalEntry.findUnique({ where: { id } });
         if (existing) {
             if (existing.created_by !== req.userId) throw fail(404, 'NOT_FOUND', '检测不存在');
-            if (existing.project_id !== projectId || canonical(existing.context) !== canonical(normalized)) throw fail(409, 'ENTRY_CONFLICT', '该检测已绑定其他项目或样本');
-            return res.json({ entry: existing });
+            if (existing.project_id !== projectId) throw fail(409, 'ENTRY_CONFLICT', '该检测已绑定其他项目或样本');
+            if (existing.status !== 'open') throw fail(409, 'ENTRY_COMPLETED', '该检测已保存');
+            if (canonical(existing.context) === canonical(normalized)) return res.json({ entry: existing });
+            // 同一张卡在保存前补充/修正样本信息：就地更新，避免因上下文变化另建孤儿检测。
+            const entry = await req.db.colloidalEntry.update({ where: { id: existing.id }, data: { context: normalized } });
+            return res.json({ entry });
         }
         try {
             const entry = await req.db.colloidalEntry.create({ data: { id, project_id: projectId, module_code: project.module, context: normalized, created_by: req.userId } });
@@ -50,8 +56,11 @@ export function createColloidalRoutes({ authenticateUser, requireEditorOrAbove, 
         const body = req.body || {};
         if (!uuid(body.id) || !['auto', 'board', 'closeup'].includes(body.inputMode) || !['camera', 'upload'].includes(body.source)) throw fail(400, 'INVALID_ATTEMPT', '拍照参数无效');
         const elapsed = elapsedValue(body.elapsedSeconds);
-        const timeSource = elapsed === null ? 'unknown' : body.timeSource;
-        if (!['unknown', 'operator_reported', 'capture_timer'].includes(timeSource)) throw fail(400, 'INVALID_TIME_SOURCE', '时间来源无效');
+        // 现场确认拍摄处于说明书判读时限内时记 within_window（不伪造具体秒数）；
+        // 其余情况沿用显式时距或 unknown。
+        const requested = body.timeSource;
+        const timeSource = elapsed === null ? (requested === 'within_window' ? 'within_window' : 'unknown') : requested;
+        if (!['unknown', 'operator_reported', 'capture_timer', 'within_window'].includes(timeSource)) throw fail(400, 'INVALID_TIME_SOURCE', '时间来源无效');
         const data = { id: body.id, entry_id: entry.id, elapsed_seconds: elapsed, time_source: timeSource, input_mode: body.inputMode,
             source: body.source, photo_name: String(body.filename || 'photo').replace(/[\\/\r\n]/g, '_').slice(0, 150), pipeline: PIPELINE, core_commit: CORE_COMMIT };
         const previous = await req.db.colloidalAttempt.findUnique({ where: { id: body.id } });
@@ -89,18 +98,44 @@ export function createColloidalRoutes({ authenticateUser, requireEditorOrAbove, 
         await req.db.colloidalAttempt.updateMany({ where: { id: attempt.id, status: 'uploading', completed_at: null }, data: { status: 'running' } });
         res.json({ sha256: hash });
     }));
-    router.put('/attempts/:id/result', requireEditorOrAbove, safe(async (req, res) => {
-        const { attempt, entry } = await attemptOwner(req, req.params.id);
-        const result = compactResult(req.body, projectById(entry.project_id), attempt.elapsed_seconds);
+    const persistResult = async (db, attempt, entry, body) => {
+        const result = compactResult(body, projectById(entry.project_id), attempt.elapsed_seconds, { assumeWithinTime: attempt.time_source === 'within_window' });
         if (attempt.result) {
             if (canonical(attempt.result) !== canonical(result)) throw fail(409, 'RESULT_IMMUTABLE', '原始识别结果不可覆盖');
-            return res.json({ result: attempt.result });
+            return attempt.result;
         }
         if (entry.status !== 'open') throw fail(409, 'ENTRY_COMPLETED', '该检测已保存');
         if (!attempt.photo_sha256 && !['upload_failed', 'interrupted', 'runtime_timeout', 'engine_error'].includes(result.status)) throw fail(409, 'PHOTO_REQUIRED', '请先保存原照片');
-        const updated = await req.db.colloidalAttempt.updateMany({ where: { id: attempt.id, completed_at: null }, data: { result, status: result.eligible ? 'ready' : result.status === 'ok' ? 'candidate' : result.status === 'interrupted' ? 'interrupted' : 'failed', completed_at: new Date() } });
+        const updated = await db.colloidalAttempt.updateMany({ where: { id: attempt.id, completed_at: null }, data: { result, status: result.eligible ? 'ready' : result.status === 'ok' ? 'candidate' : result.status === 'interrupted' ? 'interrupted' : 'failed', completed_at: new Date() } });
         if (!updated.count) throw fail(409, 'RESULT_IMMUTABLE', '识别结果已提交，请查询当前状态');
-        res.json({ result });
+        return result;
+    };
+    router.put('/attempts/:id/result', requireEditorOrAbove, safe(async (req, res) => {
+        const { attempt, entry } = await attemptOwner(req, req.params.id);
+        res.json({ result: await persistResult(req.db, attempt, entry, req.body) });
+    }));
+    // 服务端识别：Node 队列串行调用常驻 Python 进程，前端不再运行识别代码。
+    router.post('/attempts/:id/recognize', requireEditorOrAbove, safe(async (req, res) => {
+        const { attempt, entry } = await attemptOwner(req, req.params.id);
+        if (attempt.result) return res.json({ result: attempt.result, cached: true });
+        if (entry.status !== 'open') throw fail(409, 'ENTRY_COMPLETED', '该检测已保存');
+        if (!attempt.photo_sha256 || attempt.photo_state !== 'present' || !attempt.photo_key) throw fail(409, 'PHOTO_REQUIRED', '请先保存原照片');
+        let recognized;
+        try {
+            recognized = await colloidalRecognizer().enqueue({
+                photoPath: path.join(storageRoot(), attempt.photo_key),
+                projectId: entry.project_id,
+                mode: 'auto',
+            });
+        } catch (error) {
+            if (error.status) throw fail(error.status, error.code || 'RECOGNIZER_BUSY', error.message);
+            throw fail(503, error.code || 'RECOGNIZER_DOWN', `识别服务暂时不可用：${error.message}`);
+        }
+        const result = await persistResult(req.db, attempt, entry, recognized);
+        res.json({ result, queue: colloidalRecognizer().status() });
+    }));
+    router.get('/recognition', authorizeRoles('manager', 'admin'), safe(async (req, res) => {
+        res.json({ ...colloidalRecognizer().status(), runtime: process.env.COLLOIDAL_RECOGNIZER_HOME || '/mnt/datadisk0/foodsentinel/recognizer' });
     }));
     router.get('/entries/:id', requireEditorOrAbove, safe(async (req, res) => {
         const entry = await owner(req, req.params.id);

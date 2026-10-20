@@ -12,13 +12,17 @@ function sortKeys(v) {
 }
 const text = (v, max = 200) => typeof v === 'string' ? v.trim().slice(0, max) : '';
 
-export function normalizeContext(input, project) {
+const CONTEXT_LABELS = { testDate: '检测日期', canteen: '食堂', inspector: '检测员', vegetableType: '蔬菜品种', meatType: '肉类' };
+
+// requireComplete=false 时允许先建单后补上下文（照片识别在填检测员之前也可能开始），
+// 保存记录前必须用默认的 requireComplete=true 复核。
+export function normalizeContext(input, project, { requireComplete = true } = {}) {
     const value = {};
     for (const key of ['testDate', 'canteen', 'inspector', project.module === 'pesticide' ? 'vegetableType' : 'meatType']) {
         value[key] = text(input?.[key]);
-        if (!value[key]) throw fail(400, 'MISSING_CONTEXT', `请先填写${key}`);
+        if (!value[key] && requireComplete) throw fail(400, 'MISSING_CONTEXT', `请先填写${CONTEXT_LABELS[key] || key}`);
     }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(value.testDate) || !Number.isFinite(Date.parse(value.testDate)) || new Date(value.testDate).toISOString().slice(0, 10) !== value.testDate)
+    if (value.testDate && (!/^\d{4}-\d{2}-\d{2}$/.test(value.testDate) || !Number.isFinite(Date.parse(value.testDate)) || new Date(value.testDate).toISOString().slice(0, 10) !== value.testDate))
         throw fail(400, 'INVALID_DATE', '检测日期无效');
     value.remark = text(input?.remark, 1000);
     const custom = input?.customFields || {};
@@ -47,7 +51,7 @@ const failureStates = new Set(['board_not_detected', 'localization_failed', 'str
 
 // Client-computed measurements are labelled as such. Server derives IFU/time
 // semantics and refuses incomplete/mismatched channels; no pixel arrays persist.
-export function compactResult(input, project, elapsed) {
+export function compactResult(input, project, elapsed, { assumeWithinTime = false } = {}) {
     if (!input || typeof input !== 'object') throw fail(400, 'INVALID_RESULT', '识别结果格式错误');
     const status = input.status;
     if (!['ok', 'partial', ...failureStates].includes(status)) throw fail(400, 'INVALID_RESULT', '未知识别状态');
@@ -56,7 +60,7 @@ export function compactResult(input, project, elapsed) {
     if ((status === 'ok' || status === 'partial') && (raw.length !== project.channels.length || raw.some((v, i) => v.id !== project.channels[i].id)))
         throw fail(400, 'CHANNEL_MISMATCH', '识别通道与所选项目不一致');
     if (raw.length > project.channels.length) throw fail(400, 'CHANNEL_MISMATCH', '识别通道过多');
-    const withinTime = elapsed !== null && elapsed >= 300 && elapsed <= 480;
+    const withinTime = assumeWithinTime || (elapsed !== null && elapsed >= 300 && elapsed <= 480);
     const channels = raw.map((item, i) => {
         if (item.id !== project.channels[i].id) throw fail(400, 'CHANNEL_MISMATCH', '识别通道顺序不一致');
         if (item.status !== 'ok') return { id: item.id, status: 'quality_failed', error: text(item.error, 240), image_result: null, final_result: null, rule_status: 'unmeasurable' };
@@ -64,12 +68,13 @@ export function compactResult(input, project, elapsed) {
             throw fail(400, 'INVALID_MEASUREMENT', 'C/T测量数据无效');
         const image = !item.c_present ? 'invalid' : item.t >= item.c ? 'negative' : 'positive';
         return { id: item.id, status: 'ok', c: item.c, t: item.t, c_present: item.c_present,
-            image_result: image, final_result: elapsed === null ? null : withinTime ? image : 'invalid',
-            rule_status: elapsed === null ? 'time_unverified' : withinTime ? 'within_time' : 'outside_time' };
+            image_result: image, final_result: withinTime ? image : elapsed === null ? null : 'invalid',
+            rule_status: assumeWithinTime ? 'within_time_assumed' : elapsed === null ? 'time_unverified' : withinTime ? 'within_time' : 'outside_time' };
     });
     if (status === 'ok' && channels.some(c => c.status !== 'ok')) throw fail(400, 'INVALID_RESULT', '完成状态与通道状态不一致');
     return { status, error: text(input.error, 240), version: PIPELINE, core_commit: CORE_COMMIT,
         computed_at: 'browser', elapsed_ms: typeof input.elapsed_ms === 'number' && Number.isFinite(input.elapsed_ms) ? Math.max(0, input.elapsed_ms) : null,
+        time_basis: assumeWithinTime ? 'within_window_confirmed' : elapsed === null ? 'unknown' : 'measured',
         client: { userAgent: text(input.client?.userAgent, 300) },
         runtime: text(input.runtime, 80), decoder: text(input.decoder, 80),
         channels, eligible: status === 'ok' && withinTime && channels.length === project.channels.length && channels.every(c => resultText(c.final_result)) };

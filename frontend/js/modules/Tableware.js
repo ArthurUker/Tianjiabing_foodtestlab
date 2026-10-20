@@ -12,6 +12,8 @@ import { collectCustomFieldValues, getSchoolCustomization, getSchoolCanteens } f
 // `if (!schoolCode) return {}` 始终返回空对象，FieldOption 级联配置读不到，级联下拉永远
 // fallback 到 Tableware.js 内置硬编码（包含「密胺类餐具」），导致管理端删除无效。
 import { extractSchoolCode } from '../utils/schoolCode.js';
+import { applyInspectorDefaults } from '../utils/inspectorDefault.js';
+
 import { getLocalDateStr } from '../utils/dateUtil.js';
 
 const storage = new StorageService('tableware');
@@ -805,6 +807,7 @@ function handleFormSubmit(e) {
         
         e.target.reset();
         FormValidator.clearErrors(e.target);
+        applyInspectorDefaults(e.target);
 
         // 重置后恢复默认当天日期
         const dateInput = e.target.querySelector('input[name="testDate"]');

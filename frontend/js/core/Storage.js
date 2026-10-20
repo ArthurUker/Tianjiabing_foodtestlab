@@ -1058,6 +1058,26 @@ export class StorageService {
         this._updateLocalCache(rows);
     }
 
+    /**
+     * 服务端写成功（如胶体金 finalize）后，把返回的记录直接并入本地缓存。
+     * 列表因此可以立即显示，不依赖下一次全量同步的时序（曾出现“已保存但列表看不到”）。
+     */
+    mergeServerRecords(records) {
+        if (!Array.isArray(records) || records.length === 0) return 0;
+        const rows = this._getLocalCacheData();
+        const index = new Map(rows.map((row, at) => [String(row.id), at]));
+        let added = 0;
+        for (const record of records) {
+            if (!record || !record.id || this._isTombstoned(record.id)) continue;
+            const normalized = this._normalizeRecord({ ...record, _status: 'synced', _syncState: SYNC_STATES.SYNCED });
+            const at = index.get(String(record.id));
+            if (at === undefined) { rows.unshift(normalized); index.set(String(record.id), 0); added++; }
+            else rows[at] = normalized;
+        }
+        this._updateLocalCache(rows, { forceServer: true });
+        return added;
+    }
+
     _replaceRecordInCache(recordId, record) {
         const rows = this._getLocalCacheData();
         const idx = rows.findIndex(r => String(r.id) === String(recordId));

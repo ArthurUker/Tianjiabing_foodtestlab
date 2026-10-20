@@ -18,6 +18,15 @@ for (const seconds of [null, 299, 481]) test(`unknown/outside time never becomes
     assert.equal(value.eligible, false);
     assert.equal(value.channels[0].final_result, seconds === null ? null : 'invalid');
 });
+test('within-window confirmation yields a final result without inventing elapsed seconds', () => {
+    const value = compactResult(result(), project, null, { assumeWithinTime: true });
+    assert.equal(value.eligible, true);
+    assert.equal(value.channels[0].final_result, 'negative');
+    assert.equal(value.channels[0].rule_status, 'within_time_assumed');
+    assert.equal(value.time_basis, 'within_window_confirmed');
+    assert.equal(compactResult(result(), project, 360).time_basis, 'measured');
+    assert.equal(compactResult(result(), project, null).time_basis, 'unknown');
+});
 test('absence of C and localization failure stay distinct', () => {
     const input = result(); input.channels[0].c_present = false;
     assert.equal(compactResult(input, project, 360).channels[0].final_result, 'invalid');
@@ -58,6 +67,12 @@ test('generic update preserves provenance and identifies manual result edits', (
     assert.equal(r.resultData.resultSource, 'manual'); assert.equal(r.resultData.photoRecognition.entryId, 'original');
     assert.equal(r.resultData.photoRecognition.entryPath, 'manual_edit_after_photo');
     assert.equal(normalizeWriteJson({ payload: { photoRecognition: null }, existingSampleInfo: {}, existingResultData: existing, mode: 'update' }).ok, false);
+});
+test('entry may open before context is complete but finalize still requires it', () => {
+    const partial = normalizeContext({ testDate: '2026-10-19', canteen: '一食堂', vegetableType: '白菜' }, project, { requireComplete: false });
+    assert.equal(partial.inspector, '');
+    assert.throws(() => normalizeContext(partial, project), /检测员/);
+    assert.throws(() => normalizeContext({ testDate: '2026-02-30' }, project, { requireComplete: false }), /日期/);
 });
 test('context and original magic validation', () => {
     assert.throws(() => normalizeContext({ testDate: '2026-02-30' }, project));

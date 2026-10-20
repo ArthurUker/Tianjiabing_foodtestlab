@@ -21,40 +21,30 @@ node scripts/prepare-colloidal-reader.mjs --source /path/to/colloidal-gold-reade
 
 本次未修改识别源仓库、原实验库、模型或历史结果。
 
-## 浏览器运行与依赖
+## 运行环境（2026-10-20 起：服务端识别）
 
-计算在独立 Web Worker 中执行，前端按所选项目调用同一个 v5 核心。Node 不执行图像识别，不启动七方案队列。
-Pyodide 0.28.3 及 NumPy、SciPy、Pillow、OpenCV 的 WASM 发布物由
-`frontend/vendor/colloidal/runtime-lock.json` 固定 SHA256。
-JPEG 解码使用固定 `@jsquash/jpeg@1.6.0` 解码部分（Apache-2.0），不使用其编码器；相关许可证随运行时提供。
-运行时均由本站提供，用户浏览器不依赖第三方 CDN。部署准备阶段才从固定地址下载，既有正确文件会复用。
+识别不再在浏览器执行。Node 后端把原图路径投递给常驻 Python 进程 `backend/recognizer/worker.py`，
+进程内加载固定 v5 核心与原生 NumPy / SciPy / Pillow / OpenCV，返回与浏览器版结构一致的识别回执。
+浏览器只负责上传原图、调用 `POST /api/colloidal/attempts/:id/recognize` 并展示结果。
 
-```sh
-npm run prepare:colloidal
-npm run build:dev
-```
-
-`build`、`build:dev`、`build:prod` 和部署脚本均已包含运行时准备。运行时约 41 MiB，首次下载成本需要在真实手机/网络上验证。
-`frontend/vendor/colloidal/runtime/` 不入 Git；发布前必须准备，不能仅复制 JS 文件而遗漏 WASM/wheel。
-
-统一 JPEG 解码的原因：原生 Pillow/libjpeg-turbo 与 Pyodide/libjpeg9 在带 EXIF JPEG 样例上产生不同像素；不同浏览器原生 Canvas 解码也存在差异。
-隔离对照确认固定 WASM JPEG 解码器在 Chrome/WebKit 中对该样例的解码 RGB 与原生环境逐值相同。
-这仅是本批回归证据，不宣称所有 JPEG、颜色配置或实体照片均已完成等价性验证。
-PNG/WebP 通过 Python I/O 适配层解码、EXIF 转正后传给原核心。HEIC 可以留存原文件，但当前解码失败时明确提示转换格式或使用手工录入，不承诺 HEIC 识别支持。
-
-所有定位图、窗口图及标线图仅产生于 Worker 内存中的临时目录，调用结束即删除；不会返回到业务后端。
-浏览器一次只运行一个照片任务；单张原文件上限 15 MiB、解码像素上限 4000 万；超时保留明确状态。
+- 安装/修复运行时：`sudo bash scripts/install-colloidal-recognizer.sh`（固定版本 manylinux wheel，安装到数据盘，不进 Git）
+- 运行目录：默认 `/mnt/datadisk0/foodsentinel/recognizer`，可用 `COLLOIDAL_RECOGNIZER_HOME` 覆盖
+- 队列：Node 内存 FIFO，并发 1，上限 50，单张超时 90 秒，失败重试 1 次；状态见 `GET /api/colloidal/recognition`
+- 进程不监听端口、不连数据库；崩溃后由下一次识别或服务启动自动拉起
+- 已移除的浏览器方案：`frontend/js/colloidal/reader.worker.js`、`frontend/vendor/colloidal/runtime/`（约 41 MiB）、
+  构建链里的 `prepare:colloidal`。`frontend/vendor/colloidal/core.json` 仍是算法发布包，服务端安装脚本据此展开。
+- 解码：原生 Pillow/libjpeg-turbo 与历史隔离对照一致；HEIC 仍只保留原文件，不承诺识别
+- 限制：单张原文件 15 MiB、解码像素上限 4000 万；定位图/窗口图只写临时目录并在返回前删除
 
 ## 页面和业务规则
 
-- 农残、肉蛋现有点位增加“手工录入 / 拍照上传识别”，手工入口继续使用原同步链路。
+- 农残、肉蛋现有点位复用原“检测结果”下拉：单检为 `合格 / 不合格 / 上传照片识别 / 拍照识别`；手工入口与原同步链路保持不变。
 - 支持 v5 的七种单检及瘦肉精三联。通用试纸、二氧化硫及三个瘦肉精单检选项不冒充已有三联配置。
 - 肉蛋模块增加三联选项，学校现有选项保持；不批量改写学校数据库中的定制配置。
-- 现场计时为操作者辅助记录；手动输入为操作者报告。未知时间保留空值，上传/完成时间不代替拍摄时间。
-- 300–480 秒内，C 有效时 T<C 阳性→不合格，T>=C 阴性→合格；C 缺失、超时及各类识别失败不产生自动合格性结果。
-- 时间未知仅显示图像候选，候选不带“合格/不合格”结论。用户可重拍或主动选择手工方式。
+- 现场确认拍照处于说明书判读时限内，不再采集/推算加样时距（尝试记 `time_source=within_window`，服务端按判读时限内处理）。
+- C 有效时 T<C 阳性→不合格，T>=C 阴性→合格；C 缺失及各类识别失败不产生自动合格性结果。
 - 自动成功后正常保存，不要求逐张人工复核；不要求填写参考答案，不自动训练客户结果。
-- 三联逐通道处理。任一通道不具备有效最终结果时，自动提交拒绝；用户可选择手工逐项录入。
+- 三联整块隐藏“检测结果”字段，通道区内直接提供 3 个通道下拉与 `拍照识别` / `上传照片识别` 按钮；一张照片识别后自动填满三个通道，也可手工逐项录入。
 - 表单按明确的检测点位属性收集数据，不会将照片组件内部布局当作额外检测点位。
 
 ## 数据和来源
@@ -125,46 +115,27 @@ node backend/scripts/colloidal-photo-maintenance.mjs --apply
 
 ## 可复现验证
 
-基础纯函数测试：`npm run test:colloidal`。集成测试必须显式指定隔离库，不读取生产 `.env`；额外验证 PG data_directory 位于本任务 `.cache/colloidal-integration-*` 下。
-`npm run test:colloidal:integration` 提供HTTP/数据库检查；`npm run test:colloidal:e2e` 还要求显式提供浏览器模块，避免把缺少浏览器环境当作端到端通过。
-
-以下是本次本机验证命令示例，端口55439为独立测试实例，不是现有业务库：
+- 纯函数/契约：`npm run test:colloidal`（含时间口径、上下文校验、核心发布包哈希、迁移分类）
+- 服务端识别冒烟：
 
 ```sh
-COLLOIDAL_TEST_DATABASE_URL='postgresql://colloidal_test@127.0.0.1:55439/colloidal_fixture?schema=public' \
-COLLOIDAL_BROWSER_MODULE="file://$PWD/.cache/colloidal-integration-20261019/node_modules/playwright-core/index.mjs" \
-node --test backend/tests/colloidal/*.test.mjs
+echo '{"op":"ping"}' | COLLOIDAL_RECOGNIZER_HOME=/mnt/datadisk0/foodsentinel/recognizer \
+  python3 backend/recognizer/worker.py
+# 真实图片（只读原图，不写库）：
+printf '{"id":"t1","path":"/path/to/photo.jpg","projectId":"enrofloxacin","mode":"auto"}\n' | \
+  COLLOIDAL_RECOGNIZER_HOME=/mnt/datadisk0/foodsentinel/recognizer python3 backend/recognizer/worker.py
 ```
 
-浏览器用例须先生成合成测试图片，并提供独立安装的 playwright-core；本机使用 Chrome，其他环境可设置 `COLLOIDAL_CHROMIUM_EXECUTABLE`。
+- 集成测试（必须显式指定隔离库，不读取生产 `.env`）：`npm run test:colloidal:integration`
+- 浏览器端识别用例已随浏览器方案退役；`scripts/verify-colloidal-browser.mjs` 与 `scripts/prepare-colloidal-reader.mjs` 仅作历史追溯/核心打包，不再参与构建。
+- 生产验收记录保存在服务器 `/mnt/datadisk0/deploy-backups/<日期>/evidence/`（不入库）。
 
-```sh
-/path/to/reader-lab/.venv/bin/python scripts/colloidal-native-fixtures.py \
-  --source /path/to/reader-lab --output .cache/colloidal-integration-20261019
+### 历史记录（浏览器方案时期，2026-10-19）
 
-node scripts/verify-colloidal-browser.mjs \
-  --playwright /path/to/playwright-core/index.mjs \
-  --fixtures .cache/colloidal-integration-20261019 \
-  --chromium '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+浏览器方案曾在隔离 PG + Chrome/WebKit 上通过 29 项检查（16 项契约/纯函数、HTTP/DB、4 组浏览器流程），
+但冷启动约 50–70 秒，现场体验不可接受；2026-10-20 改为服务端识别后上述浏览器流程不再适用。
+保留该记录仅用于说明算法侧 v5 回归曾覆盖七种单检、三联、结构失败与 EXIF 方向等场景。
 
-# 对已安装的桌面WebKit再执行一次，不等于真实iPhone验收：
-node scripts/verify-colloidal-browser.mjs \
-  --playwright /path/to/playwright-core/index.mjs \
-  --fixtures .cache/colloidal-integration-20261019 --engine webkit
-```
-
-本机证据在 `.cache/colloidal-integration-20261019/`（不入库）。包括原生/浏览器 JSON、JPG 解码差异诊断、HTTP/数据库/表单测试输出及390×844详情/三联截图。
-原生函数及测试图来自固定源码/合成夹具；不读取原实验照片或实验数据库。
-
-本次执行结果：
-
-- 新增29项检查全部通过，包含16项契约/纯函数测试、实际隔离PG/HTTP及四组浏览器业务流程检查；无跳过项。
-- 已有记录归一化、同步路由、餐具判定、结论统计56项回归通过。
-- 桌面Chrome与桌面WebKit各11组合成同图回归通过，覆盖七种单检入口、三联、板面、未知时间、结构失败与EXIF方向JPG；该批状态/通道结论一致，C/T绝对差小于0.05。
-- 独立PG完整迁移、新学校逐租户迁移及两校/public结构一致性通过。
-- 完整后端在独立PG、强制回环监听、无生产dotenv环境下启动，`/api/health`和`/api/readyz`均200；安全消息推送在该夹具中显式关闭。
-- 修改的JS/MJS文件ESLint零错误；Prisma schema校验、静态构建、shell语法和Caddy 2.10.2配置适配/验证通过。
-- 已目视检查390×844的失败转手工记录详情、原图与来源展示；三联表单完成无横向溢出检查并保留截图。
 
 真实 iPhone Safari、安卓手机的拍照、加载耗时、内存/后台恢复与实体卡准确率仍需现场验收。
 v5 原有的通用板、产品身份、结构和几何限制继续适用，本次接入未修改或声称解决这些算法边界。
