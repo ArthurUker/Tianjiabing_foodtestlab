@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
-import { PROJECTS, PIPELINE, CORE_COMMIT, projectById, resultText } from '../../frontend/js/colloidal/contract.js';
-export { PROJECTS, PIPELINE, CORE_COMMIT, projectById };
+import { PROJECTS, PIPELINE, CORE_COMMIT, CORE_PATCH, projectById, resultText } from '../../frontend/js/colloidal/contract.js';
+export { PROJECTS, PIPELINE, CORE_COMMIT, CORE_PATCH, projectById };
 export const fail = (status, code, message) => Object.assign(new Error(message), { status, code });
 export const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 export const digest = value => crypto.createHash('sha256').update(value).digest('hex');
@@ -77,6 +77,7 @@ export function compactResult(input, project, elapsed, { assumeWithinTime = fals
         time_basis: assumeWithinTime ? 'within_window_confirmed' : elapsed === null ? 'unknown' : 'measured',
         client: { userAgent: text(input.client?.userAgent, 300) },
         runtime: text(input.runtime, 80), decoder: text(input.decoder, 80),
+        core_patch: text(input.core_patch ?? CORE_PATCH, 20),
         channels, eligible: status === 'ok' && withinTime && channels.length === project.channels.length && channels.every(c => resultText(c.final_result)) };
 }
 

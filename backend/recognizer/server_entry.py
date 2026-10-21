@@ -11,7 +11,7 @@ import numpy as np
 import cv2
 from PIL import Image, ImageOps
 from lab.reader import recognize
-from lab.reader_config import get_project
+from lab.reader_config import CORE_PATCH, get_project
 
 Image.MAX_IMAGE_PIXELS = 40_000_000
 
@@ -56,5 +56,5 @@ def recognize_original(raw, project_id, elapsed_seconds_json, mode, rgba=None, w
             'c_present': measurement.get('c_present'),
         })
     return json.dumps(dict(status=result['status'], error=result.get('error'),
-        version=result['version'], elapsed_ms=result['elapsed_ms'], channels=channels),
+        version=result['version'], elapsed_ms=result['elapsed_ms'], core_patch=CORE_PATCH, channels=channels),
         ensure_ascii=False, allow_nan=False)

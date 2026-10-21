@@ -1,6 +1,8 @@
 // Business mapping only. Geometry and IFU implementation come from the frozen core.
 export const CORE_COMMIT = 'a0e9d274f5df2bc1ec85f4b6df04f4f81b4c98da';
 export const PIPELINE = 'project-marker-quality-20261018-v5';
+// 识别核心本地补丁标识（几何判据 geom1）；未打补丁的核心回执不含该字段。
+export const CORE_PATCH = 'geom1';
 const single = (id, name, module, label = `${name}-胶体金检测卡`) => ({ id, name, module, label, channels: [{ id, name, label }] });
 export const PROJECTS = [
     single('carbofuran', '克百威', 'pesticide'),

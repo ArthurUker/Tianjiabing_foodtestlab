@@ -135,3 +135,7 @@ docs/test-results/latest/
 **/backups/*.sql
 **/backups/*.aes
 **/backups/*.json
+
+# Python 字节码（识别核心为 Python）
+__pycache__/
+*.pyc
