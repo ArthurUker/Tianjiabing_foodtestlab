@@ -120,3 +120,69 @@
     font-size: .82rem;
     font-weight: 600;
 }
+
+/* 桌面端摄像头拍照：覆盖层 + 预览 + 快门 */
+.colloidal-cam {
+    position: fixed;
+    inset: 0;
+    z-index: 95;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: rgba(15, 23, 42, .72);
+}
+
+.colloidal-cam-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: min(680px, 94vw);
+    padding: 12px;
+    border-radius: 16px;
+    background: #fff;
+    box-shadow: 0 20px 50px rgba(15, 23, 42, .35);
+}
+
+.colloidal-cam-video {
+    width: 100%;
+    max-height: 62vh;
+    border-radius: 12px;
+    background: #000;
+    object-fit: cover;
+}
+
+.colloidal-cam-hint {
+    margin: 0;
+    font-size: .82rem;
+    color: #475569;
+    text-align: center;
+}
+
+.colloidal-cam-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.colloidal-cam-shutter,
+.colloidal-cam-cancel {
+    min-height: 44px;
+    padding: .55rem 1.2rem;
+    border-radius: 10px;
+    font-size: .92rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.colloidal-cam-shutter {
+    border: 1px solid #2563eb;
+    background: #2563eb;
+    color: #fff;
+}
+
+.colloidal-cam-cancel {
+    border: 1px solid #cbd5e1;
+    background: #f1f5f9;
+    color: #0f172a;
+}

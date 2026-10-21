@@ -27,6 +27,10 @@ function channelDescription(c) {
 // iPhone / iPad 上的 Chrome 也是 WebKit 内核，行为与 Safari 一致。
 const isIOS = () => /iP(hone|ad|od)/.test(navigator.userAgent)
     || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+// 手机上 <input capture> 会直接调起系统相机；桌面浏览器忽略 capture，
+// 只能退回文件选择器。桌面端改走 getUserMedia 真正打开摄像头。
+const isTouchDevice = () => (navigator.maxTouchPoints || 0) > 0
+    && (window.matchMedia ? window.matchMedia('(pointer: coarse)').matches : true);
 
 const el = (tag, text = '', attrs = {}) => {
     const node = document.createElement(tag); node.textContent = text;
@@ -131,14 +135,81 @@ export class PhotoEntry {
         if (this.busy) { this.say('照片正在识别，请稍候。'); return; }
         this.source = source;
         this.fallbackSource = source;
-        const target = source === 'camera' ? this.cameraInput : this.fileInput;
         this.fallbackButton.hidden = true;
+        // 电脑（无触屏）没有“系统相机”可调，直接开摄像头预览拍照。
+        if (source === 'camera' && !isTouchDevice() && navigator.mediaDevices?.getUserMedia) {
+            this.openWebcam();
+            return;
+        }
+        const target = source === 'camera' ? this.cameraInput : this.fileInput;
         try { target.click(); } catch { /* 少数浏览器直接抛错，走下面的回退按钮 */ }
         if (fromSelect && isIOS()) {
             this.fallbackButton.textContent = source === 'camera' ? '轻触打开相机' : '轻触选择照片';
             this.fallbackButton.hidden = false;
             this.say(`iPhone 需再点一次“${this.fallbackButton.textContent}”才能打开${source === 'camera' ? '相机' : '相册'}。`);
         }
+    }
+
+    // 桌面端摄像头拍照：预览 → 快门 → canvas 转 JPEG → 走与上传相同的识别流程。
+    // 无摄像头或权限被拒时自动退回文件选择，不阻塞录入。
+    async openWebcam() {
+        if (this.camOverlay) return;
+        const overlay = el('div', '', { class: 'colloidal-cam', role: 'dialog', 'aria-modal': 'true', 'aria-label': '摄像头拍照' });
+        const panel = el('div', '', { class: 'colloidal-cam-panel' });
+        const video = el('video', '', { class: 'colloidal-cam-video', playsinline: '', autoplay: '' });
+        video.muted = true;
+        const hint = el('p', '对准检测卡，保持光线均匀，点击“拍照”。', { class: 'colloidal-cam-hint' });
+        const actions = el('div', '', { class: 'colloidal-cam-actions' });
+        const cancel = el('button', '取消', { type: 'button', class: 'colloidal-cam-cancel' });
+        const shutter = el('button', '拍照', { type: 'button', class: 'colloidal-cam-shutter' });
+        actions.append(cancel, shutter);
+        panel.append(video, hint, actions);
+        overlay.append(panel);
+        document.body.append(overlay);
+        this.camOverlay = overlay;
+        this.camStream = null;
+
+        const close = () => this.closeWebcam();
+        this._camKeyHandler = event => { if (event.key === 'Escape') close(); };
+        document.addEventListener('keydown', this._camKeyHandler);
+        cancel.addEventListener('click', close);
+        overlay.addEventListener('click', event => { if (event.target === overlay) close(); });
+
+        try {
+            this.camStream = await navigator.mediaDevices.getUserMedia({
+                video: { width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false,
+            });
+            video.srcObject = this.camStream;
+            await video.play().catch(() => {});
+        } catch (error) {
+            this.closeWebcam();
+            const reason = error?.name === 'NotAllowedError' ? '摄像头权限被拒绝'
+                : error?.name === 'NotFoundError' ? '未检测到摄像头' : (error?.message || '无法打开摄像头');
+            this.say(`${reason}，已切换为选择照片。`);
+            try { this.fileInput.click(); } catch { /* 用户可再点一次 */ }
+            return;
+        }
+
+        shutter.addEventListener('click', () => {
+            const width = video.videoWidth || 1280;
+            const height = video.videoHeight || 720;
+            const canvas = document.createElement('canvas');
+            canvas.width = width; canvas.height = height;
+            canvas.getContext('2d').drawImage(video, 0, 0, width, height);
+            canvas.toBlob(blob => {
+                if (!blob) { this.say('拍照失败，请重试或改用上传照片。'); return; }
+                const file = new File([blob], `camera-${Date.now()}.jpg`, { type: 'image/jpeg' });
+                this.closeWebcam();
+                this.choose(file, 'camera');
+            }, 'image/jpeg', 0.92);
+        });
+    }
+
+    closeWebcam() {
+        if (this._camKeyHandler) { document.removeEventListener('keydown', this._camKeyHandler); this._camKeyHandler = null; }
+        if (this.camStream) { for (const track of this.camStream.getTracks()) { try { track.stop(); } catch { /* ignore */ } } this.camStream = null; }
+        this.camOverlay?.remove();
+        this.camOverlay = null;
     }
 
     context() {
@@ -374,6 +445,7 @@ export class PhotoEntry {
 
     destroy() {
         clearInterval(this.ticker); this.ticker = null;
+        this.closeWebcam();
         this.projectSelect?.removeEventListener('change', this.projectChangeHandler);
         this.optionObserver?.disconnect();
         if (this.previewUrl) URL.revokeObjectURL(this.previewUrl);
