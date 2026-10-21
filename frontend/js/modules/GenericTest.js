@@ -19,7 +19,7 @@ import { getLocalDateStr } from '../utils/dateUtil.js';
 // 油脂结论口径（与后端 lib/conclusionVerdict.js 同规则的前端副本；未知等级不计合格）
 import { oilLevelOf, isOilPass } from '../core/conclusionVerdict.js';
 // 版本化 URL：改造后强制刷新已缓存的旧模块（浏览器对已加载的 ESM 不会自动更新）。
-import { attachPhotoEntries, addPhotoDetails } from '../colloidal/PhotoEntry.js?v=20261020c';
+import { attachPhotoEntries, addPhotoDetails } from '../colloidal/PhotoEntry.js?v=20261021a';
 
 export class GenericTestModule {
     constructor(config) {

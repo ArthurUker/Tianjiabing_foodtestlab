@@ -1,0 +1,461 @@
+/* ==========================================================================
+   日期/时间输入：iOS 的原生控件带固有最小宽度，会把输入框顶出卡片
+   （用户反馈“检测日期显示框突出了”）。这里统一约束为自适应宽度。
+   ========================================================================== */
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"],
+input[type="month"],
+input[type="week"] {
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+}
+
+input[type="date"]::-webkit-date-and-time-value,
+input[type="time"]::-webkit-date-and-time-value,
+input[type="datetime-local"]::-webkit-date-and-time-value {
+    text-align: left;
+}
+
+/* ==========================================================================
+   移动端优化层（仅 ≤768px 生效，桌面端不受影响）
+   目标：可读的字号、够大的触控目标、合理间距、表格与表单在窄屏可用
+   ========================================================================== */
+@media (max-width: 768px) {
+    html {
+        -webkit-text-size-adjust: 100%;
+        text-size-adjust: 100%;
+    }
+
+    body {
+        font-size: 15px;
+        line-height: 1.55;
+        -webkit-tap-highlight-color: rgba(37, 99, 235, .12);
+    }
+
+    /* ---------- 触控目标：正文控件 ≥46px，避免误触 ---------- */
+    button,
+    select,
+    input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]),
+    textarea {
+        min-height: 46px;
+    }
+
+    /* 16px 可避免 iOS 聚焦时页面被放大 */
+    input:not([type="checkbox"]):not([type="radio"]),
+    select,
+    textarea,
+    .input-focus {
+        font-size: 16px;
+    }
+
+    /* 表格内的操作按钮保持紧凑，但仍有足够点击面积 */
+    .glass-table button,
+    .glass-table a {
+        min-height: 38px;
+        min-width: 38px;
+    }
+
+    /* ---------- 顶部导航 ---------- */
+    nav.glass-dark > .container {
+        padding: .55rem .75rem;
+        gap: .5rem;
+    }
+
+    #sbToggle {
+        display: inline-flex !important;
+        align-items: center;
+        justify-content: center;
+        min-width: 44px;
+        min-height: 44px;
+        padding: 0;
+        border-radius: .5rem;
+    }
+
+    #systemTitle {
+        font-size: 1.02rem;
+        line-height: 1.3;
+    }
+
+    #systemLogo {
+        font-size: 1.35rem !important;
+    }
+
+    #btnLogout {
+        min-height: 42px;
+        padding: .45rem .8rem;
+        font-size: .9rem;
+    }
+
+    /* ---------- 抽屉菜单 ---------- */
+    .sidebar-menu {
+        width: min(84vw, 320px);
+        border-radius: 0 14px 14px 0;
+        padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    }
+
+    .sidebar-menu .nav-btn {
+        min-height: 48px;
+        padding: .65rem 1rem;
+        font-size: .95rem;
+    }
+
+    .sidebar-menu .js-logout {
+        min-height: 46px;
+    }
+
+    body.sb-lock {
+        overflow: hidden;
+        touch-action: none;
+    }
+
+    /* ---------- 主容器与卡片 ---------- */
+    .main-flex {
+        padding: 14px 12px calc(20px + env(safe-area-inset-bottom, 0px));
+        gap: 14px;
+    }
+
+    .glass.p-6 {
+        padding: 16px 14px;
+        border-radius: 16px;
+    }
+
+    .glass-panel {
+        padding: 14px 12px !important;
+        border-radius: 14px;
+    }
+
+    .glass-panel .grid,
+    .grid.gap-6 {
+        gap: 12px;
+    }
+
+    h2.text-2xl {
+        font-size: 1.18rem;
+        line-height: 1.35;
+        margin-bottom: .7rem !important;
+        padding-bottom: .5rem !important;
+    }
+
+    h3.font-medium {
+        font-size: 1rem;
+    }
+
+    /* ---------- 数据看板 ---------- */
+    #dashboard-capture-area .text-3xl,
+    #dashboard-capture-area .text-4xl {
+        font-size: 1.65rem !important;
+        line-height: 1.2;
+    }
+
+    #dashboard-capture-area .glass-panel {
+        padding: 12px 14px !important;
+    }
+
+    #dashboard-capture-area select,
+    #dashboard-capture-area button {
+        min-height: 42px;
+    }
+
+    .trend-metric-btn {
+        min-height: 38px !important;
+        padding: .35rem .7rem !important;
+    }
+
+    /* ---------- 表单 ---------- */
+    label {
+        font-size: .85rem;
+        margin-bottom: .3rem !important;
+    }
+
+    form .space-y-4 > * + *,
+    form .space-y-5 > * + * {
+        margin-top: .9rem !important;
+    }
+
+    /* 提交 / 添加点位按钮：整行或至少 46px 高，便于单手操作 */
+    form button[type="submit"],
+    #btnAddpesticidePoint,
+    #btnAddleanMeatPoint,
+    #btnAddoilPoint,
+    #btnAddtablewarePoint {
+        min-height: 46px;
+        font-size: .95rem;
+    }
+
+    /* ---------- 记录表格：横向滚动 + 首列吸附 ---------- */
+    .glass-table-wrap {
+        border-radius: 12px;
+        box-shadow: inset -10px 0 12px -12px rgba(15, 23, 42, .35);
+    }
+
+    .glass-table {
+        min-width: 620px;
+        font-size: 13px;
+    }
+
+    .glass-table th,
+    .glass-table td {
+        padding: 8px 10px;
+    }
+
+    .glass-table th:first-child,
+    .glass-table td:first-child {
+        white-space: nowrap;
+    }
+
+    .glass-table th:first-child,
+    .glass-table td:first-child {
+        position: sticky;
+        left: 0;
+        z-index: 2;
+        background: #fff;
+        box-shadow: 1px 0 0 #e2e8f0;
+    }
+
+
+    /* ---------- 记录表：窄屏卡片式（由 responsiveTables.js 注入 data-label） ---------- */
+    table.glass-table.responsive-cards {
+        min-width: 0;
+        display: block;
+        font-size: 14px;
+    }
+
+    table.glass-table.responsive-cards thead {
+        display: none;
+    }
+
+    table.glass-table.responsive-cards tbody,
+    table.glass-table.responsive-cards tr,
+    table.glass-table.responsive-cards td {
+        display: block;
+        width: 100%;
+    }
+
+    table.glass-table.responsive-cards tr {
+        margin: 0 0 10px;
+        padding: 6px 12px;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        background: #fff;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, .05);
+    }
+
+    table.glass-table.responsive-cards td {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 5px 0;
+        border: 0;
+        white-space: normal;
+        text-align: right;
+    }
+
+    table.glass-table.responsive-cards td::before {
+        content: attr(data-label);
+        flex: 0 0 auto;
+        color: #64748b;
+        font-size: 12px;
+        text-align: left;
+    }
+
+    table.glass-table.responsive-cards td:empty {
+        display: none;
+    }
+
+    table.glass-table.responsive-cards td:first-child {
+        position: static;
+        box-shadow: none;
+        background: transparent;
+        font-weight: 600;
+    }
+
+    table.glass-table.responsive-cards td:last-child {
+        justify-content: flex-end;
+        padding-top: 8px;
+    }
+
+    table.glass-table.responsive-cards td:last-child:not(:empty)::before {
+        display: none;
+    }
+
+    /* 卡片形态不再需要横向滚动与首列吸附 */
+    .glass-table-wrap.responsive-cards {
+        overflow: visible;
+        box-shadow: none;
+        background: transparent;
+        padding: 0;
+    }
+
+    /* 分页按钮：触控友好 */
+    .page-btn {
+        min-width: 40px;
+        min-height: 40px;
+        font-size: 14px;
+    }
+
+    /* ---------- 弹层：限制高度、内部滚动、按钮可点 ---------- */
+    .fixed.inset-0 {
+        padding: 12px;
+    }
+
+    .fixed.inset-0 > .glass,
+    .fixed.inset-0 > div > .glass {
+        max-height: calc(100dvh - 24px);
+        overflow-y: auto;
+        border-radius: 16px;
+    }
+
+    .fixed.inset-0 h3,
+    .fixed.inset-0 h2 {
+        font-size: 1.05rem;
+    }
+
+    /* 弹层内的按钮/关闭键统一到可点尺寸 */
+    .fixed.inset-0 button {
+        min-height: 44px;
+        min-width: 44px;
+    }
+
+    .fixed.inset-0 textarea {
+        min-height: 96px;
+    }
+
+    /* ---------- 提示条：避开顶部导航，改为底部通栏 ---------- */
+    body > .fixed.top-4.right-4 {
+        top: auto !important;
+        bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+        left: 12px;
+        right: 12px;
+        max-width: none;
+    }
+
+    body > .fixed.top-4.right-4 > button {
+        min-width: 44px;
+        min-height: 44px;
+    }
+
+    /* ---------- 登录页 ---------- */
+    .login-container {
+        padding: 12px;
+    }
+
+    .login-container .glass.p-8 {
+        padding: 22px 16px;
+        border-radius: 18px;
+    }
+
+    .login-container h1 {
+        font-size: 1.45rem;
+    }
+
+    .login-container .tab-btn {
+        min-height: 48px;
+        font-size: .95rem;
+        padding: .6rem .5rem;
+    }
+
+    .login-container #username,
+    .login-container #password,
+    .login-container #guestName,
+    .login-container #guestPhone {
+        min-height: 48px;
+    }
+
+    .login-container #togglePassword {
+        right: 4px;
+        top: 1px;
+        min-width: 44px;
+        min-height: 44px;
+    }
+
+    .login-container button[type="submit"] {
+        min-height: 48px;
+        font-size: 1rem;
+    }
+
+
+    /* 文件选择控件（病原体 Word 导入等） */
+    input[type="file"] {
+        font-size: 14px;
+        max-width: 100%;
+    }
+
+    input[type="file"]::file-selector-button {
+        min-height: 40px;
+        margin-right: .6rem;
+        padding: .35rem .8rem;
+        border: 1px solid #cbd5e1;
+        border-radius: .5rem;
+        background: #f8fafc;
+        color: #0f172a;
+        font-size: 14px;
+    }
+
+
+    /* 网格/弹性子项默认 min-width:auto，长内容（原生日期、下拉）会撑破卡片 */
+    .glass-panel .grid > *,
+    .glass-panel .flex > *,
+    .glass .grid > * {
+        min-width: 0;
+    }
+
+    input,
+    select,
+    textarea {
+        max-width: 100%;
+    }
+
+
+    /* iOS 原生日期控件自带内阴影/边框，且宽于容器；统一成和文本输入一致的外观 */
+    input[type="date"],
+    input[type="time"],
+    input[type="datetime-local"] {
+        -webkit-appearance: none;
+        appearance: none;
+        padding: .6rem .7rem;
+        line-height: 1.3;
+        background-color: #fff;
+    }
+
+    input[type="date"]::-webkit-calendar-picker-indicator {
+        margin-left: .25rem;
+        opacity: .65;
+    }
+
+    /* ---------- 其它细节 ---------- */
+    .daily-reminder-inner {
+        font-size: .82rem;
+    }
+
+    /* 长英文/编号不撑破布局 */
+    .glass-table td,
+    .glass-panel,
+    .glass {
+        overflow-wrap: anywhere;
+    }
+}
+
+/* 更窄的机型（≤360px）再收紧一点间距 */
+@media (max-width: 380px) {
+    .main-flex {
+        padding-left: 10px;
+        padding-right: 10px;
+    }
+
+    h2.text-2xl {
+        font-size: 1.08rem;
+    }
+
+    .glass-table {
+        min-width: 580px;
+    }
+
+    #systemTitle {
+        font-size: .95rem;
+    }
+}

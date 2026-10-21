@@ -92,3 +92,31 @@
     cursor: pointer;
 }
 .colloidal-action:disabled { opacity: .5; cursor: wait; }
+
+/* iOS/WebKit 对 display:none 的 file input 会忽略 click()：
+   改成“视觉隐藏但仍在渲染树”，否则 iPhone 上点按钮没有反应。 */
+.colloidal-file-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    opacity: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    pointer-events: none;
+}
+
+/* iPhone 上从下拉触发的选择器点击不算用户手势，补一个真实按钮再点一次。 */
+.colloidal-fallback {
+    min-height: 40px;
+    padding: .35rem .8rem;
+    border: 1px solid #2563eb;
+    border-radius: .4rem;
+    background: #2563eb;
+    color: #fff;
+    font-size: .82rem;
+    font-weight: 600;
+}

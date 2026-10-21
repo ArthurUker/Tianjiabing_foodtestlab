@@ -8,6 +8,7 @@ import { initializeSampleData } from './utils/SampleDataGenerator.js';
 // ✨ 学校个性化配置：提取 schoolCode + 应用 SchoolCustomization 到静态录入表单
 import { extractSchoolCode } from './utils/schoolCode.js';
 import { installInspectorMemory } from './utils/inspectorDefault.js';
+import { installResponsiveTables } from './utils/responsiveTables.js';
 import { escapeHtml } from './utils/schoolCustomization/shared.js';
 import { ensureSchoolConfig, getSchoolCustomization, applyCustomizationToAllForms, applySchoolCustomizationToTitles, applySchoolBranding, applyVisibleTypesToNav, applyVisibleMenuItemsToNav, onSchoolConfigChanged, onSchoolInfoChanged, revalidateSchoolInfo } from './utils/schoolCustomization.js';
 // 1. ✨ 引入新模块
@@ -100,6 +101,21 @@ if (navEl) {
     });
 }
 
+
+// iOS：日期输入用 -webkit-appearance:none 统一外观后，部分版本点一下不会自动弹出选择器，
+// 这里在点击时显式调用 showPicker（仍在用户手势内），失败则退回原生行为。
+function installIOSDatePickerFallback() {
+    const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    if (!isIOS) return;
+    document.addEventListener('click', event => {
+        const el = event.target;
+        if (!el || typeof el.matches !== 'function') return;
+        if (!el.matches('input[type="date"],input[type="time"],input[type="datetime-local"]')) return;
+        if (typeof el.showPicker !== 'function') return;
+        try { el.showPicker(); } catch { /* 已打开或平台不支持，忽略 */ }
+    }, true);
+}
+
 // ═══ 手机端侧边栏抽屉 ═══
 function initSidebar() {
     const sb = document.querySelector('.sidebar-menu');
@@ -110,17 +126,32 @@ function initSidebar() {
         sb.classList.remove('sb-open');
         ov.classList.remove('sb-show');
         ov.style.display = 'none';
+        document.body.classList.remove('sb-lock');
+    };
+    const openSidebar = () => {
+        sb.classList.add('sb-open');
+        ov.style.display = 'block';
+        document.body.classList.add('sb-lock');
+        requestAnimationFrame(() => ov.classList.add('sb-show'));
     };
     tg.addEventListener('click', () => {
-        const isOpen = sb.classList.contains('sb-open');
-        if (isOpen) { window.closeSidebar(); }
-        else {
-            sb.classList.add('sb-open');
-            ov.style.display = 'block';
-            requestAnimationFrame(() => ov.classList.add('sb-show'));
-        }
+        if (sb.classList.contains('sb-open')) window.closeSidebar();
+        else openSidebar();
     });
     ov.addEventListener('click', window.closeSidebar);
+    // 手机端选中模块/退出后自动收起抽屉（此前会一直挡住内容）。
+    // 用捕获阶段：导航按钮自身 stopPropagation，冒泡监听收不到。
+    document.addEventListener('click', event => {
+        if (!sb.classList.contains('sb-open')) return;
+        const item = event.target.closest('.sidebar-menu [data-target], .sidebar-menu .js-logout');
+        if (item) window.closeSidebar();
+    }, true);
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && sb.classList.contains('sb-open')) window.closeSidebar();
+    });
+    window.addEventListener('resize', () => {
+        if (window.innerWidth > 768 && sb.classList.contains('sb-open')) window.closeSidebar();
+    });
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initSidebar);
 else initSidebar();
@@ -137,6 +168,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.body.classList.add('loaded');
         // 检测员默认值：记住本账号上次填写，所有检测模块共用。
         installInspectorMemory();
+        // 记录表在窄屏转为卡片式（桌面端不变）
+        installResponsiveTables();
+        installIOSDatePickerFallback();
         
         // 🎯 检查是否为快速访问模式（P0-quickAccess: 统一收敛至 quickAccess.js 单一来源）
         // FIX: 原写法 `const isQuickAccessMode = isQuickAccessMode()` 因同名遮蔽触发 TDZ 报错，

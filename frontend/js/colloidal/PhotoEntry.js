@@ -24,6 +24,10 @@ function channelDescription(c) {
     if (!c.final_result) return `${biological[c.image_result] || '未知'}图像候选（时间未核实）`;
     return messages[c.final_result] || '无法判读';
 }
+// iPhone / iPad 上的 Chrome 也是 WebKit 内核，行为与 Safari 一致。
+const isIOS = () => /iP(hone|ad|od)/.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
 const el = (tag, text = '', attrs = {}) => {
     const node = document.createElement(tag); node.textContent = text;
     for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
@@ -79,16 +83,23 @@ export class PhotoEntry {
         this.inline = inline;
         this.thumb = el('img', '', { alt: '原始上传照片预览', class: 'colloidal-thumb' }); this.thumb.hidden = true;
         this.status = el('small', '', { role: 'status', 'aria-live': 'polite', class: 'colloidal-status' });
-        this.fileInput = el('input', '', { type: 'file', accept: 'image/jpeg,image/png,image/webp,image/heic,image/heif' });
-        this.cameraInput = el('input', '', { type: 'file', accept: 'image/*', capture: 'environment' });
-        this.fileInput.hidden = true; this.cameraInput.hidden = true;
+        // iOS(WebKit) 会忽略 display:none 文件输入的 click()，必须“视觉隐藏”而不是 hidden。
+        this.fileInput = el('input', '', { type: 'file', accept: 'image/*', class: 'colloidal-file-input' });
+        this.cameraInput = el('input', '', { type: 'file', accept: 'image/*', capture: 'environment', class: 'colloidal-file-input' });
+        this.fallbackButton = el('button', '', { type: 'button', class: 'colloidal-fallback' });
+        this.fallbackButton.hidden = true;
+        this.fallbackButton.addEventListener('click', () => {
+            const target = this.fallbackSource === 'camera' ? this.cameraInput : this.fileInput;
+            this.fallbackButton.hidden = true; this.say('');
+            target.click();
+        });
         this.fileInput.addEventListener('change', () => this.choose(this.fileInput.files[0], 'upload'));
         this.cameraInput.addEventListener('change', () => this.choose(this.cameraInput.files[0], 'camera'));
         // 取消选择时把下拉恢复到原来的结果，避免停在“上传照片识别”这种没有结果的状态。
         const resetPick = () => { if (PHOTO_OPTIONS.some(([v]) => v === this.resultSelect.value)) this.resultSelect.value = this.previousValue || ''; };
         this.fileInput.addEventListener('cancel', resetPick);
         this.cameraInput.addEventListener('cancel', resetPick);
-        inline.append(this.thumb, this.status, this.fileInput, this.cameraInput);
+        inline.append(this.thumb, this.status, this.fallbackButton, this.fileInput, this.cameraInput);
         this.resultField?.append(inline);
 
         // 三联：一次实体卡对应三条记录，通道选择与拍照触发都留在原表单区域内。
@@ -107,17 +118,27 @@ export class PhotoEntry {
             const value = this.resultSelect.value;
             if (!PHOTO_OPTIONS.some(([v]) => v === value)) { this.previousValue = value; return; }
             // 选完照片选项后先打开选择框，等真正选到文件再回退下拉，避免“刚选就跳回去”的错觉。
-            this.pick(value === PHOTO_CAMERA ? 'camera' : 'upload');
+            this.pick(value === PHOTO_CAMERA ? 'camera' : 'upload', true);
         });
         this.resultSelect.addEventListener('focus', () => { this.previousValue = this.resultSelect.value; });
     }
 
     // 拍照/上传随时可选：检测单允许先建后补信息（服务端已支持），
     // 缺必填项在“保存”时统一提示，避免下拉选项看起来点了没反应。
-    pick(source) {
+    // fromSelect=true 表示由「检测结果」下拉触发。iOS 上 select 的 change 不提供用户手势，
+    // 系统会静默拦截 file input 的 click()，因此补一个真实按钮让用户再点一次。
+    pick(source, fromSelect = false) {
         if (this.busy) { this.say('照片正在识别，请稍候。'); return; }
         this.source = source;
-        (source === 'camera' ? this.cameraInput : this.fileInput).click();
+        this.fallbackSource = source;
+        const target = source === 'camera' ? this.cameraInput : this.fileInput;
+        this.fallbackButton.hidden = true;
+        try { target.click(); } catch { /* 少数浏览器直接抛错，走下面的回退按钮 */ }
+        if (fromSelect && isIOS()) {
+            this.fallbackButton.textContent = source === 'camera' ? '轻触打开相机' : '轻触选择照片';
+            this.fallbackButton.hidden = false;
+            this.say(`iPhone 需再点一次“${this.fallbackButton.textContent}”才能打开${source === 'camera' ? '相机' : '相册'}。`);
+        }
     }
 
     context() {
@@ -202,6 +223,7 @@ export class PhotoEntry {
     choose(file, source) {
         // 允许重复选择同一张照片（部分浏览器对相同文件不再触发 change）。
         this.fileInput.value = ''; this.cameraInput.value = '';
+        this.fallbackButton.hidden = true;
         if (!file) return;
         if (this.busy) return;
         if (file.size === 0 || file.size > 15 * 1024 * 1024) { this.say('请选择15MB以内的原始照片。'); return; }

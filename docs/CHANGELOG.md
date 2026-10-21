@@ -95,6 +95,15 @@
 - 修复：保存后列表不刷新（服务端建单结果立即并入本地缓存）；补填检测员后重复建单；识别前必须先填检测员的死锁。
 - 新增：检测员默认值——按「学校 + 账号」记住上次输入，五个录入模块共用（仅本地存储，不上传）。
 
+## 9. 移动端适配与 iOS 兼容（2026-10-21）
+
+- 新增 `frontend/css/mobile.css`（仅 ≤768px 生效，`index.html` / `login.html` 均引入）：正文控件 ≥46px、输入 16px（避免 iOS 聚焦放大）、弹层限高内部滚动、提示条改底部通栏、分页 40px、登录页 48px 控件与 12px 外边距、刘海屏安全区。
+- 新增 `frontend/js/utils/responsiveTables.js`：记录表在窄屏转为带字段名的卡片（`data-label`），桌面端表格结构不变。
+- 修复手机端侧边抽屉选中模块后不收起（导航按钮自身 `stopPropagation`，改为捕获阶段监听），并加背景滚动锁、ESC/遮罩/窗口变宽自动关闭。
+- 修复 iOS 上「上传照片识别 / 拍照识别」点击无反应：文件输入曾用 `hidden`（`display:none`），WebKit 会忽略其 `click()`；改为视觉隐藏类 `.colloidal-file-input`，`accept` 放宽为 `image/*`；iOS 从下拉触发时额外提供「轻触选择照片 / 轻触打开相机」真实按钮（`select` 的 change 在 iOS 上不构成用户手势）。
+- 修复 iOS「检测日期」输入框撑出卡片：日期/时间输入统一 `min-width:0; max-width:100%; box-sizing:border-box`，手机端 `-webkit-appearance:none` 统一外观，并对 iOS 补 `showPicker()` 兜底；表单网格子项加 `min-width:0`。
+- 校验：320/360/390 三档宽度下页面无横向溢出、无小于 38px 的触控目标；桌面 1440 与平板 820 不受影响。
+
 ## 待修复问题
 
 当前尚未修复的测试反馈问题（17 项 failed-open）见 [`docs/fix/复核报告-20260814.md`](./fix/复核报告-20260814.md)，
