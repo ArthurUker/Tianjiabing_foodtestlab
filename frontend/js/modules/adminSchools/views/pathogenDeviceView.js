@@ -225,6 +225,13 @@ function fmtDay(v) {
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
+/** 日期输入框取值：'YYYY-MM-DD' 或空串（`<input type=date>` 不接受「—」）。 */
+function dayValue(v) {
+    if (!v) return '';
+    const d = new Date(v);
+    return Number.isNaN(d.getTime()) ? '' : fmtDay(d);
+}
+
 function fmtTime(iso) {
     if (!iso) return '—';
     const d = new Date(iso);
@@ -445,7 +452,7 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">设备编号 <span class="text-red-500">*</span></label>
                         <input type="text" id="pdDeviceNo" class="w-full border border-gray-300 rounded px-3 py-2 text-sm" placeholder="如 VH-2B-001（字母/数字/连字符/下划线）" autocomplete="off">
-                        <p class="text-xs text-gray-400 mt-1">全局唯一；新增后不可修改。设备上报报文须携带同一编号。</p>
+                        <p class="text-xs text-gray-400 mt-1">同一编号同一时刻至多一条「在用」绑定（历史绑定按期间保留）；新增后编号不可修改，换设备请用「变更编号」。设备上报报文须携带同一编号。</p>
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">备注名</label>
@@ -461,6 +468,20 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
                         <select id="pdDefaultCanteen" class="w-full border border-gray-300 rounded px-3 py-2 text-sm"></select>
                         <p class="text-xs text-gray-400 mt-1">选项来自该校食堂列表（学校管理 → 基本信息 维护）；样本信息中识别不到食堂时回落此值，不设置且无法识别时上报将被拒绝（不会写入「未知食堂」）。</p>
                         <p id="pdCanteenHint" class="text-xs text-amber-700 mt-1 hidden"></p>
+                    </div>
+                    <div class="border-t border-gray-100 pt-3">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">绑定期间 <span class="text-xs font-normal text-gray-400">（台账：起始日含当日 00:00，结束日不含当日）</span></label>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <span class="block text-xs text-gray-500 mb-1">起始日期</span>
+                                <input type="date" id="pdValidFrom" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+                            </div>
+                            <div>
+                                <span class="block text-xs text-gray-500 mb-1">结束日期（留空 = 至今）</span>
+                                <input type="date" id="pdValidTo" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+                            </div>
+                        </div>
+                        <p id="pdRangeHint" class="text-xs text-gray-400 mt-1"></p>
                     </div>
                     <div class="grid grid-cols-2 gap-4">
                         <div>
@@ -596,7 +617,9 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
                         : `<span class="font-mono text-gray-400" title="绑定用户 ID（未解析到姓名）：${escapeHtml(d.binding_user_id || '')}">${escapeHtml(d.binding_user_id ? `${String(d.binding_user_id).slice(0, 8)}…` : '—')}</span>`}
                 </td>
                 <td class="px-4 py-3 text-gray-600 whitespace-nowrap">${escapeHtml(d.default_canteen || '—')}</td>
-                <td class="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">${escapeHtml(d.binding_range || `${fmtDay(d.valid_from)} ~ ${d.valid_to ? fmtDay(d.valid_to) : '至今'}`)}</td>
+                <td class="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">
+                    <button type="button" class="text-indigo-600 hover:underline" data-act="edit-range" data-id="${escapeHtml(d.id)}" title="调整绑定期间（起始 / 结束日期）"><i class="fas fa-calendar-alt mr-1"></i>${escapeHtml(d.binding_range || `${fmtDay(d.valid_from)} ~ ${d.valid_to ? fmtDay(d.valid_to) : '至今'}`)}</button>
+                </td>
                 <td class="px-4 py-3 text-center">${stateBadge}</td>
                 <td class="px-4 py-3 text-xs font-mono text-gray-500">${escapeHtml(d.key_prefix)}…${escapeHtml(d.key_last4)}</td>
                 <td class="px-4 py-3 text-right">${Number(d.upload_count || 0)}</td>
@@ -656,6 +679,20 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
         el('pdDeviceNo').value = device?.device_no || '';
         el('pdDeviceNo').disabled = !!device;
         el('pdName').value = device?.name || '';
+        // 绑定期间（台账）：新增只定起始日（结束日留空=在用，后续可编辑）；编辑时两段均可改。
+        const fromEl = el('pdValidFrom');
+        const toEl = el('pdValidTo');
+        const rangeHint = el('pdRangeHint');
+        if (fromEl) fromEl.value = device ? dayValue(device.valid_from) : todayLocal();
+        if (toEl) {
+            toEl.disabled = !device;
+            toEl.value = device ? dayValue(device.valid_to) : '';
+        }
+        if (rangeHint) {
+            rangeHint.textContent = device
+                ? `当前：${device.binding_range || `${fmtDay(device.valid_from)} ~ ${device.valid_to ? fmtDay(device.valid_to) : '至今'}`}。改期间会影响「检测时间落在哪段区间」的归属：缩短期间后，落在区间外的报文将被拒绝（DEVICE_BINDING_EXPIRED）；清空结束日期 = 恢复为「在用」。`
+                : '设备自起始日期起生效（留空则按保存时刻）；结束日期由「结束绑定 / 变更编号」或保存后在「编辑」中调整。';
+        }
         // 绑定用户下拉（无用户列表时退化为手工输入 id）
         const userSel = el('pdBindingUser');
         if (state.users.length) {
@@ -850,10 +887,26 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
             rate_limit_per_min: Number(el('pdRateLimit').value) || 60,
             ip_whitelist: el('pdIpWhitelist').value.split(',').map((s) => s.trim()).filter(Boolean),
         };
+        // 绑定期间（本地日期；结束日留空 = 至今）
+        const validFrom = el('pdValidFrom')?.value || '';
+        const validTo = el('pdValidTo')?.value || '';
+        if (validFrom && validTo && validTo <= validFrom) {
+            notify('绑定结束日期必须晚于起始日期', 'error');
+            return;
+        }
+        if (validFrom) body.valid_from = validFrom;
+        if (state.editing) {
+            // 已结束的绑定被清空结束日期 = 恢复为「在用」，先明确确认（会影响区间归属）
+            if (state.editing.valid_to && !validTo && !window.confirm(
+                `该绑定原已结束于 ${fmtDay(state.editing.valid_to)}。\n\n清空结束日期将把它恢复为「在用」绑定（设备重新可用；若该编号另有在用绑定，将因区间重叠被拒绝）。是否继续？`,
+            )) return;
+            body.valid_to = validTo || null;
+        }
         try {
             if (state.editing) {
-                await api(`/${encodeURIComponent(state.editing.id)}`, { method: 'PATCH', body });
-                notify('✅ 设备已更新', 'success');
+                const data = await api(`/${encodeURIComponent(state.editing.id)}`, { method: 'PATCH', body });
+                const range = data?.binding_range ? `（${data.binding_range}）` : '';
+                notify(`✅ 设备已更新${range}`, 'success');
                 closeModal();
             } else {
                 if (!deviceNo) { notify('请填写设备编号', 'error'); return; }
@@ -955,6 +1008,12 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
             if (act === 'refresh') { await loadSchools(); renderSchoolOptions(); await load(); return; }
             if (act === 'export') return exportConfig();
             if (act === 'edit') return openModal(state.devices.find((d) => d.id === id) || null);
+            // 「绑定期间」单元格直达：打开编辑弹层并把焦点放到起始日期（期间可编辑）
+            if (act === 'edit-range') {
+                await openModal(state.devices.find((d) => d.id === id) || null);
+                el('pdValidFrom')?.focus();
+                return;
+            }
 
             if (act === 'rotate') return rotate(id);
             if (act === 'toggle') return toggle(id);

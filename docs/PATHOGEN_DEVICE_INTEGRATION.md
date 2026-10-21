@@ -142,10 +142,12 @@ public.PathogenDevice（权威副本，prisma migrate 管理；应用层只用�
 |---|---|---|
 | 查询 | `GET /api/admin/pathogen-devices?school_code=` | 按学校过滤列表；不含明文密钥 |
 | 新增 | `POST /api/admin/pathogen-devices` | `device_no` 全局唯一校验；`school_code` 必须存在且启用；`binding_user_id` 必须存在于该校租户；`default_canteen` 须在该校食堂名单内；响应**仅此一次**返回明文密钥 |
-| 修改 | `PATCH /api/admin/pathogen-devices/:id` | 名称 / 备注 / 默认食堂 / 绑定用户 / 限流 / IP 白名单 / 启停；`device_no` 与 `school_code` 不可变更（变更 = 删旧建新，保证映射稳定） |
+| 修改 | `PATCH /api/admin/pathogen-devices/:id` | 名称 / 备注 / 默认食堂 / 绑定用户 / 限流 / IP 白名单 / 启停 / **绑定期间**（`valid_from`、`valid_to`，均为 `YYYY-MM-DD`；`valid_to` 传空或 `null` 表示「至今」即恢复在用）；`device_no` 与 `school_code` 不可变更（变更 = 删旧建新，保证映射稳定） |
 | 删除 | `DELETE /api/admin/pathogen-devices/:id` | 物理删除；已上传记录不受影响（记录内已固化 device_no 快照） |
 | 轮换密钥 | `POST /api/admin/pathogen-devices/:id/rotate-key` | 生成新密钥并立即失效旧密钥（明文同样只返回一次） |
 | 导出 / 导入 | `GET /api/admin/pathogen-devices/export`、`POST .../import` | 灾后重建 / 迁移（含 key_hash，不含明文；export 含 `platform_key` 最新一行） |
+
+> **绑定期间编辑口径（2026-10-21）**：区间左闭右开 `[valid_from, valid_to)`，日期按本地零点解析，仅接受 `YYYY-MM-DD`；要求 `valid_from < valid_to`，且不得与同一设备编号的其它绑定重叠（否则同一检测时间可能命中两条）。期间调整写入独立审计动作 `pathogen_device_binding_update`，记录调整前后的区间与学校。
 
 **统一上传密钥管理（B 方案，2026-10-15）**——同视图顶部卡片，端点 `/api/admin/pathogen-devices/platform-key`：
 

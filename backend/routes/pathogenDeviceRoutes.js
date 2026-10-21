@@ -12,7 +12,9 @@
 //     挂载 server.js `app.use('/api/admin/pathogen-devices', ...)`：
 //       GET    /                     查询（按 school_code 过滤）
 //       POST   /                     新增（明文密钥仅此一次返回）
-//       PATCH  /:id                  修改（device_no / school_code 不可变）
+//       PATCH  /:id                  修改（device_no / school_code 不可变；绑定期间 valid_from/valid_to 可编辑：
+//                                    支持提前起始日补录历史、纠正误录、缩短期间、清空 valid_to 恢复「在用」；
+//                                    区间必须 起始 < 结束 且与同编号其它绑定不重叠）
 //       DELETE /:id                  删除
 //       POST   /:id/rotate-key       轮换密钥（旧密钥立即失效）
 //       GET    /export               导出（含 key_hash，不含明文；灾后重建）
@@ -97,6 +99,20 @@ function parseLocalDate(v) {
   return Number.isNaN(d.getTime()) ? null : d
 }
 
+/**
+ * 绑定期间日期入参：只接受 `YYYY-MM-DD`（或 Date 实例）。
+ * ⚠️ 不用 `new Date(str)` 兜底：'2026/10/20'、'2026-10-20T23:00:00Z' 之类既会因时区偏移错一天，
+ *    又会让手误输入被静默接受（历史实现在校验失败时回落「现在」，等于把绑定起点悄悄改成保存时刻）。
+ * 返回 null 表示「空」或「格式非法」，由调用方区分处理。
+ */
+function parseBindingDate(v) {
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v
+  if (v === null || v === undefined) return null
+  const s = String(v).trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null
+  return parseLocalDate(s)
+}
+
 const OPS_ACTION = {
   create: 'pathogen_device_create',
   update: 'pathogen_device_update',
@@ -107,6 +123,7 @@ const OPS_ACTION = {
   platformKeyToggle: 'pathogen_platform_key_toggle', // 统一上传密钥启停
   replace: 'pathogen_device_replace', // 变更设备编号（关旧建新，台账留痕）
   close: 'pathogen_device_close_binding', // 结束绑定（写 valid_to，设备报废/退租）
+  bindingUpdate: 'pathogen_device_binding_update', // 编辑绑定期间（改 valid_from / valid_to，纠错/补录/恢复）
 }
 
 /** 设备上传面响应：{ code, message, data }（与厂商对接文档一致）。 */
@@ -809,7 +826,11 @@ export function createAdminPathogenDeviceRoutes({ prisma, authenticateUser, requ
       if (!DEVICE_NO_RE.test(newDeviceNo)) return badRequest(res, 'new_device_no 仅允许字母/数字/连字符/下划线（1~64 位）')
       if (newDeviceNo === row.device_no) return badRequest(res, '新设备编号不能与原编号相同（同编号重传请直接使用原密钥）')
 
-      const effectiveAt = parseLocalDate(body.effective_date) || new Date()
+      const rawEffective = body.effective_date
+      const effectiveAt = (rawEffective === null || rawEffective === undefined || String(rawEffective).trim() === '')
+        ? new Date()
+        : parseBindingDate(rawEffective)
+      if (!effectiveAt) return badRequest(res, 'effective_date 日期格式不正确（应为 YYYY-MM-DD）')
       if (effectiveAt.getTime() <= new Date(row.valid_from).getTime()) {
         return badRequest(res, `生效日期必须晚于原绑定起始时间（${fmtBindingRange(row)}）`)
       }
@@ -889,7 +910,11 @@ export function createAdminPathogenDeviceRoutes({ prisma, authenticateUser, requ
       const row = await prisma.pathogenDevice.findUnique({ where: { id: req.params.id } })
       if (!row) return res.status(404).json({ success: false, error: '设备不存在' })
       if (row.valid_to) return badRequest(res, `该绑定已于 ${fmtLocalDate(row.valid_to)} 结束`)
-      const endAt = parseLocalDate(req.body?.end_date) || new Date()
+      const rawEnd = req.body?.end_date
+      const endAt = (rawEnd === null || rawEnd === undefined || String(rawEnd).trim() === '')
+        ? new Date()
+        : parseBindingDate(rawEnd)
+      if (!endAt) return badRequest(res, 'end_date 日期格式不正确（应为 YYYY-MM-DD）')
       if (endAt.getTime() <= new Date(row.valid_from).getTime()) {
         return badRequest(res, `结束日期必须晚于绑定起始时间（${fmtBindingRange(row)}）`)
       }
@@ -1115,7 +1140,11 @@ export function createAdminPathogenDeviceRoutes({ prisma, authenticateUser, requ
       const { deviceNo, schoolCode, bindingUserId, name, defaultCanteen, rateLimit, ipWhitelist } = norm.data
 
       // 台账口径：同一编号可有多条历史绑定，但**至多一条在用**，且区间不得重叠
-      const validFrom = parseLocalDate(req.body?.valid_from) || new Date()
+      const rawFrom = req.body?.valid_from
+      const validFrom = (rawFrom === null || rawFrom === undefined || String(rawFrom).trim() === '')
+        ? new Date()
+        : parseBindingDate(rawFrom)
+      if (!validFrom) return badRequest(res, 'valid_from 日期格式不正确（应为 YYYY-MM-DD）')
       const activeConflict = await findActiveBinding(deviceNo)
       if (activeConflict) {
         return badRequest(res, `设备编号 ${deviceNo} 已有一条「在用」绑定（${fmtBindingRange(activeConflict)}，归属 ${activeConflict.school_code}）；如需换设备请使用「变更编号」，跨校流转请先结束旧绑定`)
@@ -1195,6 +1224,43 @@ export function createAdminPathogenDeviceRoutes({ prisma, authenticateUser, requ
         ...(norm.data.ipWhitelist ? { ip_whitelist: norm.data.ipWhitelist } : {}),
       }
 
+      // 绑定期间（台账）：起止可编辑——补录历史（把起始日提前）、纠正误录、缩短或恢复绑定。
+      // 口径与 close/replace 完全一致：日期解析为**本地零点**，区间为 [valid_from, valid_to)，
+      // valid_to 为空 = 至今；传 null/空串即清空结束时间（恢复「在用」）。
+      const rangeBefore = fmtBindingRange(row)
+      let rangeTouched = false
+      let nextFrom = row.valid_from
+      let nextTo = row.valid_to
+      if (body.valid_from !== undefined) {
+        const parsed = parseBindingDate(body.valid_from)
+        if (!parsed) return badRequest(res, 'valid_from 日期格式不正确（应为 YYYY-MM-DD）')
+        nextFrom = parsed
+        rangeTouched = true
+      }
+      if (body.valid_to !== undefined) {
+        if (body.valid_to === null || String(body.valid_to).trim() === '') {
+          nextTo = null
+        } else {
+          const parsed = parseBindingDate(body.valid_to)
+          if (!parsed) return badRequest(res, 'valid_to 日期格式不正确（应为 YYYY-MM-DD，留空表示至今）')
+          nextTo = parsed
+        }
+        rangeTouched = true
+      }
+      if (rangeTouched) {
+        if (!nextFrom) return badRequest(res, '绑定起始时间不能为空')
+        if (nextTo && new Date(nextTo).getTime() <= new Date(nextFrom).getTime()) {
+          return badRequest(res, `绑定结束日期必须晚于起始日期（本次提交：${fmtLocalDate(nextFrom)} ~ ${fmtLocalDate(nextTo)}）`)
+        }
+        // 同一设备编号的绑定区间不得重叠（否则同一检测时间能命中两条，归属不确定）
+        const overlapped = await findOverlappingBinding(row.device_no, nextFrom, nextTo, row.id)
+        if (overlapped) {
+          return badRequest(res, `该绑定期间与同一设备编号的另一条绑定重叠（${fmtBindingRange(overlapped)}，归属 ${overlapped.school_code}）：同一编号的绑定区间不得重叠`)
+        }
+        patch.valid_from = nextFrom
+        patch.valid_to = nextTo
+      }
+
       // 启停
       if (body.status != null) {
         if (!['active', 'disabled'].includes(String(body.status))) return badRequest(res, 'status 仅支持 active / disabled')
@@ -1213,11 +1279,18 @@ export function createAdminPathogenDeviceRoutes({ prisma, authenticateUser, requ
 
       const updated = await prisma.pathogenDevice.update({ where: { id: row.id }, data: patch })
       await writeAdminOpsLog(prisma, {
-        action: OPS_ACTION.update,
+        // 期间调整单独留痕（便于事后追查「为什么某时段的报文归属变了」）
+        action: rangeTouched ? OPS_ACTION.bindingUpdate : OPS_ACTION.update,
         actor: req.user?.userId || null,
         targetId: row.id,
         targetSchoolCode: row.school_code,
-        details: { device_no: row.device_no, changed: Object.keys(patch) },
+        details: {
+          device_no: row.device_no,
+          changed: Object.keys(patch),
+          ...(rangeTouched
+            ? { binding_range_before: rangeBefore, binding_range_after: fmtBindingRange(updated), school_code: row.school_code }
+            : {}),
+        },
       })
       res.json({ success: true, data: toDeviceView(updated) })
     } catch (e) {
