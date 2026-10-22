@@ -195,6 +195,7 @@ model ColloidalAttempt {
   pipeline        String
   core_commit     String
   result          Json?
+  process_log     Json     @default("[]")
   created_at      DateTime @default(now())
   completed_at    DateTime?
   entry           ColloidalEntry @relation(fields: [entry_id], references: [id], onDelete: Restrict)

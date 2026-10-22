@@ -175,6 +175,21 @@
     cursor: pointer;
 }
 
+.colloidal-camera-view { width: 100%; min-width: 0; }
+.colloidal-camera-stage { position: relative; width: 100%; overflow: hidden; background: #111827; border-radius: 10px; }
+.colloidal-camera-stage video { position: absolute; left: 50%; top: 50%; max-width: none; max-height: none; margin: 0; object-fit: contain; }
+.colloidal-camera-controls { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.colloidal-camera-controls button { min-height: 40px; }
+.colloidal-camera-controls [aria-pressed=true] { background: #1d4ed8; color: white; }
+.colloidal-cam-panel { max-height: 96vh; overflow-y: auto; }
+.colloidal-process { grid-column: 1 / -1; min-width: 0; width: 100%; }
+.colloidal-process-attempt { border-top: 1px solid #cbd5e1; padding: 8px 0; margin-top: 8px; }
+.colloidal-process-attempt p, .colloidal-process-attempt li { font-size: .8rem; overflow-wrap: anywhere; }
+.colloidal-process-attempt ol { padding-left: 22px; list-style: decimal; }
+.colloidal-process-attempt li { padding: 6px 0; }
+.colloidal-process-attempt small { display: block; color: #64748b; }
+.colloidal-process-attempt li > div { font-family: ui-monospace, monospace; margin-top: 4px; }
+
 /* 定时采样跨满点位宽度；相机直接生成原始JPEG，不输出处理图片。 */
 .colloidal-timed { grid-column: 1 / -1; min-width: 0; border: 1px solid #cbd5e1; border-radius: 10px; padding: 12px; background: #f8fafc; color: #334155; }
 .colloidal-timed[hidden], .colloidal-timed-preview[hidden] { display: none; }

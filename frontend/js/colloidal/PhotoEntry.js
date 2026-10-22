@@ -4,6 +4,8 @@ import { collectCustomFieldValues, getSchoolCustomization } from '../utils/schoo
 import { extractSchoolCode } from '../utils/schoolCode.js';
 import { TimedSampling } from './TimedSampling.js';
 import { formatElapsed, samplingPlan } from './sampling.js';
+import { CameraView } from './CameraView.js';
+import { cameraEvent, processLogPanel } from './ProcessLog.js';
 
 // 结果录入方式收敛到原有“检测结果”下拉：手工（合格/不合格）+ 两个照片选项。
 // 识别在服务端执行（Node 队列 + 常驻 Python 进程），浏览器只负责上传原图与展示回执。
@@ -29,10 +31,7 @@ function channelDescription(c) {
 // iPhone / iPad 上的 Chrome 也是 WebKit 内核，行为与 Safari 一致。
 const isIOS = () => /iP(hone|ad|od)/.test(navigator.userAgent)
     || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-// 手机上 <input capture> 会直接调起系统相机；桌面浏览器忽略 capture，
-// 只能退回文件选择器。桌面端改走 getUserMedia 真正打开摄像头。
-const isTouchDevice = () => (navigator.maxTouchPoints || 0) > 0
-    && (window.matchMedia ? window.matchMedia('(pointer: coarse)').matches : true);
+// 浏览器相机不可用时仍保留系统相机／文件选择的回退入口。
 
 const el = (tag, text = '', attrs = {}) => {
     const node = document.createElement(tag); node.textContent = text;
@@ -56,6 +55,7 @@ export class PhotoEntry {
         this.resultField = this.resultSelect.closest('div') || this.resultSelect.parentElement;
         this.buildControls();
         this.buildTimedSampling();
+        this.buildProcessLog();
         this.projectChangeHandler = () => this.update();
         this.projectSelect.addEventListener('change', this.projectChangeHandler);
         // 学校定制可能在模块构造后重建选项：保持三联可选，不覆盖学校既有配置。
@@ -181,14 +181,43 @@ export class PhotoEntry {
         });
     }
 
+    buildProcessLog() {
+        this.processPanel = el('details', '', { class: 'colloidal-panel colloidal-process', 'data-colloidal-process': '' });
+        this.processPanel.hidden = true;
+        const refresh = el('button', '刷新过程日志', { type: 'button', class: 'colloidal-link' });
+        refresh.addEventListener('click', () => this.loadProcessLog());
+        this.processContent = el('div');
+        this.processPanel.append(el('summary', '拍照与算法识别过程日志'), refresh, this.processContent); this.point.append(this.processPanel);
+        this.processPanel.addEventListener('toggle', () => { if (this.processPanel.open) this.loadProcessLog(); });
+        this.processTicker = setInterval(() => { if (this.processPanel.open && (this.busy || this.timed?.active)) this.loadProcessLog(); }, 2000);
+    }
+
+    async loadProcessLog() {
+        if (!this.entry || !this.processPanel?.isConnected) return;
+        if (this.loadingProcess) { this.reloadProcess = true; return; }
+        this.loadingProcess = true; const entryId = this.entry.id;
+        try {
+            const data = await this.api(`/entries/${entryId}`);
+            if (this.entry?.id !== entryId || !this.processPanel.isConnected) return;
+            this.processPanel.hidden = false;
+            const opened = new Set([...this.processContent.querySelectorAll('details[open]')].map(d => d.dataset.attemptId));
+            this.processContent.replaceChildren(...data.attempts.map(a => {
+                const panel = processLogPanel(a, { open: opened.has(a.id) || data.attempts.length === 1 }); panel.dataset.attemptId = a.id; return panel;
+            }));
+            if (!data.attempts.length) this.processContent.textContent = '等待首次拍照；拍照后会显示原图上传和算法各步骤。';
+        } catch (e) { this.processContent.textContent = `日志暂时无法读取：${e.message}`; }
+        finally { this.loadingProcess = false; if (this.reloadProcess) { this.reloadProcess = false; this.loadProcessLog(); } }
+    }
+
     async recognizeTimedSample(capture) {
         const attemptId = newEntryId();
         let registered = false;
         try {
             await this.api(`/entries/${this.entry.id}/attempts`, { method: 'POST', body: JSON.stringify({ id: attemptId,
                 sampleIndex: capture.sampleIndex, samplingId: capture.samplingId, capturedAt: capture.capturedAt,
-                elapsedSeconds: capture.elapsedSeconds, timeSource: 'scheduled_camera', inputMode: 'auto', source: 'camera', filename: capture.file?.name || `sample-${capture.sampleIndex}-missed` }) });
+                elapsedSeconds: capture.elapsedSeconds, timeSource: 'scheduled_camera', inputMode: 'auto', source: 'camera', filename: capture.file?.name || `sample-${capture.sampleIndex}-missed`, clientEvents: capture.clientEvents }) });
             registered = true;
+            this.processPanel.hidden = false; this.loadProcessLog();
             let result;
             if (capture.file) {
                 await this.api(`/attempts/${attemptId}/photo`, { method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' }, body: capture.file });
@@ -200,7 +229,7 @@ export class PhotoEntry {
                 try { await this.api(`/attempts/${attemptId}/result`, { method: 'PUT', body: JSON.stringify({ status: 'interrupted', error: String(e.message).slice(0, 240), channels: [] }) }); } catch { /* Restore/finish reconciles an immutable or unconfirmed result. */ }
             }
             throw e;
-        }
+        } finally { this.loadProcessLog(); }
     }
 
     // 拍照/上传随时可选：检测单允许先建后补信息（服务端已支持），
@@ -211,10 +240,11 @@ export class PhotoEntry {
         if (this.timed?.active || this.entry?.sampling) { this.say('本次已进入定时采样。请完成、结束或新建检测点位，不能追加照片替代原采样。'); return; }
         if (this.busy) { this.say('照片正在识别，请稍候。'); return; }
         this.source = source;
+        this.captureEvents = source === 'camera' ? [cameraEvent('camera_requested')] : [];
         this.fallbackSource = source;
         this.fallbackButton.hidden = true;
-        // 电脑（无触屏）没有“系统相机”可调，直接开摄像头预览拍照。
-        if (source === 'camera' && !isTouchDevice() && navigator.mediaDevices?.getUserMedia) {
+        // 可用时统一使用浏览器预览，手机也可旋转／镜像显示。
+        if (source === 'camera' && navigator.mediaDevices?.getUserMedia) {
             this.openWebcam();
             return;
         }
@@ -234,13 +264,14 @@ export class PhotoEntry {
         const overlay = el('div', '', { class: 'colloidal-cam', role: 'dialog', 'aria-modal': 'true', 'aria-label': '摄像头拍照' });
         const panel = el('div', '', { class: 'colloidal-cam-panel' });
         const video = el('video', '', { class: 'colloidal-cam-video', playsinline: '', autoplay: '' });
+        this.camView = new CameraView(video);
         video.muted = true;
         const hint = el('p', '对准检测卡，保持光线均匀，点击“拍照”。', { class: 'colloidal-cam-hint' });
         const actions = el('div', '', { class: 'colloidal-cam-actions' });
         const cancel = el('button', '取消', { type: 'button', class: 'colloidal-cam-cancel' });
         const shutter = el('button', '拍照', { type: 'button', class: 'colloidal-cam-shutter' });
         actions.append(cancel, shutter);
-        panel.append(video, hint, actions);
+        panel.append(this.camView.root, hint, actions);
         overlay.append(panel);
         document.body.append(overlay);
         this.camOverlay = overlay;
@@ -254,12 +285,15 @@ export class PhotoEntry {
 
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
-                video: { width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false,
+                video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false,
             });
             if (this.camOverlay !== overlay) { stream.getTracks().forEach(track => track.stop()); return; }
             this.camStream = stream;
             video.srcObject = this.camStream;
             await video.play().catch(() => {});
+            if (this.camOverlay !== overlay) return;
+            this.camView?.update();
+            this.captureEvents.push(cameraEvent('camera_ready', { width: video.videoWidth, height: video.videoHeight }));
         } catch (error) {
             if (this.camOverlay !== overlay) return;
             this.closeWebcam();
@@ -271,14 +305,20 @@ export class PhotoEntry {
         }
 
         shutter.addEventListener('click', () => {
-            const width = video.videoWidth || 1280;
-            const height = video.videoHeight || 720;
+            if (video.readyState < 2 || !video.videoWidth || !video.videoHeight) { hint.textContent = '相机画面尚未就绪，请稍候再拍。'; return; }
+            shutter.disabled = true;
+            const previewSettings = this.camView.settings;
+            this.captureEvents.push(cameraEvent('capture_started', previewSettings));
+            const width = video.videoWidth;
+            const height = video.videoHeight;
             const canvas = document.createElement('canvas');
             canvas.width = width; canvas.height = height;
             canvas.getContext('2d').drawImage(video, 0, 0, width, height);
             canvas.toBlob(blob => {
-                if (!blob) { this.say('拍照失败，请重试或改用上传照片。'); return; }
+                if (this.camOverlay !== overlay) return;
+                if (!blob) { this.say('拍照失败，请重试或改用上传照片。'); shutter.disabled = false; return; }
                 const file = new File([blob], `camera-${Date.now()}.jpg`, { type: 'image/jpeg' });
+                this.captureEvents.push(cameraEvent('photo_captured', { width, height, bytes: file.size, ...previewSettings }));
                 this.closeWebcam();
                 this.choose(file, 'camera');
             }, 'image/jpeg', 0.92);
@@ -286,6 +326,7 @@ export class PhotoEntry {
     }
 
     closeWebcam() {
+        this.camView?.destroy(); this.camView = null;
         if (this._camKeyHandler) { document.removeEventListener('keydown', this._camKeyHandler); this._camKeyHandler = null; }
         if (this.camStream) { for (const track of this.camStream.getTracks()) { try { track.stop(); } catch { /* ignore */ } } this.camStream = null; }
         this.camOverlay?.remove();
@@ -382,6 +423,7 @@ export class PhotoEntry {
         if (file.size === 0 || file.size > 15 * 1024 * 1024) { this.say('请选择15MB以内的原始照片。'); return; }
         if (this.previewUrl) URL.revokeObjectURL(this.previewUrl);
         this.file = file; this.source = source; this.invalidateResult();
+        this.captureEvents = [...(source === 'camera' ? this.captureEvents || [] : []), cameraEvent('file_selected', { bytes: file.size })];
         this.previewUrl = URL.createObjectURL(file); this.thumb.src = this.previewUrl; this.thumb.hidden = false;
         this.say(`已选择 ${file.name}（${(file.size / 1024 / 1024).toFixed(2)} MB），正在识别…`);
         this.recognize();
@@ -430,7 +472,8 @@ export class PhotoEntry {
             attemptId = newEntryId();
             // 现场已确认拍摄处于说明书判读时限内，不再采集/推算加样时距。
             await this.api(`/entries/${this.entry.id}/attempts`, { method: 'POST', body: JSON.stringify({
-                id: attemptId, inputMode: 'auto', source: this.source, elapsedSeconds: null, timeSource: 'within_window', filename: file.name }) });
+                id: attemptId, inputMode: 'auto', source: this.source, elapsedSeconds: null, timeSource: 'within_window', filename: file.name, clientEvents: this.captureEvents }) });
+            this.processPanel.hidden = false; this.loadProcessLog();
             await this.api(`/attempts/${attemptId}/photo`, { method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' }, body: file });
             // 识别在服务端队列中执行；这里只等回执（通常 1–3 秒）。
             const saved = await this.api(`/attempts/${attemptId}/recognize`, { method: 'POST', body: JSON.stringify({ client: { userAgent: navigator.userAgent } }) });
@@ -447,6 +490,7 @@ export class PhotoEntry {
         } finally {
             clearInterval(this.ticker); this.ticker = null;
             browserBusy = false; this.busy = false; this.update();
+            this.loadProcessLog();
         }
     }
 
@@ -490,6 +534,7 @@ export class PhotoEntry {
                 attempts = (await this.api(`/entries/${id}`)).attempts;
             }
             this.samplingSummary = samplingSummary;
+            this.processPanel.hidden = false; this.loadProcessLog();
             for (const attempt of attempts) if (!attempt.completed_at) await this.api(`/attempts/${attempt.id}/result`, { method: 'PUT', body: JSON.stringify({ status: 'interrupted', error: '页面重新打开，原识别未确认完成', channels: [] }) });
             const last = attempts.at(-1);
             if (entry.sampling ? samplingSummary?.eligible : last?.result?.eligible) {
@@ -539,6 +584,7 @@ export class PhotoEntry {
     destroy() {
         this.timed?.destroy();
         clearInterval(this.ticker); this.ticker = null;
+        clearInterval(this.processTicker); this.processPanel?.remove();
         this.closeWebcam();
         this.projectSelect?.removeEventListener('change', this.projectChangeHandler);
         this.resultSelect?.removeEventListener('change', this.resultChangeHandler);
@@ -559,6 +605,7 @@ export function attachPhotoEntries(module) {
         if (!module.photoEntries.has(point)) {
             point.querySelectorAll('[data-colloidal-inline]').forEach(node => node.remove());
             point.querySelectorAll('[data-colloidal-timed]').forEach(node => node.remove());
+            point.querySelectorAll('[data-colloidal-process]').forEach(node => node.remove());
             module.photoEntries.set(point, new PhotoEntry(module, point));
         }
     }
@@ -588,6 +635,7 @@ export function addPhotoDetails(modal, record, storage) {
             }
             for (const attempt of data.attempts) {
                 const r = attempt.result;
+                content.append(processLogPanel(attempt));
                 content.append(el('p', `${new Date(attempt.created_at).toLocaleString('zh-CN')} · ${attempt.photo_name || '照片'} · ${statusNames[r?.status] || '未确认完成'}${r?.error ? '：' + r.error : ''}`));
                 if (attempt.sample_index) content.append(el('p', `第${attempt.sample_index}次采样 · 计划${formatElapsed(samplingPlan(data.entry.sampling?.planId)?.seconds[attempt.sample_index - 1] || 0)} · ${attempt.captured_at ? `实拍${formatElapsed(attempt.elapsed_seconds)}（${new Date(attempt.captured_at).toLocaleString('zh-CN')}）` : '未取得实际拍摄照片'}。`));
                 if (r?.channels?.length) content.append(el('p', r.channels.map(c => `${PROJECTS.find(p => p.id === data.entry.project_id)?.channels.find(p => p.id === c.id)?.name || c.id}：${channelDescription(c)}`).join('；')));

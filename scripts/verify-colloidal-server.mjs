@@ -22,6 +22,7 @@ try {
         const target = path.join(home, 'core', name); await fs.mkdir(path.dirname(target), { recursive: true }); await fs.writeFile(target, source);
     }
     await fs.copyFile('backend/recognizer/server_entry.py', path.join(home, 'core/server_entry.py'));
+    await fs.copyFile('backend/recognizer/process_log.py', path.join(home, 'core/process_log.py'));
     await fs.copyFile('backend/recognizer/worker.py', path.join(home, 'worker.py'));
     process.env.COLLOIDAL_RECOGNIZER_HOME = home;
     process.env.COLLOIDAL_RECOGNIZER_PYTHON = path.resolve(arg('--python'));
@@ -30,6 +31,14 @@ try {
         const raw = await recognizer.enqueue({ photoPath: path.join(fixtures, reference.filename || reference.name + '.png'), projectId: reference.projectId, mode: reference.inputMode || 'closeup' });
         const result = compactResult(raw, projectById(reference.projectId), reference.elapsedSeconds);
         observed.push({ name: reference.name, raw, result });
+        assert.ok(Array.isArray(raw.process_log) && raw.process_log.length, `${reference.name}: process log`);
+        assert.ok(raw.process_log.some(e => e.stage === 'decode'), reference.name);
+        assert.ok(!/"(?:raw_profile|signal_profile|background_profile|image_bytes|photo_key)"/.test(JSON.stringify(raw.process_log)), 'No pixel/profile storage');
+        if (raw.status === 'ok') {
+            assert.equal(raw.process_log.filter(e => e.stage === 'measurement').length, raw.channels.length, reference.name);
+            const localization = raw.process_log.find(e => e.stage === 'localization');
+            assert.equal(localization.details.window_polygons_source.length, raw.channels.length, reference.name);
+        }
         assert.equal(raw.status, reference.status, reference.name);
         assert.deepEqual(raw.channels.map(c => [c.id, c.status, c.image_result]), reference.channels.map(c => [c.id, c.status, c.image_result]), reference.name);
         assert.deepEqual(result.channels.map(c => c.final_result), reference.channels.map(c => c.final_result), reference.name);

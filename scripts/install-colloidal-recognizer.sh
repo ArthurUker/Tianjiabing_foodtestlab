@@ -53,6 +53,7 @@ PY
 
 cp "$ROOT/backend/recognizer/worker.py" "$TARGET/worker.py"
 cp "$ROOT/backend/recognizer/server_entry.py" "$TARGET/core/server_entry.py"
+cp "$ROOT/backend/recognizer/process_log.py" "$TARGET/core/process_log.py"
 
 if id foodsentinel >/dev/null 2>&1; then
   chown -R foodsentinel:foodsentinel "$TARGET"

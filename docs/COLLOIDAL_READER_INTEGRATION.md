@@ -4,7 +4,7 @@
 
 服务器部署接续请阅读：[CodeBuddy部署交接与提示词](COLLOIDAL_CODEBUDDY_HANDOFF.md)。
 
-2026-10-22新增 [5/6/7分钟三次自动相机采样](COLLOIDAL_TIMED_SAMPLING.md)：显式加样确认、三次原图、实际时距和至少两次有效一致规则；该流程不再使用单张旧入口的within_window假定。
+2026-10-22新增 [5/6/7分钟三次自动相机采样](COLLOIDAL_TIMED_SAMPLING.md)：显式加样确认、三次原图、实际时距和至少两次有效一致规则；该流程不再使用单张旧入口的within_window假定。后续 [过程日志与相机预览调整](COLLOIDAL_PROCESS_LOG.md) 提供逐阶段诊断和局域网测试步骤。
 
 ## 固定识别方案
 

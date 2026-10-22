@@ -8,6 +8,7 @@ import { finalizeColloidalEntry } from '../modules/ColloidalEntryService.js';
 import { colloidalRecognizer } from '../lib/colloidalRecognizer.js';
 import { startSampling, finishSampling, lockSamplingEntry, samplingCaptureData, sameSamplingContext } from '../lib/colloidalSampling.js';
 import { SAMPLING_PLANS, samplingSummary } from '../../frontend/js/colloidal/sampling.js';
+import { processEvent, clientProcessEvents, appendProcessEvents, algorithmProcessEvents } from '../lib/colloidalProcessLog.js';
 
 export const photoRoot = () => path.resolve(process.env.COLLOIDAL_PHOTO_DIR || path.join(path.dirname(fileURLToPath(import.meta.url)), '../uploads/colloidal-originals'));
 const safe = fn => async (req, res, next) => { try { await fn(req, res); } catch (e) { if (e.status) res.status(e.status).json({ error: e.message, code: e.code }); else next(e); } };
@@ -86,12 +87,24 @@ export function createColloidalRoutes({ authenticateUser, requireEditorOrAbove, 
         }
         if (entry.sampling && await tx.colloidalAttempt.findFirst({ where: { entry_id: entry.id, sample_index: capture.sample_index } })) throw fail(409, 'SAMPLE_EXISTS', '该采样时点已登记，不能重复拍照替代');
         if (await tx.colloidalAttempt.count({ where: { entry_id: entry.id } }) >= 30) throw fail(429, 'TOO_MANY_ATTEMPTS', '该检测的重拍次数过多，请重新建立检测');
-        return { attempt: await tx.colloidalAttempt.create({ data }), reused: false };
+        return { attempt: await tx.colloidalAttempt.create({ data: { ...data, process_log: [
+            ...clientProcessEvents(body.clientEvents), processEvent('attempt_registered', 'ok', {
+                project_id: entry.project_id, source: body.source, time_source: timeSource, elapsed_seconds: elapsed,
+                sample_index: capture.sample_index ?? null, captured_at: capture.captured_at?.toISOString() ?? null,
+            }),
+        ] } }), reused: false };
         });
         res.status(result.reused ? 200 : 201).json({ attempt: result.attempt });
     }));
-    router.put('/attempts/:id/photo', requireEditorOrAbove, express.raw({ type: 'application/octet-stream', limit: '15mb' }), safe(async (req, res) => {
+    router.put('/attempts/:id/photo', requireEditorOrAbove, async (req, res, next) => {
+        try {
+            const { attempt } = await attemptOwner(req, req.params.id);
+            if (!attempt.photo_sha256 && !attempt.completed_at) await appendProcessEvents(req.db, attempt.id, [processEvent('photo_upload_started', 'started')]);
+            next();
+        } catch (error) { next(error); }
+    }, express.raw({ type: 'application/octet-stream', limit: '15mb' }), safe(async (req, res) => {
         const { attempt, entry } = await attemptOwner(req, req.params.id);
+        const uploadStarted = Date.now();
         const bytes = req.body;
         const kind = photoType(bytes), hash = digest(bytes);
         if (attempt.photo_sha256) {
@@ -115,6 +128,10 @@ export function createColloidalRoutes({ authenticateUser, requireEditorOrAbove, 
         }
         // A simultaneous interruption must not be reverted to running.
         await req.db.colloidalAttempt.updateMany({ where: { id: attempt.id, status: 'uploading', completed_at: null }, data: { status: 'running' } });
+        await appendProcessEvents(req.db, attempt.id, [processEvent('photo_stored', 'ok', {
+            bytes: bytes.length, mime: kind.mime, sha256: hash, persistence_ms: Date.now() - uploadStarted,
+            note: '请求体接收完成后计存储耗时；不等于网络上传耗时',
+        })]);
         res.json({ sha256: hash });
     }));
     const persistResult = async (db, attempt, entry, body, fromServer = false) => {
@@ -129,31 +146,42 @@ export function createColloidalRoutes({ authenticateUser, requireEditorOrAbove, 
         if (!attempt.photo_sha256 && !['upload_failed', 'interrupted', 'runtime_timeout', 'engine_error', 'sample_missed', 'capture_failed'].includes(result.status)) throw fail(409, 'PHOTO_REQUIRED', '请先保存原照片');
         const updated = await db.colloidalAttempt.updateMany({ where: { id: attempt.id, completed_at: null }, data: { result, status: result.eligible ? 'ready' : result.status === 'ok' ? 'candidate' : result.status === 'interrupted' ? 'interrupted' : 'failed', completed_at: new Date() } });
         if (!updated.count) throw fail(409, 'RESULT_IMMUTABLE', '识别结果已提交，请查询当前状态');
+        await appendProcessEvents(db, attempt.id, [processEvent('verdict', result.eligible ? 'ok' : 'warning', {
+            status: result.status, eligible: result.eligible, error: result.error, time_basis: result.time_basis,
+            channels: result.channels.map(c => ({ id: c.id, c_present: c.c_present ?? null, rule_status: c.rule_status,
+                final_result: c.final_result, image_result: c.image_result })),
+            computed_at: result.computed_at, pipeline: result.version, core_patch: result.core_patch,
+        })]);
         return result;
     };
     router.put('/attempts/:id/result', requireEditorOrAbove, safe(async (req, res) => {
         const { attempt, entry } = await attemptOwner(req, req.params.id);
-        res.json({ result: await persistResult(req.db, attempt, entry, req.body) });
+        const result = await persistResult(req.db, attempt, entry, req.body);
+        res.json({ result, processLog: (await req.db.colloidalAttempt.findUnique({ where: { id: attempt.id } })).process_log });
     }));
     // 服务端识别：Node 队列串行调用常驻 Python 进程，前端不再运行识别代码。
     router.post('/attempts/:id/recognize', requireEditorOrAbove, safe(async (req, res) => {
         const { attempt, entry } = await attemptOwner(req, req.params.id);
-        if (attempt.result) return res.json({ result: attempt.result, cached: true });
+        if (attempt.result) return res.json({ result: attempt.result, processLog: attempt.process_log, cached: true });
         if (entry.status !== 'open') throw fail(409, 'ENTRY_COMPLETED', '该检测已保存');
         if (!attempt.photo_sha256 || attempt.photo_state !== 'present' || !attempt.photo_key) throw fail(409, 'PHOTO_REQUIRED', '请先保存原照片');
         let recognized;
+        await appendProcessEvents(req.db, attempt.id, [processEvent('recognition_queued', 'started', { depth: recognizer().status().depth ?? null })]);
         try {
             recognized = await recognizer().enqueue({
                 photoPath: path.join(storageRoot(), attempt.photo_key),
                 projectId: entry.project_id,
                 mode: 'auto',
+                onEvent: async (stage, state, details) => appendProcessEvents(req.db, attempt.id, [processEvent(stage, state, details)]),
             });
         } catch (error) {
+            await appendProcessEvents(req.db, attempt.id, [processEvent('recognition_failed', 'failed', { code: error.code || 'RECOGNIZER_DOWN', reason: error.message.slice(0, 240) })]);
             if (error.status) throw fail(error.status, error.code || 'RECOGNIZER_BUSY', error.message);
             throw fail(503, error.code || 'RECOGNIZER_DOWN', `识别服务暂时不可用：${error.message}`);
         }
+        await appendProcessEvents(req.db, attempt.id, algorithmProcessEvents(recognized.process_log));
         const result = await persistResult(req.db, attempt, entry, recognized, true);
-        res.json({ result, queue: recognizer().status() });
+        res.json({ result, processLog: (await req.db.colloidalAttempt.findUnique({ where: { id: attempt.id } })).process_log, queue: recognizer().status() });
     }));
     router.get('/recognition', authorizeRoles('manager', 'admin'), safe(async (req, res) => {
         res.json({ ...recognizer().status(), runtime: process.env.COLLOIDAL_RECOGNIZER_HOME || '/mnt/datadisk0/foodsentinel/recognizer' });

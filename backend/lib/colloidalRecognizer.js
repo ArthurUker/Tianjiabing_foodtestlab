@@ -32,14 +32,14 @@ export class ColloidalRecognizer {
         return { concurrency: this.concurrency, depth: this.depth(), pending: this.active, ...this.stats };
     }
 
-    enqueue({ photoPath, projectId, mode = 'auto' }) {
+    enqueue({ photoPath, projectId, mode = 'auto', onEvent = async () => {} }) {
         if (this.depth() >= this.maxQueue) {
             const error = new Error('识别排队已满，请稍后重试');
             error.status = 503; error.code = 'RECOGNIZER_BUSY';
             return Promise.reject(error);
         }
         return new Promise((resolve, reject) => {
-            this.queue.push({ id: randomUUID(), photoPath, projectId, mode, resolve, reject, enqueuedAt: Date.now(), tries: 0 });
+            this.queue.push({ id: randomUUID(), photoPath, projectId, mode, resolve, reject, onEvent, enqueuedAt: Date.now(), tries: 0 });
             this.stats.queued += 1;
             this._pump();
         });
@@ -56,6 +56,7 @@ export class ColloidalRecognizer {
     async _runJob(job) {
         const startedAt = Date.now();
         try {
+            await job.onEvent('algorithm_dispatched', 'started', { wait_ms: startedAt - job.enqueuedAt, retry: job.tries });
             const message = await this._send({ id: job.id, path: job.photoPath, projectId: job.projectId, mode: job.mode });
             if (message.error) throw Object.assign(new Error(message.error), { code: 'RECOGNIZER_ERROR' });
             if (!message.result) throw Object.assign(new Error('识别未返回结果'), { code: 'RECOGNIZER_EMPTY' });
@@ -66,6 +67,7 @@ export class ColloidalRecognizer {
             // 进程级失败重试一次；业务失败（decode/structure）不重试。
             if (!error.status && job.tries < 1 && !error.code) {
                 job.tries += 1;
+                await job.onEvent('worker_retry', 'warning', { retry: job.tries });
                 this.log.warn?.(`[colloidal-recognizer] 重试任务 ${job.id.slice(0, 8)}：${error.message}`);
                 this.queue.unshift(job);
                 return;

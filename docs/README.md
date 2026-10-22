@@ -2,6 +2,8 @@
 
 胶体金下一轮部署：[5/6/7分钟三次自动采样、2/3规则及CodeBuddy接续](COLLOIDAL_TIMED_SAMPLING.md)（本轮本地实现，真实设备与实体卡待验收）。
 
+胶体金诊断测试：[识别过程日志、相机旋转／镜像、局域网HTTPS及CodeBuddy接续](COLLOIDAL_PROCESS_LOG.md)。
+
 食品检验系统（代码仓库/系统标识 `foodsentinel`）的**文档导航中枢与代码地图**。
 
 胶体金照片录入：[固定 v5 方案接入、服务端识别与原图管理](COLLOIDAL_READER_INTEGRATION.md)（2026-10-19 上线，2026-10-20 起识别改由服务端常驻进程执行）。

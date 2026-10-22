@@ -14,6 +14,7 @@ import { createAuthMiddleware } from '../../middleware/authMiddleware.js';
 import { PIPELINE, PROJECTS } from '../../lib/colloidalReader.js';
 import { purgeOriginals } from '../../lib/colloidalRetention.js';
 import { createRecordRoutes } from '../../routes/recordRoutes.js';
+import { appendProcessEvents, processEvent } from '../../lib/colloidalProcessLog.js';
 
 const dbUrl = process.env.COLLOIDAL_TEST_DATABASE_URL;
 const enabled = Boolean(dbUrl);
@@ -71,7 +72,10 @@ before(async () => {
     };
     const app = express(); app.use(express.json({ limit: '32kb' }));
     const routeOptions = { authenticateUser, authorizeRoles: guards.authorizeRoles, requireEditorOrAbove: guards.requireEditorOrAbove, requireGuestReadOnly: (req, res, next) => { req.guestVisibleTypes = ['pesticide', 'leanMeat']; next(); }, storageRoot: () => root,
-        recognizer: () => ({ enqueue: async ({ projectId }) => recognitionOverride ? recognitionOverride(projectId) : rawResult(projectId), status: () => ({ fixture: true }) }) };
+        recognizer: () => ({ enqueue: async ({ projectId, onEvent }) => {
+            await onEvent?.('algorithm_dispatched', 'started', { wait_ms: 1 });
+            return recognitionOverride ? recognitionOverride(projectId) : rawResult(projectId);
+        }, status: () => ({ fixture: true }) }) };
     app.use('/api/colloidal', createColloidalRoutes(routeOptions));
     app.use(createRecordRoutes({ ...routeOptions, idempotencyMiddleware: (req, res, next) => next() }));
     if (process.env.COLLOIDAL_BROWSER_MODULE) {
@@ -100,6 +104,32 @@ after(async () => {
 });
 const check = (name, fn) => test(name, { skip: !enabled }, fn);
 
+check('recognition process log preserves acquisition, queue, algorithm and verdict, across manual fallback and tenant boundaries', async () => {
+    const e = await entry('carbofuran'), a = id(), at = new Date().toISOString();
+    const made = await request(`/entries/${e}/attempts`, { id: a, inputMode: 'auto', source: 'camera', elapsedSeconds: 360, timeSource: 'operator_reported', filename: 'log-check.png',
+        clientEvents: [{ at, stage: 'photo_captured', details: { width: 1920, height: 1080, previewRotation: 90, token: 'secret' } }, { at, stage: 'measurement' }] });
+    assert.equal(made.status, 201);
+    assert.equal((await request(`/attempts/${a}/photo`, png, { method: 'PUT', binary: true })).status, 200);
+    recognitionOverride = () => ({ status: 'ok', version: PIPELINE, channels: [{ id: 'carbofuran', status: 'ok', c: 2.436, t: 2.869, c_present: false }],
+        process_log: [{ at, stage: 'window_candidates', state: 'warning', elapsed_ms: 5, details: { count: 0 } },
+            { at, stage: 'measurement', state: 'warning', elapsed_ms: 15, details: { c: 2.436, threshold: 3, c_present: false } }] });
+    try {
+        const recognized = await request(`/attempts/${a}/recognize`, {}); assert.equal(recognized.status, 200, JSON.stringify(recognized.data));
+        assert.equal(recognized.data.result.eligible, false);
+        const log = recognized.data.processLog;
+        assert.deepEqual(log.map(x => x.stage), ['photo_captured', 'attempt_registered', 'photo_upload_started', 'photo_stored', 'recognition_queued', 'algorithm_dispatched', 'window_candidates', 'measurement', 'verdict']);
+        assert.equal(JSON.stringify(log).includes('secret'), false); assert.equal(log[0].origin, 'browser');
+        assert.equal(log.find(x => x.stage === 'measurement').details.threshold, 3);
+        const repeated = await request(`/attempts/${a}/recognize`, {}); assert.deepEqual(repeated.data.processLog, log);
+        await Promise.all(Array.from({ length: 5 }, (_, i) => appendProcessEvents(dbs.a, a, [processEvent('fixture_concurrency', 'ok', { index: i })])));
+        const row = (await request(`/entries/${e}`)).data.attempts[0]; assert.equal(row.process_log.length, log.length + 5);
+        const saved = await request(`/entries/${e}/finalize`, { mode: 'manual', manualResults: { carbofuran: '合格' } }); assert.equal(saved.status, 200);
+        const recordId = saved.data.records[0].id;
+        const details = await request(`/records/${recordId}`, undefined, { role: 'viewer' }); assert.equal(details.data.attempts[0].process_log.length, log.length + 5);
+        assert.equal((await request(`/records/${recordId}`, undefined, { tenant: 'b' })).status, 404);
+    } finally { recognitionOverride = null; }
+});
+
 check('migration replay creates identical public and both tenant structures', async () => {
     for (const code of Object.values(codes)) {
         const parity = await compareTenantStructureToPublic(prisma, { schema: schemaNameOf(code) });
@@ -119,7 +149,7 @@ check('auto single is atomic, idempotent and stores original bytes only', async 
     const details = await request(`/records/${record.id}`, undefined, { role: 'viewer' });
     assert.equal(details.data.attempts[0].photo_sha256, crypto.createHash('sha256').update(png).digest('hex'));
     assert.equal('photo_key' in details.data.attempts[0], false);
-    const files = await fs.readdir(root, { recursive: true }); assert.equal(files.filter(v => v.endsWith('.png')).length, 1); assert.ok(!files.some(v => /overlay|window|bands/.test(v)));
+    const files = await fs.readdir(root, { recursive: true }); assert.equal(files.filter(v => v.endsWith(`${a}.png`)).length, 1); assert.ok(!files.some(v => /overlay|window|bands/.test(v)));
     assert.equal((await request(`/records/${record.id}`, undefined, { tenant: 'b' })).status, 404);
     assert.equal((await request(`/attempts/${a}/result`, {}, { method: 'PUT', tenant: 'b' })).status, 404);
 });
@@ -265,6 +295,41 @@ check('sampling API: interrupted third slot retains two completed matching measu
     assert.equal((await request(`/entries/${e}/finalize`, { mode: 'auto', attemptId: adopted })).status, 200);
 });
 
+test('browser camera preview rotates and mirrors without rotating or mirroring the captured original', { skip: !enabled || !process.env.COLLOIDAL_BROWSER_MODULE }, async () => {
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    try {
+        await page.goto(`${base}/ui?school=${codes.a}`); await page.waitForFunction(() => window.fixtureModule);
+        await page.evaluate(() => {
+            const draw = CanvasRenderingContext2D.prototype.drawImage;
+            CanvasRenderingContext2D.prototype.drawImage = function (...args) {
+                if (args[0] instanceof HTMLVideoElement) { const m = this.getTransform(); window.fixtureCaptureMatrix = [m.a, m.b, m.c, m.d, m.e, m.f]; }
+                return draw.apply(this, args);
+            };
+        });
+        await page.locator('select[name=result]').selectOption('__photo_camera__');
+        await page.waitForFunction(() => document.querySelector('.colloidal-cam video')?.videoWidth > 0);
+        const size = await page.locator('.colloidal-cam video').evaluate(v => [v.videoWidth, v.videoHeight]);
+        await page.locator('.colloidal-cam').getByRole('button', { name: '右转90°', exact: true }).click();
+        await page.locator('.colloidal-cam').getByRole('button', { name: '左右镜像', exact: true }).click();
+        await page.locator('.colloidal-cam').getByRole('button', { name: '上下翻转', exact: true }).click();
+        assert.equal(await page.locator('.colloidal-cam').getByRole('button', { name: '左右镜像', exact: true }).getAttribute('aria-pressed'), 'true');
+        const box = await page.locator('.colloidal-cam video').boundingBox(); assert.ok(box.height > box.width);
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+        await page.screenshot({ path: '.cache/colloidal-local-trial-20261022/camera-controls-mobile.png', fullPage: true });
+        await page.locator('.colloidal-cam').getByRole('button', { name: '拍照', exact: true }).click();
+        await page.waitForFunction(() => { const p = window.fixtureModule.photoEntries.get(document.querySelector('[data-test-point]')); return p.result && !p.busy; });
+        const original = await page.evaluate(async () => {
+            const p = window.fixtureModule.photoEntries.get(document.querySelector('[data-test-point]'));
+            const image = new Image(); image.src = p.previewUrl; await image.decode(); return { size: [image.naturalWidth, image.naturalHeight], entryId: p.entry.id };
+        });
+        assert.deepEqual(original.size, size);
+        assert.deepEqual(await page.evaluate(() => window.fixtureCaptureMatrix), [1, 0, 0, 1, 0, 0]);
+        const attempt = (await request(`/entries/${original.entryId}`)).data.attempts[0];
+        const event = attempt.process_log.find(e => e.stage === 'photo_captured');
+        assert.equal(event.details.previewRotation, 90); assert.equal(event.details.previewMirrorX, true); assert.equal(event.details.previewMirrorY, true);
+    } finally { await page.close(); }
+});
+
 test('browser form: photo failure → manual save → original photo in details', { skip: !enabled || !process.env.COLLOIDAL_BROWSER_MODULE }, async () => {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
     recognitionOverride = () => ({ status: 'structure_mismatch', error: '结构不匹配', channels: [] });
@@ -273,9 +338,12 @@ test('browser form: photo failure → manual save → original photo in details'
     await page.locator('[data-colloidal-inline] input[type=file]').first().setInputFiles(path.resolve('.cache/colloidal-integration-20261019/triplex-valid.png'));
     await page.waitForFunction(() => { const entry = window.fixtureModule.photoEntries.get(document.querySelector('[data-test-point]')); return entry.result?.status === 'structure_mismatch' && !entry.busy; });
     const entryId = await page.evaluate(() => window.fixtureModule.photoEntries.get(document.querySelector('[data-test-point]')).entry.id);
+    await page.locator('[data-colloidal-process] > summary').click();
+    await page.waitForFunction(() => document.querySelector('[data-colloidal-process]')?.textContent.includes('时间规则与最终可用性判定'));
+    assert.ok((await page.locator('[data-colloidal-process]').textContent()).includes('原图保存完成'));
     await page.locator('select[name=result]').selectOption('合格');
     await page.locator('#pesticideTestForm button[type=submit]').click();
-    await page.waitForFunction(() => window.fixtureModule.storage.getAll().some(r => r.photoRecognition?.entryPath === 'manual_after_auto_failure'));
+    await page.waitForFunction(id => window.fixtureModule.storage.getAll().some(r => r.photoRecognition?.entryId === id && r.photoRecognition?.entryPath === 'manual_after_auto_failure'), entryId);
     const entryRow = await dbs.a.colloidalEntry.findUnique({ where: { id: entryId } });
     assert.equal(entryRow.status, 'completed');
     await page.locator(`span.btn-detail[data-id="${entryRow.record_ids[0]}"]`).click();
