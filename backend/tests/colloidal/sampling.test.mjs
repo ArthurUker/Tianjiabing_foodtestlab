@@ -35,12 +35,18 @@ test('triplex compares all channels, without creating nine formal tests', () => 
     attempts[1].result.channels[1].final_result = 'positive';
     assert.equal(samplingSummary(session, attempts, p).eligible, false);
 });
-test('fewer than two valid samples, assumed time and interrupted sessions cannot auto-save', () => {
+test('fewer than two valid samples and assumed time cannot auto-save', () => {
     for (const mutate of [a => { a[0].photo_state = 'absent'; a[1].photo_state = 'absent'; }, a => { a[0].result.eligible = false; a[1].result.eligible = false; },
         a => { a[0].result.channels[0].rule_status = 'within_time_assumed'; a[1].result.channels[0].rule_status = 'within_time_assumed'; }, a => { a.pop(); a.pop(); }]) {
         const attempts = rows(); mutate(attempts); assert.equal(samplingSummary(session, attempts, project).eligible, false);
     }
-    assert.equal(samplingSummary({ ...session, state: 'interrupted' }, rows(), project).eligible, false);
+    assert.equal(samplingSummary({ ...session, state: 'interrupted' }, rows().slice(0, 1), project).eligible, false);
+});
+test('ending early after two valid matching captures preserves their usable result', () => {
+    const attempts = rows().slice(0, 2);
+    const s = samplingSummary({ ...session, state: 'interrupted' }, attempts, project);
+    assert.equal(s.eligible, true); assert.equal(s.agreeCount, 2); assert.equal(s.state, 'interrupted');
+    assert.equal(s.adoptedAttemptId, attempts[1].id);
 });
 test('a failed third sample does not discard two valid matching snapshots', () => {
     const attempts = rows(); attempts[2].result = { status: 'quality_failed', eligible: false, channels: [] };

@@ -36,11 +36,11 @@ export function samplingSummary(session, attempts, project) {
     }
     const matching = [...groups.values()].sort((a, b) => b.length - a.length)[0] || [];
     const consistent = matching.length >= 2;
-    const eligible = session.state === 'completed' && consistent;
+    const eligible = ['completed', 'interrupted'].includes(session.state) && consistent;
     return { state: session.state, eligible, consistent, validCount: valid.length, agreeCount: matching.length,
         hasDisagreement: groups.size > 1,
-        status: session.state === 'interrupted' ? 'interrupted' : session.state !== 'completed' ? 'running'
-            : valid.length < 2 ? 'incomplete' : !consistent ? 'inconsistent' : 'consistent',
+        status: eligible ? 'consistent' : session.state === 'interrupted' ? 'interrupted' : session.state !== 'completed' ? 'running'
+            : valid.length < 2 ? 'incomplete' : 'inconsistent',
         adoptedAttemptId: eligible ? matching.at(-1).attemptId : null, samples };
 }
 export const formatElapsed = seconds => `${Math.floor(Math.max(0, seconds) / 60)}:${String(Math.floor(Math.max(0, seconds) % 60)).padStart(2, '0')}`;

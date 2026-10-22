@@ -257,6 +257,13 @@ check('sampling API: two matching photos survive third failure; two different ph
         if (disagreement) assert.equal((await request(`/entries/${e}/finalize`, { mode: 'manual', manualResults: { lead: '不合格' } })).data.records[0].entryPath, 'manual_after_sampling');
     }
 });
+check('sampling API: interrupted third slot retains two completed matching measurements', async () => {
+    const { e, sampling } = await timedEntry();
+    await timedAttempt(e, sampling, 1); const adopted = await timedAttempt(e, sampling, 2);
+    const ended = await request(`/entries/${e}/sampling/finish`, { id: sampling.id, state: 'interrupted', reason: '结束第三次采样' });
+    assert.equal(ended.data.summary.eligible, true); assert.equal(ended.data.entry.sampling.state, 'interrupted');
+    assert.equal((await request(`/entries/${e}/finalize`, { mode: 'auto', attemptId: adopted })).status, 200);
+});
 
 test('browser form: photo failure → manual save → original photo in details', { skip: !enabled || !process.env.COLLOIDAL_BROWSER_MODULE }, async () => {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
@@ -477,6 +484,22 @@ timedBrowserTest('browser restores the second agreeing photo when the last sched
         await page.waitForFunction(id => window.fixtureModule.photoEntries.get(document.querySelector('[data-test-point]')).attemptId === id, adopted);
         assert.equal(await page.locator('select[name=result]').inputValue(), '合格');
     } finally { recognitionOverride = null; await page?.close(); }
+});
+timedBrowserTest('browser can finish after two matching captures and retain the missing-third reason', async () => {
+    const page = await openTimedPage();
+    try {
+        for (const index of [1, 2]) {
+            await advanceSample(page, index);
+            await page.waitForFunction(i => window.fixtureModule.photoEntries.get(document.querySelector('[data-test-point]')).timed.slots[i - 1].state === 'ready', index);
+        }
+        await page.getByRole('button', { name: '结束本次自动采样', exact: true }).click();
+        await page.waitForFunction(() => window.fixtureModule.photoEntries.get(document.querySelector('[data-test-point]')).timed.state === 'finished');
+        assert.equal(await page.locator('select[name=result]').inputValue(), '合格');
+        const e = await page.evaluate(() => window.fixtureModule.photoEntries.get(document.querySelector('[data-test-point]')).entry.id);
+        const row = await dbs.a.colloidalEntry.findUnique({ where: { id: e }, include: { attempts: true } });
+        assert.equal(row.sampling.state, 'interrupted'); assert.equal(row.attempts.filter(a => a.photo_state === 'present').length, 2);
+        assert.ok(row.attempts.find(a => a.sample_index === 3).result.error.includes('结束'));
+    } finally { await page.close(); }
 });
 
 function fixturePage(school) {
