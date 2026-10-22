@@ -323,6 +323,7 @@ const TENANT_MIGRATION_REGISTRY = Object.freeze({
   '20261016120000_pathogen_device_bindings': { checksum: '1ea547775bfd570506b48c55249ce216f57dae4aecf3af93c1f2653fb5f8a51f', scope: 'both', skip: ['5cbd9ce35536098da8b7469302faec7c47c2ae7fbaef39a5ec1d5ead49b67ae9'], stmtCount: 6 },
   // Selected v5 photo entries; ordinary DDL applies independently to every schema.
   '20261019120000_colloidal_photo_entries': { checksum: '9352c4dd5b40e0219433b1b11353710851b6340d9a9d0e0188e21dc27034378a', scope: 'both', skip: [], stmtCount: 7 },
+  '20261022120000_colloidal_timed_sampling': { checksum: 'e7db410ad58f10c788e9703458cd6822edfa4446c3e88ceb7a11f8c0daa32fba', scope: 'both', skip: [], stmtCount: 4 },
 })
 
 /** 分类协议对外的可审计快照（供 `--check`/证据输出；值即编译进上表的常量）。 */

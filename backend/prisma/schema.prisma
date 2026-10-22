@@ -165,6 +165,7 @@ model ColloidalEntry {
   result_source      String?
   entry_path         String?
   adopted_attempt_id String?
+  sampling           Json?
   created_at         DateTime @default(now())
   completed_at       DateTime?
   attempts           ColloidalAttempt[]
@@ -179,6 +180,8 @@ model ColloidalAttempt {
   entry_id        String
   status          String   @default("uploading")
   elapsed_seconds Float?
+  sample_index    Int?
+  captured_at     DateTime?
   time_source     String
   input_mode      String
   source          String
@@ -197,6 +200,7 @@ model ColloidalAttempt {
   entry           ColloidalEntry @relation(fields: [entry_id], references: [id], onDelete: Restrict)
 
   @@index([entry_id, created_at])
+  @@unique([entry_id, sample_index])
   @@index([status, created_at])
   @@index([photo_state, created_at])
 }

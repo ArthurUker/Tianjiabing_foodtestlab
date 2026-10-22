@@ -175,6 +175,16 @@
     cursor: pointer;
 }
 
+/* 定时采样跨满点位宽度；相机直接生成原始JPEG，不输出处理图片。 */
+.colloidal-timed { grid-column: 1 / -1; min-width: 0; border: 1px solid #cbd5e1; border-radius: 10px; padding: 12px; background: #f8fafc; color: #334155; }
+.colloidal-timed[hidden], .colloidal-timed-preview[hidden] { display: none; }
+.colloidal-timed label { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-right: 12px; }
+.colloidal-timed select { max-width: 100%; border: 1px solid #94a3b8; border-radius: 6px; padding: 6px; background: white; }
+.colloidal-timed p, .colloidal-timed li { margin-top: 8px; font-size: .85rem; overflow-wrap: anywhere; }
+.colloidal-timed ol { padding-left: 20px; list-style: decimal; }
+.colloidal-timed .colloidal-action { min-height: 44px; margin: 4px 8px 4px 0; }
+.colloidal-timed-video { display: block; width: 100%; max-width: 680px; max-height: 45vh; object-fit: contain; background: #111827; border-radius: 8px; margin-top: 8px; }
+
 .colloidal-cam-shutter {
     border: 1px solid #2563eb;
     background: #2563eb;

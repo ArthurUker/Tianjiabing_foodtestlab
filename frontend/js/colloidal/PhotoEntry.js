@@ -2,6 +2,8 @@ import { projectByLabel, PROJECTS, resultText, newEntryId } from './contract.js'
 import { resolveSyncScope } from '../core/SyncScope.js';
 import { collectCustomFieldValues, getSchoolCustomization } from '../utils/schoolCustomization.js';
 import { extractSchoolCode } from '../utils/schoolCode.js';
+import { TimedSampling } from './TimedSampling.js';
+import { formatElapsed, samplingPlan } from './sampling.js';
 
 // 结果录入方式收敛到原有“检测结果”下拉：手工（合格/不合格）+ 两个照片选项。
 // 识别在服务端执行（Node 队列 + 常驻 Python 进程），浏览器只负责上传原图与展示回执。
@@ -15,7 +17,7 @@ const biological = { negative: '阴性', positive: '阳性', invalid: '无效' }
 const statusNames = { ok: '图像识别完成', partial: '部分通道未完成', board_not_detected: '未找到定位板',
     localization_failed: '窗口定位失败', structure_mismatch: '卡片结构不匹配', orientation_failed: '方向无法确认',
     quality_failed: '图像质量不足', profile_required: '卡型尚未配置', engine_error: '识别运行异常',
-    decode_failed: '原照片无法解码', runtime_timeout: '本机识别超时', interrupted: '识别未确认完成', upload_failed: '原照片上传失败' };
+    decode_failed: '原照片无法解码', runtime_timeout: '识别超时', interrupted: '识别未确认完成', upload_failed: '原照片上传失败', sample_missed: '未在计划时点采样', capture_failed: '相机采样失败' };
 const CONTEXT_LABELS = { testDate: '检测日期', canteen: '食堂', inspector: '检测员', vegetableType: '蔬菜品种', meatType: '肉类' };
 
 function channelDescription(c) {
@@ -53,6 +55,7 @@ export class PhotoEntry {
         }
         this.resultField = this.resultSelect.closest('div') || this.resultSelect.parentElement;
         this.buildControls();
+        this.buildTimedSampling();
         this.projectChangeHandler = () => this.update();
         this.projectSelect.addEventListener('change', this.projectChangeHandler);
         // 学校定制可能在模块构造后重建选项：保持三联可选，不覆盖学校既有配置。
@@ -118,13 +121,86 @@ export class PhotoEntry {
         this.restoreButton.addEventListener('click', () => this.restore());
         this.restoreButton.hidden = !sessionStorage.getItem(this.recoveryKey);
         inline.append(this.restoreButton);
-        this.resultSelect.addEventListener('change', () => {
+        this.resultChangeHandler = () => {
             const value = this.resultSelect.value;
             if (!PHOTO_OPTIONS.some(([v]) => v === value)) { this.previousValue = value; return; }
             // 选完照片选项后先打开选择框，等真正选到文件再回退下拉，避免“刚选就跳回去”的错觉。
             this.pick(value === PHOTO_CAMERA ? 'camera' : 'upload', true);
+        };
+        this.resultFocusHandler = () => { this.previousValue = this.resultSelect.value; };
+        this.resultSelect.addEventListener('change', this.resultChangeHandler);
+        this.resultSelect.addEventListener('focus', this.resultFocusHandler);
+    }
+
+    buildTimedSampling() {
+        this.timedResults = new Map();
+        this.timed = new TimedSampling({
+            host: this.point,
+            describe: result => result?.channels?.map(c => `${this.project?.channels.find(p => p.id === c.id)?.name || c.id}：${channelDescription(c)}${Number.isFinite(c.c) && Number.isFinite(c.t) ? `（C=${c.c.toFixed(2)}，T=${c.t.toFixed(2)}）` : ''}`).join('；') || '',
+            validate: () => {
+                if (resolveSyncScope().scopeId !== this.scope) throw new Error('账号或学校已改变，自动采样不能继续');
+                if (!this.project) throw new Error('所选项目暂不支持自动采样');
+                const missing = this.missingContext(); if (missing) throw new Error(`请先填写${missing}`);
+                if (this.timedSignature && this.signature() !== this.timedSignature) throw new Error('样本信息已改变，请重新检测');
+                if (this.busy) throw new Error('请先完成当前照片识别');
+            },
+            prepare: async () => {
+                if (browserBusy) throw new Error('请先完成其他照片识别');
+                await this.ensureEntry();
+                if (this.entry.sampling) throw new Error('本次已有定时采样记录，请新增检测点位');
+                this.invalidateResult(); this.timedResults.clear();
+            },
+            start: async body => { this.entry = (await this.api(`/entries/${this.entry.id}/sampling/start`, { method: 'POST', body: JSON.stringify(body) })).entry; },
+            sample: body => this.recognizeTimedSample(body),
+            finish: async body => {
+                try { return await this.api(`/entries/${this.entry.id}/sampling/finish`, { method: 'POST', body: JSON.stringify(body) }); }
+                catch (e) {
+                    if (e.status !== 409 || body.state !== 'completed') throw e;
+                    return this.api(`/entries/${this.entry.id}/sampling/finish`, { method: 'POST', body: JSON.stringify({ ...body, state: 'interrupted', reason: '存在未确认完成的识别尝试' }) });
+                }
+            },
+            report: data => {
+                this.entry = data.entry; this.samplingSummary = data.summary;
+                this.invalidateResult();
+                if (data.summary?.eligible) {
+                    const last = data.summary.samples.find(s => s.attemptId === data.summary.adoptedAttemptId);
+                    this.result = this.timedResults.get(last.attemptId) || { eligible: true, channels: last.channels };
+                    this.attemptId = last.attemptId; this.resultSignature = this.signature(); this.showResult();
+                } else this.say('未取得至少两次有效且一致的采样，请重测或手工选择结果。采样与原照片保留。');
+            },
+            lock: active => {
+                if (active) {
+                    this.closeWebcam(); this.timedSignature = this.signature(); this.timedDisabled = new Map();
+                    const controls = [...this.point.querySelectorAll('input,select,textarea'), this.form.querySelector('button[type=submit]'), ...['testDate', 'canteen', 'inspector'].map(name => this.form.querySelector(`[name="${name}"]`))];
+                    for (const control of new Set(controls)) if (control && !control.closest('[data-colloidal-timed]')) { this.timedDisabled.set(control, control.disabled); control.disabled = true; }
+                } else {
+                    for (const [control, disabled] of this.timedDisabled || []) control.disabled = disabled;
+                    this.timedDisabled = null; this.timedSignature = null; this.update();
+                }
+            },
         });
-        this.resultSelect.addEventListener('focus', () => { this.previousValue = this.resultSelect.value; });
+    }
+
+    async recognizeTimedSample(capture) {
+        const attemptId = newEntryId();
+        let registered = false;
+        try {
+            await this.api(`/entries/${this.entry.id}/attempts`, { method: 'POST', body: JSON.stringify({ id: attemptId,
+                sampleIndex: capture.sampleIndex, samplingId: capture.samplingId, capturedAt: capture.capturedAt,
+                elapsedSeconds: capture.elapsedSeconds, timeSource: 'scheduled_camera', inputMode: 'auto', source: 'camera', filename: capture.file?.name || `sample-${capture.sampleIndex}-missed` }) });
+            registered = true;
+            let result;
+            if (capture.file) {
+                await this.api(`/attempts/${attemptId}/photo`, { method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' }, body: capture.file });
+                result = (await this.api(`/attempts/${attemptId}/recognize`, { method: 'POST', timeout: 180000, body: JSON.stringify({ client: { userAgent: navigator.userAgent } }) })).result;
+            } else result = (await this.api(`/attempts/${attemptId}/result`, { method: 'PUT', body: JSON.stringify({ status: 'sample_missed', error: capture.error, channels: [] }) })).result;
+            this.timedResults.set(attemptId, result); return result;
+        } catch (e) {
+            if (registered) {
+                try { await this.api(`/attempts/${attemptId}/result`, { method: 'PUT', body: JSON.stringify({ status: 'interrupted', error: String(e.message).slice(0, 240), channels: [] }) }); } catch { /* Restore/finish reconciles an immutable or unconfirmed result. */ }
+            }
+            throw e;
+        }
     }
 
     // 拍照/上传随时可选：检测单允许先建后补信息（服务端已支持），
@@ -132,6 +208,7 @@ export class PhotoEntry {
     // fromSelect=true 表示由「检测结果」下拉触发。iOS 上 select 的 change 不提供用户手势，
     // 系统会静默拦截 file input 的 click()，因此补一个真实按钮让用户再点一次。
     pick(source, fromSelect = false) {
+        if (this.timed?.active || this.entry?.sampling) { this.say('本次已进入定时采样。请完成、结束或新建检测点位，不能追加照片替代原采样。'); return; }
         if (this.busy) { this.say('照片正在识别，请稍候。'); return; }
         this.source = source;
         this.fallbackSource = source;
@@ -176,12 +253,15 @@ export class PhotoEntry {
         overlay.addEventListener('click', event => { if (event.target === overlay) close(); });
 
         try {
-            this.camStream = await navigator.mediaDevices.getUserMedia({
+            const stream = await navigator.mediaDevices.getUserMedia({
                 video: { width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false,
             });
+            if (this.camOverlay !== overlay) { stream.getTracks().forEach(track => track.stop()); return; }
+            this.camStream = stream;
             video.srcObject = this.camStream;
             await video.play().catch(() => {});
         } catch (error) {
+            if (this.camOverlay !== overlay) return;
             this.closeWebcam();
             const reason = error?.name === 'NotAllowedError' ? '摄像头权限被拒绝'
                 : error?.name === 'NotFoundError' ? '未检测到摄像头' : (error?.message || '无法打开摄像头');
@@ -240,8 +320,9 @@ export class PhotoEntry {
     }
 
     update() {
-        if (this.busy) return;
+        if (this.busy || this.timed?.active) return;
         const project = this.project;
+        if (this.timed) this.timed.root.hidden = !project;
         const triplex = project?.channels.length === 3;
         this.syncResultOptions(project);
         if (this.lastProject !== project?.id) {
@@ -292,6 +373,7 @@ export class PhotoEntry {
     }
 
     choose(file, source) {
+        if (this.timed?.active || this.entry?.sampling) return;
         // 允许重复选择同一张照片（部分浏览器对相同文件不再触发 change）。
         this.fileInput.value = ''; this.cameraInput.value = '';
         this.fallbackButton.hidden = true;
@@ -389,9 +471,10 @@ export class PhotoEntry {
     }
 
     async restore() {
+        if (this.timed?.active) { this.say('请先完成或结束本次自动采样，再恢复记录。'); return; }
         try {
             const id = sessionStorage.getItem(this.recoveryKey); if (!id) return;
-            const { entry, attempts } = await this.api(`/entries/${id}`);
+            let { entry, attempts, samplingSummary } = await this.api(`/entries/${id}`);
             if (entry.status === 'completed') { sessionStorage.removeItem(this.recoveryKey); this.say('上次检测已保存，请刷新列表查看。'); return; }
             for (const [key, value] of Object.entries({ ...entry.context.customFields, ...entry.context })) {
                 if (key === 'customFields') continue;
@@ -401,15 +484,25 @@ export class PhotoEntry {
             this.projectSelect.value = PROJECTS.find(p => p.id === entry.project_id).label;
             this.update();
             this.entry = entry; this.pendingEntryId = entry.id; this.pendingSignature = this.signature(); this.entrySignature = this.signature();
+            if (entry.sampling?.state === 'running') {
+                const ended = await this.api(`/entries/${id}/sampling/finish`, { method: 'POST', body: JSON.stringify({ id: entry.sampling.id, state: 'interrupted', reason: '页面重新打开，原定时采样不能确认连续完成' }) });
+                this.entry = ended.entry; samplingSummary = ended.summary;
+                attempts = (await this.api(`/entries/${id}`)).attempts;
+            }
+            this.samplingSummary = samplingSummary;
             for (const attempt of attempts) if (!attempt.completed_at) await this.api(`/attempts/${attempt.id}/result`, { method: 'PUT', body: JSON.stringify({ status: 'interrupted', error: '页面重新打开，原识别未确认完成', channels: [] }) });
             const last = attempts.at(-1);
-            if (last?.result?.eligible) { this.result = last.result; this.attemptId = last.id; this.resultSignature = this.signature(); this.showResult(); }
+            if (entry.sampling ? samplingSummary?.eligible : last?.result?.eligible) {
+                const adopted = entry.sampling ? attempts.find(a => a.id === samplingSummary.adoptedAttemptId) : last;
+                this.result = adopted.result; this.attemptId = adopted.id; this.resultSignature = this.signature(); this.showResult();
+            }
             else this.say('上次照片及识别尝试已恢复，可直接手工选择结果或重新拍照。');
         } catch (error) { this.say(error.message); }
     }
 
     // 返回 null 表示本点位不使用照片链路，交给原有手工保存流程。
     async saveIfNeeded() {
+        if (this.timed?.active) throw new Error('请先完成或结束本次自动采样');
         const project = this.project;
         if (!project) return null;
         if (this.busy) throw new Error('照片还在识别，请稍候');
@@ -444,9 +537,12 @@ export class PhotoEntry {
     }
 
     destroy() {
+        this.timed?.destroy();
         clearInterval(this.ticker); this.ticker = null;
         this.closeWebcam();
         this.projectSelect?.removeEventListener('change', this.projectChangeHandler);
+        this.resultSelect?.removeEventListener('change', this.resultChangeHandler);
+        this.resultSelect?.removeEventListener('focus', this.resultFocusHandler);
         this.optionObserver?.disconnect();
         if (this.previewUrl) URL.revokeObjectURL(this.previewUrl);
         this.resultField?.querySelector('[data-colloidal-inline]')?.remove();
@@ -462,6 +558,7 @@ export function attachPhotoEntries(module) {
     for (const point of container.querySelectorAll('[data-test-point]')) {
         if (!module.photoEntries.has(point)) {
             point.querySelectorAll('[data-colloidal-inline]').forEach(node => node.remove());
+            point.querySelectorAll('[data-colloidal-timed]').forEach(node => node.remove());
             module.photoEntries.set(point, new PhotoEntry(module, point));
         }
     }
@@ -484,11 +581,17 @@ export function addPhotoDetails(modal, record, storage) {
             const data = await storage.requestOnlineResource(`/api/colloidal/records/${encodeURIComponent(record.id)}`);
             loaded = true; content.replaceChildren();
             const meta = record.photoRecognition;
-            content.append(el('p', `最终结果来源：${meta.resultSource === 'photo_auto' ? '照片自动识别' : '手工录入'}；录入过程：${({ direct_manual: '直接手工录入', auto_success: '自动识别成功', manual_after_auto_failure: '识别未完成有效判读后转手工', manual_after_photo: '照片识别后选择手工', manual_edit_after_photo: '照片录入后手工修改' })[meta.entryPath] || meta.entryPath}`));
+            content.append(el('p', `最终结果来源：${meta.resultSource === 'photo_auto' ? '照片自动识别' : '手工录入'}；录入过程：${({ direct_manual: '直接手工录入', auto_success: '自动识别成功', manual_after_auto_failure: '识别未完成有效判读后转手工', manual_after_photo: '照片识别后选择手工', manual_edit_after_photo: '照片录入后手工修改', auto_two_of_three_consistent: '三次中至少两次自动采样有效且一致', manual_after_sampling: '自动采样后转手工' })[meta.entryPath] || meta.entryPath}`));
+            if (data.entry.sampling) {
+                const s = data.entry.sampling;
+                content.append(el('p', `三次采样：${samplingPlan(s.planId)?.label || s.planId}；状态：${({ consistent: '至少两次有效且一致', inconsistent: '有效结果未达到两次一致', incomplete: '有效采样不足', interrupted: '采样中断', running: '未确认结束' })[data.samplingSummary?.status] || '未知'}；有效 ${data.samplingSummary?.validCount || 0}/3；一致 ${data.samplingSummary?.agreeCount || 0}/3${data.samplingSummary?.hasDisagreement ? '；存在不同结论，已保留' : ''}${s.reason ? `；${s.reason}` : ''}`));
+            }
             for (const attempt of data.attempts) {
                 const r = attempt.result;
                 content.append(el('p', `${new Date(attempt.created_at).toLocaleString('zh-CN')} · ${attempt.photo_name || '照片'} · ${statusNames[r?.status] || '未确认完成'}${r?.error ? '：' + r.error : ''}`));
+                if (attempt.sample_index) content.append(el('p', `第${attempt.sample_index}次采样 · 计划${formatElapsed(samplingPlan(data.entry.sampling?.planId)?.seconds[attempt.sample_index - 1] || 0)} · ${attempt.captured_at ? `实拍${formatElapsed(attempt.elapsed_seconds)}（${new Date(attempt.captured_at).toLocaleString('zh-CN')}）` : '未取得实际拍摄照片'}。`));
                 if (r?.channels?.length) content.append(el('p', r.channels.map(c => `${PROJECTS.find(p => p.id === data.entry.project_id)?.channels.find(p => p.id === c.id)?.name || c.id}：${channelDescription(c)}`).join('；')));
+                if (attempt.sample_index && r?.channels?.length) content.append(el('p', r.channels.filter(c => Number.isFinite(c.c) && Number.isFinite(c.t)).map(c => `${c.id}：C=${c.c.toFixed(2)}，T=${c.t.toFixed(2)}`).join('；')));
                 if (attempt.photo_state === 'present') {
                     let photo;
                     try { photo = await storage.requestOnlineResource(`/api/colloidal/records/${encodeURIComponent(record.id)}/photos/${attempt.id}`, { responseType: 'blob' }); }

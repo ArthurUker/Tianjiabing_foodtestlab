@@ -47,7 +47,7 @@ export function photoType(bytes) {
 }
 
 const failureStates = new Set(['board_not_detected', 'localization_failed', 'structure_mismatch', 'orientation_failed',
-    'quality_failed', 'profile_required', 'engine_error', 'decode_failed', 'runtime_timeout', 'interrupted', 'upload_failed']);
+    'quality_failed', 'profile_required', 'engine_error', 'decode_failed', 'runtime_timeout', 'interrupted', 'upload_failed', 'sample_missed', 'capture_failed']);
 
 // Client-computed measurements are labelled as such. Server derives IFU/time
 // semantics and refuses incomplete/mismatched channels; no pixel arrays persist.

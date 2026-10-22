@@ -6,6 +6,8 @@ import { PROJECTS, PIPELINE, CORE_COMMIT, projectById, uuid, fail, digest, canon
 import { buildRecordPayload } from '../lib/recordNormalize.js';
 import { finalizeColloidalEntry } from '../modules/ColloidalEntryService.js';
 import { colloidalRecognizer } from '../lib/colloidalRecognizer.js';
+import { startSampling, finishSampling, lockSamplingEntry, samplingCaptureData, sameSamplingContext } from '../lib/colloidalSampling.js';
+import { SAMPLING_PLANS, samplingSummary } from '../../frontend/js/colloidal/sampling.js';
 
 export const photoRoot = () => path.resolve(process.env.COLLOIDAL_PHOTO_DIR || path.join(path.dirname(fileURLToPath(import.meta.url)), '../uploads/colloidal-originals'));
 const safe = fn => async (req, res, next) => { try { await fn(req, res); } catch (e) { if (e.status) res.status(e.status).json({ error: e.message, code: e.code }); else next(e); } };
@@ -23,11 +25,11 @@ const attemptOwner = async (req, id) => {
     return { attempt, entry };
 };
 
-export function createColloidalRoutes({ authenticateUser, requireEditorOrAbove, requireGuestReadOnly, authorizeRoles, storageRoot = photoRoot }) {
+export function createColloidalRoutes({ authenticateUser, requireEditorOrAbove, requireGuestReadOnly, authorizeRoles, storageRoot = photoRoot, recognizer = colloidalRecognizer }) {
     const router = express.Router();
     router.use(authenticateUser);
     router.get('/state', safe(async (req, res) => {
-        res.json({ projects: PROJECTS, pipeline: PIPELINE, coreCommit: CORE_COMMIT, maxPhotoBytes: 15 * 1024 * 1024, runtime: 'browser', retentionDays: readRetentionDays() });
+        res.json({ projects: PROJECTS, pipeline: PIPELINE, coreCommit: CORE_COMMIT, maxPhotoBytes: 15 * 1024 * 1024, runtime: 'server', samplingPlans: SAMPLING_PLANS, retentionDays: readRetentionDays() });
     }));
     router.post('/entries', requireEditorOrAbove, safe(async (req, res) => {
         const { id, projectId, context } = req.body || {};
@@ -38,11 +40,13 @@ export function createColloidalRoutes({ authenticateUser, requireEditorOrAbove, 
         const existing = await req.db.colloidalEntry.findUnique({ where: { id } });
         if (existing) {
             if (existing.created_by !== req.userId) throw fail(404, 'NOT_FOUND', '检测不存在');
-            if (existing.project_id !== projectId) throw fail(409, 'ENTRY_CONFLICT', '该检测已绑定其他项目或样本');
-            if (existing.status !== 'open') throw fail(409, 'ENTRY_COMPLETED', '该检测已保存');
-            if (canonical(existing.context) === canonical(normalized)) return res.json({ entry: existing });
-            // 同一张卡在保存前补充/修正样本信息：就地更新，避免因上下文变化另建孤儿检测。
-            const entry = await req.db.colloidalEntry.update({ where: { id: existing.id }, data: { context: normalized } });
+            const entry = await req.db.$transaction(async tx => {
+                const current = await lockSamplingEntry(tx, id, req.userId);
+                if (current.project_id !== projectId) throw fail(409, 'ENTRY_CONFLICT', '该检测已绑定其他项目或样本');
+                if (!sameSamplingContext(current, normalized)) throw fail(409, 'SAMPLING_CONTEXT', '定时采样已绑定样本信息，请新建检测点位修改');
+                if (canonical(current.context) === canonical(normalized)) return current;
+                return tx.colloidalEntry.update({ where: { id }, data: { context: normalized } });
+            });
             return res.json({ entry });
         }
         try {
@@ -50,26 +54,41 @@ export function createColloidalRoutes({ authenticateUser, requireEditorOrAbove, 
             res.status(201).json({ entry });
         } catch (e) { if (e.code === 'P2002') throw fail(409, 'ENTRY_RETRY', '检测正在建立，请使用相同标识重试'); throw e; }
     }));
+    router.post('/entries/:id/sampling/start', requireEditorOrAbove, safe(async (req, res) => {
+        await owner(req, req.params.id);
+        res.json({ entry: await startSampling({ db: req.db, entryId: req.params.id, userId: req.userId, body: req.body || {} }) });
+    }));
+    router.post('/entries/:id/sampling/finish', requireEditorOrAbove, safe(async (req, res) => {
+        await owner(req, req.params.id);
+        res.json(await finishSampling({ db: req.db, entryId: req.params.id, userId: req.userId, body: req.body || {} }));
+    }));
     router.post('/entries/:id/attempts', requireEditorOrAbove, safe(async (req, res) => {
-        const entry = await owner(req, req.params.id);
-        if (entry.status !== 'open') throw fail(409, 'ENTRY_COMPLETED', '该检测已保存');
+        await owner(req, req.params.id);
         const body = req.body || {};
         if (!uuid(body.id) || !['auto', 'board', 'closeup'].includes(body.inputMode) || !['camera', 'upload'].includes(body.source)) throw fail(400, 'INVALID_ATTEMPT', '拍照参数无效');
         const elapsed = elapsedValue(body.elapsedSeconds);
         // 现场确认拍摄处于说明书判读时限内时记 within_window（不伪造具体秒数）；
         // 其余情况沿用显式时距或 unknown。
         const requested = body.timeSource;
-        const timeSource = elapsed === null ? (requested === 'within_window' ? 'within_window' : 'unknown') : requested;
-        if (!['unknown', 'operator_reported', 'capture_timer', 'within_window'].includes(timeSource)) throw fail(400, 'INVALID_TIME_SOURCE', '时间来源无效');
+        const timeSource = elapsed === null ? (['within_window', 'scheduled_camera'].includes(requested) ? requested : 'unknown') : requested;
+        if (!['unknown', 'operator_reported', 'capture_timer', 'within_window', 'scheduled_camera'].includes(timeSource)) throw fail(400, 'INVALID_TIME_SOURCE', '时间来源无效');
+        const result = await req.db.$transaction(async tx => {
+        const entry = await lockSamplingEntry(tx, req.params.id, req.userId);
+        const capture = entry.sampling ? samplingCaptureData(entry, body) : {};
+        if (!entry.sampling && (body.sampleIndex !== undefined || body.samplingId || timeSource === 'scheduled_camera')) throw fail(400, 'SAMPLING_INPUT', '尚未开始定时采样');
         const data = { id: body.id, entry_id: entry.id, elapsed_seconds: elapsed, time_source: timeSource, input_mode: body.inputMode,
-            source: body.source, photo_name: String(body.filename || 'photo').replace(/[\\/\r\n]/g, '_').slice(0, 150), pipeline: PIPELINE, core_commit: CORE_COMMIT };
-        const previous = await req.db.colloidalAttempt.findUnique({ where: { id: body.id } });
+            source: body.source, photo_name: String(body.filename || 'photo').replace(/[\\/\r\n]/g, '_').slice(0, 150), pipeline: PIPELINE, core_commit: CORE_COMMIT, ...capture };
+        const previous = await tx.colloidalAttempt.findUnique({ where: { id: body.id } });
         if (previous) {
-            if (Object.keys(data).some(k => data[k] !== previous[k])) throw fail(409, 'ATTEMPT_CONFLICT', '相同识别标识对应不同输入');
-            return res.json({ attempt: previous });
+            const comparable = v => canonical(v instanceof Date ? v.toISOString() : v);
+            if (Object.keys(data).some(k => comparable(data[k]) !== comparable(previous[k]))) throw fail(409, 'ATTEMPT_CONFLICT', '相同识别标识对应不同输入');
+            return { attempt: previous, reused: true };
         }
-        if (await req.db.colloidalAttempt.count({ where: { entry_id: entry.id } }) >= 30) throw fail(429, 'TOO_MANY_ATTEMPTS', '该检测的重拍次数过多，请重新建立检测');
-        res.status(201).json({ attempt: await req.db.colloidalAttempt.create({ data }) });
+        if (entry.sampling && await tx.colloidalAttempt.findFirst({ where: { entry_id: entry.id, sample_index: capture.sample_index } })) throw fail(409, 'SAMPLE_EXISTS', '该采样时点已登记，不能重复拍照替代');
+        if (await tx.colloidalAttempt.count({ where: { entry_id: entry.id } }) >= 30) throw fail(429, 'TOO_MANY_ATTEMPTS', '该检测的重拍次数过多，请重新建立检测');
+        return { attempt: await tx.colloidalAttempt.create({ data }), reused: false };
+        });
+        res.status(result.reused ? 200 : 201).json({ attempt: result.attempt });
     }));
     router.put('/attempts/:id/photo', requireEditorOrAbove, express.raw({ type: 'application/octet-stream', limit: '15mb' }), safe(async (req, res) => {
         const { attempt, entry } = await attemptOwner(req, req.params.id);
@@ -98,14 +117,16 @@ export function createColloidalRoutes({ authenticateUser, requireEditorOrAbove, 
         await req.db.colloidalAttempt.updateMany({ where: { id: attempt.id, status: 'uploading', completed_at: null }, data: { status: 'running' } });
         res.json({ sha256: hash });
     }));
-    const persistResult = async (db, attempt, entry, body) => {
+    const persistResult = async (db, attempt, entry, body, fromServer = false) => {
+        if (attempt.sample_index && !fromServer && (!['interrupted', 'sample_missed', 'capture_failed', 'upload_failed'].includes(body?.status) || body.channels?.length)) throw fail(403, 'SERVER_RESULT_REQUIRED', '定时采样判读须由服务器完成');
         const result = compactResult(body, projectById(entry.project_id), attempt.elapsed_seconds, { assumeWithinTime: attempt.time_source === 'within_window' });
+        if (fromServer) result.computed_at = 'server';
         if (attempt.result) {
             if (canonical(attempt.result) !== canonical(result)) throw fail(409, 'RESULT_IMMUTABLE', '原始识别结果不可覆盖');
             return attempt.result;
         }
         if (entry.status !== 'open') throw fail(409, 'ENTRY_COMPLETED', '该检测已保存');
-        if (!attempt.photo_sha256 && !['upload_failed', 'interrupted', 'runtime_timeout', 'engine_error'].includes(result.status)) throw fail(409, 'PHOTO_REQUIRED', '请先保存原照片');
+        if (!attempt.photo_sha256 && !['upload_failed', 'interrupted', 'runtime_timeout', 'engine_error', 'sample_missed', 'capture_failed'].includes(result.status)) throw fail(409, 'PHOTO_REQUIRED', '请先保存原照片');
         const updated = await db.colloidalAttempt.updateMany({ where: { id: attempt.id, completed_at: null }, data: { result, status: result.eligible ? 'ready' : result.status === 'ok' ? 'candidate' : result.status === 'interrupted' ? 'interrupted' : 'failed', completed_at: new Date() } });
         if (!updated.count) throw fail(409, 'RESULT_IMMUTABLE', '识别结果已提交，请查询当前状态');
         return result;
@@ -122,7 +143,7 @@ export function createColloidalRoutes({ authenticateUser, requireEditorOrAbove, 
         if (!attempt.photo_sha256 || attempt.photo_state !== 'present' || !attempt.photo_key) throw fail(409, 'PHOTO_REQUIRED', '请先保存原照片');
         let recognized;
         try {
-            recognized = await colloidalRecognizer().enqueue({
+            recognized = await recognizer().enqueue({
                 photoPath: path.join(storageRoot(), attempt.photo_key),
                 projectId: entry.project_id,
                 mode: 'auto',
@@ -131,16 +152,16 @@ export function createColloidalRoutes({ authenticateUser, requireEditorOrAbove, 
             if (error.status) throw fail(error.status, error.code || 'RECOGNIZER_BUSY', error.message);
             throw fail(503, error.code || 'RECOGNIZER_DOWN', `识别服务暂时不可用：${error.message}`);
         }
-        const result = await persistResult(req.db, attempt, entry, recognized);
-        res.json({ result, queue: colloidalRecognizer().status() });
+        const result = await persistResult(req.db, attempt, entry, recognized, true);
+        res.json({ result, queue: recognizer().status() });
     }));
     router.get('/recognition', authorizeRoles('manager', 'admin'), safe(async (req, res) => {
-        res.json({ ...colloidalRecognizer().status(), runtime: process.env.COLLOIDAL_RECOGNIZER_HOME || '/mnt/datadisk0/foodsentinel/recognizer' });
+        res.json({ ...recognizer().status(), runtime: process.env.COLLOIDAL_RECOGNIZER_HOME || '/mnt/datadisk0/foodsentinel/recognizer' });
     }));
     router.get('/entries/:id', requireEditorOrAbove, safe(async (req, res) => {
         const entry = await owner(req, req.params.id);
         const attempts = await req.db.colloidalAttempt.findMany({ where: { entry_id: entry.id }, orderBy: { created_at: 'asc' } });
-        res.json({ entry, attempts: attempts.map(publicAttempt) });
+        res.json({ entry, attempts: attempts.map(publicAttempt), samplingSummary: samplingSummary(entry.sampling, attempts, projectById(entry.project_id)) });
     }));
     router.post('/entries/:id/finalize', requireEditorOrAbove, safe(async (req, res) => {
         const body = req.body || {};
@@ -158,7 +179,7 @@ export function createColloidalRoutes({ authenticateUser, requireEditorOrAbove, 
     router.get('/records/:recordId', requireGuestReadOnly, safe(async (req, res) => {
         const entry = await recordEntry(req);
         const attempts = await req.db.colloidalAttempt.findMany({ where: { entry_id: entry.id }, orderBy: { created_at: 'asc' } });
-        res.json({ entry, attempts: attempts.map(publicAttempt) });
+        res.json({ entry, attempts: attempts.map(publicAttempt), samplingSummary: samplingSummary(entry.sampling, attempts, projectById(entry.project_id)) });
     }));
     router.get('/records/:recordId/photos/:attemptId', requireGuestReadOnly, safe(async (req, res) => {
         const entry = await recordEntry(req);
@@ -173,7 +194,7 @@ export function createColloidalRoutes({ authenticateUser, requireEditorOrAbove, 
         res.send(await fs.readFile(path.join(storageRoot(), attempt.photo_key)));
     }));
     router.get('/storage', authorizeRoles('manager', 'admin'), safe(async (req, res) => {
-        const [storage, states, entries, reasons, recordSources, dailyUploads] = await Promise.all([
+        const [storage, states, entries, reasons, recordSources, dailyUploads, samplingRuns, samplingSlots] = await Promise.all([
             req.db.colloidalAttempt.aggregate({ where: { photo_state: 'present' }, _sum: { photo_size: true }, _count: true }),
             req.db.colloidalAttempt.groupBy({ by: ['status'], _count: true }),
             req.db.colloidalEntry.groupBy({ by: ['entry_path'], _count: true }),
@@ -185,8 +206,15 @@ export function createColloidalRoutes({ authenticateUser, requireEditorOrAbove, 
             req.db.$queryRawUnsafe(`SELECT DATE_TRUNC('day', created_at) AS day, COUNT(*)::int AS photos, SUM(photo_size)::float8 AS bytes
                 FROM "ColloidalAttempt" WHERE photo_sha256 IS NOT NULL AND created_at >= NOW() - INTERVAL '30 days'
                 GROUP BY DATE_TRUNC('day', created_at) ORDER BY day`),
+            req.db.$queryRawUnsafe(`SELECT project_id, sampling->>'state' AS state, sampling->'outcome'->>'status' AS outcome,
+                sampling->'outcome'->>'agreeCount' AS agree_count, sampling->'outcome'->>'hasDisagreement' AS has_disagreement, COUNT(*)::int AS tests
+                FROM "ColloidalEntry" WHERE sampling IS NOT NULL GROUP BY project_id, sampling->>'state', sampling->'outcome'->>'status', sampling->'outcome'->>'agreeCount', sampling->'outcome'->>'hasDisagreement'`),
+            req.db.$queryRawUnsafe(`SELECT e.project_id, a.sample_index, COUNT(*)::int AS attempts,
+                COUNT(*) FILTER (WHERE a.photo_sha256 IS NOT NULL)::int AS originals,
+                COUNT(*) FILTER (WHERE a.result->>'eligible'='true')::int AS recognized
+                FROM "ColloidalAttempt" a JOIN "ColloidalEntry" e ON e.id=a.entry_id WHERE a.sample_index IS NOT NULL GROUP BY e.project_id, a.sample_index`),
         ]);
-        res.json({ originals: storage._count, bytes: storage._sum.photo_size || 0, states, entries, reasons, recordSources, dailyUploads, retentionDays: readRetentionDays() });
+        res.json({ originals: storage._count, bytes: storage._sum.photo_size || 0, states, entries, reasons, recordSources, dailyUploads, samplingRuns, samplingSlots, retentionDays: readRetentionDays() });
     }));
     router.use((err, req, res, next) => {
         if (err.type === 'entity.too.large') return res.status(413).json(req.path.endsWith('/photo') ? { code: 'PHOTO_SIZE', error: '照片超过15MB' } : { code: 'METADATA_SIZE', error: '识别元数据超过32KB' });

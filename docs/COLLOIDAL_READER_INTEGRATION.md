@@ -4,6 +4,8 @@
 
 服务器部署接续请阅读：[CodeBuddy部署交接与提示词](COLLOIDAL_CODEBUDDY_HANDOFF.md)。
 
+2026-10-22新增 [5/6/7分钟三次自动相机采样](COLLOIDAL_TIMED_SAMPLING.md)：显式加样确认、三次原图、实际时距和至少两次有效一致规则；该流程不再使用单张旧入口的within_window假定。
+
 ## 固定识别方案
 
 唯一识别核心：`ArthurUker/colloidal-gold-reader-lab` 提交
@@ -89,7 +91,7 @@ node scripts/prepare-colloidal-reader.mjs --source /path/to/colloidal-gold-reade
 账号/学校改变后原组件拒绝继续提交；服务器同样检查 entry 归属。
 刷新后可恢复未完成录入，未确认完成的尝试标记 interrupted，不冒充算法错误或生物学无效。
 
-浏览器的 C/T 测量属于客户端产生的数据，后端重算说明书和时效语义、校验项目/通道/版本结构；不宣称仅凭 JSON 校验能证明像素计算未被修改。
+当前C/T由服务端固定核心计算；定时采样成功回执不接受客户端伪造。客户端报告加样确认和抓帧时间，服务端校验时点/通道/版本并重算规则；不宣称能独立证明真实加样时刻或硬件曝光时刻。
 没有强制人工对照时，完成率、拒判率、转手工比例可统计；判读准确率需另作独立抽样。
 
 ## 原照片管理
