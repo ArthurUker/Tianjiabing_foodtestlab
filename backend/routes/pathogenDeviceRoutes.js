@@ -128,11 +128,33 @@ const OPS_ACTION = {
 
 /** 设备上传面响应：{ code, message, data }（与厂商对接文档一致）。 */
 function reply(res, status, code, message, data = null) {
+  // 供访问日志读取「本次请求的结论码」（res.locals 是 Express 内置）
+  res.locals.pdOutcome = code
   return res.status(status).json({ code, message, data })
 }
 
 function badRequest(res, message) {
   return res.status(400).json({ success: false, error: message })
+}
+
+/**
+ * 被拒报文的**脱敏诊断摘要**（2026-10-22 起）：
+ * 只保留定位「为什么 400」所需的最小信息——失败原因 + 设备编号 + 两个时间字段原文 + 关键字段长度。
+ * ⚠️ 绝不落 SampleStr / DetectionPeopleStr（含样本描述与人名），也不落整包报文。
+ */
+function uploadPayloadDiagnostics(body, validation) {
+  const b = body && typeof body === 'object' ? body : {}
+  const head = (v) => (v === undefined || v === null ? null : (typeof v === 'string' ? v.slice(0, 64) : `[${typeof v}]`))
+  return {
+    reason: String(validation?.message || '').slice(0, 200),
+    reasons: (validation?.errors || []).slice(0, 5).map((x) => String(x).slice(0, 120)),
+    body_keys: Object.keys(b).slice(0, 40),
+    payload_device_no: head(b.DeviceNo),
+    payload_detection_time: head(b.DetectionDateTime),
+    payload_detection_end_time: head(b.DetectionEndDateTime),
+    payload_chip_number_len: typeof b.ChipNumber === 'string' ? b.ChipNumber.length : null,
+    payload_detection_number_len: typeof b.DetectionNumber === 'string' ? b.DetectionNumber.length : null,
+  }
 }
 
 /** 列表/详情投影：绝不外泄 key_hash。 */
@@ -274,7 +296,15 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
     writeSystemLog(prisma, {
       level: 'warn',
       message: `PATHOGEN_DEVICE_DENIED ${code}`,
-      context: { action_type: 'pathogen_device_denied', code, ip: normalizeIp(ip), path: detail?.path || null, device_no: detail?.deviceNo || null, ts: new Date().toISOString() },
+      context: {
+        action_type: 'pathogen_device_denied',
+        code,
+        ip: normalizeIp(ip),
+        path: detail?.path || null,
+        device_no: detail?.deviceNo || null,
+        ...(detail?.diag || {}),
+        ts: new Date().toISOString(),
+      },
     }).catch((e) => console.warn(`${TAG} 拒绝事件落库失败:`, e.message))
   }
 
@@ -304,6 +334,28 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
     const ip = normalizeIp(req.ip || req.connection?.remoteAddress)
     const path = req.originalUrl || req.url
 
+    // ── 访问日志（2026-10-22）──
+    // 每次调用都留一行（stdout → journald），**不受拒绝日志 60s 节流影响**，用来回答
+    // 「到底收到多少次请求、每次结论是什么」。与 SystemLog 互补：
+    //   · 这里 = 收到的每一次调用；SystemLog = 值得留痕的结论（节流后的拒绝 + 成功入库）。
+    // 报文自报的设备编号先记下（此时尚未校验）：这是「谁在打这个接口」的唯一线索
+    res.locals.pdDeviceNo = typeof req.body?.DeviceNo === 'string' ? req.body.DeviceNo.slice(0, 64) : null
+    const startedAt = Date.now()
+    res.on('finish', () => {
+      const line = {
+        ts: new Date().toISOString(),
+        ip,
+        status: res.statusCode,
+        code: res.locals?.pdOutcome || null,
+        device_no: res.locals?.pdDeviceNo || null,
+        auth_mode: res.locals?.pdAuthMode || null,
+        ms: Date.now() - startedAt,
+        bytes_in: Number(req.headers['content-length'] || 0) || null,
+        ua: String(req.headers['user-agent'] || '').slice(0, 120) || null,
+      }
+      console.log(`${TAG} ACCESS ${JSON.stringify(line)}`)
+    })
+
     // ── ① 密钥认证（B 方案：两种模式共存，同一接口）──
     //   · 设备密钥模式（严格，可选）：密钥即设备，报文 DeviceNo 必须与密钥所属设备一致；
     //   · 统一上传密钥模式（推荐，默认形态）：全平台设备共用一把平台级密钥，归属**完全由报文
@@ -332,6 +384,7 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
       return reply(res, 401, 'INVALID_KEY', '密钥无效：既不是有效的设备密钥，也不是有效的统一上传密钥')
     }
     const authMode = device ? 'device' : 'unified'
+    res.locals.pdAuthMode = authMode
 
     // ── ② 设备密钥模式：设备级前置检查（保持既有错误优先级）；统一模式：平台密钥级限流 ──
     if (authMode === 'device') {
@@ -363,10 +416,18 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
     // ── ③ 协议校验 ──
     const validation = validateUploadPayload(req.body)
     if (!validation.ok) {
-      logDeniedThrottled(ip, 'VALIDATION_ERROR', { path, deviceNo: device?.device_no || null })
-      return reply(res, 400, 'VALIDATION_ERROR', validation.message)
+      // 把「为什么不合格」落进拒绝日志（此前只记错误码，导致排查只能靠猜）+ 响应带全量原因
+      logDeniedThrottled(ip, 'VALIDATION_ERROR', {
+        path,
+        deviceNo: device?.device_no || null,
+        diag: uploadPayloadDiagnostics(req.body, validation),
+      })
+      return reply(res, 400, 'VALIDATION_ERROR', validation.message, {
+        errors: validation.errors || [validation.message],
+      })
     }
     const payload = validation.data
+    res.locals.pdDeviceNo = payload.deviceNo
 
     // ── ④ 设备定位与一致性（绑定台账口径：按**报文检测时间**匹配 [valid_from, valid_to)）──
     //   同一设备编号可有多个历史绑定（跨校流转/换机），归属取检测时间所在的那一条；

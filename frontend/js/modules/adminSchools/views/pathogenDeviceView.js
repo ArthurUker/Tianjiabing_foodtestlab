@@ -257,6 +257,7 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
         keyword: '',        // 设备列表客户端筛选关键词
         onlyActive: false,  // 仅看「在用」绑定（台账含历史行）
         replacing: null,    // 正在变更编号的绑定行
+        replaceBusy: false, // 变更编号请求在途（防连点重复提交）
         canteensFallback: false, // 当前学校的食堂名单是否来自内置默认（未配置）
         platformKey: null,  // 统一上传密钥当前视图（B 方案）
         bound: false,
@@ -433,10 +434,12 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
                         变更后：旧绑定结束于生效日（<strong>历史保留可查</strong>），新绑定自生效日启用并签发新密钥；
                         <strong>旧密钥立即失效</strong>，请同步配置到替代设备。生效日期之前检测的数据（检测时间落在原绑定期间内）仍归原学校。
                     </p>
+                    <!-- 失败原因就地展示（toast 会被 confirm/遮挡，且长文案看不清） -->
+                    <p id="pdReplaceError" class="hidden text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2 break-words"></p>
                 </div>
                 <div class="px-5 py-4 border-t flex justify-end gap-2">
                     <button type="button" data-act="replace-cancel" class="px-4 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">取消</button>
-                    <button type="button" data-act="replace-save" class="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">确认变更</button>
+                    <button type="button" id="pdReplaceSave" data-act="replace-save" class="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">确认变更</button>
                 </div>
             </div>
         </div>
@@ -822,14 +825,49 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
         return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
     }
 
+    /** 日期 +N 天（YYYY-MM-DD 本地口径）。 */
+    function addDays(day, n) {
+        if (!day) return '';
+        const [y, m, d] = String(day).split('-').map(Number);
+        if (!y || !m || !d) return '';
+        const dt = new Date(y, m - 1, d + n);
+        const p = (x) => String(x).padStart(2, '0');
+        return `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())}`;
+    }
+
+    function setReplaceError(msg) {
+        const box = el('pdReplaceError');
+        if (!box) return;
+        box.textContent = msg || '';
+        box.classList.toggle('hidden', !msg);
+    }
+
+    function setReplaceBusy(busy) {
+        state.replaceBusy = !!busy;
+        const btn = el('pdReplaceSave');
+        if (!btn) return;
+        btn.disabled = !!busy;
+        btn.classList.toggle('opacity-60', !!busy);
+        btn.classList.toggle('cursor-not-allowed', !!busy);
+        btn.textContent = busy ? '处理中…' : '确认变更';
+    }
+
     function openReplaceModal(row) {
         if (!row) return;
         state.replacing = row;
+        state.replaceBusy = false;
         const modal = el('pdReplaceModal');
         if (!modal) return;
         el('pdReplaceFrom').textContent = `${row.device_no}（${row.school_code} · ${row.binding_range || ''}）`;
         el('pdReplaceTo').value = '';
-        el('pdReplaceDate').value = todayLocal();
+        // 生效日期必须「晚于」原绑定起始日：给日期框设下限（次日），避免选了同一天被后端 400 打回
+        const minDay = addDays(dayValue(row.valid_from), 1);
+        const dateEl = el('pdReplaceDate');
+        dateEl.value = todayLocal();
+        if (minDay) dateEl.min = minDay;
+        if (minDay && dateEl.value && dateEl.value < minDay) dateEl.value = minDay;
+        setReplaceError('');
+        setReplaceBusy(false);
         modal.classList.remove('hidden');
         el('pdReplaceTo')?.focus();
     }
@@ -837,11 +875,20 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
     async function submitReplace() {
         const row = state.replacing;
         if (!row) return;
+        // 连点防护：变更是一次性事务，重复提交必然撞「已结束 / 已在用」返回 400，白白误导用户
+        if (state.replaceBusy) return;
         const newNo = el('pdReplaceTo').value.trim();
         const date = el('pdReplaceDate').value;
-        if (!newNo) { notify('请填写新的设备编号', 'error'); return; }
-        if (!date) { notify('请选择生效日期', 'error'); return; }
+        setReplaceError('');
+        if (!newNo) { setReplaceError('请填写新的设备编号'); return; }
+        if (!date) { setReplaceError('请选择生效日期'); return; }
+        const minDay = addDays(dayValue(row.valid_from), 1);
+        if (minDay && date < minDay) {
+            setReplaceError(`生效日期必须晚于原绑定起始日（${dayValue(row.valid_from)}），最早可选 ${minDay}`);
+            return;
+        }
         if (!window.confirm(`确认变更设备编号？\n\n原编号：${row.device_no}\n新编号：${newNo}\n生效日期：${date}\n\n旧密钥将于生效日失效，请把新密钥配置到替代设备。`)) return;
+        setReplaceBusy(true);
         try {
             const data = await api(`/${encodeURIComponent(row.id)}/replace`, {
                 method: 'POST',
@@ -849,11 +896,22 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
             });
             el('pdReplaceModal')?.classList.add('hidden');
             state.replacing = null;
-            if (data?.apiKey) showKeyModal(data.apiKey, '变更后的设备密钥（仅此一次展示）');
+            if (data?.apiKey) showKeyModal(data.apiKey, `变更后的设备密钥 · ${newNo}（仅此一次展示）`);
             notify(`✅ 已变更：${row.device_no} 结束于 ${date}，${newNo} 自该日生效`, 'success');
             await load();
         } catch (e) {
+            // 失败大概率是页面数据陈旧（该行已被结束/新编号已在用）：就地说明原因 + 刷新台账，让用户看到真实状态
+            setReplaceError(e.message);
             notify(`变更失败：${e.message}`, 'error');
+            try { await load(); } catch { /* 刷新失败不影响错误展示 */ }
+            // 刷新后原行若已结束（或已不存在），弹层失去意义 → 直接收起
+            const fresh = state.devices.find((d) => d.id === row.id);
+            if (!fresh || fresh.binding_state !== 'active') {
+                el('pdReplaceModal')?.classList.add('hidden');
+                state.replacing = null;
+            }
+        } finally {
+            setReplaceBusy(false);
         }
     }
 
@@ -1020,7 +1078,13 @@ export function initPathogenDeviceView({ API_BASE, authHeaders, notify }) {
             if (act === 'del') return remove(id);
             if (act === 'replace') return openReplaceModal(state.devices.find((d) => d.id === id) || null);
             if (act === 'close') return closeBinding(id);
-            if (act === 'replace-cancel') { el('pdReplaceModal')?.classList.add('hidden'); state.replacing = null; return; }
+            if (act === 'replace-cancel') {
+                if (state.replaceBusy) return; // 请求在途时不允许关闭弹层（避免用户以为已取消）
+                el('pdReplaceModal')?.classList.add('hidden');
+                state.replacing = null;
+                setReplaceError('');
+                return;
+            }
             if (act === 'replace-save') return submitReplace();
         });
 

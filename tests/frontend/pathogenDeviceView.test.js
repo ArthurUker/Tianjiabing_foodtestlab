@@ -22,9 +22,17 @@ const flush = async (times = 5) => { for (let i = 0; i < times; i++) await new P
 
 function setupFetchSpy() {
     const calls = [];
-    global.fetch = async (url) => {
+    // 写操作留档：{ url, method, body }（断言 PATCH 报文用；calls 仍保持纯 URL 便于既有断言）
+    const writes = [];
+    global.fetch = async (url, init = {}) => {
         const u = String(url);
         calls.push(u);
+        if (init && init.method && init.method !== 'GET') {
+            let parsed = null;
+            try { parsed = init.body ? JSON.parse(init.body) : null; } catch { parsed = init.body; }
+            writes.push({ url: u, method: init.method, body: parsed });
+        }
+        global.fetch.writes = writes;
         const json = (body) => ({ ok: true, status: 200, json: async () => body });
         if (u.includes('/api/admin/schools?')) return json({ success: true, data: SCHOOLS });
         if (u.includes('/platform-key')) return json({ success: true, data: { exists: false, key: null } });
@@ -34,7 +42,13 @@ function setupFetchSpy() {
             const canteens = code === 'school-a' ? ['教工餐厅', '学生餐厅'] : []; // 其余校未配置 → 前端内置兜底
             return json({ success: true, data: { canteens, field_options: {} } });
         }
-        if (u.includes('/replace')) return json({ success: true, data: { apiKey: 'pdv_NEWKEY_abcdefghijklmnopqrstuvwxyz012345678', device: { id: 'd1-new', device_no: 'VH-A-002' } } });
+        if (u.includes('/replace')) {
+            // 失败路径可注入（模拟「该绑定已结束 / 新编号已在用」等 400）
+            if (global.__replaceFail) {
+                return { ok: false, status: 400, json: async () => ({ success: false, error: global.__replaceFail }) };
+            }
+            return json({ success: true, data: { apiKey: 'pdv_NEWKEY_abcdefghijklmnopqrstuvwxyz012345678', device: { id: 'd1-new', device_no: 'VH-A-002' } } });
+        }
         if (u.includes('/close')) return json({ success: true, data: { id: 'd1', binding_state: 'ended' } });
         if (u.includes('/api/admin/pathogen-devices')) {
             const m = /school_code=([^&]+)/.exec(u);
@@ -52,7 +66,7 @@ async function mount() {
     const calls = setupFetchSpy();
     initPathogenDeviceView({ API_BASE: '', authHeaders: () => ({}), notify });
     await flush();
-    return { notify, calls };
+    return { notify, calls, writes: global.fetch.writes };
 }
 
 const chooseSchool = async (code) => {
@@ -274,5 +288,145 @@ describe('病原体设备视图 · 绑定台账（绑定期间 / 仅看在用 / 
         expect(closeCall).toBeTruthy();
         expect(closeCall).toContain('/d1/close');
         window.prompt.mockRestore();
+    });
+});
+
+describe('病原体设备视图 · 绑定期间编辑（超管纠正 / 补录期间）', () => {
+    test('编辑弹层回显绑定期间：在用行结束日期为空（= 至今），已结束行回显结束日', async () => {
+        await mount();
+
+        // 在用行（d1：2025-01-01 ~ 至今）
+        document.querySelector('[data-act="edit"][data-id="d1"]').click();
+        await flush(5);
+        expect(document.getElementById('pdValidFrom').value).toBe('2025-01-01');
+        expect(document.getElementById('pdValidTo').value).toBe('');
+        expect(document.getElementById('pdValidTo').disabled).toBe(false);   // 编辑态可改
+        expect(document.getElementById('pdRangeHint').textContent).toContain('至今');
+
+        // 已结束行（d2：2025-01-01 ~ 2026-09-30）
+        document.querySelector('[data-act="edit"][data-id="d2"]').click();
+        await flush(5);
+        expect(document.getElementById('pdValidFrom').value).toBe('2025-01-01');
+        expect(document.getElementById('pdValidTo').value).toBe('2026-09-30');
+    });
+
+    test('新增弹层只开放起始日期（结束日期禁用），默认今天', async () => {
+        await mount();
+        await chooseSchool('school-a');
+        document.querySelector('[data-act="new"]').click();
+        await flush(5);
+        expect(document.getElementById('pdValidFrom').value).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+        expect(document.getElementById('pdValidTo').disabled).toBe(true);
+        expect(document.getElementById('pdValidTo').value).toBe('');
+    });
+
+    test('保存编辑 → PATCH 报文携带 valid_from / valid_to', async () => {
+        const { writes } = await mount();
+        document.querySelector('[data-act="edit"][data-id="d1"]').click();
+        await flush(5);
+        document.getElementById('pdValidTo').value = '2026-12-31';
+        document.getElementById('pdSaveBtn').click();
+        await flush(6);
+
+        const patch = writes.find((w) => w.method === 'PATCH');
+        expect(patch).toBeTruthy();
+        expect(patch.url).toContain('/d1');
+        expect(patch.body.valid_from).toBe('2025-01-01');
+        expect(patch.body.valid_to).toBe('2026-12-31');
+        expect(document.getElementById('pdModal').classList.contains('hidden')).toBe(true);
+    });
+
+    test('清空「已结束」绑定的结束日期 = 恢复在用，需二次确认；取消则不提交', async () => {
+        const { writes } = await mount();
+        document.querySelector('[data-act="edit"][data-id="d2"]').click();
+        await flush(5);
+
+        const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false);
+        document.getElementById('pdValidTo').value = '';
+        document.getElementById('pdSaveBtn').click();
+        await flush(6);
+        expect(confirmSpy).toHaveBeenCalled();
+        expect(String(confirmSpy.mock.calls[0][0])).toContain('恢复为「在用」');
+        expect(writes.some((w) => w.method === 'PATCH')).toBe(false);
+
+        // 确认后提交：valid_to = null（后端清空结束时间）
+        confirmSpy.mockReturnValue(true);
+        document.getElementById('pdSaveBtn').click();
+        await flush(6);
+        const patch = writes.find((w) => w.method === 'PATCH');
+        expect(patch.body.valid_to).toBeNull();
+        confirmSpy.mockRestore();
+    });
+
+    test('结束日期早于起始日期 → 前端拦截，不发请求', async () => {
+        const { writes, notify } = await mount();
+        document.querySelector('[data-act="edit"][data-id="d1"]').click();
+        await flush(5);
+        document.getElementById('pdValidTo').value = '2024-12-01';
+        document.getElementById('pdSaveBtn').click();
+        await flush(4);
+
+        expect(writes.some((w) => w.method === 'PATCH')).toBe(false);
+        expect(notify).toHaveBeenCalledWith(expect.stringContaining('必须晚于起始日期'), 'error');
+    });
+
+    test('「绑定期间」列可点击直达编辑弹层（期间编辑入口显性化）', async () => {
+        await mount();
+        expect(document.getElementById('pdDeviceRows').innerHTML).toContain('data-act="edit-range"');
+        document.querySelector('[data-act="edit-range"][data-id="d1"]').click();
+        await flush(5);
+        expect(document.getElementById('pdModal').classList.contains('hidden')).toBe(false);
+        expect(document.activeElement.id).toBe('pdValidFrom');
+    });
+});
+
+describe('病原体设备视图 · 变更编号的健壮性（连点防护 / 失败原因可见 / 生效日下限）', () => {
+    afterEach(() => { delete global.__replaceFail; jest.restoreAllMocks(); });
+
+    test('生效日期下限 = 原绑定起始日次日（避免选同一天被后端 400 打回）', async () => {
+        await mount();
+        document.querySelector('[data-act="replace"][data-id="d1"]').click();
+        await flush(2);
+        const dateEl = document.getElementById('pdReplaceDate');
+        expect(dateEl.min).toBe('2025-01-02');                     // d1 valid_from = 2025-01-01
+        expect(dateEl.value >= dateEl.min).toBe(true);
+    });
+
+    test('连点「确认变更」只发一次请求（重复提交会撞「已结束 / 已在用」）', async () => {
+        const { writes } = await mount();
+        jest.spyOn(window, 'confirm').mockReturnValue(true);
+        document.querySelector('[data-act="replace"][data-id="d1"]').click();
+        await flush(2);
+        document.getElementById('pdReplaceTo').value = 'VH-A-900';
+
+        const save = document.getElementById('pdReplaceSave');
+        save.click();
+        save.click();
+        save.click();
+        await flush(8);
+
+        const posts = writes.filter((w) => w.method === 'POST' && w.url.includes('/replace'));
+        expect(posts).toHaveLength(1);
+    });
+
+    test('失败时就地展示服务端原因，并自动刷新台账（陈旧页面自愈）', async () => {
+        global.__replaceFail = '该绑定已结束，无法变更；如需恢复请在控制台重新新增该设备编号';
+        const { calls, writes } = await mount();
+        jest.spyOn(window, 'confirm').mockReturnValue(true);
+        document.querySelector('[data-act="replace"][data-id="d1"]').click();
+        await flush(2);
+        document.getElementById('pdReplaceTo').value = 'VH-A-900';
+        document.getElementById('pdReplaceSave').click();
+        await flush(8);
+
+        const err = document.getElementById('pdReplaceError');
+        expect(err.classList.contains('hidden')).toBe(false);
+        expect(err.textContent).toContain('该绑定已结束');
+        // 失败后自动拉一次列表（POST 之后仍有 list 请求）
+        const postIdx = writes.findIndex((w) => w.method === 'POST' && w.url.includes('/replace'));
+        expect(postIdx).toBeGreaterThanOrEqual(0);
+        expect(listCalls(calls).length).toBeGreaterThan(1);
+        // 按钮恢复可用（下一次可继续操作）
+        expect(document.getElementById('pdReplaceSave').disabled).toBe(false);
     });
 });

@@ -100,7 +100,9 @@ function isPlainObject(v) {
  */
 export function validateUploadPayload(body) {
   const errors = []
-  if (!isPlainObject(body)) return { ok: false, message: '请求体必须是 JSON 对象' }
+  // 失败统一带 errors（全量原因）：设备方一次就能改完，也便于服务端日志定位（2026-10-22）
+  const fail = (message, all) => ({ ok: false, message, errors: Array.isArray(all) && all.length ? all.slice(0, 20) : [message] })
+  if (!isPlainObject(body)) return fail('请求体必须是 JSON 对象')
 
   const str = (v) => (typeof v === 'string' ? v.trim() : (typeof v === 'number' ? String(v) : ''))
 
@@ -165,20 +167,20 @@ export function validateUploadPayload(body) {
   const fluo = body.OptimizationDataLists
   if (!isPlainObject(fluo)) errors.push('OptimizationDataLists必须是对象（点位荧光数据集合）')
 
-  if (errors.length) return { ok: false, message: `参数校验失败：${errors[0]}` }
+  if (errors.length) return fail(`参数校验失败：${errors[0]}`, errors.map((e) => `参数校验失败：${e}`))
 
   // 点位集合一致性（以 Parms 为准）
   const points = Object.keys(parms)
   const badChannel = points.find((k) => !CHANNEL_RE.test(k))
   if (badChannel) {
-    return { ok: false, message: `参数校验失败：点位标识 ${badChannel} 不合法（应为 通道-序号，如 FAM-1，通道∈{FAM,HEX,ROX,CY5}，序号1~8）` }
+    return fail(`参数校验失败：点位标识 ${badChannel} 不合法（应为 通道-序号，如 FAM-1，通道∈{FAM,HEX,ROX,CY5}，序号1~8）`)
   }
   for (const p of points) {
     if (typeof resultList[p] !== 'boolean') {
-      return { ok: false, message: `参数校验失败：ResultList 缺少点位 ${p} 的布尔判读值` }
+      return fail(`参数校验失败：ResultList 缺少点位 ${p} 的布尔判读值`)
     }
     if (typeof ctList[p] !== 'string' && typeof ctList[p] !== 'number') {
-      return { ok: false, message: `参数校验失败：CTList 缺少点位 ${p} 的CT值（未检出用 "-"）` }
+      return fail(`参数校验失败：CTList 缺少点位 ${p} 的CT值（未检出用 "-"）`)
     }
   }
   // ResultList/CTList 中 Parms 之外的点位视为脏数据：忽略（不阻断），以 Parms 为准
@@ -189,7 +191,7 @@ export function validateUploadPayload(body) {
       const arr = fluo[p]
       if (arr === undefined) continue // 允许缺省（设备可只回传判读与 CT）
       if (!Array.isArray(arr) || arr.some((n) => typeof n !== 'number' || !Number.isFinite(n))) {
-        return { ok: false, message: `参数校验失败：OptimizationDataLists.${p} 必须是数字数组` }
+        return fail(`参数校验失败：OptimizationDataLists.${p} 必须是数字数组`)
       }
     }
   }

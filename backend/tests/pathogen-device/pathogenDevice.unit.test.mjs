@@ -45,10 +45,14 @@ function handlerOf(router, method, routePath) {
 function makeRes() {
   return {
     statusCode: 200, body: null, headers: {}, ended: false,
+    // Express 语义：res.locals（访问日志挂结论码）+ res.on('finish')（请求结束回调）
+    locals: {}, listeners: {},
     status(c) { this.statusCode = c; return this },
     json(b) { this.body = b; return this },
     set(k, v) { this.headers[k] = v; return this },
     end() { this.ended = true; return this },
+    on(ev, fn) { (this.listeners[ev] = this.listeners[ev] || []).push(fn); return this },
+    emit(ev) { (this.listeners[ev] || []).forEach((fn) => fn()); return this },
   }
 }
 
@@ -189,6 +193,7 @@ async function invokeUpload({ prisma, tenantClientFactory, body, apiKey, ip = '1
     get(name) { return headers[String(name).toLowerCase()] || null },
     body,
   }, res)
+  res.emit('finish') // 模拟连接结束 → 触发访问日志
   return res
 }
 
@@ -349,6 +354,61 @@ test('上传：参数格式错误 → 400 且不落库', async () => {
   assert.equal(res.body.code, 'VALIDATION_ERROR')
   assert.ok(res.body.message.includes('DetectionNumber不能为空'))
   assert.equal(created.length, 0)
+})
+
+test('上传：报文不合格 → 400 响应带全量原因，拒绝日志含脱敏诊断（不落样本描述/人名）', async () => {
+  const st = makeUploadStubs()
+  const logs = []
+  st.prisma.systemLog.create = async ({ data }) => { logs.push(data); return { id: 'log-x' } }
+  const body = makePayload({ DetectionNumber: '', DetectionEndDateTime: 'bad-date', SampleStr: '二食堂 张三的餐盘涂抹样' })
+  const res = await invokeUpload({ prisma: st.prisma, tenantClientFactory: st.tenantClientFactory, body, apiKey: st.plainKey })
+
+  assert.equal(res.statusCode, 400)
+  assert.equal(res.body.code, 'VALIDATION_ERROR')
+  assert.ok(Array.isArray(res.body.data?.errors) && res.body.data.errors.length >= 2, '应一次返回全部不合格原因')
+
+  const log = logs.find((l) => String(l.message).includes('VALIDATION_ERROR'))
+  assert.ok(log, '应留下拒绝日志')
+  assert.ok(String(log.context.reason).includes('参数校验失败'), '日志要能直接看出失败原因')
+  assert.equal(log.context.payload_device_no, body.DeviceNo)
+  assert.equal(log.context.payload_detection_end_time, 'bad-date', '时间字段原文要留档（时区/格式排查用）')
+  const dump = JSON.stringify(log.context)
+  assert.ok(!dump.includes('二食堂'), '脱敏：不得把 SampleStr（含食堂/样本描述）写进日志')
+  assert.ok(!dump.includes('张三'), '脱敏：不得把检测员姓名写进日志')
+})
+
+test('上传：每次调用都写一行 ACCESS 访问日志（同一分钟内两次不合并；拒绝日志仍节流）', async () => {
+  const st = makeUploadStubs()
+  const router = createPathogenDeviceUploadRoutes({ prisma: st.prisma, tenantClientFactory: st.tenantClientFactory })
+  const handler = handlerOf(router, 'post', '/upload')
+  const lines = []
+  const origLog = console.log
+  console.log = (...a) => lines.push(a.join(' '))
+  try {
+    for (let i = 0; i < 2; i++) {
+      const res = makeRes()
+      await handler({
+        ip: '36.141.81.189',
+        originalUrl: '/api/open/pathogen-device/upload',
+        headers: { 'x-api-key': st.plainKey, 'content-length': '512', 'user-agent': 'VirusHunter/2.0B' },
+        get(name) { return ({ 'x-api-key': st.plainKey })[String(name).toLowerCase()] || null },
+        body: makePayload({ DetectionNumber: '' }), // 两次都不合格 → 均 400
+      }, res)
+      res.emit('finish')
+    }
+  } finally {
+    console.log = origLog
+  }
+
+  const access = lines.filter((l) => l.includes('ACCESS'))
+  assert.equal(access.length, 2, '同一分钟内两次调用必须各留一行（不受拒绝日志节流影响）')
+  const rec = JSON.parse(access[0].slice(access[0].indexOf('ACCESS ') + 7))
+  assert.equal(rec.status, 400)
+  assert.equal(rec.code, 'VALIDATION_ERROR')
+  assert.equal(rec.device_no, 'VH-2B-001', '校验失败时也要能看出报文自报的设备编号')
+  assert.equal(rec.auth_mode, 'device')
+  assert.equal(rec.ip, '36.141.81.189')
+  assert.equal(rec.bytes_in, 512)
 })
 
 test('上传：归属学校不存在 → 409 SCHOOL_NOT_FOUND', async () => {
@@ -1182,4 +1242,86 @@ test('超管结束绑定：写 valid_to 且历史保留；重复结束 → 400',
   res = await invokeAdmin(router, 'post', '/:id/close', { params: { id: 'dev-1' }, body: { end_date: '2026-10-20' } })
   assert.equal(res.statusCode, 400)
   assert.ok(res.body.error.includes('已'))
+})
+
+// ───────────────────────── 绑定台账：编辑绑定期间（PATCH /:id 支持 valid_from / valid_to） ─────────────────────────
+
+const localDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
+function bindingStubs() {
+  const st = makeAdminStubs({
+    schools: [{ code: 'school-a', status: 'active', name: 'A校' }, { code: 'school-b', status: 'active', name: 'B校' }],
+    devices: [
+      { id: 'dev-1', device_no: 'VH-2B-001', school_code: 'school-a', binding_user_id: 'u-1', name: '一号机', status: 'active', key_hash: 'h1', key_prefix: 'pdv_a', key_last4: '0001', rate_limit_per_min: 60, ip_whitelist: [], valid_from: new Date('2026-09-01T00:00:00'), valid_to: null },
+      { id: 'dev-2', device_no: 'VH-2B-001', school_code: 'school-b', binding_user_id: 'u-1', name: '一号机（历史）', status: 'active', key_hash: 'h2', key_prefix: 'pdv_b', key_last4: '0002', rate_limit_per_min: 60, ip_whitelist: [], valid_from: new Date('2026-08-01T00:00:00'), valid_to: new Date('2026-08-15T00:00:00') },
+    ],
+  })
+  const logs = []
+  st.prisma.systemLog.create = async ({ data }) => { logs.push(data); return { id: `log-${logs.length}` } }
+  return { ...st, logs }
+}
+
+test('超管编辑绑定期间：写入 valid_to → 绑定变「已结束」，区间回显正确并单独留痕', async () => {
+  const st = bindingStubs()
+  const res = await invokeAdmin(makeAdminRouter(st.prisma, st.tenantClientFactory), 'patch', '/:id', {
+    params: { id: 'dev-1' },
+    body: { name: '一号机（报废待换）', valid_to: '2026-10-20' },
+  })
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body))
+  assert.equal(res.body.data.binding_state, 'ended', '写 valid_to 后应变为已结束')
+  assert.equal(localDay(new Date(res.body.data.valid_to)), '2026-10-20', '结束日期按本地口径落库')
+  assert.equal(res.body.data.binding_range, '2026-09-01 ~ 2026-10-20')
+  assert.equal(st.rows.find((r) => r.id === 'dev-1').name, '一号机（报废待换）', '其余字段照常更新')
+  const audit = st.logs.find((l) => String(l.message || '').includes('pathogen_device_binding_update'))
+  assert.ok(audit, '期间调整应使用独立审计动作，便于事后追查归属变化')
+  assert.equal(audit.context.binding_range_before, '2026-09-01 ~ 至今')
+  assert.equal(audit.context.binding_range_after, '2026-09-01 ~ 2026-10-20')
+})
+
+test('超管编辑绑定期间：起始日可提前补录；清空 valid_to = 恢复为「在用」', async () => {
+  const st = bindingStubs()
+  const router = makeAdminRouter(st.prisma, st.tenantClientFactory)
+
+  // ① 起始日提前（历史补录）：09-01 → 08-20（须避开同编号的历史绑定 08-01~08-15）
+  let res = await invokeAdmin(router, 'patch', '/:id', {
+    params: { id: 'dev-1' },
+    body: { valid_from: '2026-08-20', valid_to: '2026-10-20' },
+  })
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body))
+  assert.equal(res.body.data.binding_range, '2026-08-20 ~ 2026-10-20')
+  assert.equal(res.body.data.binding_state, 'ended')
+
+  // ② 清空结束日期 → 重新在用
+  res = await invokeAdmin(router, 'patch', '/:id', { params: { id: 'dev-1' }, body: { valid_to: '' } })
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body))
+  assert.equal(res.body.data.valid_to, null, '空串应清空结束时间')
+  assert.equal(res.body.data.binding_state, 'active')
+})
+
+test('超管编辑绑定期间：非法/重叠区间 → 400（自身区间不算重叠）', async () => {
+  const st = bindingStubs()
+  const router = makeAdminRouter(st.prisma, st.tenantClientFactory)
+
+  // 结束不晚于起始
+  let res = await invokeAdmin(router, 'patch', '/:id', { params: { id: 'dev-1' }, body: { valid_from: '2026-10-01', valid_to: '2026-10-01' } })
+  assert.equal(res.statusCode, 400)
+  assert.ok(res.body.error.includes('必须晚于起始日期'))
+
+  // 日期格式非法
+  res = await invokeAdmin(router, 'patch', '/:id', { params: { id: 'dev-1' }, body: { valid_to: '2026/10/20' } })
+  assert.equal(res.statusCode, 400)
+  assert.ok(res.body.error.includes('valid_to'))
+
+  // 与同编号的另一条绑定（dev-2：2026-08-01 ~ 2026-08-15）重叠
+  res = await invokeAdmin(router, 'patch', '/:id', { params: { id: 'dev-1' }, body: { valid_from: '2026-08-10' } })
+  assert.equal(res.statusCode, 400)
+  assert.ok(res.body.error.includes('重叠'))
+  assert.ok(res.body.error.includes('school-b'), '提示应指出冲突绑定的归属学校')
+
+  // 不传期间字段 → 不触发区间校验（自身区间不与自身冲突）
+  res = await invokeAdmin(router, 'patch', '/:id', { params: { id: 'dev-1' }, body: { name: '仅改备注' } })
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body))
+  // 原样回填自己的期间也不应被判重叠
+  res = await invokeAdmin(router, 'patch', '/:id', { params: { id: 'dev-1' }, body: { valid_from: '2026-09-01', valid_to: null } })
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body))
 })
