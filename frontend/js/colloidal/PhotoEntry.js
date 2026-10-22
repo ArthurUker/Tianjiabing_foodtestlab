@@ -290,8 +290,9 @@ export class PhotoEntry {
         overlay.addEventListener('click', event => { if (event.target === overlay) close(); });
 
         try {
+            // 尽量要摄像头支持的最高分辨率：定位板模式需要 ≥6 px/mm，1080p 拍整张 A4 只有约 3.6 px/mm。
             const stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false,
+                video: { facingMode: { ideal: 'environment' }, width: { ideal: 3840 }, height: { ideal: 2160 } }, audio: false,
             });
             if (this.camOverlay !== overlay) { stream.getTracks().forEach(track => track.stop()); return; }
             this.camStream = stream;
@@ -310,6 +311,14 @@ export class PhotoEntry {
             return;
         }
 
+        const track = this.camStream?.getVideoTracks?.()[0];
+        const settings = track?.getSettings?.() || {};
+        const camW = settings.width || video.videoWidth || 0;
+        const camH = settings.height || video.videoHeight || 0;
+        if (camW && camH) {
+            hint.textContent = `当前摄像头 ${camW}×${camH}。拍整张定位板请改用手机；用电脑请把检测卡拍满画面。`;
+        }
+
         shutter.addEventListener('click', () => {
             if (video.readyState < 2 || !video.videoWidth || !video.videoHeight) { hint.textContent = '相机画面尚未就绪，请稍候再拍。'; return; }
             shutter.disabled = true;
@@ -326,6 +335,10 @@ export class PhotoEntry {
                 const file = new File([blob], `camera-${Date.now()}.jpg`, { type: 'image/jpeg' });
                 this.captureEvents.push(cameraEvent('photo_captured', { width, height, bytes: file.size, ...previewSettings }));
                 this.closeWebcam();
+                // 分辨率过低时先说清原因，避免用户以为是“识别算法坏了”。
+                this.lowResNote = width < 2000
+                    ? `当前摄像头分辨率 ${width}×${height} 偏低，整张定位板通常无法识别：请改用手机拍定位板，或把检测卡拍满画面（单卡近照）。`
+                    : '';
                 this.choose(file, 'camera');
             }, 'image/jpeg', 0.92);
         });
@@ -424,6 +437,7 @@ export class PhotoEntry {
         // 允许重复选择同一张照片（部分浏览器对相同文件不再触发 change）。
         this.fileInput.value = ''; this.cameraInput.value = '';
         this.fallbackButton.hidden = true;
+        if (source !== 'camera') this.lowResNote = '';
         if (!file) return;
         if (this.busy) return;
         if (file.size === 0 || file.size > 15 * 1024 * 1024) { this.say('请选择15MB以内的原始照片。'); return; }
@@ -516,7 +530,7 @@ export class PhotoEntry {
             this.say([lines.join('；'), '识别完成，结果已填入检测结果，可直接保存；如需修改请手工改选。'].join(' '));
         } else {
             this.resultSelect.value = this.optionsMode === 'triplex' ? MANUAL_TRIPLEX : '';
-            this.say([lines.join('；'), r.error, '未获得可用的自动结果，请直接手工选择合格／不合格；本次照片与识别过程已保留。'].filter(Boolean).join(' '));
+            this.say([lines.join('；'), this.lowResNote, r.error, '未获得可用的自动结果，请直接手工选择合格／不合格；本次照片与识别过程已保留。'].filter(Boolean).join(' '));
         }
     }
 
