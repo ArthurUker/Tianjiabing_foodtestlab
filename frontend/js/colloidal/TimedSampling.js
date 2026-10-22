@@ -45,6 +45,7 @@ export class TimedSampling {
         if (activeCamera && activeCamera !== this) { this.progress.textContent = '已有检测在使用自动采样，请先完成或结束。'; return; }
         if (!navigator.mediaDevices?.getUserMedia) { this.progress.textContent = '自动采样需要HTTPS页面和浏览器相机权限，请改用拍照／上传或手工录入。'; return; }
         activeCamera = this; this.state = 'opening'; this.openButton.disabled = true; this.planSelect.disabled = true; this.lock(true);
+        this.cameraView.restoreSettings(); this.cameraView.update();
         this.preview.hidden = false; this.progress.textContent = '正在准备检测单和相机…';
         const token = ++this.token;
         try {

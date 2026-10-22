@@ -1,14 +1,21 @@
 // Display-only orientation. Captures always draw the untouched video frame.
+const PREVIEW_SETTINGS_KEY = 'colloidal_camera_preview_v1';
+
 export class CameraView {
     constructor(video) {
         this.video = video; this.rotation = 0; this.mirrorX = false; this.mirrorY = false;
+        this.restoreSettings();
         this.root = document.createElement('div'); this.root.className = 'colloidal-camera-view';
         this.stage = document.createElement('div'); this.stage.className = 'colloidal-camera-stage'; this.stage.append(video);
         this.controls = document.createElement('div'); this.controls.className = 'colloidal-camera-controls';
         const button = (label, change, toggle = null) => {
             const b = document.createElement('button'); b.type = 'button'; b.className = 'colloidal-action'; b.textContent = label;
             if (toggle) b.setAttribute('aria-pressed', 'false');
-            b.addEventListener('click', () => { change(); this.update(); }); this.controls.append(b); return b;
+            b.addEventListener('click', () => {
+                change(); this.update();
+                try { localStorage.setItem(PREVIEW_SETTINGS_KEY, JSON.stringify(this.settings)); }
+                catch (_) { /* Preview controls remain usable if persistence is unavailable. */ }
+            }); this.controls.append(b); return b;
         };
         button('左转90°', () => { this.rotation = (this.rotation + 270) % 360; });
         button('右转90°', () => { this.rotation = (this.rotation + 90) % 360; });
@@ -20,6 +27,14 @@ export class CameraView {
         this.onResize = () => this.update(); this.observer = new ResizeObserver(this.onResize); this.observer.observe(this.root);
         video.addEventListener('loadedmetadata', this.onResize); video.addEventListener('resize', this.onResize);
         window.addEventListener('resize', this.onResize); this.update();
+    }
+    restoreSettings() {
+        try {
+            const saved = JSON.parse(localStorage.getItem(PREVIEW_SETTINGS_KEY));
+            this.rotation = saved && [0, 90, 180, 270].includes(saved.previewRotation) ? saved.previewRotation : 0;
+            this.mirrorX = saved?.previewMirrorX === true;
+            this.mirrorY = saved?.previewMirrorY === true;
+        } catch (_) { /* Storage unavailable or invalid: keep the current preview. */ }
     }
     get settings() { return { previewRotation: this.rotation, previewMirrorX: this.mirrorX, previewMirrorY: this.mirrorY }; }
     update() {
