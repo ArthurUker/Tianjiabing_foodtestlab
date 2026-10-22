@@ -177,6 +177,10 @@
                 <button class="admin-sidebar__item" data-view="disk" data-desc="查看数据盘/系统盘水位，人工清理 journal、日志与按天备份（清理动作全部写审计）。" type="button">
                     <i class="fas fa-hdd"></i><span class="admin-sidebar__item-label">磁盘管理</span>
                 </button>
+                <!-- 日志管理（2026-10-22 日志中心）：分类检索设备上传/认证/安全/平台操作/系统日志 + 文件在线查看 + 保留策略 -->
+                <button class="admin-sidebar__item" data-view="logs" data-desc="按分类检索平台运行日志（含设备上传全链路），在线查看服务器日志文件，集中管理保留期与自动压缩/清理。" type="button">
+                    <i class="fas fa-clipboard-list"></i><span class="admin-sidebar__item-label">日志管理</span>
+                </button>
                 <!-- 开放接口（2026-09-15 朴食对接）：按「对接方 × 学校」开通第三方只读数据接口。
                      配置变更全部写 public.SystemLog 审计；对外接口为 /api/open/v1/*（API Key 认证）。 -->
                 <button class="admin-sidebar__item" data-view="openapi" data-desc="为第三方开通指定学校、指定范围的只读数据接口：管理对接方、密钥与授权范围。" type="button">
@@ -1012,6 +1016,8 @@
         import { initBackupView } from '/js/modules/adminSchools/views/backupView.js';
         // 「磁盘管理」视图（2026-08-27 容量策略：90% 水位告警 + 人工清理）
         import { initDiskView } from '/js/modules/adminSchools/views/diskView.js';
+        // 「日志管理」视图（2026-10-22 日志中心：分类查询 / 文件在线查看 / 保留与清理）
+        import { initLogView } from '/js/modules/adminSchools/views/logView.js';
         // 「开放接口」视图（2026-09-15 朴食对接：对接方 / 密钥 / 学校授权 / 接入说明）
         import { initOpenApiView } from '/js/modules/adminSchools/views/openApiView.js';
         // 「友情链接」视图（2026-09-28：登录页外链管理 + 快捷访问 + 点击统计）
@@ -1108,6 +1114,8 @@
         const backupView = initBackupView({ API_BASE, authHeaders, notify: showNotice });
         // 磁盘管理视图（水位/清理，super_admin 专属）
         initDiskView({ API_BASE, authHeaders, notify: showNotice });
+        // 日志管理视图（分类检索 / 文件查看 / 保留策略，super_admin 专属）
+        initLogView({ API_BASE, authHeaders, notify: showNotice });
         // 开放接口视图（第三方数据开放：对接方/密钥/学校授权，super_admin 专属）
         initOpenApiView({ API_BASE, authHeaders, notify: showNotice });
         // 友情链接视图（登录页外链：多条/排序/启停/快捷访问/点击统计，super_admin 专属）
@@ -1874,6 +1882,9 @@
 
     <!-- 磁盘管理视图（2026-08-27 容量策略）：骨架由 views/diskView.js 动态渲染 -->
     <section id="adminViewDisk" class="admin-view hidden" data-view="disk"></section>
+
+    <!-- 日志管理视图（2026-10-22 日志中心）：骨架由 views/logView.js 动态渲染 -->
+    <section id="adminViewLogs" class="admin-view hidden" data-view="logs"></section>
 
     <!-- 开放接口视图（2026-09-15 朴食对接）：骨架由 views/openApiView.js 动态渲染 -->
     <section id="adminViewOpenApi" class="admin-view hidden" data-view="openapi"></section>

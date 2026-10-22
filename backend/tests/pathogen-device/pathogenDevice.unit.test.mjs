@@ -12,6 +12,7 @@ import {
   createPathogenDeviceUploadRoutes,
   createAdminPathogenDeviceRoutes,
 } from '../../routes/pathogenDeviceRoutes.js'
+import { resetLogAggregator } from '../../lib/logThrottle.js'
 import {
   validateUploadPayload,
   calculateDeviceRisk,
@@ -357,11 +358,13 @@ test('上传：参数格式错误 → 400 且不落库', async () => {
 })
 
 test('上传：报文不合格 → 400 响应带全量原因，拒绝日志含脱敏诊断（不落样本描述/人名）', async () => {
+  resetLogAggregator() // 拒绝日志走窗口聚合（模块级桶），用例间需清空
   const st = makeUploadStubs()
   const logs = []
   st.prisma.systemLog.create = async ({ data }) => { logs.push(data); return { id: 'log-x' } }
   const body = makePayload({ DetectionNumber: '', DetectionEndDateTime: 'bad-date', SampleStr: '二食堂 张三的餐盘涂抹样' })
   const res = await invokeUpload({ prisma: st.prisma, tenantClientFactory: st.tenantClientFactory, body, apiKey: st.plainKey })
+  await new Promise((r) => setTimeout(r, 5)) // 拒绝日志异步落库
 
   assert.equal(res.statusCode, 400)
   assert.equal(res.body.code, 'VALIDATION_ERROR')

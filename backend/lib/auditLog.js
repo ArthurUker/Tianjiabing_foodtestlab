@@ -154,13 +154,39 @@ function deriveActionType(message) {
 }
 
 /**
+ * 日志分类派生（2026-10-22 日志中心）：
+ * 分类是「日志管理」页的主维度，存进 `SystemLog.context.category`（JSONB，**不新增列/迁移**，
+ * 避免触发租户入口门禁的迁移链校验；后续需要索引再另开窗口加表达式索引）。
+ *
+ * 分类口径（保持稳定，前端直接用这 5 个键）：
+ *   device    — 病原体设备链路（上传成功/被拒/设备配置变更）
+ *   auth      — 登录、会话、刷新令牌、口令
+ *   security  — 安全事件（SECURITY: 前缀、越权、限流拒绝、重放）
+ *   admin     — 平台超管操作（[admin-audit] 前缀：磁盘/备份/学校/账号…）
+ *   system    — 其余系统事件（启动、定时任务、异常）
+ *
+ * @param {{actionType?: string|null, message?: string, level?: string}} p
+ * @returns {'device'|'auth'|'security'|'admin'|'system'}
+ */
+export function deriveLogCategory({ actionType = null, message = '', level = 'info' } = {}) {
+  const at = String(actionType || '')
+  const msg = String(message || '')
+  if (msg.startsWith('SECURITY:')) return 'security'
+  if (at.startsWith('pathogen_device') || at.startsWith('pathogen_platform') || at.startsWith('pathogen_upload')) return 'device'
+  if (at.startsWith('disk_') || at.startsWith('backup_') || at.startsWith('log_') || msg.startsWith('[admin-audit')) return 'admin'
+  if (/^(login|logout|password_reset|refresh_token|session_|mfa_)/i.test(at)) return 'auth'
+  if (level === 'error') return 'system'
+  return 'system'
+}
+
+/**
  * 统一审计字段规范 v1：为 SystemLog.context 补齐 canonical 键（snake_case）。
  * - 只增不删：保留调用方原始键（actorId / userId / timestamp 等），保证既有消费方无感知；
  * - 已显式提供 canonical 键的调用方（如 writeAdminOpsLog）不被覆盖；
  * - logSecurityEvent 的语义映射：actorId → actor_id（操作者）、
  *   userId / targetUserId → target_id（受影响用户，即事件主体）。
  */
-function normalizeAuditContext(context, message) {
+function normalizeAuditContext(context, message, level = 'info') {
   if (context == null) return null
   if (typeof context !== 'object') return { raw: String(context) }
   const c = { ...context }
@@ -171,6 +197,8 @@ function normalizeAuditContext(context, message) {
   if (c.target_id === undefined) c.target_id = c.targetUserId ?? c.userId ?? null
   if (c.action_type === undefined) c.action_type = c.action ?? deriveActionType(message)
   if (c.ts === undefined) c.ts = c.timestamp ?? new Date().toISOString()
+  // 日志中心分类（写入方显式给则尊重，否则按 action_type/message/level 派生）
+  if (c.category === undefined) c.category = deriveLogCategory({ actionType: c.action_type, message, level })
   return c
 }
 
@@ -184,7 +212,7 @@ function normalizeAuditContext(context, message) {
  * @param {object|string} [p.context]
  */
 export async function writeSystemLog(prisma, { level = 'info', message, context }) {
-  const normalized = normalizeAuditContext(context, message)
+  const normalized = normalizeAuditContext(context, message, level)
   return prisma.systemLog.create({
     data: {
       level,

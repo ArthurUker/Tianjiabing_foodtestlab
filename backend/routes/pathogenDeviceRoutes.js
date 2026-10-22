@@ -27,6 +27,7 @@
 
 import express from 'express'
 import { writeSystemLog, writeAdminOpsLog } from '../lib/auditLog.js'
+import { writeAggregatedLog } from '../lib/logThrottle.js'
 import { writeRecordAuditLog, buildRecordWriteData } from '../lib/recordNormalize.js'
 import { createTenantClient, isValidSchoolCode } from '../lib/tenantClient.js'
 import {
@@ -276,8 +277,6 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
   const hits = new Map()
   /** 用量落库节流：deviceId → 上次写入时间 */
   const lastUsageFlush = new Map()
-  /** 拒绝日志节流：`${ip}|${code}` → 上次记录时间 */
-  const lastDenyLog = new Map()
 
   function pruneHits(now) {
     for (const [id, arr] of hits) {
@@ -287,25 +286,38 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
     }
   }
 
-  function logDeniedThrottled(ip, code, detail) {
-    const key = `${normalizeIp(ip)}|${code}`
-    const now = Date.now()
-    const prev = lastDenyLog.get(key) || 0
-    if (now - prev < DENY_LOG_THROTTLE_MS) return
-    lastDenyLog.set(key, now)
-    writeSystemLog(prisma, {
+  /**
+   * 拒绝事件入库（2026-10-22 日志中心）：由「节流即丢弃」改为**窗口聚合**——
+   * 窗口内首条完整落库，后续重复只累加 context.repeat_count，既不刷爆日志表，
+   * 也不丢次数（故障重试期间可以在日志中心看到「×N」）。分类固定 device。
+   */
+  function logDenied(ip, code, detail) {
+    const normalizedIp = normalizeIp(ip)
+    writeAggregatedLog(prisma, {
+      key: `${normalizedIp}|${code}`,
       level: 'warn',
       message: `PATHOGEN_DEVICE_DENIED ${code}`,
       context: {
         action_type: 'pathogen_device_denied',
+        category: 'device',
         code,
-        ip: normalizeIp(ip),
+        ip: normalizedIp,
         path: detail?.path || null,
         device_no: detail?.deviceNo || null,
+        school_code: detail?.schoolCode || null,
         ...(detail?.diag || {}),
-        ts: new Date().toISOString(),
       },
+      windowMs: DENY_LOG_THROTTLE_MS,
     }).catch((e) => console.warn(`${TAG} 拒绝事件落库失败:`, e.message))
+  }
+
+  /** 上传链路的正向事件（成功入库 / 幂等重复 / 复测轮次）→ 日志中心 device 分类。 */
+  function logUploadEvent(actionType, message, context) {
+    writeSystemLog(prisma, {
+      level: 'info',
+      message,
+      context: { action_type: actionType, category: 'device', ...context },
+    }).catch((e) => console.warn(`${TAG} 上传事件落库失败:`, e.message))
   }
 
   function flushUsage(device) {
@@ -362,7 +374,7 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
     //     DeviceNo** 查 PathogenDevice「学校-设备编号」映射决定——设备必须先在学校登记。
     const plain = extractDeviceKey(req)
     if (!plain) {
-      logDeniedThrottled(ip, 'MISSING_KEY', { path })
+      logDenied(ip, 'MISSING_KEY', { path })
       return reply(res, 401, 'MISSING_KEY', '缺少设备密钥（请使用 X-API-Key 或 Authorization: Bearer）')
     }
 
@@ -380,7 +392,7 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
       return reply(res, 500, 'INTERNAL_ERROR', '服务暂时不可用，请稍后重试')
     }
     if (!device && !platformKey) {
-      logDeniedThrottled(ip, 'INVALID_KEY', { path })
+      logDenied(ip, 'INVALID_KEY', { path })
       return reply(res, 401, 'INVALID_KEY', '密钥无效：既不是有效的设备密钥，也不是有效的统一上传密钥')
     }
     const authMode = device ? 'device' : 'unified'
@@ -389,11 +401,11 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
     // ── ② 设备密钥模式：设备级前置检查（保持既有错误优先级）；统一模式：平台密钥级限流 ──
     if (authMode === 'device') {
       if (device.status !== 'active' || device.disabled_at) {
-        logDeniedThrottled(ip, 'DEVICE_DISABLED', { path, deviceNo: device.device_no })
+        logDenied(ip, 'DEVICE_DISABLED', { path, deviceNo: device.device_no, schoolCode: device.school_code })
         return reply(res, 403, 'DEVICE_DISABLED', `设备 ${device.device_no} 已停用，请联系平台管理员启用`)
       }
       if (!ipAllowed(ip, device.ip_whitelist)) {
-        logDeniedThrottled(ip, 'IP_DENIED', { path, deviceNo: device.device_no })
+        logDenied(ip, 'IP_DENIED', { path, deviceNo: device.device_no, schoolCode: device.school_code })
         return reply(res, 403, 'IP_DENIED', `来源 IP 不在白名单内（${ip}）`)
       }
     } else {
@@ -404,7 +416,7 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
       const pkArr = hits.get(pkBucket) || []
       if (pkArr.length >= PLATFORM_RATE_LIMIT) {
         const retryAfter = Math.max(1, Math.ceil((WINDOW_MS - (nowTs - pkArr[0])) / 1000))
-        logDeniedThrottled(ip, 'RATE_LIMITED', { path })
+        logDenied(ip, 'RATE_LIMITED', { path })
         res.setHeader('Retry-After', String(retryAfter))
         return reply(res, 429, 'RATE_LIMITED', `请求过于频繁（平台上限 ${PLATFORM_RATE_LIMIT} 次/分钟）`)
       }
@@ -417,7 +429,7 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
     const validation = validateUploadPayload(req.body)
     if (!validation.ok) {
       // 把「为什么不合格」落进拒绝日志（此前只记错误码，导致排查只能靠猜）+ 响应带全量原因
-      logDeniedThrottled(ip, 'VALIDATION_ERROR', {
+      logDenied(ip, 'VALIDATION_ERROR', {
         path,
         deviceNo: device?.device_no || null,
         diag: uploadPayloadDiagnostics(req.body, validation),
@@ -451,25 +463,25 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
     if (authMode === 'device') {
       // 设备密钥模式：报文设备编号必须与密钥所属设备一致（防跨校冒用 / 租户冲突）
       if (payload.deviceNo !== device.device_no) {
-        logDeniedThrottled(ip, 'DEVICE_MISMATCH', { path, deviceNo: device.device_no })
+        logDenied(ip, 'DEVICE_MISMATCH', { path, deviceNo: device.device_no, schoolCode: device.school_code })
         return reply(res, 403, 'DEVICE_MISMATCH', `报文设备编号 ${payload.deviceNo} 与密钥所属设备不一致`)
       }
     } else if (!bindings.length) {
-      logDeniedThrottled(ip, 'DEVICE_NOT_REGISTERED', { path, deviceNo: payload.deviceNo })
+      logDenied(ip, 'DEVICE_NOT_REGISTERED', { path, deviceNo: payload.deviceNo })
       return reply(res, 403, 'DEVICE_NOT_REGISTERED', `设备编号 ${payload.deviceNo} 未在任何学校登记：请先在控制台「病原体设备」为所属学校绑定该设备编号`)
     }
 
     const hitBinding = bindings.find((r) => bindingCovers(r, detectionAtMs)) || null
     if (!hitBinding) {
       const ranges = bindings.map((r) => fmtBindingRange(r)).join('；') || '（该编号无任何绑定记录）'
-      logDeniedThrottled(ip, 'DEVICE_BINDING_EXPIRED', { path, deviceNo: payload.deviceNo })
+      logDenied(ip, 'DEVICE_BINDING_EXPIRED', { path, deviceNo: payload.deviceNo })
       return reply(res, 403, 'DEVICE_BINDING_EXPIRED',
         `设备编号 ${payload.deviceNo} 在报文检测时间（${detectionText}）没有有效绑定，无法确定所属学校；该编号的绑定期间：${ranges}。请人工复核，或由管理员在控制台核对绑定起止时间`,
         { detectionTime: detectionText, bindings: bindings.map((r) => ({ school_code: r.school_code, range: fmtBindingRange(r) })) })
     }
     if (authMode === 'device' && hitBinding.id !== device.id) {
       // 密钥所属绑定与检测时间命中的绑定不是同一条（换机/跨校流转后仍用旧密钥）
-      logDeniedThrottled(ip, 'DEVICE_BINDING_EXPIRED', { path, deviceNo: device.device_no })
+      logDenied(ip, 'DEVICE_BINDING_EXPIRED', { path, deviceNo: device.device_no, schoolCode: device.school_code })
       return reply(res, 403, 'DEVICE_BINDING_EXPIRED',
         `该设备密钥对应的绑定期间为 ${fmtBindingRange(device)}，报文检测时间（${detectionText}）落在另一条绑定（${fmtBindingRange(hitBinding)}）内；请使用当前设备密钥上报`)
     }
@@ -477,11 +489,11 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
     if (authMode !== 'device') {
       // 统一密钥模式：命中的绑定行仍需通过停用/IP 白名单检查
       if (device.status !== 'active' || device.disabled_at) {
-        logDeniedThrottled(ip, 'DEVICE_DISABLED', { path, deviceNo: device.device_no })
+        logDenied(ip, 'DEVICE_DISABLED', { path, deviceNo: device.device_no, schoolCode: device.school_code })
         return reply(res, 403, 'DEVICE_DISABLED', `设备 ${device.device_no} 已停用，请联系平台管理员启用`)
       }
       if (!ipAllowed(ip, device.ip_whitelist)) {
-        logDeniedThrottled(ip, 'IP_DENIED', { path, deviceNo: device.device_no })
+        logDenied(ip, 'IP_DENIED', { path, deviceNo: device.device_no, schoolCode: device.school_code })
         return reply(res, 403, 'IP_DENIED', `来源 IP 不在白名单内（${ip}）`)
       }
     }
@@ -493,7 +505,7 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
     const arr = hits.get(device.id) || []
     if (arr.length >= limit) {
       const retryAfter = Math.max(1, Math.ceil((WINDOW_MS - (now - arr[0])) / 1000))
-      logDeniedThrottled(ip, 'RATE_LIMITED', { path, deviceNo: device.device_no })
+      logDenied(ip, 'RATE_LIMITED', { path, deviceNo: device.device_no, schoolCode: device.school_code })
       res.setHeader('Retry-After', String(retryAfter))
       return reply(res, 429, 'RATE_LIMITED', `请求过于频繁（上限 ${limit} 次/分钟）`)
     }
@@ -513,11 +525,11 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
       return reply(res, 500, 'INTERNAL_ERROR', '服务暂时不可用，请稍后重试')
     }
     if (!school) {
-      logDeniedThrottled(ip, 'SCHOOL_NOT_FOUND', { path, deviceNo: device.device_no })
+      logDenied(ip, 'SCHOOL_NOT_FOUND', { path, deviceNo: device.device_no, schoolCode: device.school_code })
       return reply(res, 409, 'SCHOOL_NOT_FOUND', '设备归属学校不存在或已被删除，请联系平台管理员重新配置设备')
     }
     if (school.status !== 'active') {
-      logDeniedThrottled(ip, 'SCHOOL_DISABLED', { path, deviceNo: device.device_no })
+      logDenied(ip, 'SCHOOL_DISABLED', { path, deviceNo: device.device_no, schoolCode: device.school_code })
       return reply(res, 403, 'SCHOOL_DISABLED', '设备归属学校已停用，请联系平台管理员')
     }
 
@@ -536,7 +548,7 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
       defaultCanteen: device.default_canteen || null,
     })
     if (!built.ok) {
-      logDeniedThrottled(ip, built.code, { path, deviceNo: device.device_no })
+      logDenied(ip, built.code, { path, deviceNo: device.device_no, schoolCode: device.school_code })
       return reply(res, 422, built.code, built.message)
     }
 
@@ -602,6 +614,11 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
         ? (chipRound.contentFingerprint || null)
         : (chipHit.result_data?.contentFingerprint || fingerprintOfStoredRecord(chipHit.result_data, chipHit.sample_info))
       if (storedFp && storedFp === built.data.contentFingerprint) {
+        logUploadEvent('pathogen_device_upload_duplicate', `PATHOGEN_DEVICE_UPLOAD_DUPLICATE ${device.device_no}`, {
+          device_no: device.device_no, school_code: device.school_code, record_code: chipHit.record_code,
+          chip_number: payload.chipNumber, detection_number: payload.detectionNumber, auth_mode: authMode, ip,
+          reason: 'same_chip_same_content',
+        })
         return reply(res, 200, 0, 'success', { reportId: chipHit.record_code, duplicated: true })
       }
       const flags = Array.isArray(chipHit.result_data?.reviewFlags) ? chipHit.result_data.reviewFlags : []
@@ -635,7 +652,7 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
         chip_number: payload.chipNumber,
         attempted_sample_id: payload.detectionNumber,
       }, ip)
-      logDeniedThrottled(ip, 'CHIP_REVIEW_REQUIRED', { path, deviceNo: device.device_no })
+      logDenied(ip, 'CHIP_REVIEW_REQUIRED', { path, deviceNo: device.device_no, schoolCode: device.school_code })
       return reply(res, 409, 'CHIP_REVIEW_REQUIRED',
         `芯片编号 ${payload.chipNumber} 已有数据且本次内容不一致：芯片编号重复，请人工复核（第二张同编号芯片数据请走人工上传导出的报告）`,
         { reportId: chipHit.record_code, reviewRequired: true })
@@ -693,6 +710,11 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
           data: { upload_count: { increment: 1 }, last_upload_at: new Date(), last_used_at: new Date() },
         })
         .catch((e) => console.warn(`${TAG} 设备统计落库失败:`, e.message))
+      logUploadEvent('pathogen_device_upload_recheck', `PATHOGEN_DEVICE_UPLOAD_RECHECK ${device.device_no}`, {
+        device_no: device.device_no, school_code: device.school_code, record_code: caseHit.record_code,
+        round: roundNo, chip_number: payload.chipNumber, detection_number: payload.detectionNumber,
+        auth_mode: authMode, ip, canteen: built.data.canteen, risk: round.riskLevel,
+      })
       console.log(`${TAG} 设备复测轮次入库: device=${device.device_no} school=${device.school_code} record=${caseHit.record_code} round=${roundNo}`)
       return reply(res, 200, 0, 'success', { reportId: caseHit.record_code, round: roundNo, appended: true })
     }
@@ -700,14 +722,14 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
     // ── ⑨ 绑定用户校验（created_by not-null 外键的审计归属） ──
     const binding = await assertBindingUser(prisma, device.school_code, device.binding_user_id, factory)
     if (!binding.ok) {
-      logDeniedThrottled(ip, 'BINDING_USER_MISSING', { path, deviceNo: device.device_no })
+      logDenied(ip, 'BINDING_USER_MISSING', { path, deviceNo: device.device_no, schoolCode: device.school_code })
       return reply(res, 422, 'BINDING_USER_MISSING', `${binding.message}；请在控制台为该设备改绑有效用户`)
     }
 
     // ── ⑩ 写入（与手动导入同一记录结构 / 同一租户 schema） ──
     const writeData = buildRecordWriteData('pathogen', built.data)
     if (!writeData.ok) {
-      logDeniedThrottled(ip, 'VALIDATION_ERROR', { path, deviceNo: device.device_no })
+      logDenied(ip, 'VALIDATION_ERROR', { path, deviceNo: device.device_no, schoolCode: device.school_code })
       return reply(res, 400, 'VALIDATION_ERROR', `参数校验失败：${writeData.message}`)
     }
 
@@ -727,6 +749,11 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
         try {
           const existing = await db.testRecord.findUnique({ where: { record_code: recordCode } })
           if (existing) {
+            logUploadEvent('pathogen_device_upload_duplicate', `PATHOGEN_DEVICE_UPLOAD_DUPLICATE ${device.device_no}`, {
+              device_no: device.device_no, school_code: device.school_code, record_code: existing.record_code,
+              chip_number: payload.chipNumber, detection_number: payload.detectionNumber, auth_mode: authMode, ip,
+              reason: 'concurrent_unique_conflict',
+            })
             return reply(res, 200, 0, 'success', { reportId: existing.record_code, duplicated: true })
           }
         } catch (_) { /* fallthrough */ }
@@ -752,6 +779,13 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
       })
       .catch((e) => console.warn(`${TAG} 设备统计落库失败:`, e.message))
 
+    logUploadEvent('pathogen_device_upload_ok', `PATHOGEN_DEVICE_UPLOAD_OK ${device.device_no}`, {
+      device_no: device.device_no, school_code: device.school_code, record_code: record.record_code,
+      chip_number: payload.chipNumber, chip_name: payload.chipName, detection_number: payload.detectionNumber,
+      detection_at: detectionText, canteen: built.data.canteen, sample_type: built.data.sampleType,
+      risk: built.data.riskLevel, inspector: payload.peopleStr, auth_mode: authMode, ip,
+      upload_count: Number(device.upload_count || 0) + 1,
+    })
     console.log(`${TAG} 设备上报入库: device=${device.device_no} school=${device.school_code} record=${recordCode}`)
     return reply(res, 200, 0, 'success', { reportId: record.record_code })
   })

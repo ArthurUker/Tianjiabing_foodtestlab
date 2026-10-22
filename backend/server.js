@@ -24,6 +24,8 @@ import { createTenantMiddleware } from './middleware/tenantMiddleware.js'
 import { createSyncRoutes } from './routes/syncRoutes.js'
 import { createAdminBackupRoutes } from './routes/adminBackupRoutes.js'
 import { createAdminDiskRoutes } from './routes/adminDiskRoutes.js'
+import { createAdminLogRoutes } from './routes/adminLogRoutes.js'
+import { runRetentionIfDue } from './lib/logRetention.js'
 import { createSchoolBackupRoutes } from './routes/schoolBackupRoutes.js'
 import { createTestResultRoutes } from './routes/testResultRoutes.js'
 import { createRecognitionRoutes } from './routes/recognitionRoutes.js'
@@ -447,6 +449,10 @@ app.use('/api/admin/backups', adminBackupRoutes)
 const adminDiskRoutes = createAdminDiskRoutes({ prisma, authenticateUser, requirePlatformSuperAdmin })
 app.use('/api/admin/disk', adminDiskRoutes)
 
+// ====== Log Center Routes（2026-10-22 日志中心：分类查询 / 文件在线查看 / 保留策略，仅平台超管）======
+const adminLogRoutes = createAdminLogRoutes({ prisma, authenticateUser, requirePlatformSuperAdmin })
+app.use('/api/admin/logs', adminLogRoutes)
+
 // ====== School Backup Routes（TD-School-Backup-Sync：学校侧备份运维，强制本校隔离）======
 // 入口 /api/school/backups；与超管能力一致（list/run/download/verify/restore），
 // 但强制以 token 中 req.user.schoolCode 为作用域，禁止跨校读取/恢复。
@@ -648,6 +654,19 @@ const server = app.listen(PORT, () => {
     if (TENANT_SYNC_MODE === 'check' && Number.isFinite(TENANT_READINESS_RECHECK_MS) && TENANT_READINESS_RECHECK_MS > 0) {
         const timer = setInterval(() => { refreshTenantReadiness().catch(() => {}) }, TENANT_READINESS_RECHECK_MS)
         if (typeof timer.unref === 'function') timer.unref()
+    }
+
+    // 日志保留策略（2026-10-22 日志中心）：每小时检查、同一天只执行一次 —— 自动压缩 + 到期清理。
+    // 启动 60s 后先跑一次（补齐停机期间错过的那天）；失败只告警，不影响服务。
+    {
+        const timer = setInterval(() => {
+            runRetentionIfDue(prisma).catch((e) => console.warn('⚠️  日志保留策略执行失败:', e.message))
+        }, 60 * 60 * 1000)
+        if (typeof timer.unref === 'function') timer.unref()
+        const boot = setTimeout(() => {
+            runRetentionIfDue(prisma).catch(() => {})
+        }, 60 * 1000)
+        if (typeof boot.unref === 'function') boot.unref()
     }
 
     // 运行时 DDL 附加系统表：recycle_bin（学校回收站）。幂等建表（与 revoked_tokens 同模式）。
