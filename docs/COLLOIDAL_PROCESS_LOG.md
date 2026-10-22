@@ -46,6 +46,8 @@
 
 ## 同局域网测试
 
+独立本地环境已增加[免密码入口与重启说明](COLLOIDAL_LOCAL_NO_PASSWORD.md)：启用专用本地preload后，原测试登录网址自动进入。此选项仅用于隔离测试，不随服务器部署启用。
+
 独立测试后端仍只监听127.0.0.1；`scripts/colloidal-lan-preview.mjs`在指定私有网卡上提供HTTPS反向代理和单独的HTTP证书说明页，不开数据库端口、不建公网隧道。运行示例：
 
 ```sh
