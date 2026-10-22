@@ -1,0 +1,251 @@
+{
+  "id": "CG-A5-INNER-V0.1",
+  "page_mm": [
+    148,
+    210
+  ],
+  "source_layout_id": "CG-A4-DEMO",
+  "source_layout_version": "0.1",
+  "legacy_origin_offset_mm": [
+    31,
+    70
+  ],
+  "geometry_change": "translation_only_no_scale",
+  "legacy_search_region_mm": [
+    59,
+    40,
+    30,
+    80
+  ],
+  "markers": [
+    {
+      "id": 10,
+      "x_mm": 26,
+      "y_mm": 22,
+      "size_mm": 15,
+      "matrix_6x6": [
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          255,
+          255,
+          255,
+          255,
+          0
+        ],
+        [
+          0,
+          255,
+          0,
+          0,
+          255,
+          0
+        ],
+        [
+          0,
+          255,
+          0,
+          0,
+          255,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          255,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "id": 11,
+      "x_mm": 107,
+      "y_mm": 22,
+      "size_mm": 15,
+      "matrix_6x6": [
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          255,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          255,
+          0
+        ],
+        [
+          0,
+          255,
+          0,
+          255,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          255,
+          255,
+          255,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "id": 12,
+      "x_mm": 107,
+      "y_mm": 125,
+      "size_mm": 15,
+      "matrix_6x6": [
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          255,
+          255,
+          255,
+          0,
+          0
+        ],
+        [
+          0,
+          255,
+          0,
+          255,
+          255,
+          0
+        ],
+        [
+          0,
+          0,
+          255,
+          255,
+          255,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "id": 13,
+      "x_mm": 26,
+      "y_mm": 125,
+      "size_mm": 15,
+      "matrix_6x6": [
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          255,
+          0,
+          0
+        ],
+        [
+          0,
+          255,
+          0,
+          255,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          255,
+          255,
+          255,
+          255,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    }
+  ],
+  "dictionary": "DICT_4X4_50",
+  "actual_card_dimensions_mm": null,
+  "physical_card_fit_validated": false,
+  "physical_print_validated": false,
+  "note": "The 30x80mm rectangle is the existing algorithm search region, not a measured card outline. Product dimensions remain unconfirmed."
+}

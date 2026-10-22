@@ -4,6 +4,8 @@
 
 胶体金诊断测试：[识别过程日志、相机旋转／镜像、局域网HTTPS及CodeBuddy接续](COLLOIDAL_PROCESS_LOG.md)。
 
+胶体金打印草案：[A5单检内圈定位试用板](COLLOIDAL_A5_BOARD.md)（实体卡尺寸待实测，未修复观察窗定位问题）。
+
 食品检验系统（代码仓库/系统标识 `foodsentinel`）的**文档导航中枢与代码地图**。
 
 胶体金照片录入：[固定 v5 方案接入、服务端识别与原图管理](COLLOIDAL_READER_INTEGRATION.md)（2026-10-19 上线，2026-10-20 起识别改由服务端常驻进程执行）。
