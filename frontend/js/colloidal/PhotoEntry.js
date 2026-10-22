@@ -201,8 +201,14 @@ export class PhotoEntry {
             if (this.entry?.id !== entryId || !this.processPanel.isConnected) return;
             this.processPanel.hidden = false;
             const opened = new Set([...this.processContent.querySelectorAll('details[open]')].map(d => d.dataset.attemptId));
+            const existing = new Map([...this.processContent.querySelectorAll('[data-attempt-id]')].map(p => [p.dataset.attemptId, p]));
             this.processContent.replaceChildren(...data.attempts.map(a => {
-                const panel = processLogPanel(a, { open: opened.has(a.id) || data.attempts.length === 1 }); panel.dataset.attemptId = a.id; return panel;
+                const previous = existing.get(a.id), snapshot = JSON.stringify([a.process_log, a.result, a.photo_state]);
+                if (previous?.processSnapshot === snapshot) return previous;
+                const open = opened.has(a.id) || data.attempts.length === 1;
+                const panel = processLogPanel(a, { open, imagesOpen: previous?.querySelector('[data-recognition-images]')?.open ?? open,
+                    loadPhoto: () => this.api(`/attempts/${a.id}/photo`, { responseType: 'blob' }) });
+                panel.dataset.attemptId = a.id; panel.processSnapshot = snapshot; return panel;
             }));
             if (!data.attempts.length) this.processContent.textContent = '等待首次拍照；拍照后会显示原图上传和算法各步骤。';
         } catch (e) { this.processContent.textContent = `日志暂时无法读取：${e.message}`; }
@@ -635,14 +641,16 @@ export function addPhotoDetails(modal, record, storage) {
             }
             for (const attempt of data.attempts) {
                 const r = attempt.result;
-                content.append(processLogPanel(attempt));
+                let photoPromise;
+                const loadPhoto = () => photoPromise ||= storage.requestOnlineResource(`/api/colloidal/records/${encodeURIComponent(record.id)}/photos/${attempt.id}`, { responseType: 'blob' }).catch(error => { photoPromise = null; throw error; });
+                content.append(processLogPanel(attempt, { loadPhoto }));
                 content.append(el('p', `${new Date(attempt.created_at).toLocaleString('zh-CN')} · ${attempt.photo_name || '照片'} · ${statusNames[r?.status] || '未确认完成'}${r?.error ? '：' + r.error : ''}`));
                 if (attempt.sample_index) content.append(el('p', `第${attempt.sample_index}次采样 · 计划${formatElapsed(samplingPlan(data.entry.sampling?.planId)?.seconds[attempt.sample_index - 1] || 0)} · ${attempt.captured_at ? `实拍${formatElapsed(attempt.elapsed_seconds)}（${new Date(attempt.captured_at).toLocaleString('zh-CN')}）` : '未取得实际拍摄照片'}。`));
                 if (r?.channels?.length) content.append(el('p', r.channels.map(c => `${PROJECTS.find(p => p.id === data.entry.project_id)?.channels.find(p => p.id === c.id)?.name || c.id}：${channelDescription(c)}`).join('；')));
                 if (attempt.sample_index && r?.channels?.length) content.append(el('p', r.channels.filter(c => Number.isFinite(c.c) && Number.isFinite(c.t)).map(c => `${c.id}：C=${c.c.toFixed(2)}，T=${c.t.toFixed(2)}`).join('；')));
                 if (attempt.photo_state === 'present') {
                     let photo;
-                    try { photo = await storage.requestOnlineResource(`/api/colloidal/records/${encodeURIComponent(record.id)}/photos/${attempt.id}`, { responseType: 'blob' }); }
+                    try { photo = await loadPhoto(); }
                     catch (error) { content.append(el('p', error.status === 410 ? '原照片已按留存策略清理' : '原照片暂时无法读取')); continue; }
                     const url = URL.createObjectURL(photo); urls.push(url);
                     const image = el('img', '', { src: url, alt: '原始上传照片', class: 'colloidal-preview' });

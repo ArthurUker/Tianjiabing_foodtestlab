@@ -36,7 +36,7 @@
     "test:backend:fixture": "node backend/tests/t02c-instance-fixture.mjs",
     "test:live-api": "node backend/tests/t02c-live-api-harness.mjs",
     "prepare:colloidal": "node scripts/prepare-colloidal-reader.mjs",
-    "test:colloidal": "node --test backend/tests/colloidal/contract.test.mjs backend/tests/colloidal/sampling.test.mjs backend/tests/colloidal/process-log.test.mjs",
+    "test:colloidal": "node --test backend/tests/colloidal/contract.test.mjs backend/tests/colloidal/sampling.test.mjs backend/tests/colloidal/process-log.test.mjs backend/tests/colloidal/recognition-images.test.mjs",
     "test:colloidal:integration": "node scripts/run-colloidal-integration.mjs",
     "test:colloidal:e2e": "node scripts/run-colloidal-integration.mjs --browser"
   },

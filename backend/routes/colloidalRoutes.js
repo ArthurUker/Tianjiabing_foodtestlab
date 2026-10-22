@@ -29,6 +29,20 @@ const attemptOwner = async (req, id) => {
 export function createColloidalRoutes({ authenticateUser, requireEditorOrAbove, requireGuestReadOnly, authorizeRoles, storageRoot = photoRoot, recognizer = colloidalRecognizer }) {
     const router = express.Router();
     router.use(authenticateUser);
+    const sendOriginal = async (res, attempt) => {
+        if (!attempt || attempt.photo_state === 'absent') throw fail(404, 'NOT_FOUND', '没有原照片');
+        if (attempt.photo_state !== 'present') throw fail(410, 'PHOTO_EXPIRED', '原照片已按留存策略清理');
+        if (!/^[a-f0-9]{24}\/[a-f0-9-]{36}\.(jpg|png|webp|heic)$/i.test(attempt.photo_key || '')) throw fail(500, 'INVALID_PHOTO_KEY', '照片索引无效');
+        res.setHeader('Content-Type', attempt.photo_mime);
+        res.setHeader('Content-Disposition', `inline; filename="original.${attempt.photo_key.split('.').pop()}"`);
+        res.setHeader('Cache-Control', 'private, no-store');
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.send(await fs.readFile(path.join(storageRoot(), attempt.photo_key)));
+    };
+    router.get('/attempts/:id/photo', requireEditorOrAbove, safe(async (req, res) => {
+        const { attempt } = await attemptOwner(req, req.params.id);
+        await sendOriginal(res, attempt);
+    }));
     router.get('/state', safe(async (req, res) => {
         res.json({ projects: PROJECTS, pipeline: PIPELINE, coreCommit: CORE_COMMIT, maxPhotoBytes: 15 * 1024 * 1024, runtime: 'server', samplingPlans: SAMPLING_PLANS, retentionDays: readRetentionDays() });
     }));
@@ -212,14 +226,7 @@ export function createColloidalRoutes({ authenticateUser, requireEditorOrAbove, 
     router.get('/records/:recordId/photos/:attemptId', requireGuestReadOnly, safe(async (req, res) => {
         const entry = await recordEntry(req);
         const attempt = await req.db.colloidalAttempt.findFirst({ where: { id: req.params.attemptId, entry_id: entry.id } });
-        if (!attempt || attempt.photo_state === 'absent') throw fail(404, 'NOT_FOUND', '没有原照片');
-        if (attempt.photo_state !== 'present') throw fail(410, 'PHOTO_EXPIRED', '原照片已按留存策略清理');
-        if (!/^[a-f0-9]{24}\/[a-f0-9-]{36}\.(jpg|png|webp|heic)$/i.test(attempt.photo_key || '')) throw fail(500, 'INVALID_PHOTO_KEY', '照片索引无效');
-        res.setHeader('Content-Type', attempt.photo_mime);
-        res.setHeader('Content-Disposition', `inline; filename="original.${attempt.photo_key.split('.').pop()}"`);
-        res.setHeader('Cache-Control', 'private, no-store');
-        res.setHeader('X-Content-Type-Options', 'nosniff');
-        res.send(await fs.readFile(path.join(storageRoot(), attempt.photo_key)));
+        await sendOriginal(res, attempt);
     }));
     router.get('/storage', authorizeRoles('manager', 'admin'), safe(async (req, res) => {
         const [storage, states, entries, reasons, recordSources, dailyUploads, samplingRuns, samplingSlots] = await Promise.all([

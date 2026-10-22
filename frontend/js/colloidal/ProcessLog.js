@@ -1,3 +1,5 @@
+import { recognitionImages } from './RecognitionImages.js';
+
 const names = {
     camera_requested: '请求打开相机', camera_ready: '相机预览就绪', capture_started: '开始取得画面',
     photo_captured: '相机照片生成', file_selected: '收到所选照片（拍摄时间未知）', sampling_started: '操作者确认加样并开始计时', capture_failed: '未取得采样照片',
@@ -24,11 +26,12 @@ const fields = { at: '时间', duration_ms: '本步骤耗时ms', elapsed_ms: '�
 export const cameraEvent = (stage, details = {}) => ({ at: new Date().toISOString(), stage, details });
 const node = (tag, text = '') => { const n = document.createElement(tag); n.textContent = text; return n; };
 
-export function processLogPanel(attempt, { open = false } = {}) {
+export function processLogPanel(attempt, { open = false, loadPhoto, imagesOpen = open } = {}) {
     const panel = node('details'); panel.className = 'colloidal-process-attempt'; panel.open = open;
     const events = Array.isArray(attempt.process_log) ? attempt.process_log : [];
     panel.append(node('summary', `${attempt.sample_index ? `第${attempt.sample_index}次采样 · ` : ''}${attempt.photo_name || '识别尝试'} · ${events.length}条过程日志`));
     panel.append(node('p', `识别ID：${attempt.id}。浏览器时间由设备报告；服务器和算法时间由服务端记录，跨设备时钟可能存在偏差。`));
+    panel.append(recognitionImages(attempt, loadPhoto, { open: imagesOpen }));
     if (!events.length) panel.append(node('p', attempt.result?.status === 'sample_missed' ? `该采样时点没有取得可用照片，未执行图像识别。${attempt.result.error || ''}` : '这是增加日志前的记录，没有详细过程日志；重新拍照后会自动记录。'));
     const list = node('ol');
     for (const event of events) {
@@ -39,7 +42,8 @@ export function processLogPanel(attempt, { open = false } = {}) {
         for (const [key, value] of Object.entries(event.details || {})) details.append(node('div', `${fields[key] || key}：${typeof value === 'object' ? JSON.stringify(value) : String(value)}`));
         item.append(details); list.append(item);
     }
-    panel.append(list);
+    const textLog = node('details'); textLog.className = 'colloidal-text-log';
+    textLog.append(node('summary', `展开${events.length}条文字与坐标日志`), list); panel.append(textLog);
     const download = node('button', '下载本次过程日志JSON'); download.type = 'button'; download.className = 'colloidal-link';
     download.addEventListener('click', () => {
         const blob = new Blob([JSON.stringify({ attemptId: attempt.id, photoName: attempt.photo_name, result: attempt.result, processLog: events }, null, 2)], { type: 'application/json' });

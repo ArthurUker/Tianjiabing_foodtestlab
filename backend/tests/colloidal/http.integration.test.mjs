@@ -136,6 +136,20 @@ check('migration replay creates identical public and both tenant structures', as
         assert.equal(parity.ok, true, JSON.stringify(parity));
     }
 });
+
+check('draft original visualization requires owner, editor role and matching tenant; purged originals return 410', async () => {
+    const e = await entry('carbofuran'), a = await attempt(e, { project: 'carbofuran' });
+    const photo = await request(`/attempts/${a}/photo`); assert.equal(photo.status, 200); assert.deepEqual(photo.data, png);
+    assert.equal((await request(`/attempts/${a}/photo`, undefined, { anonymous: true })).status, 401);
+    assert.equal((await request(`/attempts/${a}/photo`, undefined, { role: 'viewer' })).status, 403);
+    assert.equal((await request(`/attempts/${a}/photo`, undefined, { tenant: 'b' })).status, 404);
+    const other = await dbs.a.user.create({ data: { username: 'other-visualization-owner', password_hash: 'fixture-only', role: 'operator', school_code: codes.a } });
+    await dbs.a.colloidalEntry.update({ where: { id: e }, data: { created_by: other.id } });
+    assert.equal((await request(`/attempts/${a}/photo`)).status, 404);
+    await dbs.a.colloidalEntry.update({ where: { id: e }, data: { created_by: users.a.id } });
+    await dbs.a.colloidalAttempt.update({ where: { id: a }, data: { photo_state: 'purged' } });
+    assert.equal((await request(`/attempts/${a}/photo`)).status, 410);
+});
 check('unauthenticated and read-only roles cannot submit photos or records', async () => {
     assert.equal((await request('/entries', { id: id() }, { anonymous: true })).status, 401);
     for (const role of ['guest', 'viewer']) assert.equal((await request('/entries', { id: id() }, { role })).status, 403);

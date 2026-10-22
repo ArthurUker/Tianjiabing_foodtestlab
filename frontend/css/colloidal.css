@@ -189,6 +189,14 @@
 .colloidal-process-attempt li { padding: 6px 0; }
 .colloidal-process-attempt small { display: block; color: #64748b; }
 .colloidal-process-attempt li > div { font-family: ui-monospace, monospace; margin-top: 4px; }
+.colloidal-recognition-images { padding: 10px; margin: 12px 0; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; min-width: 0; }
+.colloidal-recognition-images summary, .colloidal-text-log summary { cursor: pointer; font-weight: 600; }
+.colloidal-recognition-images h4 { font-weight: 600; margin: 18px 0 6px; }
+.colloidal-diagnostic-legend { display: flex; flex-wrap: wrap; gap: 8px 14px; }
+.colloidal-diagnostic-legend span { padding-left: 6px; }
+.colloidal-diagnostic-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 12px; }
+.colloidal-diagnostic-picture { min-width: 0; }
+.colloidal-diagnostic-picture canvas { display: block; width: 100%; height: auto; border: 1px solid #cbd5e1; border-radius: 4px; }
 
 /* 定时采样跨满点位宽度；相机直接生成原始JPEG，不输出处理图片。 */
 .colloidal-timed { grid-column: 1 / -1; min-width: 0; border: 1px solid #cbd5e1; border-radius: 10px; padding: 12px; background: #f8fafc; color: #334155; }
