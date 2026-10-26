@@ -59,5 +59,13 @@ case "$CMD" in
     [[ "$ARG3" == /tmp/log-dl-* && "$ARG3" != *..* ]] || { echo "dest invalid" >&2; exit 2; }
     [ -f "$ARG" ] || { echo "file not found" >&2; exit 2; }
     exec cp -- "$ARG" "$ARG3" ;;
+  journal-read)
+    # journald 二进制日志不是文本，必须用 journalctl 解析（tail 会得到乱码）
+    ARG3="${3:-}"
+    [[ -n "$ARG" && "$ARG" != *..* ]] || { echo "path invalid" >&2; exit 2; }
+    [[ "$ARG" =~ ^/mnt/datadisk0/system-logs/journal/ ]] || { echo "journal target not allowed" >&2; exit 2; }
+    [[ "$ARG3" =~ ^[0-9]{1,5}$ ]] && [ "$ARG3" -ge 1 ] && [ "$ARG3" -le 20000 ] || { echo "lines invalid" >&2; exit 2; }
+    [ -f "$ARG" ] || { echo "file not found" >&2; exit 2; }
+    exec journalctl --file "$ARG" -n "$ARG3" --no-pager -o short-iso-precise ;;
   *) echo "unknown command" >&2; exit 2 ;;
 esac

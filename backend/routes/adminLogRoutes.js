@@ -63,6 +63,11 @@ function sudoManage(...args) {
   })
 }
 
+/** journald 二进制日志（/journal/ 下的 *.journal 及归档 ~ 文件）：不能用 tail 读，要走 journalctl。 */
+function isJournalBinary(p) {
+  return p.startsWith('/mnt/datadisk0/system-logs/journal/') && /\.journal(~)?$/.test(p)
+}
+
 /** 从文件尾部读取至多 bytes 字节（不足则整文件），返回文本。 */
 async function readTailText(file, bytes = MAX_READ_BYTES) {
   const st = await fsp.stat(file)
@@ -369,7 +374,19 @@ export function createAdminLogRoutes({ prisma, authenticateUser, requirePlatform
       let text = ''
       let truncated = false
       let size = 0
-      if (inAppDir) {
+      if (isJournalBinary(p)) {
+        // journald 是二进制格式：交给 journalctl 解析成带时间戳的文本（原先 tail 会得到一片 NUL 乱码）
+        try {
+          text = await sudoManage('journal-read', p, String(lines * 5))
+        } catch (e) {
+          if (/No data available|Failed to open|not a regular file/i.test(e.message || '')) {
+            return res.status(400).json({ success: false, error: '该 journal 文件为空或已损坏，journalctl 无法解析；请换其它文件，或下载后用 `journalctl --file <文件>` 查看。' })
+          }
+          throw e
+        }
+        truncated = true
+        size = 0
+      } else if (inAppDir) {
         if (isGz) {
           const st = await fsp.stat(p)
           size = st.size
@@ -390,8 +407,15 @@ export function createAdminLogRoutes({ prisma, authenticateUser, requirePlatform
         size = 0
       }
 
+      // 兜底：其它二进制文件不再以乱码形式呈现（journald 已走 journalctl，这里拦的是未知二进制）
+      if (text.includes('\0')) {
+        return res.status(415).json({
+          success: false,
+          error: '该文件是二进制内容，无法按文本查看；请用「下载」后用专用工具打开。',
+        })
+      }
       let all = text.split('\n')
-      if (truncated && all.length) all = all.slice(1) // 首行可能被截断
+      if (truncated && all.length && !isJournalBinary(p)) all = all.slice(1) // 仅文件尾部读取时首行可能被截断
       const filtered = filterLines(all, q).filter((l) => l !== '')
       const tail = filtered.slice(-lines)
       res.json({
