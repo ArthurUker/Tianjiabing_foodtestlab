@@ -13,10 +13,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { writeSystemLog, deriveLogCategory } from './auditLog.js'
 
-export const CATEGORIES = ['device', 'auth', 'security', 'admin', 'system']
+export const CATEGORIES = ['device', 'openapi', 'auth', 'security', 'admin', 'system']
 
 export const CATEGORY_LABELS = {
   device: '设备上传',
+  openapi: '开放接口',
   auth: '认证会话',
   security: '安全事件',
   admin: '平台操作',
@@ -26,6 +27,7 @@ export const CATEGORY_LABELS = {
 /** 默认策略：retentionDays=0 表示永久保留；compressAfterDays=0 表示不压缩。 */
 export const DEFAULT_RULES = {
   device: { retentionDays: 90, compressAfterDays: 30 },
+  openapi: { retentionDays: 180, compressAfterDays: 60 },
   auth: { retentionDays: 180, compressAfterDays: 0 },
   security: { retentionDays: 180, compressAfterDays: 60 },
   admin: { retentionDays: 0, compressAfterDays: 0 },

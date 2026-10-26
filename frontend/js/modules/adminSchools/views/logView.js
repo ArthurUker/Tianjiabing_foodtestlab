@@ -21,6 +21,7 @@ const TABS = [
 const CATS = [
     { key: 'all', label: '全部' },
     { key: 'device', label: '设备上传' },
+    { key: 'openapi', label: '开放接口' },
     { key: 'auth', label: '认证会话' },
     { key: 'security', label: '安全事件' },
     { key: 'admin', label: '平台操作' },
@@ -44,6 +45,7 @@ const LEVEL_BADGE = {
 
 const CAT_BADGE = {
     device: 'bg-indigo-50 text-indigo-700',
+    openapi: 'bg-cyan-50 text-cyan-700',
     auth: 'bg-emerald-50 text-emerald-700',
     security: 'bg-rose-50 text-rose-700',
     admin: 'bg-violet-50 text-violet-700',
@@ -82,6 +84,7 @@ export function initLogView({ API_BASE, authHeaders, notify }) {
         range: '7d',
         schoolCode: '',
         deviceNo: '',
+        clientId: '',
         keyword: '',
         page: 1,
         pageSize: 50,
@@ -158,6 +161,7 @@ export function initLogView({ API_BASE, authHeaders, notify }) {
                         </select>
                         <input id="logSchool" type="text" placeholder="学校代码（如 test）" class="border border-gray-300 rounded px-3 py-1.5 text-sm w-40" autocomplete="off">
                         <input id="logDevice" type="text" placeholder="设备编号" class="border border-gray-300 rounded px-3 py-1.5 text-sm w-40" autocomplete="off">
+                        <input id="logClient" type="text" placeholder="对接方 client_id" class="border border-gray-300 rounded px-3 py-1.5 text-sm w-40" autocomplete="off">
                         <input id="logKeyword" type="text" placeholder="关键词（匹配日志标题）" class="border border-gray-300 rounded px-3 py-1.5 text-sm w-56" autocomplete="off">
                         <button type="button" data-act="query" class="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"><i class="fas fa-search mr-1"></i>查询</button>
                         <button type="button" data-act="reset" class="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">重置</button>
@@ -365,7 +369,8 @@ export function initLogView({ API_BASE, authHeaders, notify }) {
             const since = rangeToSince(state.range);
             if (since) params.set('since', since.toISOString());
             if (state.schoolCode) params.set('school_code', state.schoolCode);
-            if (state.deviceNo) params.set('device_no', state.deviceNo);
+            if (state.deviceNo) params.set('device_no', state.deviceNo)
+            if (state.clientId) params.set('client_id', state.clientId);
             if (state.keyword) params.set('q', state.keyword);
             const data = await api(`/?${params.toString()}`);
             state.items = data.items || [];
@@ -569,13 +574,14 @@ export function initLogView({ API_BASE, authHeaders, notify }) {
                 state.level = el('logLevel').value;
                 state.schoolCode = el('logSchool').value.trim();
                 state.deviceNo = el('logDevice').value.trim();
+                state.clientId = el('logClient').value.trim();
                 state.keyword = el('logKeyword').value.trim();
                 state.page = 1;
                 return loadLogs();
             }
             if (act === 'reset') {
-                state.category = 'all'; state.level = 'all'; state.range = '7d'; state.schoolCode = ''; state.deviceNo = ''; state.keyword = ''; state.page = 1;
-                el('logRange').value = '7d'; el('logLevel').value = 'all'; el('logSchool').value = ''; el('logDevice').value = ''; el('logKeyword').value = '';
+                state.category = 'all'; state.level = 'all'; state.range = '7d'; state.schoolCode = ''; state.deviceNo = ''; state.clientId = ''; state.keyword = ''; state.page = 1;
+                el('logRange').value = '7d'; el('logLevel').value = 'all'; el('logSchool').value = ''; el('logDevice').value = ''; el('logClient').value = ''; el('logKeyword').value = '';
                 return loadLogs();
             }
             if (act === 'prev') { if (state.page > 1) { state.page -= 1; await loadLogs(); } return; }
@@ -598,7 +604,7 @@ export function initLogView({ API_BASE, authHeaders, notify }) {
                 return;
             }
             if (act === 'export') {
-                const body = { category: state.category, level: state.level, q: state.keyword, school_code: state.schoolCode, device_no: state.deviceNo };
+                const body = { category: state.category, level: state.level, q: state.keyword, school_code: state.schoolCode, device_no: state.deviceNo, client_id: state.clientId };
                 const since = rangeToSince(state.range);
                 if (since) body.since = since.toISOString();
                 try {

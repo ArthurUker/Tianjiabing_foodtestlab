@@ -102,6 +102,7 @@ function buildWhere(q) {
   else if (catWhere.context) and.push({ context: catWhere.context })
   if (q.q) and.push({ message: { contains: String(q.q), mode: 'insensitive' } })
   if (q.device_no) and.push({ context: { path: ['device_no'], equals: String(q.device_no) } })
+  if (q.client_id) and.push({ context: { path: ['client_id'], equals: String(q.client_id) } })
   if (q.school_code) {
     and.push({
       OR: [

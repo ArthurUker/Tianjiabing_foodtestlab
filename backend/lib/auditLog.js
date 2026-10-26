@@ -160,6 +160,7 @@ function deriveActionType(message) {
  *
  * 分类口径（保持稳定，前端直接用这 5 个键）：
  *   device    — 病原体设备链路（上传成功/被拒/设备配置变更）
+ *   openapi   — 第三方开放接口调用（成功/被拒/限流，含对接方与学校）
  *   auth      — 登录、会话、刷新令牌、口令
  *   security  — 安全事件（SECURITY: 前缀、越权、限流拒绝、重放）
  *   admin     — 平台超管操作（[admin-audit] 前缀：磁盘/备份/学校/账号…）
@@ -173,6 +174,7 @@ export function deriveLogCategory({ actionType = null, message = '', level = 'in
   const msg = String(message || '')
   if (msg.startsWith('SECURITY:')) return 'security'
   if (at.startsWith('pathogen_device') || at.startsWith('pathogen_platform') || at.startsWith('pathogen_upload')) return 'device'
+  if (at.startsWith('openapi') || at.startsWith('open_api')) return 'openapi'
   if (at.startsWith('disk_') || at.startsWith('backup_') || at.startsWith('log_') || msg.startsWith('[admin-audit')) return 'admin'
   if (/^(login|logout|password_reset|refresh_token|session_|mfa_)/i.test(at)) return 'auth'
   if (level === 'error') return 'system'

@@ -20,6 +20,8 @@ test('分类派生：设备/认证/安全/平台操作/系统 五类各自归位
   assert.equal(deriveLogCategory({ actionType: 'pathogen_device_upload_ok' }), 'device')
   assert.equal(deriveLogCategory({ actionType: 'pathogen_device_denied' }), 'device')
   assert.equal(deriveLogCategory({ actionType: 'pathogen_platform_key_create' }), 'device')
+  assert.equal(deriveLogCategory({ actionType: 'openapi_call' }), 'openapi')
+  assert.equal(deriveLogCategory({ actionType: 'openapi_denied' }), 'openapi')
   assert.equal(deriveLogCategory({ actionType: 'disk_logs_delete' }), 'admin')
   assert.equal(deriveLogCategory({ actionType: 'backup_run' }), 'admin')
   assert.equal(deriveLogCategory({ actionType: 'log_retention_run' }), 'admin')
@@ -107,6 +109,7 @@ test('保留策略读写：默认值 → 修改 → 落盘 → 再读回（含�
     const r = readRetention()
     assert.equal(r.rules.device.retentionDays, 30)
     assert.equal(r.rules.device.compressAfterDays, 7)
+    assert.equal(r.rules.openapi.retentionDays, 180, '开放接口默认保留 180 天')
     assert.equal(r.rules.admin.retentionDays, 0, '未提交的分类保持默认（平台操作永久）')
     assert.equal(r.auto, false)
     assert.ok(fs.existsSync(file))
@@ -192,4 +195,25 @@ test('压缩：无 compressAfterDays 的分类直接跳过；categoryWhere 对 s
   assert.deepEqual(r, { scanned: 0, rollups: 0, deleted: 0 })
   assert.deepEqual(categoryWhere('system'), { context: { path: ['category'], equals: 'system' } })
   assert.deepEqual(categoryWhere('all'), {})
+})
+
+
+test('聚合器：窗口到期时把最终计数/指标刷回旧行，再开新行（不丢尾数）', async () => {
+  resetLogAggregator()
+  const { prisma, rows } = aggStub()
+  const ctx = { category: 'openapi', code: 'OK' }
+  // 默认 flushMs 很大，模拟「突发后长时间无新事件」的场景
+  for (let i = 0; i < 3; i++) {
+    await writeAggregatedLog(prisma, { key: 'k2', message: 'm', context: ctx, metrics: { sum_rows: 2 }, windowMs: 20, flushMs: 999999 })
+  }
+  assert.equal(rows.size, 1)
+  assert.equal([...rows.values()][0].context.repeat_count, 1, '未刷新的行仍停在首条计数')
+
+  await new Promise((r) => setTimeout(r, 30))
+  await writeAggregatedLog(prisma, { key: 'k2', message: 'm', context: ctx, metrics: { sum_rows: 2 }, windowMs: 20, flushMs: 999999 })
+  assert.equal(rows.size, 2, '新窗口必须开新行')
+  const oldRow = [...rows.values()][0]
+  assert.equal(oldRow.context.repeat_count, 3, '旧行在到期时必须刷回最终次数')
+  assert.equal(oldRow.context.sum_rows, 6, '指标同理刷回最终值')
+  assert.ok(oldRow.context.last_seen_at)
 })

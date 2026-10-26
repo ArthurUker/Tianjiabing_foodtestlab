@@ -69,6 +69,7 @@ describe('日志管理视图 · 数据库日志', () => {
         await mount();
         const chips = document.getElementById('logCatChips').innerHTML;
         expect(chips).toContain('设备上传');
+        expect(chips).toContain('开放接口');
         expect(chips).toContain('平台操作');
 
         const rows = document.getElementById('logRows').innerHTML;
