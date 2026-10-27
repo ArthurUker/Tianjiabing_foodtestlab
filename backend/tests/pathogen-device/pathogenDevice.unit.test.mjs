@@ -1328,3 +1328,78 @@ test('超管编辑绑定期间：非法/重叠区间 → 400（自身区间不�
   res = await invokeAdmin(router, 'patch', '/:id', { params: { id: 'dev-1' }, body: { valid_from: '2026-09-01', valid_to: null } })
   assert.equal(res.statusCode, 200, JSON.stringify(res.body))
 })
+
+// ───────── 2026-10-27 现场报障回归：① 食堂被静默替换 ② 7 天窗误合并 ─────────
+
+test('食堂（报障回归）：报文显式写「四食堂」但不在该校列表 → 422 CANTEEN_NOT_IN_LIST，绝不静默改用默认食堂', async () => {
+  const { prisma, tenantClientFactory, plainKey, created } = makeUploadStubs({
+    device: { default_canteen: '三食堂' },          // 旧逻辑会静默落成三食堂
+    canteens: ['一食堂', '二食堂', '三食堂'],        // 列表里没有四食堂
+  })
+  const res = await invokeUpload({
+    prisma, tenantClientFactory, plainKey, apiKey: plainKey,
+    body: makePayload({ SampleStr: '四食堂 餐盘涂抹样', ChipNumber: 'SN-CHK-1001', DetectionNumber: '20261026T001' }),
+  })
+  assert.equal(res.statusCode, 422)
+  assert.equal(res.body.code, 'CANTEEN_NOT_IN_LIST')
+  assert.match(res.body.message, /四食堂/)
+  assert.match(res.body.message, /一食堂、二食堂、三食堂/)     // 回显实际生效名单
+  assert.match(res.body.message, /学校管理/)
+  assert.equal(created.length, 0, '不得写入任何记录（更不能写成三食堂）')
+})
+
+test('食堂（对照）：列表已配置四食堂 → 正常识别，不再报错', async () => {
+  const { prisma, tenantClientFactory, plainKey, created } = makeUploadStubs({
+    canteens: ['一食堂', '二食堂', '三食堂', '四食堂'],
+  })
+  const res = await invokeUpload({
+    prisma, tenantClientFactory, plainKey, apiKey: plainKey,
+    body: makePayload({ SampleStr: '四食堂 餐盘涂抹样', ChipNumber: 'SN-CHK-1002', DetectionNumber: '20261026T002' }),
+  })
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body))
+  assert.equal(created[0].sample_info.canteen, '四食堂')
+})
+
+test('食堂（对照）：样本信息未点名食堂 → 仍按设备默认食堂回落（原有语义不变）', async () => {
+  const { prisma, tenantClientFactory, plainKey, created } = makeUploadStubs({
+    device: { default_canteen: '三食堂' },
+    canteens: ['一食堂', '二食堂', '三食堂'],
+  })
+  const res = await invokeUpload({
+    prisma, tenantClientFactory, plainKey, apiKey: plainKey,
+    body: makePayload({ SampleStr: '餐盘涂抹样', ChipNumber: 'SN-CHK-1003', DetectionNumber: '20261026T003' }),
+  })
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body))
+  assert.equal(created[0].sample_info.canteen, '三食堂')
+})
+
+test('复测合并（报障回归）：同样本编号但相隔 4 天 → 不并入，各自独立记录', async () => {
+  // 现场：10-22 与 10-26 同食堂/同样本编号/同样本描述/同设备，被 7 天窗误并为复测轮次
+  const stored = makeStoredRecord() // 检测日期 2026-09-17
+  const { prisma, tenantClientFactory, plainKey, created, stored: all } = makeUploadStubs({ existingRecord: stored })
+  const res = await invokeUpload({
+    prisma, tenantClientFactory, plainKey, apiKey: plainKey,
+    body: makePayload({
+      ChipNumber: 'SN20260921001',
+      DetectionDateTime: '2026-09-21 08:30:00',
+      DetectionEndDateTime: '2026-09-21 10:45:00',
+    }),
+  })
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body))
+  assert.equal(res.body.data.appended, undefined, '相隔 4 天不得并入')
+  assert.equal(created.length, 1, '应独立新建记录')
+  assert.equal((all[0].result_data.recheckReports || []).length, 0, '既有档案保持不变')
+})
+
+test('复测合并（保留语义）：同一自然日 + 同样本编号 + 新芯片 → 仍并入为复测轮次', async () => {
+  const stored = makeStoredRecord() // 2026-09-17 08:30
+  const { prisma, tenantClientFactory, plainKey, stored: all } = makeUploadStubs({ existingRecord: stored })
+  const res = await invokeUpload({
+    prisma, tenantClientFactory, plainKey, apiKey: plainKey,
+    body: makePayload({ ChipNumber: 'SN20260917099', DetectionDateTime: '2026-09-17 15:30:00', DetectionEndDateTime: '2026-09-17 16:10:00' }),
+  })
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body))
+  assert.equal(res.body.data.appended, true)
+  assert.equal(res.body.data.round, 2)
+  assert.equal(all[0].result_data.recheckReports[0].chipNumber, 'SN20260917099')
+})

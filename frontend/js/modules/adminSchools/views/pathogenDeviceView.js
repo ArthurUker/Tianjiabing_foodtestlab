@@ -127,6 +127,7 @@ const GUIDE_MD = [
     '| 400 | VALIDATION_ERROR | 报文格式/字段错误 | 按 message 修正后重传（**勿原样重试**） |',
     '| 409 | SCHOOL_NOT_FOUND | 归属学校不存在 | 联系平台超管重新配置设备 |',
     '| 413 | PAYLOAD_TOO_LARGE | 请求体超 2MB | 检查荧光数组等字段大小 |',
+    '| 422 | CANTEEN_NOT_IN_LIST | SampleStr 明确写了「四食堂」等，但该校食堂列表没有这个名称 | 不要静默改归属：请学校在「学校管理 → 基本信息」补该食堂，或更正样本信息后重传 |',
     '| 422 | CANTEEN_UNRESOLVED | 食堂无法识别且设备未配默认食堂 | SampleStr 含食堂名，或让超管配置默认食堂 |',
     '| 422 | BINDING_USER_MISSING | 设备绑定用户已失效 | 让超管在控制台改绑有效用户 |',
     '| 429 | RATE_LIMITED | 超过设备限流 | 按 `Retry-After` 退避后重试 |',

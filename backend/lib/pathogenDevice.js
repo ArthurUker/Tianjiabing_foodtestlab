@@ -304,6 +304,15 @@ function normalizeForCanteenMatch(t) {
     .replace(/[\uFF10-\uFF19]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
 }
 
+/**
+ * 从样本信息中提取**显式**食堂名（如「四食堂」「第4食堂」「4号食堂」），提取不到返回 null。
+ * 用途：报文明确点名了食堂、但该名称不在学校食堂列表时，必须报错而不是静默回落默认食堂。
+ */
+export function extractExplicitCanteenToken(text) {
+  const m = /(?:第\s*)?[一二三四五六七八九十\d]{1,3}\s*号?\s*食堂/.exec(String(text || ''))
+  return m ? m[0].replace(/\s+/g, '') : null
+}
+
 /** 在 text 中查找学校食堂列表（支持别名）；返回匹配到的食堂名或 null。 */
 export function matchSchoolCanteen(text, schoolCanteens) {
   if (!text || !Array.isArray(schoolCanteens) || schoolCanteens.length === 0) return null
@@ -330,7 +339,19 @@ export function matchSchoolCanteen(text, schoolCanteens) {
  *          绝不写「未知」污染看板分组）。
  */
 export function buildPathogenRecordPayload({ payload, deviceNo, canteens, defaultCanteen }) {
-  const canteen = matchSchoolCanteen(payload.sampleStr, canteens) || defaultCanteen || null
+  const matchedCanteen = matchSchoolCanteen(payload.sampleStr, canteens)
+  // 报文里**显式写了**「N食堂 / 第N食堂 / N号食堂」但不在该校食堂列表 → 明确拒绝。
+  // ⚠️ 2026-10-27 现场报障：样本信息填「四食堂」、该校列表只有一/二/三食堂，旧逻辑静默回落
+  //   设备默认食堂（三食堂），导致食堂维度的数据被悄悄改写成另一个食堂。
+  const explicitCanteen = extractExplicitCanteenToken(payload.sampleStr)
+  if (!matchedCanteen && explicitCanteen) {
+    return {
+      ok: false,
+      code: 'CANTEEN_NOT_IN_LIST',
+      message: `样本信息中的「${explicitCanteen}」不在该校食堂列表（${canteens.join('、')}）内；请先在 学校管理 → 基本信息 维护食堂列表，或更正报文的样本信息`,
+    }
+  }
+  const canteen = matchedCanteen || defaultCanteen || null
   if (!canteen) {
     return {
       ok: false,
@@ -469,7 +490,17 @@ export function fingerprintOfStoredRecord(resultData = {}, sampleInfo = {}) {
  * 且两次检测日期相差不超过 CASE_WINDOW_DAYS 天 → 视为同一档案的复测轮次。
  * 说明：检测员不纳入键（复测可能换人）；时间窗避免把该食堂每轮常规抽检并入同一档案。
  */
-export const CASE_WINDOW_DAYS = 7
+/**
+ * 复测合并时间窗（天）。
+ * ⚠️ 2026-10-27 由 7 改为 **0（同一自然日）**：现场实测发现 10-22 与 10-26 两次**独立采样检测**
+ *   因「食堂 + 样本描述 + 样本编号 + 设备」相同而被误并为复测轮次，导致列表用首轮日期、
+ *   结论却取最新轮次（「10.26 的记录显示成 10.22」）。
+ *   复测合并只应覆盖「同一次采样的复测」（通常当日完成）；跨午夜场景可用环境变量
+ *   `PATHOGEN_CASE_WINDOW_DAYS` 放宽（如 1 = 允许次日）。
+ */
+export const CASE_WINDOW_DAYS = Number.isFinite(Number(process.env.PATHOGEN_CASE_WINDOW_DAYS))
+  ? Number(process.env.PATHOGEN_CASE_WINDOW_DAYS)
+  : 0
 
 export function normalizeSampleText(text) {
   return String(text || '').replace(/[\s\u3000]+/g, ' ').trim()

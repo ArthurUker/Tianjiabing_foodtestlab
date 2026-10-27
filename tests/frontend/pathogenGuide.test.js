@@ -25,11 +25,12 @@ describe('接口使用指导（GUIDE_MD 渲染）', () => {
         }
     });
 
-    test('错误码表 13 项全覆盖（含 B 方案新增 DEVICE_NOT_REGISTERED）', () => {
+    test('错误码表 14 项全覆盖（含 B 方案新增 DEVICE_NOT_REGISTERED）', () => {
         const html = renderAll();
         for (const code of [
             'MISSING_KEY', 'INVALID_KEY', 'DEVICE_DISABLED', 'DEVICE_MISMATCH', 'SCHOOL_DISABLED',
-            'VALIDATION_ERROR', 'SCHOOL_NOT_FOUND', 'PAYLOAD_TOO_LARGE', 'CANTEEN_UNRESOLVED',
+            'VALIDATION_ERROR', 'SCHOOL_NOT_FOUND', 'PAYLOAD_TOO_LARGE', 'CANTEEN_NOT_IN_LIST',
+            'CANTEEN_UNRESOLVED',
             'BINDING_USER_MISSING', 'RATE_LIMITED', 'INTERNAL_ERROR', 'DEVICE_NOT_REGISTERED',
         ]) {
             expect(html).toContain(code);
