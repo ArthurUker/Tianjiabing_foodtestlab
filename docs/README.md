@@ -46,6 +46,7 @@
 | [`deploy/README.md`](../deploy/README.md) | **部署方案说明**：`deploy.sh` + 适配文件用法、部署前置、多用户同机、自适应资源 | 权威（局部） | 是 | 中 |
 | [`docs/CHANGELOG.md`](./CHANGELOG.md) | **近期变更日志**：2026-08 已上线功能按主题归类（测试报告/权限/备份/洗涤剂识别等） | 权威（记录） | 是 | 中 |
 | [`docs/PATHOGEN_DEVICE_INTEGRATION.md`](./PATHOGEN_DEVICE_INTEGRATION.md) | **病原体设备自动采集对接方案**：VirusHunter2.0B 上传接口 / 设备编号→学校租户归属 / 异常处理 / 数据流转 | 权威（设计+实现） | 是 | 中 |
+| [`docs/pathogen-device-retest-guide.html`](./pathogen-device-retest-guide.html) | **复测检查指导（交互版 HTML）**：单文件离线可用，15 条用例可逐条打勾 + 进度条 + 备注 + 一键导出结果 | 操作手册（现场用） | 是 | 小 |
 | [`docs/PATHOGEN_DEVICE_RETEST_GUIDE.md`](./PATHOGEN_DEVICE_RETEST_GUIDE.md) | **病原体设备上报 · 复测检查指导**：现场上机逐条验证（食堂不在名单 / 同芯片不同数据 / 跨天不合并）+ 反馈模板与错误码速查 | 操作手册（现场用） | 是 | 中 |
 | [`docs/fix/`](./fix/) | **待修复问题清单**：当前测试反馈未收口（failed-open）问题的根因定位与优先级 | 当前依据 | 是 | 中 |
 | [`docs/test-results/`](./test-results/README.md) | **测试结果快照**：`latest/` 覆盖式快照（HTML/MD/JSON + 证据图），权威数据在数据库 | 快照 | 是 | 参考 |
