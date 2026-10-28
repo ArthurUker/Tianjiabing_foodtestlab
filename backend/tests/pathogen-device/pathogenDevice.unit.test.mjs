@@ -502,19 +502,22 @@ test('芯片语义：同芯片 + 内容不一致 → 409 CHIP_REVIEW_REQUIRED「
     body: makePayload({ CTList: { 'FAM-1': '18.0', 'FAM-2': '-', 'HEX-1': '28.7' } }),
     apiKey: plainKey,
   })
-  assert.equal(res.statusCode, 409)
-  assert.equal(res.body.code, 'CHIP_REVIEW_REQUIRED')
-  assert.match(res.body.message, /请人工复核/)
+  // 2026-10-28 语义调整：同芯片但内容不同 = **另一批数据**，照常入库为新记录 + 双向复核标记
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body))
   assert.equal(res.body.data.reviewRequired, true)
-  assert.equal(res.body.data.reportId, stored.record_code)
-  assert.equal(created.length, 0)
-  const flags = all[0].result_data.reviewFlags
-  assert.equal(flags.length, 1)
-  assert.equal(flags[0].type, 'chip_duplicate')
-  assert.equal(flags[0].chip_number, 'SN20260917001')
-  assert.equal(flags[0].attempted_sample_id, '20260917001')
-  // 原检测数据不被改写
+  assert.deepEqual(res.body.data.reviewTypes, ['chip_number_conflict'])
+  assert.equal(created.length, 1, '数据必须入库')
+  assert.match(res.body.data.reportId, /^RC-pathogen-samechip-/, '新记录用独立记录码，避免与芯片码冲突')
+  const newFlags = created[0].result_data.reviewFlags || []
+  assert.equal(newFlags[0].type, 'chip_number_conflict')
+  assert.equal(newFlags[0].chip_number, 'SN20260917001')
+  assert.ok(Array.isArray(newFlags[0].differences) && newFlags[0].differences.length > 0, '应列出具体差异项供人工复核')
+  assert.match(newFlags[0].hint, /芯片编号是否录入错误/)
+  // 既有记录：检测数据不被改写，但打反向标记
   assert.equal(all[0].result_data.rawDetection.ctList['FAM-1'], '25.3')
+  assert.equal(all[0].result_data.reviewFlags[0].type, 'chip_number_conflict')
+  assert.equal(all[0].result_data.reviewFlags[0].reverse, true)
+  assert.equal((all[0].result_data.recheckReports || []).length, 0, '不得并入轮次')
 })
 
 test('档案语义：同样本编号 + 新芯片（同日）→ 并入为复测轮次（round 2、检测次数 +1、结论以新轮次为准）', async () => {
@@ -594,10 +597,11 @@ test('档案语义（回归）：同食堂 + 同样本描述 + 同日 + 同设�
   const differentSample = makePayload({ ChipNumber: 'SN20260917003', DetectionNumber: '20260917003' })
   const res = await invokeUpload({ prisma, tenantClientFactory, body: differentSample, apiKey: plainKey })
   assert.equal(res.statusCode, 200)
-  assert.equal(res.body.data.appended, undefined)          // 不并入
-  assert.equal(created.length, 1)                          // 独立新建
-  assert.equal(created[0].result_data.sampleId, '20260917003')
-  assert.equal((all[0].result_data.recheckReports || []).length, 0) // 既有档案不被改动
+  // 2026-10-28 口径调整：样本编号是自由文本，**不参与身份判定** → 其余相同即并入复测
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.body.data.appended, true, '样本编号不同不再阻止并入')
+  assert.equal(created.length, 0, '不新建记录')
+  assert.equal(all[0].result_data.recheckReports[0].sampleId, '20260917003', '轮次保留本次样本编号原文')
 })
 
 test('上传：正常入库 → 写入 school-a 租户、返回 reportId、三键与来源键正确', async () => {
@@ -1028,8 +1032,9 @@ test('芯片语义：归一化后内容不一致（大小写不同的同芯片�
     body: makePayload({ ChipNumber: 'sn20260917001', CTList: { 'FAM-1': '30.9', 'FAM-2': '-', 'HEX-1': '28.7' } }),
     apiKey: plainKey,
   })
-  assert.equal(res.statusCode, 409)
-  assert.equal(res.body.code, 'CHIP_REVIEW_REQUIRED')
+  // 归一化（大小写）判定命中同芯片，但内容不同 → 仍入库为新记录 + 复核标记
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body))
+  assert.equal(res.body.data.reviewRequired, true)
   assert.equal(all[0].result_data.reviewFlags[0].chip_number, 'sn20260917001')
 })
 
@@ -1380,12 +1385,17 @@ test('食堂（报障回归）：报文显式写「四食堂」但不在该校�
     prisma, tenantClientFactory, plainKey, apiKey: plainKey,
     body: makePayload({ SampleStr: '四食堂 餐盘涂抹样', ChipNumber: 'SN-CHK-1001', DetectionNumber: '20261026T001' }),
   })
-  assert.equal(res.statusCode, 422)
-  assert.equal(res.body.code, 'CANTEEN_NOT_IN_LIST')
-  assert.match(res.body.message, /四食堂/)
-  assert.match(res.body.message, /一食堂、二食堂、三食堂/)     // 回显实际生效名单
-  assert.match(res.body.message, /学校管理/)
-  assert.equal(created.length, 0, '不得写入任何记录（更不能写成三食堂）')
+  // 2026-10-28 语义调整：数据必须收进来 —— 保留原文食堂名入库 + 复核标记（不再 422）
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body))
+  assert.equal(res.body.data.reviewRequired, true)
+  assert.deepEqual(res.body.data.reviewTypes, ['canteen_not_in_list'])
+  assert.equal(created.length, 1)
+  assert.equal(created[0].sample_info.canteen, '四食堂', '必须保留原文食堂名，不得回落为默认的三食堂')
+  const cf = created[0].result_data.reviewFlags[0]
+  assert.equal(cf.type, 'canteen_not_in_list')
+  assert.equal(cf.canteen, '四食堂')
+  assert.match(cf.hint, /补充食堂名单/)
+  assert.match(cf.hint, /填写有误/)
 })
 
 test('食堂（对照）：列表已配置四食堂 → 正常识别，不再报错', async () => {
@@ -1516,8 +1526,9 @@ test('并发加固（防重复并入）：重试时发现同芯片已被并发�
     prisma, tenantClientFactory, plainKey, apiKey: plainKey,
     body: makePayload({ ChipNumber: chip, DetectionDateTime: '2026-09-17 20:30:00', DetectionEndDateTime: '2026-09-17 21:00:00' }),
   })
-  assert.equal(res.statusCode, 409)
-  assert.equal(res.body.code, 'CHIP_REVIEW_REQUIRED')
+  // 2026-10-28：内容不同 → 不是重复 → 新记录入库 + 复核；绝不再重复并入轮次
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body))
+  assert.equal(res.body.data.reviewRequired, true)
   const rounds = all[0].result_data.recheckReports || []
   assert.equal(rounds.length, 1, '同芯片不得被重复并入（只保留并发写入的那一条）')
   assert.equal(rounds[0].chipNumber, chip)

@@ -1443,21 +1443,35 @@ function showDetailModal(recordId) {
         </div>
     ` : '';
 
-    // TD-DeviceReview（2026-10-15）：同芯片编号重复上报且内容不一致 → 提醒人工复核
-    const reviewBanner = (Array.isArray(record.reviewFlags) && record.reviewFlags.length > 0) ? `
-        <div class="mb-4 p-3 rounded border bg-red-50 border-red-300">
-            <div class="flex items-start">
-                <i class="fas fa-exclamation-triangle text-red-600 mr-2 mt-0.5"></i>
-                <div class="text-sm text-red-800">
-                    <div class="font-bold">芯片编号重复，请人工复核（${record.reviewFlags.length} 次）</div>
-                    <div class="text-xs mt-1">
-                        最近一次：芯片 ${escapeHtml(record.reviewFlags[0].chip_number || '-')} ·
-                        上报样本编号 ${escapeHtml(record.reviewFlags[0].attempted_sample_id || '-')} ·
-                        ${escapeHtml((record.reviewFlags[0].at || '').slice(0, 19).replace('T', ' '))}
+    // TD-DeviceReview（2026-10-15 / 2026-10-28 扩充）：设备上报的「数据照收、但需人工确认」提示。
+    // 不同成因用**不同说明**（食堂不在名单 / 同芯片不同数据 / 旧版芯片重复），避免管理员看同一条模糊提示。
+    const REVIEW_META = {
+      canteen_not_in_list: { box: 'bg-amber-50 border-amber-300', text: 'text-amber-800', icon: 'fa-map-marker-alt text-amber-600', label: '食堂信息待复核' },
+      chip_number_conflict: { box: 'bg-red-50 border-red-300', text: 'text-red-800', icon: 'fa-exclamation-triangle text-red-600', label: '芯片编号冲突待复核' },
+      chip_duplicate: { box: 'bg-red-50 border-red-300', text: 'text-red-800', icon: 'fa-exclamation-triangle text-red-600', label: '芯片编号重复待复核' },
+    }
+    const reviewFlags = Array.isArray(record.reviewFlags) ? record.reviewFlags : []
+    const reviewBanner = reviewFlags.length ? `
+        <div class="mb-4 space-y-2">
+            ${reviewFlags.slice(0, 5).map((f) => {
+                const meta = REVIEW_META[f.type] || REVIEW_META.chip_number_conflict
+                return `
+                <div class="p-3 rounded border ${meta.box}">
+                    <div class="flex items-start">
+                        <i class="fas ${meta.icon} mr-2 mt-0.5"></i>
+                        <div class="text-sm ${meta.text}">
+                            <div class="font-bold">${escapeHtml(f.title || meta.label)}</div>
+                            ${f.hint ? `<div class="text-xs mt-1 leading-relaxed">${escapeHtml(f.hint)}</div>` : ''}
+                            <div class="text-xs mt-1 opacity-75">
+                                ${escapeHtml((f.at || '').slice(0, 19).replace('T', ' '))}
+                                ${f.chip_number ? ` · 芯片 ${escapeHtml(f.chip_number)}` : ''}
+                                ${f.canteen ? ` · 食堂 ${escapeHtml(f.canteen)}` : ''}
+                            </div>
+                        </div>
                     </div>
-                    <div class="text-xs mt-1">该芯片编号已有数据且本次上报内容不一致；第二张同编号芯片数据请走人工上传导出的报告。</div>
-                </div>
-            </div>
+                </div>`
+            }).join('')}
+            ${reviewFlags.length > 5 ? `<div class="text-xs text-gray-500">另有 ${reviewFlags.length - 5} 条复核提示未展示</div>` : ''}
         </div>` : '';
 
     modal.innerHTML = `
@@ -1697,7 +1711,7 @@ function renderTable() {
 
         // TD-DeviceReview：芯片编号重复上报且内容不一致 → 列表直接告警「待复核」
         const reviewBadge = (Array.isArray(item.reviewFlags) && item.reviewFlags.length > 0)
-            ? '<span class="ml-1 px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700" title="芯片编号重复，请人工复核">待复核</span>'
+            ? `<span class="ml-1 px-1.5 py-0.5 rounded text-xs font-medium ${item.reviewFlags.some((f) => f.type === 'chip_number_conflict' || f.type === 'chip_duplicate') ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}" title="${escapeHtml(item.reviewFlags[0]?.title || '待人工复核')}">待复核</span>`
             : '';
         
         let statusBadge = '';

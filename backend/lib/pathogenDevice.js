@@ -340,24 +340,31 @@ export function matchSchoolCanteen(text, schoolCanteens) {
  */
 export function buildPathogenRecordPayload({ payload, deviceNo, canteens, defaultCanteen }) {
   const matchedCanteen = matchSchoolCanteen(payload.sampleStr, canteens)
-  // 报文里**显式写了**「N食堂 / 第N食堂 / N号食堂」但不在该校食堂列表 → 明确拒绝。
-  // ⚠️ 2026-10-27 现场报障：样本信息填「四食堂」、该校列表只有一/二/三食堂，旧逻辑静默回落
-  //   设备默认食堂（三食堂），导致食堂维度的数据被悄悄改写成另一个食堂。
   const explicitCanteen = extractExplicitCanteenToken(payload.sampleStr)
-  if (!matchedCanteen && explicitCanteen) {
-    return {
-      ok: false,
-      code: 'CANTEEN_NOT_IN_LIST',
-      message: `样本信息中的「${explicitCanteen}」不在该校食堂列表（${canteens.join('、')}）内；请先在 学校管理 → 基本信息 维护食堂列表，或更正报文的样本信息`,
-    }
-  }
-  const canteen = matchedCanteen || defaultCanteen || null
+  // ⚠️ 2026-10-28 按现场反馈改为**先入库 + 人工复核**（不再 422 拒绝）：
+  //   报文显式点名了食堂但不在该校列表时，**保留原文食堂名入库**（不静默改成默认食堂），
+  //   同时打 `canteen_not_in_list` 复核标记，由管理员判断「该校确有该食堂（需补名单）」还是「检测时填错」。
+  const unknownCanteen = (!matchedCanteen && explicitCanteen) ? explicitCanteen : null
+  const canteen = matchedCanteen || unknownCanteen || defaultCanteen || null
   if (!canteen) {
+    // 连食堂名都提取不到、设备也没默认食堂 → 无法归属，仍拒绝（否则看板会出现无食堂数据）
     return {
       ok: false,
       code: 'CANTEEN_UNRESOLVED',
       message: `无法从样本信息「${payload.sampleStr}」识别食堂，且设备未配置默认食堂；请在控制台为该设备设置默认食堂`,
     }
+  }
+  const reviewFlags = []
+  if (unknownCanteen) {
+    reviewFlags.push({
+      type: 'canteen_not_in_list',
+      at: new Date().toISOString(),
+      canteen: unknownCanteen,
+      school_canteens: canteens,
+      sample_str: payload.sampleStr,
+      title: '食堂不在学校食堂名单内（已按原文入库，待复核）',
+      hint: `报文样本信息为「${payload.sampleStr}」，识别到食堂「${unknownCanteen}」，但该校食堂名单只有（${canteens.join('、')}）。请复核：① 该校确实有「${unknownCanteen}」→ 在「学校管理 → 基本信息」补充食堂名单；② 检测时食堂信息填写有误 → 更正后重新上传（本条已按原文入库，可直接删除或更正）`,
+    })
   }
 
   const risk = calculateDeviceRisk(payload.points)
@@ -412,6 +419,8 @@ export function buildPathogenRecordPayload({ payload, deviceNo, canteens, defaul
         sampleInfo: payload.sampleStr,
         inspector: payload.peopleStr,
       }),
+      // 人工复核标记（2026-10-28）：数据**照常入库**，但需管理员确认的情况（如食堂不在名单）
+      reviewFlags,
       // 原始协议快照：点位 + 判读 + CT + 截断荧光（完整荧光由设备本地留存，接口不返还）
       rawDetection: {
         parms: Object.fromEntries(payload.points.map((p) => [p.key, p.name])),
@@ -506,8 +515,11 @@ export function normalizeSampleText(text) {
   return String(text || '').replace(/[\s\u3000]+/g, ' ').trim()
 }
 
-export function buildCaseKey({ canteen, sampleType, sampleInfo, deviceNo, sampleId }) {
-  return [canteen, sampleType, normalizeSampleText(sampleInfo), String(sampleId || '').trim(), deviceNo].join('||')
+export function buildCaseKey({ canteen, sampleType, sampleInfo, deviceNo }) {
+  // ⚠️ 2026-10-28 按现场反馈重定口径：**样本编号（DetectionNumber）不参与身份判定**——
+  //   现场它是自由文本（可能是数字编号，也可能是文字说明），且不唯一（实测出现 "1"/"2"/"3"）。
+  //   档案身份 = 食堂 + 样本类型 + 样本描述（归一） + 设备编号（+ 检测日期同窗，见 isSameCase）。
+  return [canteen, sampleType, normalizeSampleText(sampleInfo), deviceNo].join('||')
 }
 
 /**

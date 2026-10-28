@@ -26,6 +26,7 @@
 //    否则设备上传会被其全局 authenticateUser 拦成 401（同 /api/open 踩坑教训）。
 
 import express from 'express'
+import { createHash } from 'node:crypto'
 import { writeSystemLog, writeAdminOpsLog } from '../lib/auditLog.js'
 import { writeAggregatedLog } from '../lib/logThrottle.js'
 import { writeRecordAuditLog, buildRecordWriteData } from '../lib/recordNormalize.js'
@@ -571,6 +572,7 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
 
     const targetChip = normalizeChipNumber(payload.chipNumber)
     let chipHit = null
+    let chipRecords = []          // 全部同芯片记录（用于按内容指纹判「真重复」）
     let chipRound = null          // 命中的轮次（为空表示命中记录自身的芯片）
     let caseHit = null
     // 档案键（与写入同源；落成派生列 case_key 用于精确检索）
@@ -585,17 +587,14 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
       // 芯片命中检索（2026-10-28 压测前加固）：改用派生列 `chip_nos`（GIN 索引）精确命中。
       // 该列维护「本记录自身芯片 + 每次并入的复测轮次芯片」，不再依赖「最近 300 条」窗口
       // —— 旧实现的窗口在数据量增长后会漏判老芯片重传 → 产生重复记录。
-      chipHit = await db.testRecord.findFirst({
+      // 取**全部**同芯片记录（可能不止一条：同芯片不同数据会被入库为多条），逐个比对内容指纹
+      chipRecords = await db.testRecord.findMany({
         where: { test_type: 'pathogen', chip_nos: { has: targetChip } },
         orderBy: { created_at: 'desc' },
+        take: 20,
       })
-      if (chipHit) {
-        // 命中的是「已并入轮次的芯片」时，取出该轮次做指纹比对
-        if (normalizeChipNumber(chipHit.result_data?.chip?.number) !== targetChip) {
-          const rounds = Array.isArray(chipHit.result_data?.recheckReports) ? chipHit.result_data.recheckReports : []
-          chipRound = rounds.find((x) => x && normalizeChipNumber(x.chipNumber) === targetChip) || null
-        }
-      } else {
+      chipHit = chipRecords[0] || null
+      if (!chipHit) {
         // 同档案候选：按 `case_key` 精确检索（同键通常 1~2 行），再按「检测日期同窗」在内存判定；
         // 取代旧实现「按食堂+样本类型取最近 20 条再逐条比对」（候选超过 20 条会漏合并）。
         const candidates = await db.testRecord.findMany({
@@ -610,62 +609,39 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
       return reply(res, 500, 'INTERNAL_ERROR', '服务暂时不可用，请稍后重试')
     }
 
-    // ⑧.1 同芯片命中：一致 → 幂等；不一致 → 请人工复核
+    // ⑧.1 同芯片：**按内容指纹**判「真重复」，而不是按芯片号一刀切
+    //   2026-10-28 按现场反馈：同一芯片编号但检测数据不同（不同天 / 同天不同食堂或样本）
+    //   **不是重复** → 照常入库为**新记录**（不进复测轮次），只是打人工复核标记，
+    //   让管理员判断是「检测时芯片编号录入错误」还是其它原因。
+    let chipConflictWith = null
     if (chipHit) {
-      // 命中「记录自身芯片」用记录指纹；命中「已并入轮次」用该轮次指纹
-      const storedFp = chipRound
-        ? (chipRound.contentFingerprint || null)
-        : (chipHit.result_data?.contentFingerprint || fingerprintOfStoredRecord(chipHit.result_data, chipHit.sample_info))
-      if (storedFp && storedFp === built.data.contentFingerprint) {
-        logUploadEvent('pathogen_device_upload_duplicate', `PATHOGEN_DEVICE_UPLOAD_DUPLICATE ${device.device_no}`, {
-          device_no: device.device_no, school_code: device.school_code, record_code: chipHit.record_code,
-          chip_number: payload.chipNumber, detection_number: payload.detectionNumber, auth_mode: authMode, ip,
-          reason: 'same_chip_same_content',
-        })
-        return reply(res, 200, 0, 'success', { reportId: chipHit.record_code, duplicated: true })
+      // 在所有同芯片记录里找「内容指纹完全一致」的那条 → 真重复 → 幂等
+      for (const rec of chipRecords) {
+        const rRound = (Array.isArray(rec.result_data?.recheckReports) ? rec.result_data.recheckReports : [])
+          .find((x) => x && normalizeChipNumber(x.chipNumber) === targetChip) || null
+        const fp = rRound
+          ? (rRound.contentFingerprint || null)
+          : (rec.result_data?.contentFingerprint || fingerprintOfStoredRecord(rec.result_data, rec.sample_info))
+        if (fp && fp === built.data.contentFingerprint) {
+          logUploadEvent('pathogen_device_upload_duplicate', `PATHOGEN_DEVICE_UPLOAD_DUPLICATE ${device.device_no}`, {
+            device_no: device.device_no, school_code: device.school_code, record_code: rec.record_code,
+            chip_number: payload.chipNumber, detection_number: payload.detectionNumber, auth_mode: authMode, ip,
+            reason: 'same_chip_same_content',
+          })
+          return reply(res, 200, 0, 'success', { reportId: rec.record_code, duplicated: true })
+        }
       }
-      const flags = Array.isArray(chipHit.result_data?.reviewFlags) ? chipHit.result_data.reviewFlags : []
-      const flag = {
-        type: 'chip_duplicate',
-        at: new Date().toISOString(),
-        device_no: device.device_no,
-        chip_number: payload.chipNumber,
-        attempted_sample_id: payload.detectionNumber,
-        attempted_report_file: payload.fileName,
-        existing_sample_id: chipRound ? (chipRound.sampleId || null) : (chipHit.result_data?.sampleId || null),
-        existing_round: chipRound ? (chipRound.roundNo || null) : 1,
-        hint: '芯片编号重复且本次数据不一致，请人工复核；第二张同编号芯片数据请走人工上传导出的报告',
-      }
-      try {
-        await db.testRecord.update({
-          where: { id: chipHit.id },
-          data: { result_data: { ...chipHit.result_data, reviewFlags: [flag, ...flags].slice(0, 20) } },
-        })
-      } catch (e) {
-        console.warn(`${TAG} 复核标记写入失败（不影响拒绝语义）:`, e.message)
-      }
-      await writeRecordAuditLog(db, device.binding_user_id, 'update', 'test_record', chipHit.id, {
-        test_type: 'pathogen',
-        record_code: chipHit.record_code,
-        source: 'device',
-        auth_mode: authMode,
-        device_no: device.device_no,
-        school_code: device.school_code,
-        review: 'chip_duplicate',
-        chip_number: payload.chipNumber,
-        attempted_sample_id: payload.detectionNumber,
-      }, ip)
-      logDenied(ip, 'CHIP_REVIEW_REQUIRED', { path, deviceNo: device.device_no, schoolCode: device.school_code })
-      return reply(res, 409, 'CHIP_REVIEW_REQUIRED',
-        `芯片编号 ${payload.chipNumber} 已有数据且本次内容不一致：芯片编号重复，请人工复核（第二张同编号芯片数据请走人工上传导出的报告）`,
-        { reportId: chipHit.record_code, reviewRequired: true })
+      // 全部不一致 → 记为「同芯片不同数据」，稍后建**新记录**并双向打复核标记
+      chipConflictWith = chipHit
+      console.log(`${TAG} 同芯片不同数据（将新建记录并标记复核）: chip=${payload.chipNumber} 既有记录=${chipHit.record_code} 本次检测=${payload.detectionNumber}`)
     }
 
     // ⑧.2 同档案不同芯片 → 复测轮次并入既有记录
+    //   ⚠️ 同芯片不同数据时**不得**走并入路径（它属于"另一批数据"，不是同一样本的复测）
     //   ⚠️ 2026-10-28 压测前加固：改为**乐观锁 CAS**（where version = 读到的值，写入时 version+1）。
     //   旧实现是「读 rounds → update 整体覆盖」，同一档案被多张芯片**并发**上报时会互相覆盖：
     //   丢轮次 / 轮次号重复。CAS 失败则重读重算，超过 5 次返回 409（提示重试，本次不丢数据）。
-    if (caseHit && isSameCase(caseHit, built.data)) {
+    if (!chipConflictWith && caseHit && isSameCase(caseHit, built.data)) {
       let current = caseHit
       let roundNo = 0
       let lastRound = null
@@ -687,9 +663,9 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
             if (againFp && againFp === built.data.contentFingerprint) {
               return reply(res, 200, 0, 'success', { reportId: again.record_code, duplicated: true })
             }
-            return reply(res, 409, 'CHIP_REVIEW_REQUIRED',
-              `芯片编号 ${payload.chipNumber} 已被并发写入且本次内容不一致：芯片编号重复，请人工复核`,
-              { reportId: again.record_code, reviewRequired: true })
+            // 内容不同 → **不是重复**：跳出合并，按「同芯片不同数据」新建记录（打复核标记）
+            chipConflictWith = again
+            break
           }
         }
         const rounds = Array.isArray(current.result_data?.recheckReports) ? current.result_data.recheckReports : []
@@ -767,30 +743,34 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
         current = fresh
         caseHit = fresh
       }
-      const round = lastRound
-      await writeRecordAuditLog(db, device.binding_user_id, 'update', 'test_record', caseHit.id, {
-        test_type: 'pathogen',
-        record_code: caseHit.record_code,
-        source: 'device',
-        auth_mode: authMode,
-        device_no: device.device_no,
-        school_code: device.school_code,
-        round: roundNo,
-        chip_number: payload.chipNumber,
-      }, ip)
-      prisma.pathogenDevice
-        .update({
-          where: { id: device.id },
-          data: { upload_count: { increment: 1 }, last_upload_at: new Date(), last_used_at: new Date() },
+      if (lastRound) {
+        const round = lastRound
+        await writeRecordAuditLog(db, device.binding_user_id, 'update', 'test_record', caseHit.id, {
+          test_type: 'pathogen',
+          record_code: caseHit.record_code,
+          source: 'device',
+          auth_mode: authMode,
+          device_no: device.device_no,
+          school_code: device.school_code,
+          round: roundNo,
+          chip_number: payload.chipNumber,
+        }, ip)
+        prisma.pathogenDevice
+          .update({
+            where: { id: device.id },
+            data: { upload_count: { increment: 1 }, last_upload_at: new Date(), last_used_at: new Date() },
+          })
+          .catch((e) => console.warn(`${TAG} 设备统计落库失败:`, e.message))
+        logUploadEvent('pathogen_device_upload_recheck', `PATHOGEN_DEVICE_UPLOAD_RECHECK ${device.device_no}`, {
+          device_no: device.device_no, school_code: device.school_code, record_code: caseHit.record_code,
+          round: roundNo, chip_number: payload.chipNumber, detection_number: payload.detectionNumber,
+          auth_mode: authMode, ip, canteen: built.data.canteen, risk: round.riskLevel,
         })
-        .catch((e) => console.warn(`${TAG} 设备统计落库失败:`, e.message))
-      logUploadEvent('pathogen_device_upload_recheck', `PATHOGEN_DEVICE_UPLOAD_RECHECK ${device.device_no}`, {
-        device_no: device.device_no, school_code: device.school_code, record_code: caseHit.record_code,
-        round: roundNo, chip_number: payload.chipNumber, detection_number: payload.detectionNumber,
-        auth_mode: authMode, ip, canteen: built.data.canteen, risk: round.riskLevel,
-      })
-      console.log(`${TAG} 设备复测轮次入库: device=${device.device_no} school=${device.school_code} record=${caseHit.record_code} round=${roundNo}`)
-      return reply(res, 200, 0, 'success', { reportId: caseHit.record_code, round: roundNo, appended: true })
+        console.log(`${TAG} 设备复测轮次入库: device=${device.device_no} school=${device.school_code} record=${caseHit.record_code} round=${roundNo}`)
+        return reply(res, 200, 0, 'success', { reportId: caseHit.record_code, round: roundNo, appended: true })
+        return reply(res, 200, 0, 'success', { reportId: caseHit.record_code, round: roundNo, appended: true })
+      }
+      // lastRound 为空 = 并发重试中发现「同芯片不同数据」→ 落到下方新建记录 + 复核标记路径
     }
 
     // ── ⑨ 绑定用户校验（created_by not-null 外键的审计归属） ──
@@ -807,24 +787,70 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
       return reply(res, 400, 'VALIDATION_ERROR', `参数校验失败：${writeData.message}`)
     }
 
+    // 复核标记（2026-10-28）：数据**照常入库**，只标记「待人工确认」，不再拒绝
+    const libFlags = Array.isArray(built.data.reviewFlags) ? built.data.reviewFlags : []
+    const writeFlags = [...libFlags]
+    let finalRecordCode = recordCode
+    if (chipConflictWith) {
+      // 同一芯片编号、内容不同 → 视为**另一批数据**：新记录 + 独立 record_code（确定性，重试幂等）
+      finalRecordCode = `RC-pathogen-samechip-${createHash('sha256').update(`${targetChip}|${built.data.contentFingerprint}`).digest('hex')}`
+      const prevRd = chipConflictWith.result_data || {}
+      const prevSi = chipConflictWith.sample_info || {}
+      const diffs = []
+      if (String(prevSi.testDate || '') !== String(built.data.testDate || '')) diffs.push(`检测日期（既有 ${prevSi.testDate || '—'} / 本次 ${built.data.testDate || '—'}）`)
+      if (String(prevSi.canteen || '') !== String(built.data.canteen || '')) diffs.push(`食堂（既有 ${prevSi.canteen || '—'} / 本次 ${built.data.canteen || '—'}）`)
+      if (String(prevRd.sampleInfo || '') !== String(built.data.sampleInfo || '')) diffs.push(`样本描述（既有 ${prevRd.sampleInfo || '—'} / 本次 ${built.data.sampleInfo || '—'}）`)
+      if (String(prevSi.inspector || '') !== String(built.data.inspector || '')) diffs.push(`检测员（既有 ${prevSi.inspector || '—'} / 本次 ${built.data.inspector || '—'}）`)
+      if (String(prevRd.detectionStartAt || '') !== String(built.data.detectionStartAt || '')) diffs.push(`检测时段（既有 ${prevRd.detectionStartAt || '—'} / 本次 ${built.data.detectionStartAt || '—'}）`)
+      // 元信息都一样时，差异通常在检测结果上（CT / 判读），也要说清楚，便于管理员判断
+      if (String(prevRd.positiveItems || '') !== String(built.data.positiveItems || '')) {
+        diffs.push(`阳性项（既有 ${prevRd.positiveItems || '无'} / 本次 ${built.data.positiveItems || '无'}）`)
+      }
+      const prevCt = prevRd.rawDetection?.ctList || prevRd.ctList || {}
+      const nowCt = built.data.rawDetection?.ctList || built.data.ctList || {}
+      const ctKeys = [...new Set([...Object.keys(prevCt), ...Object.keys(nowCt)])]
+        .filter((k) => String(prevCt[k] ?? '') !== String(nowCt[k] ?? ''))
+      if (ctKeys.length) {
+        diffs.push(`CT 值（${ctKeys.slice(0, 4).map((k) => `${k}: ${prevCt[k] ?? '—'} → ${nowCt[k] ?? '—'}`).join('，')}${ctKeys.length > 4 ? ' 等' : ''}）`)
+      }
+      writeFlags.push({
+        type: 'chip_number_conflict',
+        at: new Date().toISOString(),
+        device_no: device.device_no,
+        chip_number: payload.chipNumber,
+        existing_record: chipConflictWith.record_code,
+        existing_detection: prevRd.detectionStartAt || null,
+        existing_canteen: prevSi.canteen || null,
+        existing_sample: prevRd.sampleInfo || null,
+        incoming_detection: built.data.detectionStartAt || null,
+        incoming_canteen: built.data.canteen || null,
+        incoming_sample: built.data.sampleInfo || null,
+        differences: diffs,
+        title: '同一芯片编号出现不同检测数据（已按新数据入库，待复核）',
+        hint: `芯片编号 ${payload.chipNumber} 已有一条检测记录（${prevRd.detectionStartAt || '—'} / ${prevSi.canteen || '—'} / ${prevRd.sampleInfo || '—'}）。本次差异：${diffs.join('；') || '（检测内容不同）'}。请复核：① 检测时芯片编号是否录入错误（应为另一张芯片）；② 若确为同一张芯片被重复使用，请核对耗材与记录。本条已作为**新记录**入库，未并入原档案。`,
+      })
+    }
+
     let record
     try {
       record = await db.testRecord.create({
         data: {
-          record_code: recordCode,
+          record_code: finalRecordCode,
           created_by: device.binding_user_id,
           version: 1,
           // 检索派生列（真值仍在 sample_info / result_data）：芯片集合 + 档案键
           chip_nos: [targetChip],
           case_key: caseKeyForBuilt,
           ...writeData.data,
+          // 复核标记覆盖写入（数据照常入库，仅标记待人工确认）
+          result_data: { ...(writeData.data.result_data || {}), reviewFlags: writeFlags.slice(0, 20) },
         },
       })
     } catch (e) {
       // P2002：并发重复上传 → 幂等返回既有记录
       if (e.code === 'P2002' || String(e.message || '').includes('Unique constraint')) {
         try {
-          const existing = await db.testRecord.findUnique({ where: { record_code: recordCode } })
+          const existing = await db.testRecord.findUnique({ where: { record_code: finalRecordCode } })
           if (existing) {
             logUploadEvent('pathogen_device_upload_duplicate', `PATHOGEN_DEVICE_UPLOAD_DUPLICATE ${device.device_no}`, {
               device_no: device.device_no, school_code: device.school_code, record_code: existing.record_code,
@@ -837,6 +863,29 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
       }
       console.error(`${TAG} 记录写入异常:`, e)
       return reply(res, 500, 'INTERNAL_ERROR', '服务暂时不可用，请稍后重试')
+    }
+
+    // 冲突标记反向落到既有记录（便于在任一条上看到"同一芯片还有另一批数据"）
+    if (chipConflictWith) {
+      try {
+        const prevFlags = Array.isArray(chipConflictWith.result_data?.reviewFlags) ? chipConflictWith.result_data.reviewFlags : []
+        await db.testRecord.update({
+          where: { id: chipConflictWith.id },
+          data: {
+            result_data: {
+              ...chipConflictWith.result_data,
+              reviewFlags: [{
+                ...writeFlags[writeFlags.length - 1],
+                reverse: true,
+                counterpart_record: finalRecordCode,
+                title: '同一芯片编号出现另一批检测数据（对方已作为新记录入库，待复核）',
+              }, ...prevFlags].slice(0, 20),
+            },
+          },
+        })
+      } catch (e) {
+        console.warn(`${TAG} 反向复核标记写入失败（不影响入库）:`, e.message)
+      }
     }
 
     // ── ⑪ 审计与统计（非阻断）──
@@ -864,7 +913,11 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
       upload_count: Number(device.upload_count || 0) + 1,
     })
     console.log(`${TAG} 设备上报入库: device=${device.device_no} school=${device.school_code} record=${recordCode}`)
-    return reply(res, 200, 0, 'success', { reportId: record.record_code })
+    return reply(res, 200, 0, 'success', {
+      reportId: record.record_code,
+      // 数据已入库；如需人工确认（食堂不在名单 / 同芯片不同数据）会在此告知
+      ...(writeFlags.length ? { reviewRequired: true, reviewTypes: writeFlags.map((f) => f.type) } : {}),
+    })
   })
 
   return router
