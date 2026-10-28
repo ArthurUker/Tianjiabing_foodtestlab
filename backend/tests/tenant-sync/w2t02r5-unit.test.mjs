@@ -127,7 +127,7 @@ test('④ 锁表版本化只交链尾方案：本包未抢占迁移链', () => {
   // P3-PATHOGEN-DEVICE（2026-10-14）再追加 1 个 `@scope: both`（病原体设备映射表，第 18 位）；
   // 病原体统一上传密钥（B 方案，2026-10-15）再追加 1 个 `@scope: both`（第 19 位 = 当前链尾）：
   // 场景与断言保持（R5 未抢占链；旧 11 文件仍不含锁表 DDL），仅计数与"唯一含锁表 DDL 的文件"更新。
-  assert.equal(listMigrationFiles().length, 20, '迁移链 = 原 11 + 公共基础设施 2（第 12/13 位）+ public 前向修复 1（第 14 位）+ M1/M2 2（第 15/16 位）+ 友情链接 1（第 17 位）+ 病原体两表 2（第 18~20 位；逐项归因见各包 RESULT）')
+  assert.equal(listMigrationFiles().length, 24, '迁移链 = 原 11 + 公共基础设施 2（第 12/13 位）+ public 前向修复 1（第 14 位）+ M1/M2 2（第 15/16 位）+ 友情链接 1（第 17 位）+ 病原体两表 2（第 18~20 位；逐项归因见各包 RESULT）')
   const legacy = listMigrationFiles().slice(0, 11)
   for (const m of legacy) {
     const sql = read(`backend/prisma/migrations/${m.name}/migration.sql`)

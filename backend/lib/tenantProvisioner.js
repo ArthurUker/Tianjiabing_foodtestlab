@@ -325,6 +325,11 @@ const TENANT_MIGRATION_REGISTRY = Object.freeze({
   '20261019120000_colloidal_photo_entries': { checksum: '9352c4dd5b40e0219433b1b11353710851b6340d9a9d0e0188e21dc27034378a', scope: 'both', skip: [], stmtCount: 7 },
   '20261022120000_colloidal_timed_sampling': { checksum: 'e7db410ad58f10c788e9703458cd6822edfa4446c3e88ceb7a11f8c0daa32fba', scope: 'both', skip: [], stmtCount: 4 },
   '20261022150000_colloidal_process_log': { checksum: '513ad2632c10f5a08db8d0c20dc359ad8962e43d9cc1fe1feff560e4b38f2cf7', scope: 'both', skip: [], stmtCount: 1 },
+  // 设备上报检索加固（2026-10-28，压测前）：TestRecord 增加 chip_nos（芯片号集合，自身+各复测轮次，GIN 索引）
+  // 与 case_key（档案键，B-tree），把原「取最近 300 条 / 20 条候选再内存比对」改为**精确查询**，
+  // 消除「数据量增长后漏判重复/漏合并」的规模缺陷。3 条幂等 DDL（IF NOT EXISTS），无跳过语句；
+  // 新增列为派生值，历史数据由 scripts/backfill-pathogen-lookup.mjs 用与写入同一套 JS 归一化回填。
+  '20261028120000_pathogen_record_lookup_indexes': { checksum: 'ad82a749ad60d99b6409ddc81e54e3b50edb45b6844f61fe10a17b684f65ec5d', scope: 'both', skip: [], stmtCount: 3 },
 })
 
 /** 分类协议对外的可审计快照（供 `--check`/证据输出；值即编译进上表的常量）。 */

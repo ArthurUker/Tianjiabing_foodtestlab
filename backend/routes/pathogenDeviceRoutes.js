@@ -573,30 +573,33 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
     let chipHit = null
     let chipRound = null          // 命中的轮次（为空表示命中记录自身的芯片）
     let caseHit = null
+    // 档案键（与写入同源；落成派生列 case_key 用于精确检索）
+    const caseKeyForBuilt = buildCaseKey({
+      canteen: built.data.canteen,
+      sampleType: built.data.sampleType,
+      sampleInfo: built.data.sampleInfo,
+      deviceNo: built.data.deviceNo,
+      sampleId: built.data.sampleId,
+    })
     try {
-      // 芯片命中检索：同时覆盖 ① 记录自身的芯片号 ② 已并入的各复测轮次芯片号；芯片号按**归一化**比较
-      // （大小写/空格差异视为同一张芯片）。按创建时间倒序取最近 300 条为该学校的检索窗口。
-      const recent = await db.testRecord.findMany({
-        where: { test_type: 'pathogen' },
+      // 芯片命中检索（2026-10-28 压测前加固）：改用派生列 `chip_nos`（GIN 索引）精确命中。
+      // 该列维护「本记录自身芯片 + 每次并入的复测轮次芯片」，不再依赖「最近 300 条」窗口
+      // —— 旧实现的窗口在数据量增长后会漏判老芯片重传 → 产生重复记录。
+      chipHit = await db.testRecord.findFirst({
+        where: { test_type: 'pathogen', chip_nos: { has: targetChip } },
         orderBy: { created_at: 'desc' },
-        take: 300,
       })
-      for (const rec of recent || []) {
-        const ownChip = normalizeChipNumber(rec.result_data?.chip?.number)
-        if (ownChip && ownChip === targetChip) { chipHit = rec; break }
-        const rounds = Array.isArray(rec.result_data?.recheckReports) ? rec.result_data.recheckReports : []
-        const hitRound = rounds.find((x) => x && normalizeChipNumber(x.chipNumber) === targetChip)
-        if (hitRound) { chipHit = rec; chipRound = hitRound; break }
-      }
-      if (!chipHit) {
-        // 同档案候选：按「食堂 + 样本类型」取最近 20 条（该组合下样本描述可能不同），
-        // 在内存中逐条按「归一档案键 + 时间窗」精确比对，命中最近一条即视为复测
+      if (chipHit) {
+        // 命中的是「已并入轮次的芯片」时，取出该轮次做指纹比对
+        if (normalizeChipNumber(chipHit.result_data?.chip?.number) !== targetChip) {
+          const rounds = Array.isArray(chipHit.result_data?.recheckReports) ? chipHit.result_data.recheckReports : []
+          chipRound = rounds.find((x) => x && normalizeChipNumber(x.chipNumber) === targetChip) || null
+        }
+      } else {
+        // 同档案候选：按 `case_key` 精确检索（同键通常 1~2 行），再按「检测日期同窗」在内存判定；
+        // 取代旧实现「按食堂+样本类型取最近 20 条再逐条比对」（候选超过 20 条会漏合并）。
         const candidates = await db.testRecord.findMany({
-          where: {
-            test_type: 'pathogen',
-            sample_info: { path: ['canteen'], equals: built.data.canteen },
-            result_data: { path: ['sampleType'], equals: built.data.sampleType },
-          },
+          where: { test_type: 'pathogen', case_key: caseKeyForBuilt },
           orderBy: { created_at: 'desc' },
           take: 20,
         })
@@ -659,41 +662,74 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
     }
 
     // ⑧.2 同档案不同芯片 → 复测轮次并入既有记录
+    //   ⚠️ 2026-10-28 压测前加固：改为**乐观锁 CAS**（where version = 读到的值，写入时 version+1）。
+    //   旧实现是「读 rounds → update 整体覆盖」，同一档案被多张芯片**并发**上报时会互相覆盖：
+    //   丢轮次 / 轮次号重复。CAS 失败则重读重算，超过 5 次返回 409（提示重试，本次不丢数据）。
     if (caseHit && isSameCase(caseHit, built.data)) {
-      const rounds = Array.isArray(caseHit.result_data?.recheckReports) ? caseHit.result_data.recheckReports : []
-      const roundNo = rounds.filter((r) => r && r.source === 'device').length + 2 // 父记录本身 = 第 1 轮
-      const round = buildDeviceRound({
-        built: built.data,
-        payload,
-        deviceNo: device.device_no,
-        roundNo,
-        uploadedAt: Date.now(),
-        parentInspector: caseHit.sample_info?.inspector || null,
-      })
-      const merged = {
-        ...caseHit.result_data,
-        recheckReports: [round, ...rounds],
-        // 结论以最新轮次为准（与手动复检 TD-Recheck-Sync 同口径）
-        finalStatus: round.isPassed ? '复检通过' : `复检${round.riskLevel}`,
-        riskLevel: round.isPassed ? '无风险' : round.riskLevel,
-        positiveItems: round.isPassed ? '无' : round.positiveItems,
-        positiveDetails: round.positiveDetails,
-        riskReason: round.riskReason,
-        result: round.isPassed ? '合格' : '不合格',
-        modificationLogs: [{
-          time: new Date().toLocaleString('zh-CN', { hour12: false }),
-          user: `设备 ${device.device_no}`,
-          action: '设备复测轮次入库',
-          // 检测员变更显式写入变更日志（复测可能换人，需可追溯/可展示）
-          content: `${round.roundLabel}（芯片 ${payload.chipNumber}、样本 ${payload.detectionNumber}、检测员 ${round.inspector}${round.inspectorChanged ? `（初检为 ${round.prevInspector}）` : ''}）：${round.riskReason}`,
-        }, ...(Array.isArray(caseHit.result_data?.modificationLogs) ? caseHit.result_data.modificationLogs : [])],
+      let current = caseHit
+      let roundNo = 0
+      let lastRound = null
+      const MAX_CAS_ATTEMPTS = 5
+      for (let attempt = 1; ; attempt += 1) {
+        const rounds = Array.isArray(current.result_data?.recheckReports) ? current.result_data.recheckReports : []
+        roundNo = rounds.filter((r) => r && r.source === 'device').length + 2 // 父记录本身 = 第 1 轮
+        const round = buildDeviceRound({
+          built: built.data,
+          payload,
+          deviceNo: device.device_no,
+          roundNo,
+          uploadedAt: Date.now(),
+          parentInspector: current.sample_info?.inspector || null,
+        })
+        const merged = {
+          ...current.result_data,
+          recheckReports: [round, ...rounds],
+          // 结论以最新轮次为准（与手动复检 TD-Recheck-Sync 同口径）
+          finalStatus: round.isPassed ? '复检通过' : `复检${round.riskLevel}`,
+          riskLevel: round.isPassed ? '无风险' : round.riskLevel,
+          positiveItems: round.isPassed ? '无' : round.positiveItems,
+          positiveDetails: round.positiveDetails,
+          riskReason: round.riskReason,
+          result: round.isPassed ? '合格' : '不合格',
+          modificationLogs: [{
+            time: new Date().toLocaleString('zh-CN', { hour12: false }),
+            user: `设备 ${device.device_no}`,
+            action: '设备复测轮次入库',
+            // 检测员变更显式写入变更日志（复测可能换人，需可追溯/可展示）
+            content: `${round.roundLabel}（芯片 ${payload.chipNumber}、样本 ${payload.detectionNumber}、检测员 ${round.inspector}${round.inspectorChanged ? `（初检为 ${round.prevInspector}）` : ''}）：${round.riskReason}`,
+          }, ...(Array.isArray(current.result_data?.modificationLogs) ? current.result_data.modificationLogs : [])],
+        }
+        let updatedCount = 0
+        try {
+          const upd = await db.testRecord.updateMany({
+            where: { id: current.id, version: current.version },
+            data: {
+              result_data: merged,
+              version: { increment: 1 },
+              // 轮次芯片并入检索集合，供后续同芯片判重（GIN has 查询）
+              chip_nos: { push: [targetChip] },
+            },
+          })
+          updatedCount = Number(upd?.count || 0)
+        } catch (e) {
+          console.error(`${TAG} 复测轮次写入异常:`, e)
+          return reply(res, 500, 'INTERNAL_ERROR', '服务暂时不可用，请稍后重试')
+        }
+        if (updatedCount === 1) { lastRound = round; break }
+        if (attempt >= MAX_CAS_ATTEMPTS) {
+          console.warn(`${TAG} 复测轮次乐观锁冲突达上限: record=${current.record_code} attempts=${attempt}`)
+          logDenied(ip, 'RECORD_BUSY', { path, deviceNo: device.device_no, schoolCode: device.school_code })
+          return reply(res, 409, 'RECORD_BUSY',
+            `该档案正在被并发更新（同一档案多张芯片同时上报），请稍后重试；本次数据未写入，重试不会产生重复`,
+            { reportId: current.record_code })
+        }
+        // 冲突：重读最新版本后重算轮次号与合并内容
+        const fresh = await db.testRecord.findUnique({ where: { id: current.id } })
+        if (!fresh) return reply(res, 500, 'INTERNAL_ERROR', '档案在并发更新中消失，请稍后重试')
+        current = fresh
+        caseHit = fresh
       }
-      try {
-        await db.testRecord.update({ where: { id: caseHit.id }, data: { result_data: merged } })
-      } catch (e) {
-        console.error(`${TAG} 复测轮次写入异常:`, e)
-        return reply(res, 500, 'INTERNAL_ERROR', '服务暂时不可用，请稍后重试')
-      }
+      const round = lastRound
       await writeRecordAuditLog(db, device.binding_user_id, 'update', 'test_record', caseHit.id, {
         test_type: 'pathogen',
         record_code: caseHit.record_code,
@@ -740,6 +776,9 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
           record_code: recordCode,
           created_by: device.binding_user_id,
           version: 1,
+          // 检索派生列（真值仍在 sample_info / result_data）：芯片集合 + 档案键
+          chip_nos: [targetChip],
+          case_key: caseKeyForBuilt,
           ...writeData.data,
         },
       })

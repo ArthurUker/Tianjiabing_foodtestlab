@@ -135,9 +135,30 @@ function makeUploadStubs({ device, extraBindings = [], platformKey = null, schoo
     user: { async findUnique() { return tenantUser } },
     testRecord: {
       async findUnique({ where }) {
+        // 支持按 record_code（幂等查重）或按 id（乐观锁重试时重读）查找
+        if (where?.id) return stored.find((r) => r.id === where.id) || null
         return stored.find((r) => r.record_code === where.record_code) || null
       },
-      /** 支持路由用到的 Prisma JSON 路径过滤（chip.number / canteen / sampleType）+ created_at 倒序 */
+      /** 派生列（chip_nos / case_key）语义：记录未显式携带时，从 JSON 推导——等价于回填脚本执行后的状态 */
+      _chipNos(r) {
+        if (Array.isArray(r.chip_nos) && r.chip_nos.length) return r.chip_nos
+        const own = normalizeChipNumber(r.result_data?.chip?.number)
+        const rounds = Array.isArray(r.result_data?.recheckReports) ? r.result_data.recheckReports : []
+        return [own, ...rounds.map((x) => normalizeChipNumber(x?.chipNumber))].filter(Boolean)
+      },
+      _caseKey(r) {
+        if (r.case_key) return r.case_key
+        const rd = r.result_data || {}
+        const si = r.sample_info || {}
+        return buildCaseKey({
+          canteen: si.canteen,
+          sampleType: rd.sampleType,
+          sampleInfo: rd.sampleInfo,
+          deviceNo: rd.deviceNo,
+          sampleId: rd.sampleId,
+        })
+      },
+      /** 支持路由用到的过滤：chip_nos.has / case_key / 旧 JSON 路径 + created_at 倒序 */
       async findMany({ where = {}, orderBy, take } = {}) {
         const pathEq = (obj, path, val) => {
           let cur = obj
@@ -147,6 +168,8 @@ function makeUploadStubs({ device, extraBindings = [], platformKey = null, schoo
         const hit = stored
           .filter((r) => (where.test_type ? r.test_type === where.test_type : true))
           .filter((r) => {
+            if (where.chip_nos?.has) return this._chipNos(r).includes(where.chip_nos.has)
+            if (where.case_key) return this._caseKey(r) === where.case_key
             if (where.result_data?.path) return pathEq(r.result_data, where.result_data.path, where.result_data.equals)
             if (where.sample_info?.path) return pathEq(r.sample_info, where.sample_info.path, where.sample_info.equals)
             return true
@@ -165,6 +188,20 @@ function makeUploadStubs({ device, extraBindings = [], platformKey = null, schoo
         Object.assign(r, data)
         updated.push({ id: where.id, data })
         return r
+      },
+      /** 乐观锁 CAS：仅当 version 与读取时一致才写入（模拟 Prisma updateMany） */
+      async updateMany({ where = {}, data = {} }) {
+        const r = stored.find((x) => x.id === where.id)
+        if (!r) return { count: 0 }
+        if (where.version !== undefined && Number(r.version) !== Number(where.version)) return { count: 0 }
+        for (const [k, v] of Object.entries(data)) {
+          if (v && typeof v === 'object' && 'increment' in v && k === 'version') r.version = Number(r.version || 0) + Number(v.increment)
+          else if (v && typeof v === 'object' && Array.isArray(v.push) && Array.isArray(r[k])) r[k] = [...r[k], ...v.push]
+          else if (v && typeof v === 'object' && Array.isArray(v.push)) r[k] = [...v.push]
+          else r[k] = v
+        }
+        updated.push({ id: where.id, data })
+        return { count: 1 }
       },
       async create({ data }) {
         const rec = { id: 'rec-new', created_at: new Date().toISOString(), ...data }
@@ -1402,4 +1439,51 @@ test('复测合并（保留语义）：同一自然日 + 同样本编号 + 新�
   assert.equal(res.body.data.appended, true)
   assert.equal(res.body.data.round, 2)
   assert.equal(all[0].result_data.recheckReports[0].chipNumber, 'SN20260917099')
+})
+
+// ───────── 2026-10-28 压测前加固：复测轮次合并的乐观锁（并发同档案不丢轮次） ─────────
+
+test('并发加固（乐观锁）：写轮次时版本冲突 → 自动重读重算并成功（轮次不重不漏）', async () => {
+  const stored = makeStoredRecord() // 2026-09-17 08:30 第 1 轮
+  const { prisma, tenantClientFactory, plainKey, tenant, stored: all } = makeUploadStubs({ existingRecord: stored })
+
+  // 模拟「读完之后、写之前被另一个上传改了」：第一次 CAS 返回 0，其后走真实桩
+  const realUpdateMany = tenant.testRecord.updateMany.bind(tenant.testRecord)
+  let casCalls = 0
+  tenant.testRecord.updateMany = async (args) => {
+    casCalls += 1
+    if (casCalls === 1) {
+      // 让「另一个并发请求」先把版本推进，使本次 CAS 失配
+      all[0].version = Number(all[0].version || 0) + 1
+      return { count: 0 }
+    }
+    return realUpdateMany(args)
+  }
+
+  const res = await invokeUpload({
+    prisma, tenantClientFactory, plainKey, apiKey: plainKey,
+    body: makePayload({ ChipNumber: 'SN20260917088', DetectionDateTime: '2026-09-17 16:30:00', DetectionEndDateTime: '2026-09-17 17:00:00' }),
+  })
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body))
+  assert.equal(res.body.data.appended, true)
+  assert.equal(res.body.data.round, 2, '重试后应写入第 2 轮（而不是因冲突丢轮次）')
+  const rounds = all[0].result_data.recheckReports || []
+  assert.equal(rounds.length, 1, '只能有一条复测轮次（不得重复写入）')
+  assert.equal(rounds[0].chipNumber, 'SN20260917088')
+  assert.ok(casCalls >= 2, '应至少经历一次 CAS 冲突重试')
+})
+
+test('并发加固（乐观锁）：连续冲突达上限 → 409 RECORD_BUSY，且不写入半成品数据', async () => {
+  const stored = makeStoredRecord()
+  const { prisma, tenantClientFactory, plainKey, tenant, stored: all } = makeUploadStubs({ existingRecord: stored })
+  tenant.testRecord.updateMany = async () => ({ count: 0 }) // 永远冲突
+
+  const res = await invokeUpload({
+    prisma, tenantClientFactory, plainKey, apiKey: plainKey,
+    body: makePayload({ ChipNumber: 'SN20260917077', DetectionDateTime: '2026-09-17 18:30:00', DetectionEndDateTime: '2026-09-17 19:00:00' }),
+  })
+  assert.equal(res.statusCode, 409)
+  assert.equal(res.body.code, 'RECORD_BUSY')
+  assert.match(res.body.message, /不会产生重复/)
+  assert.equal((all[0].result_data.recheckReports || []).length, 0, '失败时不得写入任何轮次')
 })

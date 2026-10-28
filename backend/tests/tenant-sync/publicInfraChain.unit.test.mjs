@@ -45,6 +45,11 @@ const PD_MIG = '20261014120000_pathogen_devices'
 const PK_MIG = '20261015120000_pathogen_upload_key'
 // 病原体设备绑定台账（2026-10-16）：再追加为当前链尾（第 20 位）
 const PB_MIG = '20261016120000_pathogen_device_bindings'
+// 2026-10-19 ~ 10-28 追加（胶体金三表 + 设备上报检索索引）
+const CP_MIG = '20261019120000_colloidal_photo_entries'
+const CT_MIG = '20261022120000_colloidal_timed_sampling'
+const CL_MIG = '20261022150000_colloidal_process_log'
+const LR_MIG = '20261028120000_pathogen_record_lookup_indexes'
 const lockSql = read(`backend/prisma/migrations/${LOCK_MIG}/migration.sql`)
 const revokedSql = read(`backend/prisma/migrations/${REVOKED_MIG}/migration.sql`)
 const followupSql = read(`backend/prisma/migrations/${FOLLOWUP_MIG}/migration.sql`)
@@ -53,6 +58,7 @@ const m2Sql = read(`backend/prisma/migrations/${M2_MIG}/migration.sql`)
 const pdSql = read(`backend/prisma/migrations/${PD_MIG}/migration.sql`)
 const pkSql = read(`backend/prisma/migrations/${PK_MIG}/migration.sql`)
 const pbSql = read(`backend/prisma/migrations/${PB_MIG}/migration.sql`)
+const lrSql = read(`backend/prisma/migrations/${LR_MIG}/migration.sql`)
 
 // ── 桩 prisma（只读探针用）：按 SQL 形态返回可注入的行 ──
 function stubPrisma({ columns = [], pk = [], indexes = [] } = {}) {
@@ -69,20 +75,23 @@ const colRows = (shape) => shape.columns.map((c) => ({ name: c.name, type: c.typ
 
 test('① 链位次入链：3 个 @scope: public migration 固定第 12/13/14 位（锁表 / 吊销表 / FieldOption FK 前向修复），其后只追加 M1/M2 与病原体两表', () => {
   const files = listMigrationFiles()
-  assert.equal(files.length, 20, '链 = 原 11（both/既有）+ 3 个 public（第 12/13/14 位）+ M1/M2（第 15/16 位）+ 友情链接（第 17 位）+ 病原体设备（第 18 位）+ 统一上传密钥（第 19 位）')
+  assert.equal(files.length, 24, '链 = 原 11（both/既有）+ 3 个 public（第 12/13/14 位）+ M1/M2（第 15/16 位）+ 友情链接（第 17 位）+ 病原体设备（第 18 位）+ 统一上传密钥（第 19 位）')
   // 历史位置证明（**绝对位次**，不随链增长漂移；不得用 length-3/2/1 冒充）
   assert.equal(files[11].name, LOCK_MIG, '第 12 位：锁表')
   assert.equal(files[12].name, REVOKED_MIG, '第 13 位：吊销表')
   assert.equal(files[13].name, FOLLOWUP_MIG, '第 14 位：FieldOption FK 前向修复（**非**当前链尾）')
   // 其后**只**追加 M1/M2、友情链接与病原体两表（且它们是 both，非 public-only）
-  assert.deepEqual(files.slice(14).map((m) => m.name), [M1_MIG, M2_MIG, FL_MIG, PD_MIG, PK_MIG, PB_MIG], '第 15~20 位只能是 M1/M2 + 友情链接 + 病原体两表 + 绑定台账（追加式，不得插队）')
-  assert.ok(/^\s*--\s*@scope:\s*both\s*$/m.test(m1Sql) && /^\s*--\s*@scope:\s*both\s*$/m.test(m2Sql) && /^\s*--\s*@scope:\s*both\s*$/m.test(pdSql) && /^\s*--\s*@scope:\s*both\s*$/m.test(pkSql) && /^\s*--\s*@scope:\s*both\s*$/m.test(pbSql), 'M1/M2/病原体两表与绑定台账必须 @scope: both（租户投影；不得冒充 public-only）')
+  assert.deepEqual(files.slice(14).map((m) => m.name), [M1_MIG, M2_MIG, FL_MIG, PD_MIG, PK_MIG, PB_MIG, CP_MIG, CT_MIG, CL_MIG, LR_MIG], '第 15~24 位只能是 M1/M2 + 友情链接 + 病原体两表 + 绑定台账 + 胶体金三表 + 上报检索索引（追加式，不得插队）')
+  assert.ok(/^\s*--\s*@scope:\s*both\s*$/m.test(m1Sql) && /^\s*--\s*@scope:\s*both\s*$/m.test(m2Sql) && /^\s*--\s*@scope:\s*both\s*$/m.test(pdSql) && /^\s*--\s*@scope:\s*both\s*$/m.test(pkSql) && /^\s*--\s*@scope:\s*both\s*$/m.test(pbSql) && /^\s*--\s*@scope:\s*both\s*$/m.test(lrSql), 'M1/M2/病原体两表与绑定台账必须 @scope: both（租户投影；不得冒充 public-only）')
   assert.ok(/CREATE TABLE IF NOT EXISTS "PathogenDevice"/.test(pdSql), '病原体设备迁移必须建 public."PathogenDevice"')
   assert.ok(/CREATE TABLE IF NOT EXISTS "PathogenUploadKey"/.test(pkSql), '统一上传密钥迁移必须建 public."PathogenUploadKey"')
   assert.ok(!/DROP|DELETE FROM|TRUNCATE/.test(pdSql) && !/DROP|DELETE FROM|TRUNCATE/.test(pkSql), '入链 migration 不得含破坏性语句')
   // 绑定台账迁移：DROP 仅针对索引（DROP INDEX），不得含 DROP TABLE/COLUMN 等破坏性语句
   assert.ok(/ADD COLUMN IF NOT EXISTS "valid_from"/.test(pbSql) && /DROP INDEX IF EXISTS/.test(pbSql), '绑定台账迁移必须幂等（IF NOT EXISTS / IF EXISTS）')
   assert.ok(!/DROP\s+TABLE|DROP\s+COLUMN|DELETE FROM|TRUNCATE/i.test(pbSql), '绑定台账迁移不得含破坏性语句')
+  // 上报检索索引迁移：只加列/加索引，幂等且不破坏
+  assert.ok(/ADD COLUMN IF NOT EXISTS "chip_nos"/.test(lrSql) && /CREATE INDEX IF NOT EXISTS/.test(lrSql), '上报检索迁移必须幂等')
+  assert.ok(!/DROP\s+TABLE|DROP\s+COLUMN|DELETE FROM|TRUNCATE/i.test(lrSql), '上报检索迁移不得含破坏性语句')
   assert.ok(/^\s*--\s*@scope:\s*public\s*$/m.test(lockSql) && /^\s*--\s*@scope:\s*public\s*$/m.test(revokedSql) && /^\s*--\s*@scope:\s*public\s*$/m.test(followupSql), '三者必须显式 @scope: public')
   assert.ok(!/@scope:\s*both/.test(lockSql + revokedSql + followupSql), '不得声明 both（不得进租户投影）')
   // public-only 家族恰为三者（防把 M1/M2 误纳入或以旧 public 冒充链尾）

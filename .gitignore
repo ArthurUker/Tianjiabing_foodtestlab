@@ -139,3 +139,6 @@ docs/test-results/latest/
 # Python 字节码（识别核心为 Python）
 __pycache__/
 *.pyc
+
+# 压测产物（日志/报告，运行时证据，不入库）
+backend/stress-artifacts/

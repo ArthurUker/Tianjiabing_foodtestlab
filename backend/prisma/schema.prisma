@@ -138,6 +138,15 @@ model TestRecord {
   data_version  Int      @default(1) // RK48: 业务数据版本，便于定制变更后的兼容性读取/回填
   completed_at  DateTime?
 
+  // ── 设备上报检索索引列（2026-10-28，压测前加固）──
+  // chip_nos：本记录**自身芯片 + 各复测轮次芯片**的归一化集合（GIN 索引，has 查询 O(1)），
+  //           取代原「按 created_at 倒序取最近 300 条再内存比对」的窗口检索（数据量上去会漏判重复）。
+  // case_key：档案键（食堂||样本类型||归一化样本描述||样本编号||设备编号），取代原「取最近 20 条候选再比对」。
+  // 两列均为**派生列**：真值仍在 sample_info / result_data（JSON），此处仅用于精确检索；
+  // 历史数据由一次性回填脚本补齐（scripts/backfill-pathogen-lookup.mjs）。
+  chip_nos      String[] @default([])
+  case_key      String?
+
   created_user  User     @relation(fields: [created_by], references: [id], onDelete: Restrict) // P1-08: 改为 Restrict，防止删用户时级联删除检测记录
   test_items    TestItem[]
   attachments   Attachment[]
@@ -146,6 +155,8 @@ model TestRecord {
   @@index([status])
   @@index([created_by])
   @@index([created_at])
+  @@index([test_type, case_key])
+  @@index([chip_nos], type: Gin)
   // D-10：统计查询常按「类型 + 时间」过滤（无独立 test_date 列，日期在 result_data JSON 内，
   // 故用 created_at 组合索引兜底）
   @@index([test_type, created_at])

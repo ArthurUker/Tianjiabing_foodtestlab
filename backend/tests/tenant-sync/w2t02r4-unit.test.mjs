@@ -120,11 +120,11 @@ test('R3 能力保留：链/注册表 checksum 绑定 + 分类协议 fail-closed
   // P3-PATHOGEN-DEVICE（2026-10-14）再追加 1 个 `@scope: both`（病原体设备映射表，第 18 位）；
   // 病原体统一上传密钥（B 方案，2026-10-15）再追加 1 个 `@scope: both`（第 19 位 = 当前链尾）：
   // 场景与断言保持（链 = 磁盘事实源、checksum 与文件一致），仅计数 11 → 13 → 14 → 16 → 17 → 18 → 19。
-  assert.equal(files.length, 20)
+  assert.equal(files.length, 24)
   for (const m of chainManifest()) assert.equal(fileChecksum(m.name), m.checksum)
   const reg = migrationClassificationRegistry()
   // 注册表 14 → 15：新增 `20261016120000_pathogen_device_bindings`（skip = 扫全库 DO 块，1 条）
-  assert.equal(reg.length, 15)
+  assert.equal(reg.length, 19)
   assert.equal(reg.reduce((a, r) => a + r.skippedStatements, 0), 8)
   for (const m of chainManifest()) {
     const proj = buildTenantProjection({ name: m.name, sql: read(`backend/prisma/migrations/${m.name}/migration.sql`), checksum: m.checksum })
@@ -166,13 +166,16 @@ test('R3 能力保留：链/注册表 checksum 绑定 + 分类协议 fail-closed
   // P3-FRIENDLY-LINKS（2026-09-28，第 17 位）新增 `FriendlyLink`（登录页友情链接）；
   // P3-PATHOGEN-DEVICE（2026-10-14，第 18 位）新增 `PathogenDevice`（病原体设备映射，public 权威副本）；
   // 病原体统一上传密钥（B 方案，2026-10-15，第 19 位）新增 `PathogenUploadKey`：
-  // 期望租户表 21 → 22 → 23 → 24 → 25（事实源 = schema.prisma model 声明；**逐项归因**，不盲加数字）。
+  // 期望租户表 21 → 22 → 23 → 24 → 25 → 27（事实源 = schema.prisma model 声明；**逐项归因**，不盲加数字）。
+  // 胶体金模块（2026-10-19/10-22，第 21~23 位）新增 `ColloidalEntry` / `ColloidalAttempt` 两张表 → 25 + 2 = 27。
   const expectedTables = readExpectedTenantTables()
-  assert.equal(expectedTables.count, 25, '期望租户表 = 24 + 1（B 方案新增 PathogenUploadKey）')
+  assert.equal(expectedTables.count, 27, '期望租户表 = 25 + 2（胶体金新增 ColloidalEntry / ColloidalAttempt）')
   assert.ok(expectedTables.tables.has('AuditPrincipal'), '新增表必须可归因为 M1 的 AuditPrincipal')
   assert.ok(expectedTables.tables.has('FriendlyLink'), '新增表必须可归因为 P3-FRIENDLY-LINKS 的 FriendlyLink')
   assert.ok(expectedTables.tables.has('PathogenDevice'), '新增表必须可归因为 P3-PATHOGEN-DEVICE 的 PathogenDevice')
   assert.ok(expectedTables.tables.has('PathogenUploadKey'), '新增表必须可归因为 B 方案的 PathogenUploadKey')
+  assert.ok(expectedTables.tables.has('ColloidalEntry'), '新增表必须可归因为胶体金 ColloidalEntry')
+  assert.ok(expectedTables.tables.has('ColloidalAttempt'), '新增表必须可归因为胶体金 ColloidalAttempt')
 })
 
 test('R3 能力保留：证明清单覆盖 + 凭据卫生 + 无 db push/末态 diff', () => {

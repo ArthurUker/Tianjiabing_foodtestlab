@@ -24,6 +24,10 @@ const FL_MIG = '20260928120000_friendly_links'
 const PD_MIG = '20261014120000_pathogen_devices'
 const PK_MIG = '20261015120000_pathogen_upload_key'
 const PB_MIG = '20261016120000_pathogen_device_bindings'
+const CP_MIG = '20261019120000_colloidal_photo_entries'
+const CT_MIG = '20261022120000_colloidal_timed_sampling'
+const CL_MIG = '20261022150000_colloidal_process_log'
+const LR_MIG = '20261028120000_pathogen_record_lookup_indexes'
 const FOLLOWUP_SQL_PATH = `backend/prisma/migrations/${FOLLOWUP_MIG}/migration.sql`
 const followupSql = read(FOLLOWUP_SQL_PATH)
 /** SQL 主体（剥掉 `--` 行注释；头部注释里会引用历史缺陷写法，判据只看可执行语句）。 */
@@ -35,7 +39,7 @@ test('① 前向修复 migration：固定第 14 位（其后仅 M1/M2 追加）+
   // 历史位置证明：第 14 位（0 基索引 13）；其后只能追加时间戳更大的迁移（当前 = M1/M2 + 友情链接 + 病原体设备）
   assert.equal(files[13].name, FOLLOWUP_MIG, '前向修复必须固定在第 14 位（不得再被认作"当前链尾"）')
   const after = files.slice(14).map((m) => m.name)
-  assert.deepEqual(after, [M1_MIG, M2_MIG, FL_MIG, PD_MIG, PK_MIG, PB_MIG], '第 14 位之后只追加 M1/M2 + 友情链接 + 病原体两表（追加式）')
+  assert.deepEqual(after, [M1_MIG, M2_MIG, FL_MIG, PD_MIG, PK_MIG, PB_MIG, CP_MIG, CT_MIG, CL_MIG, LR_MIG], '第 14 位之后只追加 M1/M2 + 友情链接 + 病原体两表（追加式）')
   assert.ok(after.every((n) => n > FOLLOWUP_MIG), '追加式：其后文件名（时间戳序）必须晚于前向修复')
   assert.ok(/^\s*--\s*@scope:\s*public\s*$/m.test(followupSql), '必须显式 @scope: public（逐租户整条跳过）')
   assert.ok(!/@scope:\s*both/.test(followupSql), '不得声明 both（不得进租户投影）')
@@ -52,7 +56,7 @@ test('① 前向修复 migration：固定第 14 位（其后仅 M1/M2 追加）+
   assert.ok(!/\bDROP\b|DELETE FROM|TRUNCATE/.test(followupBody), '不得包含破坏性语句（DROP/DELETE/TRUNCATE）')
 })
 
-test('② 旧 13 文件逐字节/位次未改（对照仓内精简校验基准）+ 第 14 位 + 链 = 20（产品 chainManifest/digest 交叉核对）', () => {
+test('② 旧 13 文件逐字节/位次未改（对照仓内精简校验基准）+ 第 14 位 + 链 = 24（产品 chainManifest/digest 交叉核对）', () => {
   const lock = JSON.parse(read('backend/tests/tenant-sync/fixtures/legacy-chain-13.lock.json'))
   assert.equal(lock.chain_files.length, 13, '锁文件应固定旧 13 文件')
   for (const f of lock.chain_files) {
@@ -61,13 +65,13 @@ test('② 旧 13 文件逐字节/位次未改（对照仓内精简校验基准�
   const files = listMigrationFiles()
   // 旧 13 的**位次/顺序**也不得漂移（前 13 位逐项同名同序）
   assert.deepEqual(files.slice(0, 13).map((m) => m.name), lock.chain_files.map((f) => f.name), '旧 13 位次/顺序不得漂移')
-  assert.equal(files.length, lock.chain_files.length + 7, '链 = 旧 13 + 前向修复 1（第 14 位）+ M1/M2（第 15/16 位）+ 友情链接（第 17 位）+ 病原体设备（第 18 位）+ 统一上传密钥（第 19 位）')
+  assert.equal(files.length, lock.chain_files.length + 11, '链 = 旧 13 + 前向修复 1（第 14 位）+ M1/M2（第 15/16 位）+ 友情链接（第 17 位）+ 病原体设备（第 18 位）+ 统一上传密钥（第 19 位）')
   assert.equal(files[13].name, FOLLOWUP_MIG, '第 14 位 = 前向修复（非链尾）')
-  assert.deepEqual(files.slice(14).map((m) => m.name), [M1_MIG, M2_MIG, FL_MIG, PD_MIG, PK_MIG, PB_MIG], '第 15~19 位 = M1/M2 + 友情链接 + 病原体两表')
+  assert.deepEqual(files.slice(14).map((m) => m.name), [M1_MIG, M2_MIG, FL_MIG, PD_MIG, PK_MIG, PB_MIG, CP_MIG, CT_MIG, CL_MIG, LR_MIG], '第 15~19 位 = M1/M2 + 友情链接 + 病原体两表')
   // 产品视角交叉核对：chainManifest 与磁盘清单逐项一致 + digest 可按规范独立重算（name\0内容\n 串联）
   const manifest = chainManifest()
   assert.deepEqual(manifest.map((m) => m.name), files.map((m) => m.name), 'chainManifest 与磁盘清单逐项一致（名称/顺序/长度）')
-  assert.equal(manifest.length, 20, '当前总链 = 20')
+  assert.equal(manifest.length, 24, '当前总链 = 24')
   const h = crypto.createHash('sha256')
   for (const m of files) h.update(`${m.name}\0${read(`backend/prisma/migrations/${m.name}/migration.sql`)}\n`)
   assert.equal(migrationChainDigest(), h.digest('hex'), '产品 digest = 独立重算（规范：每文件 `${name}\\0${内容}\\n` 串联的 sha256）')
