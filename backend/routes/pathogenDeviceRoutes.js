@@ -671,6 +671,27 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
       let lastRound = null
       const MAX_CAS_ATTEMPTS = 5
       for (let attempt = 1; ; attempt += 1) {
+        // ⚠️ 并发重试时本芯片可能**已被另一个请求写入**（新建记录或并入轮次）：
+        //    必须重新判一次芯片，否则会把同一张芯片重复并入成多个轮次（2026-10-28 压测实测到 3~5 次重复）。
+        if (attempt > 1) {
+          const again = await db.testRecord.findFirst({
+            where: { test_type: 'pathogen', chip_nos: { has: targetChip } },
+            orderBy: { created_at: 'desc' },
+          })
+          if (again) {
+            const againRound = (Array.isArray(again.result_data?.recheckReports) ? again.result_data.recheckReports : [])
+              .find((x) => x && normalizeChipNumber(x.chipNumber) === targetChip) || null
+            const againFp = againRound
+              ? (againRound.contentFingerprint || null)
+              : (again.result_data?.contentFingerprint || fingerprintOfStoredRecord(again.result_data, again.sample_info))
+            if (againFp && againFp === built.data.contentFingerprint) {
+              return reply(res, 200, 0, 'success', { reportId: again.record_code, duplicated: true })
+            }
+            return reply(res, 409, 'CHIP_REVIEW_REQUIRED',
+              `芯片编号 ${payload.chipNumber} 已被并发写入且本次内容不一致：芯片编号重复，请人工复核`,
+              { reportId: again.record_code, reviewRequired: true })
+          }
+        }
         const rounds = Array.isArray(current.result_data?.recheckReports) ? current.result_data.recheckReports : []
         roundNo = rounds.filter((r) => r && r.source === 'device').length + 2 // 父记录本身 = 第 1 轮
         const round = buildDeviceRound({
@@ -681,8 +702,22 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
           uploadedAt: Date.now(),
           parentInspector: current.sample_info?.inspector || null,
         })
+        // 初检结论留档：合并会把父记录摘要覆盖为最新轮次，若不留档则「第 1 轮当时的结论」不可追溯
+        // （2026-10-28 复核发现：10-22 的阴性结论被 10-26 的阳性覆盖后，顶部摘要再也看不到）
+        const initialSummary = current.result_data?.initialSummary || {
+          capturedFrom: 'first_round',
+          capturedAt: new Date().toISOString(),
+          testDate: current.sample_info?.testDate || null,
+          inspector: current.sample_info?.inspector || null,
+          positiveItems: current.result_data?.positiveItems ?? null,
+          riskLevel: current.result_data?.riskLevel ?? null,
+          result: current.result_data?.result ?? null,
+          finalStatus: current.result_data?.finalStatus ?? null,
+          riskReason: current.result_data?.riskReason ?? null,
+        }
         const merged = {
           ...current.result_data,
+          initialSummary,
           recheckReports: [round, ...rounds],
           // 结论以最新轮次为准（与手动复检 TD-Recheck-Sync 同口径）
           finalStatus: round.isPassed ? '复检通过' : `复检${round.riskLevel}`,
@@ -702,7 +737,10 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
         let updatedCount = 0
         try {
           const upd = await db.testRecord.updateMany({
-            where: { id: current.id, version: current.version },
+            // 原子前置条件：版本未变 **且本芯片尚未进入该记录**——防并发重复并入同一芯片。
+            // ⚠️ Prisma 5.22 的 String[] 过滤器不支持 `hasNot`，用等价的 `NOT: { chip_nos: { has } }`
+            //    （生成 SQL 仍是 NOT (chip_nos @> ARRAY[...])，原子性不变）。
+            where: { id: current.id, version: current.version, NOT: { chip_nos: { has: targetChip } } },
             data: {
               result_data: merged,
               version: { increment: 1 },

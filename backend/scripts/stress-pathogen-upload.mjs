@@ -73,6 +73,21 @@ async function recordByCaseKey(caseKey) {
   return rows[0] || null
 }
 
+
+/** 加严校验：同一芯片在「记录本体 + 各复测轮次」中出现次数（应恰好 1；>1 = 被重复并入） */
+async function chipOccurrences(chip) {
+  const rows = await q(`
+    WITH flat AS (
+      SELECT record_code, upper(regexp_replace(COALESCE(result_data->'chip'->>'number',''), '\\s','','g')) AS chip
+        FROM school_test."TestRecord" WHERE test_type='pathogen'
+      UNION ALL
+      SELECT r.record_code, upper(regexp_replace(COALESCE(x->>'chipNumber',''), '\\s','','g'))
+        FROM school_test."TestRecord" r, jsonb_array_elements(COALESCE(r.result_data->'recheckReports','[]'::jsonb)) x
+       WHERE r.test_type='pathogen')
+    SELECT count(*)::int AS n FROM flat WHERE chip = upper(regexp_replace($1, '\\s','','g'))`, chip)
+  return rows[0]?.n || 0
+}
+
 function summarize(label, results) {
   const byStatus = {}
   for (const r of results) byStatus[r.status] = (byStatus[r.status] || 0) + 1
@@ -98,8 +113,9 @@ const CASES = {
     summarize(`① 并发同芯片 ×20（${Date.now() - t0}ms 总耗时）`, results)
     const recs = await recordsByChip(chip)
     const fivexx = results.filter((r) => r.status >= 500).length
-    const ok = recs.length === 1 && fivexx === 0
-    console.log(`  记录数=${recs.length}（期望 1）｜5xx=${fivexx}（期望 0） → ${ok ? '✅ 通过' : '❌ 未通过'}`)
+    const occ = await chipOccurrences(chip) // 加严：同芯片不得被重复并入轮次
+    const ok = recs.length === 1 && fivexx === 0 && occ === 1
+    console.log(`  记录数=${recs.length}（期望 1）｜芯片出现次数=${occ}（期望 1）｜5xx=${fivexx}（期望 0） → ${ok ? '✅ 通过' : '❌ 未通过'}`)
     return ok
   },
 
@@ -131,7 +147,10 @@ const CASES = {
     const dupNos = roundNos.filter((n, i) => roundNos.indexOf(n) !== i)
     const detectedCount = 1 + roundsArr.length
     console.log(`  检测次数=${detectedCount}（期望 6）｜轮次号=${JSON.stringify(roundNos)}｜缺失芯片=${JSON.stringify(missing)}｜重复轮次号=${JSON.stringify(dupNos)}`)
-    const ok = detectedCount === 6 && missing.length === 0 && dupNos.length === 0
+    let occBad = []
+    for (const c of chips) { const o = await chipOccurrences(c); if (o !== 1) occBad.push(`${c}:${o}`) }
+    const ok = detectedCount === 6 && missing.length === 0 && dupNos.length === 0 && occBad.length === 0
+    if (occBad.length) console.log(`  ❌ 芯片重复并入：${JSON.stringify(occBad)}`)
     console.log(`  → ${ok ? '✅ 通过' : '❌ 未通过（轮次丢失或重号）'}`)
     return ok
   },
@@ -154,8 +173,9 @@ const CASES = {
     const rec = await recordByCaseKey(`一食堂||食品/环境样本||一食堂 餐盘涂抹样||${sampleId}||${DEVICE}`)
     const roundsArr = Array.isArray(rec?.result_data?.recheckReports) ? rec.result_data.recheckReports : []
     const fivexx = results.filter((r) => r.status >= 500).length
-    const ok = dupRecs.length === 1 && 1 + roundsArr.length === 6 && fivexx === 0
-    console.log(`  同芯片记录数=${dupRecs.length}（期望 1）｜检测次数=${1 + roundsArr.length}（期望 6）｜5xx=${fivexx}`)
+    const occ = await chipOccurrences(dupChip) // 加严：同芯片不得重复并入
+    const ok = dupRecs.length === 1 && 1 + roundsArr.length === 6 && fivexx === 0 && occ === 1
+    console.log(`  同芯片记录数=${dupRecs.length}（期望 1）｜同芯片出现次数=${occ}（期望 1）｜检测次数=${1 + roundsArr.length}（期望 6）｜5xx=${fivexx}`)
     console.log(`  → ${ok ? '✅ 通过' : '❌ 未通过'}`)
     return ok
   },

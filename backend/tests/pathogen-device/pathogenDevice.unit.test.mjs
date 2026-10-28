@@ -194,6 +194,9 @@ function makeUploadStubs({ device, extraBindings = [], platformKey = null, schoo
         const r = stored.find((x) => x.id === where.id)
         if (!r) return { count: 0 }
         if (where.version !== undefined && Number(r.version) !== Number(where.version)) return { count: 0 }
+        // 原子前置条件：该芯片尚未进入本记录（Prisma 用 NOT: { chip_nos: { has } }）
+        const notChip = where.NOT?.chip_nos?.has
+        if (notChip && this._chipNos(r).includes(notChip)) return { count: 0 }
         for (const [k, v] of Object.entries(data)) {
           if (v && typeof v === 'object' && 'increment' in v && k === 'version') r.version = Number(r.version || 0) + Number(v.increment)
           else if (v && typeof v === 'object' && Array.isArray(v.push) && Array.isArray(r[k])) r[k] = [...r[k], ...v.push]
@@ -1486,4 +1489,36 @@ test('并发加固（乐观锁）：连续冲突达上限 → 409 RECORD_BUSY，
   assert.equal(res.body.code, 'RECORD_BUSY')
   assert.match(res.body.message, /不会产生重复/)
   assert.equal((all[0].result_data.recheckReports || []).length, 0, '失败时不得写入任何轮次')
+})
+
+test('并发加固（防重复并入）：重试时发现同芯片已被并发写入且内容不一致 → 409 复核，且不重复并入轮次', async () => {
+  const stored = makeStoredRecord()
+  const { prisma, tenantClientFactory, plainKey, tenant, stored: all } = makeUploadStubs({ existingRecord: stored })
+  const chip = 'SN20260917066'
+  const realUpdateMany = tenant.testRecord.updateMany.bind(tenant.testRecord)
+  let calls = 0
+  tenant.testRecord.updateMany = async (args) => {
+    calls += 1
+    if (calls === 1) {
+      // 模拟另一个并发请求先一步把「同芯片」并入本档案（写 chip_nos + 一条同芯片轮次）
+      const rec = all[0]
+      rec.chip_nos = [...(rec.chip_nos || ['SN20260917001']), chip]
+      rec.result_data.recheckReports = [{
+        roundNo: 2, roundLabel: '第 2 次检测（复测）', chipNumber: chip, source: 'device',
+        contentFingerprint: 'CONCURRENT-WRITER-FP',
+      }, ...(rec.result_data.recheckReports || [])]
+      return { count: 0 } // CAS 未命中
+    }
+    return realUpdateMany(args)
+  }
+
+  const res = await invokeUpload({
+    prisma, tenantClientFactory, plainKey, apiKey: plainKey,
+    body: makePayload({ ChipNumber: chip, DetectionDateTime: '2026-09-17 20:30:00', DetectionEndDateTime: '2026-09-17 21:00:00' }),
+  })
+  assert.equal(res.statusCode, 409)
+  assert.equal(res.body.code, 'CHIP_REVIEW_REQUIRED')
+  const rounds = all[0].result_data.recheckReports || []
+  assert.equal(rounds.length, 1, '同芯片不得被重复并入（只保留并发写入的那一条）')
+  assert.equal(rounds[0].chipNumber, chip)
 })
