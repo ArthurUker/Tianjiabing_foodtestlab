@@ -3,559 +3,487 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>病原体设备上报 · 复测检查指导（2026-10-28）</title>
+<title>病原体设备上传 · 现场复核测试指导</title>
 <style>
   :root{
-    --bg:#f5f7fb; --card:#fff; --ink:#1f2937; --muted:#6b7280; --line:#e5e7eb;
-    --brand:#2563eb; --brand-soft:#eff6ff;
-    --ok:#059669; --ok-soft:#ecfdf5;
-    --warn:#b45309; --warn-soft:#fffbeb;
-    --bad:#b91c1c; --bad-soft:#fef2f2;
-    --amber:#f59e0b;
+    --bg:#f4f6fa; --card:#fff; --ink:#1a2233; --muted:#6b7280; --line:#e3e8ef;
+    --blue:#2563eb; --blue-soft:#eef4ff;
+    --amber-bg:#fff8e1; --amber-line:#f6c445; --amber-ink:#8a5a00;
+    --red-bg:#fdecec; --red-line:#ef7a7a; --red-ink:#a11b1b;
+    --green-bg:#eafaf0; --green-line:#6ddc9b; --green-ink:#0f6b39;
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);
-       font:15px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;}
-  a{color:var(--brand);text-decoration:none}
-  .wrap{max-width:1120px;margin:0 auto;padding:0 20px 80px}
-  /* —— 顶部 —— */
-  header.top{background:linear-gradient(135deg,#1e3a8a,#2563eb);color:#fff;padding:26px 0 22px;margin-bottom:22px;box-shadow:0 2px 10px rgba(30,58,138,.18)}
-  header.top .wrap{padding-bottom:0}
-  header.top h1{margin:0 0 6px;font-size:24px;letter-spacing:.3px}
-  header.top p{margin:0;opacity:.9;font-size:13px}
-  .metas{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
-  .meta{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.28);border-radius:999px;padding:3px 12px;font-size:12px}
-  /* —— 进度条（sticky） —— */
-  .progress-bar{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.96);border-bottom:1px solid var(--line);
-                backdrop-filter:blur(6px);margin:0 -20px 18px;padding:10px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
-  .track{flex:1;min-width:180px;height:9px;background:#e5e7eb;border-radius:999px;overflow:hidden}
-  .fill{height:100%;width:0;background:linear-gradient(90deg,#22c55e,#16a34a);transition:width .25s}
-  .count{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
-  .btn{border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:8px;padding:5px 12px;font-size:13px;cursor:pointer}
-  .btn:hover{border-color:#cbd5e1;background:#f8fafc}
-  .btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}
-  .btn.primary:hover{background:#1d4ed8}
-  /* —— 卡片 / 标题 —— */
-  section{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin-bottom:18px;box-shadow:0 1px 2px rgba(16,24,40,.04)}
-  h2{font-size:18px;margin:0 0 4px;display:flex;align-items:center;gap:8px}
-  h2 .num{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:8px;background:var(--brand-soft);color:var(--brand);font-size:13px;font-weight:700}
-  .sub{color:var(--muted);font-size:13px;margin:0 0 14px}
-  h3{font-size:15px;margin:18px 0 8px}
-  /* —— 口径卡片 —— */
-  .rules{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
-  .rule{border:1px solid var(--line);border-left:4px solid var(--brand);border-radius:10px;padding:12px 14px;background:#fbfdff}
-  .rule .t{font-weight:700;font-size:14px;margin-bottom:4px}
-  .rule .d{font-size:13px;color:#374151}
-  /* —— 用例卡 —— */
-  .case{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:12px 0;background:#fff}
-  .case.done-ok{border-color:#a7f3d0;background:var(--ok-soft)}
-  .case.done-bad{border-color:#fecaca;background:var(--bad-soft)}
-  .case-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-  .cid{font-family:ui-monospace,Menlo,Consolas,monospace;font-weight:700;background:#eef2ff;color:#3730a3;border-radius:6px;padding:1px 8px;font-size:13px}
-  .ctitle{font-weight:700;font-size:14.5px}
-  .tag{font-size:11.5px;border-radius:999px;padding:1px 9px;font-weight:600}
-  .tag.key{background:#fef3c7;color:#92400e;border:1px solid #fde68a}
-  .tag.new{background:#e0f2fe;color:#075985;border:1px solid #bae6fd}
-  .case .op{margin:10px 0 6px;font-size:13.5px}
-  .case .op b{color:#111827}
-  .expect{margin:8px 0 0;padding:10px 12px;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:8px;font-size:13px}
-  .expect ul{margin:4px 0 0;padding-left:20px}
-  .expect li{margin:2px 0}
-  .verdict{display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap}
-  .verdict .lbl{font-size:13px;color:var(--muted)}
-  .vbtn{border:1px solid var(--line);background:#fff;border-radius:8px;padding:4px 12px;font-size:13px;cursor:pointer}
-  .vbtn.ok.on{background:var(--ok);border-color:var(--ok);color:#fff}
-  .vbtn.bad.on{background:var(--bad);border-color:var(--bad);color:#fff}
-  .note{flex:1;min-width:200px;border:1px solid var(--line);border-radius:8px;padding:5px 10px;font-size:13px;outline:none}
+    font:16px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;}
+  .wrap{max-width:1000px;margin:0 auto;padding:0 18px 90px}
+
+  /* 顶部 */
+  header{background:linear-gradient(135deg,#1e40af,#3b82f6);color:#fff;padding:24px 0 20px}
+  header .wrap{padding-bottom:0}
+  header h1{margin:0 0 6px;font-size:23px}
+  header p{margin:0;font-size:14px;opacity:.92}
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+  .chip{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);border-radius:999px;padding:3px 12px;font-size:13px}
+
+  /* 进度条 */
+  .bar{position:sticky;top:0;z-index:30;background:rgba(255,255,255,.97);border-bottom:1px solid var(--line);
+       margin:0 -18px 18px;padding:10px 18px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .track{flex:1;min-width:160px;height:12px;background:#e6eaf0;border-radius:99px;overflow:hidden}
+  .fill{height:100%;width:0;background:linear-gradient(90deg,#34d399,#10b981);transition:width .3s}
+  .cnt{font-size:14px;color:var(--muted);font-weight:600}
+  .btn{border:1px solid var(--line);background:#fff;border-radius:10px;padding:8px 14px;font-size:14px;cursor:pointer}
+  .btn:hover{background:#f7f9fc}
+  .btn.main{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:600}
+  .btn.main:hover{background:#1d4ed8}
+
+  /* 卡片 */
+  section{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px 22px;margin-bottom:18px;box-shadow:0 1px 3px rgba(16,24,40,.05)}
+  h2{font-size:19px;margin:0 0 6px;display:flex;gap:10px;align-items:center}
+  .step-no{display:inline-flex;align-items:center;justify-content:center;min-width:30px;height:30px;border-radius:9px;background:var(--blue-soft);color:var(--blue);font-size:15px;font-weight:800}
+  .lead{color:var(--muted);font-size:14px;margin:0 0 14px}
+
+  /* 实验卡 */
+  .exp{border:2px solid var(--line);border-radius:16px;padding:0;margin:18px 0;overflow:hidden;background:#fff}
+  .exp.ok{border-color:#8fe0b4;box-shadow:0 0 0 4px #eafaf0 inset}
+  .exp.bad{border-color:#f2a0a0;box-shadow:0 0 0 4px #fdecec inset}
+  .exp-h{display:flex;align-items:center;gap:10px;padding:14px 18px;background:#f8fafc;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .exp-h .tag{background:#1e3a8a;color:#fff;border-radius:8px;padding:1px 10px;font-size:13px;font-weight:700}
+  .exp-h .t{font-weight:800;font-size:16.5px}
+  .exp-h .why{margin-left:auto;font-size:12.5px;color:var(--muted)}
+  .exp-b{padding:16px 18px}
+  .goal{background:var(--blue-soft);border-radius:10px;padding:10px 14px;font-size:14.5px;margin-bottom:14px}
+  .goal b{color:#1e40af}
+
+  ol.doit{counter-reset:s;list-style:none;margin:0 0 14px;padding:0}
+  ol.doit>li{position:relative;padding:0 0 0 40px;margin:12px 0}
+  ol.doit>li::before{counter-increment:s;content:counter(s);position:absolute;left:0;top:2px;
+    width:26px;height:26px;border-radius:50%;background:#e0e7ff;color:#3730a3;font-weight:800;font-size:14px;
+    display:flex;align-items:center;justify-content:center}
+  .fill-in{display:inline-block;background:#fffbe6;border:1.5px dashed #e0b64a;border-radius:8px;padding:1px 10px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:14.5px;color:#7a4d00;font-weight:700}
+
+  .look{border:1px solid var(--green-line);background:var(--green-bg);border-radius:12px;padding:12px 14px;margin:12px 0}
+  .look .h{font-weight:800;color:var(--green-ink);font-size:14.5px;margin-bottom:4px}
+  .look ul{margin:4px 0 0;padding-left:20px;font-size:14.5px}
+  .look li{margin:3px 0}
+  .danger{border:1px solid var(--red-line);background:var(--red-bg);border-radius:12px;padding:12px 14px;margin:12px 0}
+  .danger .h{font-weight:800;color:var(--red-ink);font-size:14.5px;margin-bottom:4px}
+  .danger ul{margin:4px 0 0;padding-left:20px;font-size:14.5px}
+  .note-tip{background:#fff8e1;border:1px solid var(--amber-line);border-radius:12px;padding:10px 14px;font-size:14px;color:var(--amber-ink);margin:12px 0}
+
+  .verdict{display:flex;align-items:center;gap:10px;flex-wrap:wrap;border-top:1px dashed var(--line);padding-top:12px;margin-top:14px}
+  .verdict .lb{font-size:14px;color:var(--muted);font-weight:600}
+  .vbtn{border:2px solid var(--line);background:#fff;border-radius:10px;padding:7px 16px;font-size:15px;cursor:pointer;font-weight:700}
+  .vbtn.ok.on{background:#10b981;border-color:#10b981;color:#fff}
+  .vbtn.bad.on{background:#ef4444;border-color:#ef4444;color:#fff}
+  .note{flex:1;min-width:220px;border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:14px;outline:none}
   .note:focus{border-color:#93c5fd;box-shadow:0 0 0 3px rgba(59,130,246,.12)}
-  /* —— 表格 —— */
-  table{width:100%;border-collapse:collapse;font-size:13.5px;margin:8px 0}
-  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
-  th{background:#f8fafc;font-weight:600;color:#374151}
-  code{background:#f1f5f9;border:1px solid #e2e8f0;border-radius:5px;padding:0 5px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px}
-  /* —— 图例 —— */
-  .legend{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
-  .lg{display:flex;align-items:center;gap:10px;font-size:13px;border:1px solid var(--line);border-radius:10px;padding:8px 12px;background:#fff}
-  .sw{width:16px;height:16px;border-radius:4px;flex:none}
-  .sw.amber{background:var(--amber-soft,#fef3c7);border:1px solid #fcd34d}
-  .sw.red{background:#fee2e2;border:1px solid #fca5a5}
-  .sw.green{background:#d1fae5;border:1px solid #6ee7b7}
-  .sw.blue{background:#dbeafe;border:1px solid #93c5fd}
-  /* —— 提示条 —— */
-  .callout{border-radius:10px;padding:12px 14px;font-size:13.5px;margin:12px 0;border:1px solid}
-  .callout.info{background:var(--brand-soft);border-color:#bfdbfe}
-  .callout.warn{background:var(--warn-soft);border-color:#fde68a}
-  .callout.bad{background:var(--bad-soft);border-color:#fecaca}
-  .callout.ok{background:var(--ok-soft);border-color:#a7f3d0}
-  .kv{font-size:13px;color:var(--muted)}
-  ol.steps{margin:6px 0 0;padding-left:22px}
-  ol.steps li{margin:3px 0}
-  footer{color:var(--muted);font-size:12.5px;text-align:center;padding-top:8px}
+
+  /* 表格 / 图例 */
+  table{width:100%;border-collapse:collapse;font-size:14.5px;margin:10px 0}
+  th,td{border:1px solid var(--line);padding:9px 12px;text-align:left;vertical-align:top}
+  th{background:#f7f9fc;font-weight:700}
+  code{background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px;padding:1px 6px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:14px}
+  .legend{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px}
+  .lg{display:flex;gap:12px;align-items:flex-start;border:1px solid var(--line);border-radius:12px;padding:10px 14px;background:#fff;font-size:14.5px}
+  .pill{flex:none;border-radius:999px;padding:1px 10px;font-size:13px;font-weight:700;white-space:nowrap}
+  .pill.amber{background:#fff1c9;color:#8a5a00;border:1px solid #f6c445}
+  .pill.red{background:#ffe0e0;color:#a11b1b;border:1px solid #ef7a7a}
+  .pill.green{background:#d9f7e6;color:#0f6b39;border:1px solid #6ddc9b}
+  .pill.blue{background:#dbeafe;color:#1e3a8a;border:1px solid #93c5fd}
+  .big-emoji{font-size:20px}
+
+  footer{text-align:center;color:var(--muted);font-size:13px;padding-top:6px}
   @media print{
     body{background:#fff}
-    .progress-bar,.btn,.vbtn,.note{display:none !important}
-    section{break-inside:avoid;box-shadow:none}
-    header.top{background:#1e3a8a !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .bar,.btn,.vbtn,.note{display:none !important}
+    .exp{break-inside:avoid}
+    section{box-shadow:none}
+    header{background:#1e40af !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   }
 </style>
 </head>
 <body>
 
-<header class="top">
+<header>
   <div class="wrap">
-    <h1>🧪 病原体设备上报 · 复测检查指导</h1>
-    <p>用于现场上机验证《食品安全检验芯片数据上传问题.xlsx》反馈的两个问题是否已修复，以及新增的「人工复核提示」是否符合预期。</p>
-    <div class="metas">
-      <span class="meta">📅 2026-10-28</span>
-      <span class="meta">🏫 仅限「测试」学校（school_code = test）</span>
-      <span class="meta">⏱ 预计 40~60 分钟</span>
-      <span class="meta">🧾 15 条用例</span>
-      <span class="meta">💾 进度自动保存在本机浏览器</span>
+    <h1>🧪 病原体设备上传 · 现场复核测试指导</h1>
+    <p>这份指导写给"会做实验、不写程序"的同事。你只要按顺序做 <b>7 个实验</b>，每个实验都写清了：<b>填什么 → 点哪里 → 屏幕上会看到什么 → 对不上就怎么记</b>。</p>
+    <div class="chips">
+      <span class="chip">⏱ 约 60 分钟</span>
+      <span class="chip">🏫 只在"测试学校"做</span>
+      <span class="chip">📷 每个实验拍 2 张照片</span>
+      <span class="chip">💾 进度自动保存在这台电脑</span>
     </div>
   </div>
 </header>
 
 <div class="wrap">
-
-  <div class="progress-bar">
-    <span class="count" id="countText">已完成 0 / 15</span>
+  <div class="bar">
+    <span class="cnt" id="cnt">已完成 0 / 7 个实验（✅ 没问题 0 · ⚠️ 有问题 0）</span>
     <div class="track"><div class="fill" id="fill"></div></div>
-    <button class="btn" id="btnReset" title="清空本机保存的判定与备注">重置</button>
-    <button class="btn primary" id="btnExport" title="生成 Markdown 结果，可直接粘贴给开发">📤 导出结果</button>
+    <button class="btn" id="reset">清空重来</button>
+    <button class="btn main" id="export">📋 生成结果（复制给技术同事）</button>
   </div>
 
-  <!-- 0. 口径 -->
-  <section id="rules">
-    <h2><span class="num">0</span>先明确三条判定口径（避免误判）</h2>
-    <p class="sub">下面三条是本次修复后的行为，若现场表现与之一致即为「符合预期」，不要当成 bug。</p>
-    <div class="rules">
-      <div class="rule">
-        <div class="t">① 食堂名不在学校名单 → 照常入库 + 提示复核</div>
-        <div class="d">报文写「四食堂」而学校名单只有一/二/三食堂时：<b>食堂仍记「四食堂」</b>，同时打「食堂信息待复核」琥珀标记。不再静默改成默认食堂。</div>
-      </div>
-      <div class="rule">
-        <div class="t">② 同一芯片编号但数据不同 → 不是重复</div>
-        <div class="d">不同天、或同天不同食堂/样本：作为<b>新记录</b>入库（不并入轮次），两条都打「芯片编号冲突待复核」红标，并列出差异明细。</div>
-      </div>
-      <div class="rule">
-        <div class="t">③ 同一芯片 + 内容完全一致 → 幂等</div>
-        <div class="d">同一次结果重复上传（网络重试/补传）<b>不新增记录、不提示</b>，返回成功且标记为重复上传。</div>
-      </div>
-    </div>
-    <div class="callout info" style="margin-top:14px">
-      <b>另外两条判定口径</b>：复测合并只认「<b>同一自然日</b> + 同食堂 + 同样本描述 + 同设备 + <b>不同芯片</b>」；
-      <b>样本编号（DetectionNumber）不参与身份判定</b>（数字或文字都无所谓）。
-    </div>
-  </section>
-
-  <!-- 1. 准备 -->
-  <section id="prep">
-    <h2><span class="num">1</span>复测前准备</h2>
-    <p class="sub">按下表逐项确认，缺一项都可能造成误判。</p>
+  <!-- 1 准备工作 -->
+  <section>
+    <h2><span class="step-no">1</span>开始之前：花 2 分钟准备</h2>
+    <p class="lead">这几件事不做，后面会白测。</p>
     <table>
-      <thead><tr><th style="width:52px">序号</th><th>准备项</th><th>怎么做 / 判定</th></tr></thead>
-      <tbody>
-        <tr><td>1</td><td>设备已登记</td><td>超管 →「病原体设备」→ 选中<b>测试</b>学校 → 确认你的设备编号在列表中且状态为<b>在用</b>；记下它的「默认食堂」。</td></tr>
-        <tr><td>2</td><td>设备密钥</td><td>确认设备上配置的是<b>统一上传密钥</b>（请求头 <code>X-API-Key</code>）或该设备的专用密钥（以控制台显示为准）。</td></tr>
-        <tr><td>3</td><td>食堂名单状态</td><td>「学校管理 → 测试学校 → 基本信息 → 食堂列表」<b>先保持「一食堂 / 二食堂 / 三食堂」</b>，<b>不要</b>提前加四食堂（用例 A1 需要它缺失）。</td></tr>
-        <tr><td>4</td><td>前端已刷新</td><td>打开「病原体检测 → 检测记录」后按 <code>Ctrl + Shift + R</code> 硬刷新一次。</td></tr>
-        <tr><td>5</td><td>记录本</td><td>准备记录：设备号 / 芯片编号 / 检测时间 / 上报的样本信息原文 / 系统显示结果（本页可直接填备注并导出）。</td></tr>
-      </tbody>
+      <tr><th style="width:30%">要做的事</th><th>怎么做</th></tr>
+      <tr>
+        <td>① 确认设备已"登记"</td>
+        <td>让管理员（或有超管账号的同事）在电脑上打开 <b>超管控制台 → 病原体设备</b>，选中 <b>测试</b> 学校，确认你用的设备编号（如 <code>20230914010008</code>）在列表里、状态是 <b>在用</b>。<br>顺手记下这台设备的 <b>默认食堂</b>（后面实验 1 要用）。</td>
+      </tr>
+      <tr>
+        <td>② 确认学校食堂名单</td>
+        <td>超管控制台 → <b>学校管理 → 测试学校 → 基本信息 → 食堂列表</b>，确认现在是「<b>一食堂 / 二食堂 / 三食堂</b>」，<b>先不要加"四食堂"</b>（实验 1 需要它没有）。</td>
+      </tr>
+      <tr>
+        <td>③ 打开记录页面</td>
+        <td>电脑上打开 <b>病原体检测 → 检测记录</b>，然后按 <code>Ctrl + Shift + R</code> 刷新一次（重要：不刷会看到旧界面）。</td>
+      </tr>
+      <tr>
+        <td>④ 准备纸笔 / 手机</td>
+        <td>每个实验要拍 2 张照片：<b>列表那一行</b> + <b>点开后的详情</b>。</td>
+      </tr>
     </table>
-    <div class="callout info">上报成功后，列表该行会带 <b>「设备」</b> 徽标；点开行可看详情（检测次数、复测轮次卡片、复核横幅）。</div>
+    <div class="note-tip">💡 <b>怎么认出一行是"设备自动上传的"？</b>列表里那一行的样本编号旁边，会有一个小小的 <span class="pill green">设备</span> 标记。</div>
   </section>
 
-  <!-- 图例 -->
-  <section id="legend">
-    <h2><span class="num">i</span>图例</h2>
-    <p class="sub">现场对照颜色/图标即可快速判断问题类型。</p>
+  <!-- 2 术语对照 -->
+  <section>
+    <h2><span class="step-no">2</span>先对几个词（技术同事说的 = 你在屏幕上看到的）</h2>
+    <table>
+      <tr><th style="width:34%">技术同事的说法</th><th>你在屏幕上/设备上看到的样子</th></tr>
+      <tr><td>"上报/上传成功"</td><td>设备软件提示"上传成功"，或网页列表里多了一行</td></tr>
+      <tr><td>"复核标记"</td><td>列表里样本编号后面多出一个 <span class="pill amber">待复核</span> 或 <span class="pill red">待复核</span> 小标签</td></tr>
+      <tr><td>"复核提示条"</td><td>点开那一行后，最上面出现的<b>黄色</b>或<b>红色</b>方框，里面有一段文字说明</td></tr>
+      <tr><td>"检测次数"</td><td>点开详情后，右上角显示"检测次数：1 / 2 / 3…"</td></tr>
+      <tr><td>"复测轮次"</td><td>详情里那张写着「第 2 次检测（复测）」的小卡片</td></tr>
+      <tr><td>"芯片编号"</td><td>设备软件里的"芯片编号"框（一般扫描芯片包装上的条码）</td></tr>
+      <tr><td>"样本编号"</td><td>设备软件里的"检测编号/样本编号"框，随便填（<code>1</code>、<code>A-01</code> 都行）</td></tr>
+    </table>
+  </section>
+
+  <!-- 3 图例 -->
+  <section>
+    <h2><span class="step-no">3</span>图例：看到这些颜色/标签是什么意思</h2>
     <div class="legend">
-      <div class="lg"><span class="sw amber"></span>琥珀横幅 / 琥珀「待复核」= 食堂类待确认（提示级）</div>
-      <div class="lg"><span class="sw red"></span>红色横幅 / 红色「待复核」= 芯片编号冲突（告警级）</div>
-      <div class="lg"><span class="sw green"></span>「设备」徽标 = 该记录来自设备自动上报</div>
-      <div class="lg"><span class="sw blue"></span>「第 N 次检测（复测）」= 同档案的复测轮次卡片</div>
+      <div class="lg"><span class="pill amber">待复核</span><div><b>黄色标签</b>＝系统在提醒管理员："这条数据的食堂名对不上学校名单，请确认一下"。<br><span style="color:#6b7280">看到它<b>不是故障</b>，数据已经存进去了。</span></div></div>
+      <div class="lg"><span class="pill red">待复核</span><div><b>红色标签</b>＝系统在提醒："同一个芯片编号出现了不同的检测数据，请确认是不是编号填错了"。<br><span style="color:#6b7280">数据同样已经存进去了。</span></div></div>
+      <div class="lg"><span class="pill green">设备</span><div>这一行是<b>设备自动上传</b>的（不是人工录入的）。</div></div>
+      <div class="lg"><span class="pill blue">第 2 次检测（复测）</span><div>同一天、同一样本、换了一张芯片又测了一次，系统把它们合在一起显示。</div></div>
     </div>
   </section>
 
-  <!-- 2. 用例 -->
-  <section id="cases">
-    <h2><span class="num">2</span>用例清单（逐条打勾）</h2>
-    <p class="sub">共 15 条：A 组食堂（4）/ B 组同芯片（3）/ C 组合并口径（3）/ D 组防回归（5）。标 <span class="tag key">核心</span> 的是与报障直接对应的回归点。</p>
+  <!-- 4 实验 -->
+  <section>
+    <h2><span class="step-no">4</span>7 个实验（做完一个就打勾）</h2>
+    <p class="lead">建议按顺序做。每个实验里，<b>绿色框</b>是"正常应该看到的样子"，<b>红色框</b>是"看到就说明有问题"。</p>
 
-    <h3>A 组 · 食堂信息（对应报障 ①：填「四食堂」被写成「三食堂」）</h3>
-
-    <div class="case" data-case="A1">
-      <div class="case-head"><span class="cid">A1</span><span class="ctitle">食堂不在名单 → 保留原文 + 待复核</span><span class="tag key">核心</span></div>
-      <div class="op"><b>操作：</b>样本信息填「<code>四食堂 餐盘涂抹样</code>」，用一张<b>新芯片</b>检测并上传。</div>
-      <div class="expect"><b>预期：</b>
-        <ul>
-          <li>上报返回成功（HTTP 200）；</li>
-          <li>列表该行<b>食堂显示「四食堂」</b>（不是三食堂 / 一食堂）；</li>
-          <li>该行出现<b>琥珀色「待复核」</b>徽标；</li>
-          <li>详情顶部出现<b>琥珀横幅</b>「食堂不在学校食堂名单内（已按原文入库，待复核）」，并给出两条处置路径（补名单 / 更正后重传）。</li>
-        </ul>
-      </div>
-      <div class="verdict"><span class="lbl">判定：</span>
-        <button class="vbtn ok" data-v="ok" data-for="A1">✅ 通过</button>
-        <button class="vbtn bad" data-v="bad" data-for="A1">❌ 不通过</button>
-        <input class="note" data-note="A1" placeholder="备注：设备号 / 芯片编号 / 实际看到什么（不通过时必填）">
+    <!-- 实验 1 -->
+    <div class="exp" data-exp="E1">
+      <div class="exp-h"><span class="tag">实验 1</span><span class="t">食堂写"四食堂"，系统必须记成"四食堂"</span><span class="why">对应老问题 ①</span></div>
+      <div class="exp-b">
+        <div class="goal"><b>要确认的是：</b>以前你填"四食堂"，系统会偷偷改成"三食堂"。现在必须<b>原样记成四食堂</b>，并给个黄色提醒。</div>
+        <ol class="doit">
+          <li>在设备软件里，<b>样本信息</b>一栏填：<span class="fill-in">四食堂 餐盘涂抹样</span></li>
+          <li>用一张<b>没有用过的新芯片</b>做检测；<b>检测人员</b>填你自己的名字；开始/结束时间按实际情况填。</li>
+          <li>点设备上的"上传/提交"，等它提示成功。</li>
+          <li>回电脑，刷新 <b>病原体检测 → 检测记录</b>，看<b>最上面那一行</b>（你刚传的）。</li>
+        </ol>
+        <div class="look">
+          <div class="h">✅ 正常应该看到</div>
+          <ul>
+            <li>"食堂"那一列写着 <b>四食堂</b>；</li>
+            <li>样本编号后面有 <span class="pill amber">待复核</span> 黄色小标签；</li>
+            <li>点开这一行，最上面有一条<b>黄色提示框</b>，大意是"食堂不在学校食堂名单内"，并给出两条处理办法（补名单 / 填错了重新传）。</li>
+          </ul>
+        </div>
+        <div class="danger">
+          <div class="h">⚠️ 出现下面任何一条 = 有问题，请立刻截图</div>
+          <ul>
+            <li>食堂显示成 <b>三食堂</b> 或 <b>一食堂</b>（这就是老问题，没修好）；</li>
+            <li>列表里<b>根本没有这一行</b>（数据没进来）；</li>
+            <li>有这一行，但<b>没有</b>黄色标签和黄色提示框。</li>
+          </ul>
+        </div>
+        <div class="verdict"><span class="lb">结果：</span>
+          <button class="vbtn ok" data-v="ok" data-for="E1">✅ 没问题</button>
+          <button class="vbtn bad" data-v="bad" data-for="E1">⚠️ 有问题</button>
+          <input class="note" data-note="E1" placeholder="填：设备号 / 芯片编号 / 你实际看到什么（有问题时必填）">
+        </div>
       </div>
     </div>
 
-    <div class="case" data-case="A2">
-      <div class="case-head"><span class="cid">A2</span><span class="ctitle">补进名单后 → 不再提示</span></div>
-      <div class="op"><b>操作：</b>超管在「学校管理 → 基本信息」把「<code>四食堂</code>」<b>加入食堂列表</b>；再用<b>另一张新芯片</b>、样本信息仍填「四食堂 餐盘涂抹样」上传。</div>
-      <div class="expect"><b>预期：</b>
-        <ul><li>入库成功，食堂显示「四食堂」；</li><li><b>没有</b>「待复核」徽标 / 横幅。</li></ul>
-      </div>
-      <div class="verdict"><span class="lbl">判定：</span>
-        <button class="vbtn ok" data-v="ok" data-for="A2">✅ 通过</button>
-        <button class="vbtn bad" data-v="bad" data-for="A2">❌ 不通过</button>
-        <input class="note" data-note="A2" placeholder="备注">
-      </div>
-    </div>
-
-    <div class="case" data-case="A3">
-      <div class="case-head"><span class="cid">A3</span><span class="ctitle">样本信息不写食堂 → 回落设备默认食堂</span></div>
-      <div class="op"><b>操作：</b>样本信息只写「<code>餐盘涂抹样</code>」（不写食堂），用新芯片上传。</div>
-      <div class="expect"><b>预期：</b>
-        <ul><li>食堂 = <b>该设备的默认食堂</b>（准备阶段记下的那个）；</li><li><b>没有</b>「食堂待复核」标记。</li></ul>
-      </div>
-      <div class="verdict"><span class="lbl">判定：</span>
-        <button class="vbtn ok" data-v="ok" data-for="A3">✅ 通过</button>
-        <button class="vbtn bad" data-v="bad" data-for="A3">❌ 不通过</button>
-        <input class="note" data-note="A3" placeholder="备注">
+    <!-- 实验 2 -->
+    <div class="exp" data-exp="E2">
+      <div class="exp-h"><span class="tag">实验 2</span><span class="t">把"四食堂"加进名单后，黄色提醒应该消失</span></div>
+      <div class="exp-b">
+        <div class="goal"><b>要确认的是：</b>食堂信息补进学校名单后，系统不再提醒。</div>
+        <ol class="doit">
+          <li>让管理员在 <b>学校管理 → 测试学校 → 基本信息 → 食堂列表</b> 里，<b>增加一项"四食堂"</b>并保存。</li>
+          <li>回设备，用<b>另一张新芯片</b>，样本信息仍填：<span class="fill-in">四食堂 餐盘涂抹样</span>，重新做一次并上传。</li>
+          <li>回电脑刷新列表，看最新那一行。</li>
+        </ol>
+        <div class="look">
+          <div class="h">✅ 正常应该看到</div>
+          <ul><li>食堂显示 <b>四食堂</b>；</li><li><b>没有</b>黄色"待复核"标签，点开也<b>没有</b>黄色提示框。</li></ul>
+        </div>
+        <div class="note-tip">🔎 <b>可选再做一次：</b>样本信息<b>只写</b> <span class="fill-in">餐盘涂抹样</span>（不写食堂），上传后应显示这台设备的<b>默认食堂</b>，并且<b>没有</b>黄色标签。</div>
+        <div class="danger"><div class="h">⚠️ 有问题</div><ul><li>名单已经加了"四食堂"，但仍然出现黄色标签。</li><li>只写"餐盘涂抹样"时，食堂是空的或提示失败。</li></ul></div>
+        <div class="verdict"><span class="lb">结果：</span>
+          <button class="vbtn ok" data-v="ok" data-for="E2">✅ 没问题</button>
+          <button class="vbtn bad" data-v="bad" data-for="E2">⚠️ 有问题</button>
+          <input class="note" data-note="E2" placeholder="备注（如：加了名单仍提示）">
+        </div>
       </div>
     </div>
 
-    <div class="case" data-case="A4">
-      <div class="case-head"><span class="cid">A4</span><span class="ctitle">关键回归：默认食堂=三食堂时，四食堂仍必须是四食堂</span><span class="tag key">核心</span></div>
-      <div class="op"><b>操作：</b>把该设备的<b>默认食堂设为「三食堂」</b>，然后重复 A1（样本信息「四食堂 餐盘涂抹样」）。</div>
-      <div class="expect"><b>预期：</b>
-        <ul><li>食堂仍显示「<b>四食堂</b>」+ 待复核标记；</li><li><b>只要出现「三食堂」即判不通过</b>（这正是原报障的失败模式）。</li></ul>
-      </div>
-      <div class="verdict"><span class="lbl">判定：</span>
-        <button class="vbtn ok" data-v="ok" data-for="A4">✅ 通过</button>
-        <button class="vbtn bad" data-v="bad" data-for="A4">❌ 不通过</button>
-        <input class="note" data-note="A4" placeholder="备注">
-      </div>
-    </div>
-
-    <h3>B 组 · 同一芯片编号（对应报障 ② 的一半：芯片相同但数据不同算不算重复）</h3>
-
-    <div class="case" data-case="B1">
-      <div class="case-head"><span class="cid">B1</span><span class="ctitle">完全相同重传 → 幂等</span></div>
-      <div class="op"><b>操作：</b>用同一张芯片、<b>完全相同</b>的样本信息与检测时间，把同一次结果<b>再上传一遍</b>（模拟网络重试）。</div>
-      <div class="expect"><b>预期：</b>
-        <ul><li>返回成功且为「重复上传」语义；</li><li><b>不新增记录</b>（列表条数不变）。</li></ul>
-      </div>
-      <div class="verdict"><span class="lbl">判定：</span>
-        <button class="vbtn ok" data-v="ok" data-for="B1">✅ 通过</button>
-        <button class="vbtn bad" data-v="bad" data-for="B1">❌ 不通过</button>
-        <input class="note" data-note="B1" placeholder="备注">
+    <!-- 实验 3 -->
+    <div class="exp" data-exp="E3">
+      <div class="exp-h"><span class="tag">实验 3</span><span class="t">同一张芯片，数据完全一样再传一次 → 不该多出一行</span></div>
+      <div class="exp-b">
+        <div class="goal"><b>要确认的是：</b>网络不稳定导致重复上传时，系统不能重复存数据。</div>
+        <ol class="doit">
+          <li>记住实验 1 那次用的<b>芯片编号</b>、样本信息、检测时间（<b>全都不要改</b>）。</li>
+          <li>在设备上<b>原样再提交一次</b>（就当作"补传"）。</li>
+          <li>回电脑数一数：这个芯片编号在列表里是不是<b>还是只有一行</b>。</li>
+        </ol>
+        <div class="look">
+          <div class="h">✅ 正常应该看到</div>
+          <ul><li>提示成功（可能提示"重复"）；</li><li>列表<b>没有多出新的一行</b>。</li></ul>
+        </div>
+        <div class="danger"><div class="h">⚠️ 有问题</div><ul><li>列表里出现了<b>两行完全一样</b>的记录。</li></ul></div>
+        <div class="verdict"><span class="lb">结果：</span>
+          <button class="vbtn ok" data-v="ok" data-for="E3">✅ 没问题</button>
+          <button class="vbtn bad" data-v="bad" data-for="E3">⚠️ 有问题</button>
+          <input class="note" data-note="E3" placeholder="备注">
+        </div>
       </div>
     </div>
 
-    <div class="case" data-case="B2">
-      <div class="case-head"><span class="cid">B2</span><span class="ctitle">同芯片 · 换一天 → 新记录 + 双向红标</span><span class="tag key">核心</span></div>
-      <div class="op"><b>操作：</b>记下 B1 的芯片编号；<b>换一天</b>（如今天 → 明天）用<b>同一个芯片编号</b> + 不同的检测数据上传。</div>
-      <div class="expect"><b>预期：</b>
-        <ul>
-          <li>返回 200（<b>不报错、不拒绝</b>）；</li>
-          <li>列表<b>新增一条独立记录</b>（不是并入上一条）；</li>
-          <li>两条记录都带<b>红色「待复核」</b>徽标；</li>
-          <li>红色横幅写明「同一芯片编号出现不同检测数据（已按新数据入库）」，并<b>列出具体差异</b>（检测日期 / 检测时段 / 阳性项 / CT 值）；</li>
-          <li>原记录的<b>「检测次数」不增加</b>。</li>
-        </ul>
-      </div>
-      <div class="verdict"><span class="lbl">判定：</span>
-        <button class="vbtn ok" data-v="ok" data-for="B2">✅ 通过</button>
-        <button class="vbtn bad" data-v="bad" data-for="B2">❌ 不通过</button>
-        <input class="note" data-note="B2" placeholder="备注">
-      </div>
-    </div>
-
-    <div class="case" data-case="B3">
-      <div class="case-head"><span class="cid">B3</span><span class="ctitle">同芯片 · 同天换食堂/样本 → 新记录 + 双向红标</span></div>
-      <div class="op"><b>操作：</b>同一天、同一个芯片编号，但<b>换食堂</b>（如四食堂 → 二食堂）或换样本描述后再上传。</div>
-      <div class="expect"><b>预期：</b>
-        <ul><li>同 B2：新增独立记录 + 双向红色标记（<b>不是</b>并入复测）。</li></ul>
-      </div>
-      <div class="verdict"><span class="lbl">判定：</span>
-        <button class="vbtn ok" data-v="ok" data-for="B3">✅ 通过</button>
-        <button class="vbtn bad" data-v="bad" data-for="B3">❌ 不通过</button>
-        <input class="note" data-note="B3" placeholder="备注">
-      </div>
-    </div>
-
-    <h3>C 组 · 跨天 / 同日合并（对应报障 ② 的核心：10.26 显示成 10.22）</h3>
-
-    <div class="case" data-case="C1">
-      <div class="case-head"><span class="cid">C1</span><span class="ctitle">跨天两次检测 → 必须两条独立记录</span><span class="tag key">核心</span></div>
-      <div class="op"><b>操作：</b>同一设备、同一食堂、<b>同样本描述</b>：第 1 天用芯片甲上传一次；<b>第 2 天</b>用<b>芯片乙</b>再上传一次。</div>
-      <div class="expect"><b>预期：</b>
-        <ul>
-          <li>列表是<b>两条独立记录</b>，各自日期正确；</li>
-          <li>第 1 天的记录<b>只显示第 1 天的结论</b>（阳性项<b>不被</b>第 2 天覆盖）；</li>
-          <li>两条的「检测次数」都是 <b>1</b>。</li>
-        </ul>
-      </div>
-      <div class="verdict"><span class="lbl">判定：</span>
-        <button class="vbtn ok" data-v="ok" data-for="C1">✅ 通过</button>
-        <button class="vbtn bad" data-v="bad" data-for="C1">❌ 不通过</button>
-        <input class="note" data-note="C1" placeholder="备注">
+    <!-- 实验 4 -->
+    <div class="exp" data-exp="E4">
+      <div class="exp-h"><span class="tag">实验 4</span><span class="t">同一张芯片、换个日期 → 应该是"新的一行"，并给红标</span><span class="why">对应老问题 ② 的一半</span></div>
+      <div class="exp-b">
+        <div class="goal"><b>要确认的是：</b>芯片编号一样但数据不一样时，<b>不能当成重复丢掉</b>，要存进来并提醒管理员核实。</div>
+        <ol class="doit">
+          <li>芯片编号<b>仍然用实验 1 那张</b>（不要换芯片）。</li>
+          <li>把设备上的<b>检测开始/结束时间改成明天</b>（或前一天）；其它字段可以按你方便改一下（比如换一个通道的阴阳性）。</li>
+          <li>提交上传；回电脑刷新列表。</li>
+        </ol>
+        <div class="look">
+          <div class="h">✅ 正常应该看到</div>
+          <ul>
+            <li>列表<b>多出一行新的</b>（不是并到原来那行里）；</li>
+            <li>新的一行<b>和</b>原来那一行，都带 <span class="pill red">待复核</span> 红色标签；</li>
+            <li>点开新的那一行，最上面是<b>红色提示框</b>，标题大意"同一芯片编号出现不同检测数据"，下面还列了<b>哪里不一样</b>（日期、时间、阴阳性、CT 值）；</li>
+            <li>点开<b>原来那一行</b>，它的"<b>检测次数</b>"应该还是 <b>1</b>（没被加一次）。</li>
+          </ul>
+        </div>
+        <div class="danger">
+          <div class="h">⚠️ 有问题</div>
+          <ul>
+            <li>数据被拒收（提示失败/重复，列表没有新增）；</li>
+            <li>被并到原来那一行里（原来那行检测次数变成 2）；</li>
+            <li>新增了，但<b>没有</b>红色标签，或者提示框里<b>没写</b>哪里不一样。</li>
+          </ul>
+        </div>
+        <div class="verdict"><span class="lb">结果：</span>
+          <button class="vbtn ok" data-v="ok" data-for="E4">✅ 没问题</button>
+          <button class="vbtn bad" data-v="bad" data-for="E4">⚠️ 有问题</button>
+          <input class="note" data-note="E4" placeholder="备注">
+        </div>
       </div>
     </div>
 
-    <div class="case" data-case="C2">
-      <div class="case-head"><span class="cid">C2</span><span class="ctitle">同日复测 → 仍应并入轮次</span></div>
-      <div class="op"><b>操作：</b>同一设备、同一食堂、同样本描述、<b>同一天</b>，用<b>芯片丙</b>再做一次并上传。</div>
-      <div class="expect"><b>预期：</b>
-        <ul>
-          <li>并入为<b>复测</b>：详情「检测次数 = 2」；</li>
-          <li>详情出现<b>「第 2 次检测（复测）」</b>轮次卡片（含芯片号、检测时段、上传时间）；</li>
-          <li>列表该行结论以<b>最新轮次</b>为准。</li>
-        </ul>
-      </div>
-      <div class="verdict"><span class="lbl">判定：</span>
-        <button class="vbtn ok" data-v="ok" data-for="C2">✅ 通过</button>
-        <button class="vbtn bad" data-v="bad" data-for="C2">❌ 不通过</button>
-        <input class="note" data-note="C2" placeholder="备注">
-      </div>
-    </div>
-
-    <div class="case" data-case="C3">
-      <div class="case-head"><span class="cid">C3</span><span class="ctitle">样本编号不同不影响合并</span></div>
-      <div class="op"><b>操作：</b>同一天、同食堂、同样本描述，但<b>样本编号写得不同</b>（第 1 次填 <code>1</code>，第 2 次填 <code>A-01</code>），用不同芯片。</div>
-      <div class="expect"><b>预期：</b>
-        <ul><li>仍<b>并入为复测</b>（检测次数 2）——样本编号是自由文本，不参与身份判定。</li></ul>
-      </div>
-      <div class="verdict"><span class="lbl">判定：</span>
-        <button class="vbtn ok" data-v="ok" data-for="C3">✅ 通过</button>
-        <button class="vbtn bad" data-v="bad" data-for="C3">❌ 不通过</button>
-        <input class="note" data-note="C3" placeholder="备注">
-      </div>
-    </div>
-
-    <h3>D 组 · 其他回归（防止修复引入新问题）</h3>
-
-    <div class="case" data-case="D1">
-      <div class="case-head"><span class="cid">D1</span><span class="ctitle">未登记设备</span></div>
-      <div class="op"><b>操作：</b>用<b>未在控制台登记</b>的设备编号上报。</div>
-      <div class="expect"><b>预期：</b><ul><li>403，错误码 <code>DEVICE_NOT_REGISTERED</code>（提示先绑定设备编号）。</li></ul></div>
-      <div class="verdict"><span class="lbl">判定：</span>
-        <button class="vbtn ok" data-v="ok" data-for="D1">✅ 通过</button>
-        <button class="vbtn bad" data-v="bad" data-for="D1">❌ 不通过</button>
-        <input class="note" data-note="D1" placeholder="备注">
+    <!-- 实验 5 -->
+    <div class="exp" data-exp="E5">
+      <div class="exp-h"><span class="tag">实验 5</span><span class="t">隔一天再测同一个样本 → 必须是两条独立记录</span><span class="why">对应老问题 ② 的核心</span></div>
+      <div class="exp-b">
+        <div class="goal"><b>要确认的是：</b>以前 10 月 26 日的记录会显示成 10 月 22 日的、阳性结果还会串到一起。现在<b>不同天必须是两条独立记录</b>。</div>
+        <ol class="doit">
+          <li><b>第一天</b>：样本信息填 <span class="fill-in">二食堂 砧板涂抹样</span>，用<b>芯片 A</b>（新芯片）做一次，上传。记下结果（有没有阳性）。</li>
+          <li><b>第二天</b>（或把设备日期改成明天）：样本信息仍填 <span class="fill-in">二食堂 砧板涂抹样</span>，改用<b>芯片 B</b>（另一张新芯片）做一次，上传。</li>
+          <li>回电脑刷新列表，找这两条记录对比。</li>
+        </ol>
+        <div class="look">
+          <div class="h">✅ 正常应该看到</div>
+          <ul>
+            <li>列表是<b>两行</b>，日期各自是第一天、第二天；</li>
+            <li>第一天的行<b>只显示第一天的结果</b>（第二天的阳性/阴性不会跑到第一天的行上）；</li>
+            <li>两行的"检测次数"都是 <b>1</b>。</li>
+          </ul>
+        </div>
+        <div class="danger">
+          <div class="h">⚠️ 有问题</div>
+          <ul>
+            <li>只有<b>一行</b>（被合并了）；</li>
+            <li>两行日期一样，或第一天的行显示的是第二天的结果；</li>
+            <li>某一行"检测次数"变成 2。</li>
+          </ul>
+        </div>
+        <div class="verdict"><span class="lb">结果：</span>
+          <button class="vbtn ok" data-v="ok" data-for="E5">✅ 没问题</button>
+          <button class="vbtn bad" data-v="bad" data-for="E5">⚠️ 有问题</button>
+          <input class="note" data-note="E5" placeholder="备注">
+        </div>
       </div>
     </div>
 
-    <div class="case" data-case="D2">
-      <div class="case-head"><span class="cid">D2</span><span class="ctitle">检测时间不在绑定期间</span></div>
-      <div class="op"><b>操作：</b>报文检测时间填成<b>设备绑定期间之外</b>的日期（如绑定从今天开始，报文填上个月）。</div>
-      <div class="expect"><b>预期：</b><ul><li>403，<code>DEVICE_BINDING_EXPIRED</code>，响应里会列出该编号的<b>绑定期间</b>。</li></ul></div>
-      <div class="verdict"><span class="lbl">判定：</span>
-        <button class="vbtn ok" data-v="ok" data-for="D2">✅ 通过</button>
-        <button class="vbtn bad" data-v="bad" data-for="D2">❌ 不通过</button>
-        <input class="note" data-note="D2" placeholder="备注">
+    <!-- 实验 6 -->
+    <div class="exp" data-exp="E6">
+      <div class="exp-h"><span class="tag">实验 6</span><span class="t">同一天、同一样本、换张芯片复测 → 应该合并为"复测"</span></div>
+      <div class="exp-b">
+        <div class="goal"><b>要确认的是：</b>复测功能还在（这是正常业务，不能因为修老问题被一起关掉）。</div>
+        <ol class="doit">
+          <li>接着实验 5 的<b>第二天</b>：同食堂、同样本描述、<b>同一天</b>，改用<b>芯片 C</b>（第三张新芯片）再做一次，上传。</li>
+          <li>回电脑，点开第二天那一行。</li>
+        </ol>
+        <div class="look">
+          <div class="h">✅ 正常应该看到</div>
+          <ul>
+            <li>"<b>检测次数：2</b>"；</li>
+            <li>详情里多出一张 <span class="pill blue">第 2 次检测（复测）</span> 卡片，上面写着这张芯片的编号和时间；</li>
+            <li>列表里那一行的结论，以<b>最新一次</b>为准。</li>
+          </ul>
+        </div>
+        <div class="danger"><div class="h">⚠️ 有问题</div><ul><li>又变成两行独立记录（该合的没合）；</li><li>检测次数还是 1，或详情里没有复测卡片。</li></ul></div>
+        <div class="verdict"><span class="lb">结果：</span>
+          <button class="vbtn ok" data-v="ok" data-for="E6">✅ 没问题</button>
+          <button class="vbtn bad" data-v="bad" data-for="E6">⚠️ 有问题</button>
+          <input class="note" data-note="E6" placeholder="备注">
+        </div>
       </div>
     </div>
 
-    <div class="case" data-case="D3">
-      <div class="case-head"><span class="cid">D3</span><span class="ctitle">时间非法</span></div>
-      <div class="op"><b>操作：</b>检测结束时间<b>早于</b>开始时间。</div>
-      <div class="expect"><b>预期：</b><ul><li>400，<code>VALIDATION_ERROR</code>（提示结束时间须晚于开始）。</li></ul></div>
-      <div class="verdict"><span class="lbl">判定：</span>
-        <button class="vbtn ok" data-v="ok" data-for="D3">✅ 通过</button>
-        <button class="vbtn bad" data-v="bad" data-for="D3">❌ 不通过</button>
-        <input class="note" data-note="D3" placeholder="备注">
-      </div>
-    </div>
-
-    <div class="case" data-case="D4">
-      <div class="case-head"><span class="cid">D4</span><span class="ctitle">连续快速提交两次</span></div>
-      <div class="op"><b>操作：</b>同一报文<b>连续快速提交两次</b>。</div>
-      <div class="expect"><b>预期：</b><ul><li>只产生 <b>1 条</b>记录（第二次幂等）。</li></ul></div>
-      <div class="verdict"><span class="lbl">判定：</span>
-        <button class="vbtn ok" data-v="ok" data-for="D4">✅ 通过</button>
-        <button class="vbtn bad" data-v="bad" data-for="D4">❌ 不通过</button>
-        <input class="note" data-note="D4" placeholder="备注">
-      </div>
-    </div>
-
-    <div class="case" data-case="D5">
-      <div class="case-head"><span class="cid">D5</span><span class="ctitle">徽标分级</span></div>
-      <div class="op"><b>操作：</b>观察列表「待复核」徽标颜色。</div>
-      <div class="expect"><b>预期：</b><ul><li>食堂类问题 = <b>琥珀</b>；芯片冲突类 = <b>红</b>。</li></ul></div>
-      <div class="verdict"><span class="lbl">判定：</span>
-        <button class="vbtn ok" data-v="ok" data-for="D5">✅ 通过</button>
-        <button class="vbtn bad" data-v="bad" data-for="D5">❌ 不通过</button>
-        <input class="note" data-note="D5" placeholder="备注">
+    <!-- 实验 7 -->
+    <div class="exp" data-exp="E7">
+      <div class="exp-h"><span class="tag">实验 7</span><span class="t">故意做错 3 次，看提示写不写得清楚</span></div>
+      <div class="exp-b">
+        <div class="goal"><b>要确认的是：</b>出错时，提示是不是<b>人能看懂、并且告诉你怎么改</b>（这一项只看提示文字，不会存数据）。</div>
+        <ol class="doit">
+          <li><b>7-A 设备编号没登记</b>：把设备上的"设备编号"改成 <span class="fill-in">99999999999999</span>，提交上传。</li>
+          <li><b>7-B 时间太早</b>：把检测时间改到<b>上个月</b>（比如 2026-09-01），提交上传。</li>
+          <li><b>7-C 结束时间早于开始</b>：把结束时间填成比开始时间<b>早</b>（如开始 10:00、结束 09:00），提交上传。</li>
+        </ol>
+        <div class="look">
+          <div class="h">✅ 正常应该看到（三次都应"上传失败"，并给出看得懂的提示）</div>
+          <ul>
+            <li>7-A 提示大意：<b>设备编号未登记，请先在控制台绑定</b>；</li>
+            <li>7-B 提示大意：<b>这个检测时间不在这台设备的有效期内</b>（并列出有效期）；</li>
+            <li>7-C 提示大意：<b>结束时间必须晚于开始时间</b>；</li>
+            <li>三次都<b>没有</b>在列表里新增记录。</li>
+          </ul>
+        </div>
+        <div class="danger"><div class="h">⚠️ 有问题</div><ul><li>提示是空白/只写"错误"看不出怎么改；</li><li>本该失败却提示成功、或在列表里多出记录。</li></ul></div>
+        <div class="verdict"><span class="lb">结果：</span>
+          <button class="vbtn ok" data-v="ok" data-for="E7">✅ 没问题</button>
+          <button class="vbtn bad" data-v="bad" data-for="E7">⚠️ 有问题</button>
+          <input class="note" data-note="E7" placeholder="备注（可写：7-A 提示是… / 7-B 提示是…）">
+        </div>
       </div>
     </div>
   </section>
 
-  <!-- 3. 不是 bug -->
-  <section id="notabug">
-    <h2><span class="num">3</span>以下现象<b>不是 bug</b>（别误判）</h2>
-    <div class="callout warn">
-      <ol class="steps">
-        <li><b>列表里还有旧的合并记录</b>：2026-10-22 / 10-26 那两条是修复<b>之前</b>产生的，本次<b>不追溯修改</b>（按"旧数据不用管"）。</li>
-        <li><b>A1 一定会出现「待复核」标记</b>：学校食堂名单里确实还没有「四食堂」；A2 配好后不应再出现。</li>
-        <li><b>同芯片换天会产生两条记录</b>：这是新口径（不是重复），两条都带标记属预期。</li>
-        <li><b>极端并发下可能出现 409 <code>RECORD_BUSY</code></b>：同一档案被多张芯片同时上报的并发保护，<b>重试即可</b>，不会产生重复数据。</li>
-        <li><b>检测次数只在详情里</b>：列表页只有日期/食堂/结论，检测次数在详情弹层。</li>
-      </ol>
-    </div>
-  </section>
-
-  <!-- 4. 错误码 -->
-  <section id="errors">
-    <h2><span class="num">4</span>错误码速查</h2>
+  <!-- 5 FAQ -->
+  <section>
+    <h2><span class="step-no">5</span>遇到这些情况别慌（不算问题）</h2>
     <table>
-      <thead><tr><th style="width:64px">HTTP</th><th style="width:210px">错误码</th><th>含义 / 处置</th></tr></thead>
-      <tbody>
-        <tr><td>200</td><td>—</td><td>成功（可能同时带 <code>reviewRequired: true</code>：已入库但需人工复核）</td></tr>
-        <tr><td>400</td><td><code>VALIDATION_ERROR</code></td><td>报文格式 / 时间 / 必填项问题</td></tr>
-        <tr><td>401</td><td><code>MISSING_KEY</code> / <code>INVALID_KEY</code></td><td>未带密钥 / 密钥错误或已失效</td></tr>
-        <tr><td>403</td><td><code>DEVICE_MISMATCH</code></td><td>报文设备编号与密钥所属设备不一致</td></tr>
-        <tr><td>403</td><td><code>DEVICE_NOT_REGISTERED</code></td><td>设备编号未登记</td></tr>
-        <tr><td>403</td><td><code>DEVICE_DISABLED</code></td><td>设备已停用</td></tr>
-        <tr><td>403</td><td><code>DEVICE_BINDING_EXPIRED</code></td><td>报文检测时间不在任何绑定期间内（响应附绑定区间）</td></tr>
-        <tr><td>403</td><td><code>IP_DENIED</code></td><td>来源 IP 不在白名单</td></tr>
-        <tr><td>422</td><td><code>CANTEEN_UNRESOLVED</code></td><td>样本信息里提取不到食堂名，且设备没配默认食堂</td></tr>
-        <tr><td>429</td><td><code>RATE_LIMITED</code></td><td>超限流（带 <code>Retry-After</code>），稍后重试</td></tr>
-        <tr><td>409</td><td><code>RECORD_BUSY</code></td><td>同档案并发更新冲突，重试即可（不产生重复）</td></tr>
-      </tbody>
+      <tr><th style="width:42%">你看到的现象</th><th>正常吗 / 怎么办</th></tr>
+      <tr><td>列表里还有 10 月 22、26 日的旧记录，日期看着不对</td><td><b>正常</b>。那是修复前的老数据，这次不追改，忽略它。</td></tr>
+      <tr><td>出现黄色"待复核"标签</td><td><b>正常</b>。说明食堂名不在名单里，等你把名单补上就会消失（实验 2 验证）。数据已经存好了。</td></tr>
+      <tr><td>出现红色"待复核"标签（同一芯片不同数据）</td><td><b>正常</b>。系统在提醒你核实芯片编号有没有填错。数据已存。</td></tr>
+      <tr><td>提示"该档案正在被并发更新，请稍后重试"</td><td><b>正常</b>。同时有多张芯片在传同一个样本。等几秒<b>再点一次上传</b>即可，不会重复。</td></tr>
+      <tr><td>网页看起来跟说明里不一样 / 没变化</td><td>按 <code>Ctrl + Shift + R</code> 强制刷新一次再看。</td></tr>
+      <tr><td>"检测次数"在列表里找不到</td><td><b>在详情里</b>：点开那一行，右上角就有。</td></tr>
     </table>
   </section>
 
-  <!-- 5. 验收 -->
-  <section id="accept">
-    <h2><span class="num">5</span>一句话验收标准</h2>
-    <div class="callout ok">
-      <p style="margin:0 0 6px"><b>报障 ①</b>：报文写「四食堂」，系统就必须显示「<b>四食堂</b>」（+ 待复核提示），<b>绝不出现「三食堂」</b>。</p>
-      <p style="margin:0 0 6px"><b>报障 ②</b>：不同天的两次检测必须是<b>两条独立记录</b>，各自结论独立；同一天 + 同一样本 + 不同芯片才是复测轮次。</p>
-      <p style="margin:0"><b>新增能力</b>：同芯片不同数据 → 入库 + 双向复核提示（含差异明细）；完全相同的重传 → 幂等不重复。</p>
-    </div>
-    <p class="kv">控制台路径：设备登记/改默认食堂 → <b>超管 · 病原体设备</b>；学校食堂名单 → <b>超管 · 学校管理 · 基本信息</b>；查看记录 → <b>病原体检测 · 检测记录</b>。</p>
+  <!-- 6 交作业 -->
+  <section>
+    <h2><span class="step-no">6</span>做完之后怎么交</h2>
+    <table>
+      <tr><th style="width:30%">做什么</th><th>怎么弄</th></tr>
+      <tr><td>① 保存结果</td><td>点页面最上面的 <b>「📋 生成结果（复制给技术同事）」</b>，内容会自动复制；粘贴到微信/邮件发给技术同事即可。</td></tr>
+      <tr><td>② 发照片</td><td>每个实验 2 张：<b>列表那一行</b> + <b>点开后的详情</b>。文件名建议：<code>实验1-列表.jpg</code>、<code>实验1-详情.jpg</code>。</td></tr>
+      <tr><td>③ 说明有问题的实验</td><td>在备注里写清：<b>设备号、芯片编号、你实际看到什么、和说明里哪一条不一样</b>。有这些信息技术同事能直接查到。</td></tr>
+      <tr><td>④ 想打印带进实验室</td><td>按 <code>Ctrl + P</code> 打印（按钮和输入框会自动隐藏），可当纸质记录表用。</td></tr>
+    </table>
+    <div class="note-tip">💡 结果存在<b>这台电脑的这个浏览器</b>里。换电脑或清理浏览器数据会丢，所以<b>测完当天就点"生成结果"发出去</b>。</div>
   </section>
 
-  <footer>病原体设备上报 · 复测检查指导 · 2026-10-28 · 仅限测试学校执行</footer>
+  <footer>病原体设备上传 · 现场复核测试指导 · 只在"测试学校"做 · 2026-10-28</footer>
 </div>
 
 <script>
 (function () {
-  var CASES = ['A1','A2','A3','A4','B1','B2','B3','C1','C2','C3','D1','D2','D3','D4','D5'];
-  var KEY = 'pathogen-retest-20261028';
+  var EXPS = ['E1','E2','E3','E4','E5','E6','E7'];
+  var STORE = 'pathogen-retest-plain-20261028';
+  function read(){ try { return JSON.parse(localStorage.getItem(STORE) || '{}') || {}; } catch(e){ return {}; } }
+  function write(s){ try { localStorage.setItem(STORE, JSON.stringify(s)); } catch(e){} }
+  var st = read();
 
-  function load() {
-    try { return JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { return {}; }
-  }
-  function save(state) {
-    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* 隐私模式忽略 */ }
-  }
-
-  var state = load();
-
-  function paint() {
-    var done = 0, ok = 0, bad = 0;
-    CASES.forEach(function (id) {
-      var card = document.querySelector('.case[data-case="' + id + '"]');
-      var v = (state[id] && state[id].v) || '';
-      if (card) {
-        card.classList.toggle('done-ok', v === 'ok');
-        card.classList.toggle('done-bad', v === 'bad');
-        var okBtn = card.querySelector('.vbtn.ok');
-        var badBtn = card.querySelector('.vbtn.bad');
-        if (okBtn) okBtn.classList.toggle('on', v === 'ok');
-        if (badBtn) badBtn.classList.toggle('on', v === 'bad');
-        var note = card.querySelector('.note');
-        if (note && note.value !== ((state[id] && state[id].n) || '')) {
-          note.value = (state[id] && state[id].n) || '';
-        }
+  function paint(){
+    var done=0, ok=0, bad=0;
+    EXPS.forEach(function(id){
+      var card=document.querySelector('.exp[data-exp="'+id+'"]');
+      var v=(st[id]&&st[id].v)||'';
+      if(card){
+        card.classList.toggle('ok', v==='ok');
+        card.classList.toggle('bad', v==='bad');
+        var b1=card.querySelector('.vbtn.ok'), b2=card.querySelector('.vbtn.bad');
+        if(b1) b1.classList.toggle('on', v==='ok');
+        if(b2) b2.classList.toggle('on', v==='bad');
+        var n=card.querySelector('.note');
+        if(n && n.value !== ((st[id]&&st[id].n)||'')) n.value=(st[id]&&st[id].n)||'';
       }
-      if (v) done++;
-      if (v === 'ok') ok++;
-      if (v === 'bad') bad++;
+      if(v) done++; if(v==='ok') ok++; if(v==='bad') bad++;
     });
-    var pct = Math.round((done / CASES.length) * 100);
-    var fill = document.getElementById('fill');
-    if (fill) fill.style.width = pct + '%';
-    var txt = document.getElementById('countText');
-    if (txt) txt.textContent = '已完成 ' + done + ' / ' + CASES.length + '（通过 ' + ok + ' · 不通过 ' + bad + '）';
+    var pct=Math.round(done/EXPS.length*100);
+    var f=document.getElementById('fill'); if(f) f.style.width=pct+'%';
+    var c=document.getElementById('cnt');
+    if(c) c.textContent='已完成 '+done+' / '+EXPS.length+' 个实验（✅ 没问题 '+ok+' · ⚠️ 有问题 '+bad+'）';
   }
 
-  document.addEventListener('click', function (e) {
-    var btn = e.target.closest('.vbtn');
-    if (!btn) return;
-    var id = btn.getAttribute('data-for');
-    var v = btn.getAttribute('data-v');
-    state[id] = state[id] || {};
-    state[id].v = (state[id].v === v) ? '' : v; // 再点一次可取消
-    save(state);
-    paint();
+  document.addEventListener('click',function(e){
+    var b=e.target.closest('.vbtn'); if(!b) return;
+    var id=b.getAttribute('data-for'), v=b.getAttribute('data-v');
+    st[id]=st[id]||{}; st[id].v=(st[id].v===v)?'':v; write(st); paint();
   });
-
-  document.addEventListener('input', function (e) {
-    var input = e.target.closest('.note');
-    if (!input) return;
-    var id = input.getAttribute('data-note');
-    state[id] = state[id] || {};
-    state[id].n = input.value;
-    save(state);
+  document.addEventListener('input',function(e){
+    var n=e.target.closest('.note'); if(!n) return;
+    var id=n.getAttribute('data-note'); st[id]=st[id]||{}; st[id].n=n.value; write(st);
   });
-
-  document.getElementById('btnReset').addEventListener('click', function () {
-    if (!confirm('清空本机保存的所有判定与备注？')) return;
-    state = {};
-    save(state);
-    paint();
+  document.getElementById('reset').addEventListener('click',function(){
+    if(!confirm('清空这台电脑上保存的勾选和备注？')) return;
+    st={}; write(st); paint();
   });
-
-  document.getElementById('btnExport').addEventListener('click', function () {
-    var lines = [];
-    lines.push('# 病原体设备上报 · 复测结果');
-    lines.push('');
-    lines.push('- 执行人：');
-    lines.push('- 执行时间：' + new Date().toLocaleString('zh-CN'));
-    lines.push('- 环境：测试学校（school_code = test）');
-    lines.push('');
-    lines.push('| 用例 | 结果 | 备注 |');
-    lines.push('| --- | --- | --- |');
-    var bad = [];
-    CASES.forEach(function (id) {
-      var s = state[id] || {};
-      var v = s.v === 'ok' ? '✅ 通过' : (s.v === 'bad' ? '❌ 不通过' : '— 未测');
-      if (s.v === 'bad') bad.push(id);
-      lines.push('| ' + id + ' | ' + v + ' | ' + String(s.n || '').replace(/\|/g, '\\|') + ' |');
+  document.getElementById('export').addEventListener('click',function(){
+    var names={E1:'实验1 食堂写四食堂要原样记录',E2:'实验2 补名单后不再提醒',E3:'实验3 同芯片同数据不重复',E4:'实验4 同芯片换日期=新记录+红标',E5:'实验5 跨天必须两条独立记录',E6:'实验6 同日复测应合并',E7:'实验7 错误提示是否看得懂'};
+    var lines=['# 病原体设备上传 · 现场复核测试结果','','- 测试人：','- 测试日期：'+new Date().toLocaleString('zh-CN'),'- 测试环境：测试学校','','| 实验 | 结果 | 备注 |','| --- | --- | --- |'];
+    var bads=[];
+    EXPS.forEach(function(id){
+      var s=st[id]||{};
+      var v=s.v==='ok'?'✅ 没问题':(s.v==='bad'?'⚠️ 有问题':'— 未做');
+      if(s.v==='bad') bads.push(id);
+      lines.push('| '+id+' '+names[id]+' | '+v+' | '+String(s.n||'').replace(/\|/g,'\\|')+' |');
     });
     lines.push('');
-    lines.push('不通过用例：' + (bad.length ? bad.join('、') : '无'));
-
-    var text = lines.join('\n');
-    // 优先复制到剪贴板，失败则下载 .md
-    var okCopy = false;
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text);
-        okCopy = true;
-      }
-    } catch (err) { okCopy = false; }
-    if (okCopy) {
-      alert('已复制到剪贴板，可直接粘贴给开发同事。');
-    } else {
-      var blob = new Blob([text], { type: 'text/markdown;charset=utf-8' });
-      var a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'pathogen-retest-result-' + new Date().toISOString().slice(0, 10) + '.md';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+    lines.push('有问题的实验：'+(bads.length?bads.join('、'):'无'));
+    var text=lines.join('\n');
+    var copied=false;
+    try{ if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(text); copied=true; } }catch(err){}
+    if(copied){ alert('已复制到剪贴板，直接粘贴发给技术同事即可。'); }
+    else{
+      var a=document.createElement('a');
+      a.href=URL.createObjectURL(new Blob([text],{type:'text/markdown;charset=utf-8'}));
+      a.download='复核测试结果-'+new Date().toISOString().slice(0,10)+'.md';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
     }
   });
-
   paint();
 })();
 </script>
