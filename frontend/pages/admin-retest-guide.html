@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>交互式测试指导 · 平台超管</title>
+<!--
+  超管 · 交互式测试指导（2026-10-28）
+  设计要点：本页面只是**壳**，正文由 /api/admin/guides/pathogen-retest 返回（需超管 token）。
+  指引正文存放在 backend/assets/guides/，不在 dist，因此无法通过静态站点直接下载。
+-->
+<style>
+  html,body{height:100%;margin:0}
+  body{font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:#f5f7fb;color:#1f2937;display:flex;flex-direction:column}
+  header{background:linear-gradient(135deg,#1e3a8a,#2563eb);color:#fff;padding:12px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;box-shadow:0 2px 8px rgba(30,58,138,.18);z-index:2}
+  header h1{font-size:16px;margin:0;font-weight:700;display:flex;align-items:center;gap:8px}
+  header .sp{flex:1}
+  header .meta{font-size:12px;opacity:.85}
+  .btn{border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.14);color:#fff;border-radius:8px;padding:5px 12px;font-size:13px;cursor:pointer}
+  .btn:hover{background:rgba(255,255,255,.24)}
+  .btn[disabled]{opacity:.55;cursor:not-allowed}
+  main{flex:1;position:relative;background:#fff}
+  #frame{width:100%;height:100%;border:0;display:block}
+  #state{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;color:#6b7280;font-size:14px}
+  #state .big{font-size:34px}
+  .hidden{display:none !important}
+</style>
+</head>
+<body>
+<header>
+  <h1>📘 交互式测试指导 <span style="font-weight:400;font-size:12px;opacity:.85">（仅平台超管可见）</span></h1>
+  <span class="meta" id="metaInfo">正在加载…</span>
+  <span class="sp"></span>
+  <button class="btn" id="btnReload" title="重新拉取最新正文">↻ 刷新</button>
+  <button class="btn" id="btnOpen" title="在新标签页打开（适合大屏逐条打勾）">↗ 新窗口打开</button>
+  <button class="btn" id="btnDownload" title="下载离线 HTML（含交互脚本）">⬇ 下载 HTML</button>
+</header>
+<main>
+  <div id="state"><div class="big">🔒</div><div>正在校验超管身份并加载指引…</div></div>
+  <iframe id="frame" class="hidden" title="交互式测试指导"></iframe>
+</main>
+
+<script type="module">
+import { authService, getApiBaseUrl } from '/js/services/AuthService.js'
+
+const API = getApiBaseUrl ? getApiBaseUrl() : ''
+const SLUG = 'pathogen-retest'
+const $ = (id) => document.getElementById(id)
+
+let guideHtml = ''
+
+function fail(msg) {
+  const st = $('state')
+  st.classList.remove('hidden')
+  st.innerHTML = '<div class="big">⚠️</div><div>' + msg + '</div>'
+  $('frame').classList.add('hidden')
+  $('btnOpen').disabled = true
+  $('btnDownload').disabled = true
+}
+
+async function load() {
+  const token = authService && authService.getToken ? authService.getToken() : null
+  if (!token) {
+    // 未登录：直接回超管登录页，且**不请求**正文
+    location.replace('/super-admin-login.html')
+    return
+  }
+  $('state').classList.remove('hidden')
+  $('state').innerHTML = '<div class="big">🔒</div><div>正在校验超管身份并加载指引…</div>'
+  try {
+    const res = await fetch(API + '/api/admin/guides/' + SLUG, {
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+    })
+    if (res.status === 401 || res.status === 403) {
+      fail('当前会话无权查看（需平台超管）。请重新登录后再试。')
+      setTimeout(() => location.replace('/super-admin-login.html'), 1600)
+      return
+    }
+    const json = await res.json().catch(() => null)
+    if (!res.ok || !json || !json.success) {
+      fail('加载失败：' + ((json && json.error) || ('HTTP ' + res.status)))
+      return
+    }
+    guideHtml = json.data.html || ''
+    const frame = $('frame')
+    frame.srcdoc = guideHtml
+    frame.classList.remove('hidden')
+    $('state').classList.add('hidden')
+    $('btnOpen').disabled = false
+    $('btnDownload').disabled = false
+    const kb = Math.round((json.data.bytes || guideHtml.length) / 1024)
+    const t = json.data.updatedAt ? new Date(json.data.updatedAt).toLocaleString('zh-CN') : '—'
+    $('metaInfo').textContent = '正文 ' + kb + ' KB · 更新于 ' + t
+  } catch (e) {
+    fail('网络异常：' + (e && e.message ? e.message : e))
+  }
+}
+
+$('btnReload').addEventListener('click', load)
+$('btnOpen').addEventListener('click', () => {
+  if (!guideHtml) return
+  const blob = new Blob([guideHtml], { type: 'text/html;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  window.open(url, '_blank', 'noopener')
+  setTimeout(() => URL.revokeObjectURL(url), 60000)
+})
+$('btnDownload').addEventListener('click', () => {
+  if (!guideHtml) return
+  const a = document.createElement('a')
+  const blob = new Blob([guideHtml], { type: 'text/html;charset=utf-8' })
+  a.href = URL.createObjectURL(blob)
+  a.download = '病原体设备上报-复测检查指导.html'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000)
+})
+
+load()
+</script>
+</body>
+</html>

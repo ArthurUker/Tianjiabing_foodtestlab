@@ -36,6 +36,7 @@ import { createRecordRoutes } from './routes/recordRoutes.js'
 import frequencyRoutes from './routes/frequencyRoutes.js'
 import { createOpenApiRoutes } from './routes/openApiRoutes.js'
 import { createAdminOpenApiRoutes } from './routes/adminOpenApiRoutes.js'
+import { createAdminGuideRoutes } from './routes/adminGuideRoutes.js'
 import { createAdminFriendlyLinkRoutes } from './routes/adminFriendlyLinkRoutes.js'
 import { createPublicFriendlyLinkRoutes } from './routes/publicFriendlyLinkRoutes.js'
 import { createPathogenDeviceUploadRoutes, createAdminPathogenDeviceRoutes } from './routes/pathogenDeviceRoutes.js'
@@ -468,6 +469,10 @@ app.use('/api/school/backups', schoolBackupRoutes)
 //    按 grant 的 school_code 校验并创建租户客户端取数；无任何写入路径。
 const adminOpenApiRoutes = createAdminOpenApiRoutes({ prisma, authenticateUser, requirePlatformSuperAdmin })
 app.use('/api/admin/open-api', adminOpenApiRoutes)
+
+// 超管 · 内部操作指引（内容来自 backend/assets/guides，不在 dist，未登录拿不到正文）
+const adminGuideRoutes = createAdminGuideRoutes({ authenticateUser, requirePlatformSuperAdmin })
+app.use('/api/admin/guides', adminGuideRoutes)
 const openApiRoutes = createOpenApiRoutes({ prisma })
 app.use('/api/open', openApiRoutes)
 

@@ -216,6 +216,13 @@
                     <button class="admin-sidebar__subitem" data-subview="list" data-desc="所有问题实时状态总览，轨迹与收口。" type="button">
                         <i class="fas fa-list-ul"></i><span class="admin-sidebar__subitem-label">问题总览</span>
                     </button>
+                    <!-- 交互式测试指导（2026-10-28）：独立的受鉴权页面（正文由 /api/admin/guides 返回，不在 dist） -->
+                    <a class="admin-sidebar__subitem" href="/admin-retest-guide.html" target="_blank" rel="noopener"
+                       style="display:flex;align-items:center;gap:8px;text-decoration:none"
+                       data-desc="设备上报的交互式复测检查指导：15 条用例逐条打勾、进度自动保存、一键导出结果（需登录超管查看）。"
+                       title="在新标签页打开（需登录超管）">
+                        <i class="fas fa-book-open"></i><span class="admin-sidebar__subitem-label">交互式测试指导</span>
+                    </a>
                 </div>
             </nav>
             <div class="admin-sidebar__footer">

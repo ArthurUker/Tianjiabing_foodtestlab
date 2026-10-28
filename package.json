@@ -26,6 +26,7 @@
     "dev": "cd backend && npm run dev",
     "lint": "eslint .",
     "format": "prettier --write .",
+    "sync:guides": "cp docs/pathogen-device-retest-guide.html backend/assets/guides/pathogen-retest-guide.html",
     "build:css": "tailwindcss -i ./frontend/css/tailwind.input.css -o ./frontend/css/tailwind.css --minify",
     "watch:css": "tailwindcss -i ./frontend/css/tailwind.input.css -o ./frontend/css/tailwind.css --watch",
     "build": "npm run build:css && node scripts/build-static.js",
