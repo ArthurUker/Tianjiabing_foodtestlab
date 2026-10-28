@@ -270,13 +270,22 @@ CASES.soak = async (seconds = '86400', qps = '1') => {
   console.log(`浸泡开始：${totalSec}s @ ${(1000 / intervalMs).toFixed(2)} QPS｜API pid=${pid}｜起始 RSS=${(startRss / 1024).toFixed(1)}MB`)
   console.log('时间\t\t请求\t200\t409\t429\t5xx\t中位ms\tRSS(MB)')
   const t0 = Date.now()
-  let sent = 0, ok200 = 0, c409 = 0, c429 = 0, fivexx = 0, newRecords = 0
+  let sent = 0, ok200 = 0, c409 = 0, c429 = 0, fivexx = 0, newRecords = 0, errCount = 0
   let lat = []
   let lastReport = 0
   while (Date.now() - t0 < totalSec * 1000) {
     const isNew = sent % 60 === 0 && sent > 0
     const body = isNew ? payload({ chip: `ZZTT-SOAKN-${stamp()}-${sent}`, sampleId: `ZT-SOAKN-${stamp()}-${sent}` }) : soakBody
-    const r = await post(body)
+    let r
+    try {
+      r = await post(body)
+    } catch (e) {
+      // 浸泡期间服务会因发布重启：连接错误不能让整轮浸泡退出（2026-10-28 实测踩坑）
+      errCount += 1
+      sent += 1
+      await new Promise((res2) => setTimeout(res2, intervalMs))
+      continue
+    }
     sent += 1
     if (r.status === 200) ok200 += 1
     else if (r.status === 409) c409 += 1
@@ -296,7 +305,7 @@ CASES.soak = async (seconds = '86400', qps = '1') => {
     await new Promise((res2) => setTimeout(res2, intervalMs))
   }
   const endRss = rssOf(pid)
-  console.log(`\n浸泡结束：请求 ${sent}｜200=${ok200} 409=${c409} 429=${c429} 5xx=${fivexx}｜新建记录 ${newRecords}（其余为幂等）`)
+  console.log(`\n浸泡结束：请求 ${sent}｜200=${ok200} 409=${c409} 429=${c429} 5xx=${fivexx} 连接错误=${errCount}｜新建记录 ${newRecords}（其余为幂等）`)
   console.log(`RSS：${(startRss / 1024).toFixed(1)}MB → ${(endRss / 1024).toFixed(1)}MB（增长 ${(((endRss - startRss) / Math.max(1, startRss)) * 100).toFixed(1)}%）`)
   return fivexx === 0
 }
