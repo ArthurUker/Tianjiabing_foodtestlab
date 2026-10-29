@@ -16,10 +16,12 @@ import { applyInspectorDefaults } from '../utils/inspectorDefault.js';
 // 本模块不再自持转义实现（原 escapeHtml 分叉已由 domSafe 收编）。
 import { html, mount, setText } from '../core/domSafe.js';
 import { getLocalDateStr } from '../utils/dateUtil.js';
+import { normalizeAssayLabel } from '../utils/assayLabels.js';
 // 油脂结论口径（与后端 lib/conclusionVerdict.js 同规则的前端副本；未知等级不计合格）
 import { oilLevelOf, isOilPass } from '../core/conclusionVerdict.js';
-// 版本化 URL：改造后强制刷新已缓存的旧模块（浏览器对已加载的 ESM 不会自动更新）。
-import { attachPhotoEntries, addPhotoDetails } from '../colloidal/PhotoEntry.js?v=20261022a';
+// 页面入口通过 main.js 的版本参数触发整棵 ESM 图重新加载；静态依赖不要带查询串，
+// 否则浏览器可用但 Jest/Node 无法解析该模块路径。
+import { attachPhotoEntries, addPhotoDetails } from '../colloidal/PhotoEntry.js';
 
 export class GenericTestModule {
     constructor(config) {
@@ -657,7 +659,7 @@ export class GenericTestModule {
                     <div><span class="font-medium">食堂：</span>${record.canteen}</div>
                     <div><span class="font-medium">检测员：</span>${record.inspector}</div>
                     <div><span class="font-medium">蔬菜品种：</span>${record.vegetableType}</div>
-                    <div><span class="font-medium">检测项目：</span>${record.batchNo}</div>
+                    <div><span class="font-medium">检测项目：</span>${normalizeAssayLabel(record.batchNo)}</div>
                     <div><span class="font-medium">检测结果：</span>${resultBadge(displayResult, badgeClass)}</div>
                     ${record.remark ? remarkLine(record.remark) : ''}
                 </div>
@@ -690,7 +692,7 @@ export class GenericTestModule {
                     <div><span class="font-medium">食堂：</span>${record.canteen}</div>
                     <div><span class="font-medium">检测员：</span>${record.inspector}</div>
                     <div><span class="font-medium">肉类品种：</span>${record.meatType}</div>
-                    <div><span class="font-medium">检测项目：</span>${record.batchNo}</div>
+                    <div><span class="font-medium">检测项目：</span>${normalizeAssayLabel(record.batchNo)}</div>
                     <div><span class="font-medium">检测结果：</span>${resultBadge(displayResult, badgeClass)}</div>
                     ${record.remark ? remarkLine(record.remark) : ''}
                 </div>
@@ -1410,7 +1412,7 @@ export class GenericTestModule {
             if (this.moduleName === 'pesticide') {
                 dataColumns = html`
                     <td class="border px-4 py-2">${r.vegetableType || '-'}</td>
-                    <td class="border px-4 py-2">${r.batchNo || '-'}</td>
+                    <td class="border px-4 py-2">${normalizeAssayLabel(r.batchNo) || '-'}</td>
                 `;
             } else if (this.moduleName === 'oil') {
                 dataColumns = html`
@@ -1421,7 +1423,7 @@ export class GenericTestModule {
             } else if (this.moduleName === 'leanMeat') {
                 dataColumns = html`
                     <td class="border px-4 py-2">${r.meatType || '-'}</td>
-                    <td class="border px-4 py-2">${r.batchNo || '-'}</td>
+                    <td class="border px-4 py-2">${normalizeAssayLabel(r.batchNo) || '-'}</td>
                 `;
             }
 

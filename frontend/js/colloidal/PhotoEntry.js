@@ -40,6 +40,16 @@ const el = (tag, text = '', attrs = {}) => {
 };
 let browserBusy = false;
 
+// 识别模块未配置的项目（如二氧化硫快速检测试剂盒）必须保留人工判读入口。
+// manual 模式只给合格/不合格，不提供照片识别，避免上传后才提示项目不支持。
+export function resultOptionsFor(project) {
+    const mode = !project ? 'manual' : project.channels.length === 3 ? 'triplex' : 'single';
+    if (mode === 'triplex') return { mode, selected: MANUAL_TRIPLEX, items: [[MANUAL_TRIPLEX, '手工录入三项']] };
+    const items = [['', '请选择'], ...RESULT_VALUES.map(value => [value, value])];
+    if (mode === 'single') items.push(...PHOTO_OPTIONS);
+    return { mode, selected: '', items };
+}
+
 export class PhotoEntry {
     constructor(module, point) {
         this.module = module; this.point = point; this.form = point.closest('form');
@@ -72,16 +82,15 @@ export class PhotoEntry {
     get project() { return projectByLabel(this.module.moduleName, this.projectSelect.value); }
 
     // 检测结果下拉按项目形态切换：
-    // · 单检：合格 / 不合格 / 上传照片识别 / 拍照识别
+    // · 单检：请选择 / 合格 / 不合格 / 上传照片识别 / 拍照识别
+    // · 人工判读：请选择 / 合格 / 不合格（项目没有照片识别配置时）
     // · 三联：没有单一合格性，字段整块隐藏，改用通道区里明确的“上传照片 / 拍照”按钮
     syncResultOptions(project) {
-        const mode = !project ? 'none' : project.channels.length === 3 ? 'triplex' : 'single';
-        if (this.optionsMode === mode) return;
-        this.optionsMode = mode;
-        const items = mode === 'single' ? [['合格', '合格'], ['不合格', '不合格'], ...PHOTO_OPTIONS]
-            : mode === 'triplex' ? [[MANUAL_TRIPLEX, '手工录入三项']] : [];
-        this.resultSelect.replaceChildren(...items.map(([value, text]) => new Option(text, value)));
-        this.resultSelect.value = mode === 'triplex' ? MANUAL_TRIPLEX : '';
+        const options = resultOptionsFor(project);
+        if (this.optionsMode === options.mode) return;
+        this.optionsMode = options.mode;
+        this.resultSelect.replaceChildren(...options.items.map(([value, text]) => new Option(text, value)));
+        this.resultSelect.value = options.selected;
         this.previousValue = this.resultSelect.value;
     }
 
@@ -395,7 +404,8 @@ export class PhotoEntry {
         this.syncChannelRow(project, triplex);
         this.resultSelect.disabled = false;
         // 三联该字段整块隐藏，不能再参与原生必填校验（隐藏的 required 会阻止提交）。
-        this.resultSelect.required = !!project && !triplex;
+        // 人工判读（project 为 null）仍必须明确选择合格/不合格。
+        this.resultSelect.required = !triplex;
         // 三联没有单一“合格/不合格”：整块隐藏检测结果字段，状态/预览移到通道区。
         this.resultField.hidden = !!triplex;
         if (triplex) this.channelRow.appendChild(this.inline);

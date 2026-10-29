@@ -7,6 +7,76 @@
 import { extractSchoolCode } from '../schoolCode.js'
 import { getSchoolCustomization } from './cache.js'
 import { parseJSONField, escapeHtml, FORM_MODULE_MAP, TEST_FORM_IDS, parseTopOrThemeObject } from './shared.js'
+import { SULFUR_DIOXIDE_KIT_LABEL, SULFUR_DIOXIDE_LEGACY_LABELS } from '../assayLabels.js'
+
+// 果蔬农残的显色法项目不依赖胶体金识别，必须在录入表单中始终可选。
+// 学校定制选项可以增删其它项目，但不能把二氧化硫与结果选项一起清空。
+export const PESTICIDE_SULFUR_DIOXIDE_LABEL = SULFUR_DIOXIDE_KIT_LABEL
+export const PESTICIDE_BATCH_DEFAULTS = [
+    '克百威-胶体金检测卡',
+    '水胺硫磷-胶体金检测卡',
+    '噻虫嗪-胶体金检测卡',
+    '通用显色试纸',
+    PESTICIDE_SULFUR_DIOXIDE_LABEL,
+]
+const PESTICIDE_RESULT_DEFAULTS = ['合格', '不合格']
+
+function appendMissingOption(select, value) {
+    const options = Array.from(select.options)
+    const existing = options.find((option) => option.value === value)
+    if (existing) {
+        existing.textContent = value
+        return
+    }
+    const legacyOptions = options.filter((option) => SULFUR_DIOXIDE_LEGACY_LABELS.includes(option.value))
+    if (legacyOptions.length) {
+        // 保留当前选中项，把旧值升级为新值，避免用户再次保存旧名称。
+        const keep = legacyOptions.find((option) => option.selected) || legacyOptions[0]
+        keep.value = value
+        keep.textContent = value
+        legacyOptions.filter((option) => option !== keep).forEach((option) => option.remove())
+        return
+    }
+    const option = document.createElement('option')
+    option.value = value
+    option.textContent = value
+    select.appendChild(option)
+}
+
+function replaceEmptyOptions(select, values, { placeholder = false } = {}) {
+    if (!select || Array.from(select.options).some((option) => option.value)) return
+    select.innerHTML = ''
+    if (placeholder) {
+        const option = document.createElement('option')
+        option.value = ''
+        option.textContent = '请选择'
+        select.appendChild(option)
+    }
+    values.forEach((value) => {
+        const option = document.createElement('option')
+        option.value = value
+        option.textContent = value
+        select.appendChild(option)
+    })
+    select.value = placeholder ? '' : values[0]
+}
+
+/**
+ * 给果蔬农残表单补齐不可丢失的系统选项。
+ * - 学校把 batchNo/result 选项清空时，恢复完整默认项目与合格/不合格。
+ * - 学校保留自定义项目时，仅补回二氧化硫，不覆盖其它定制项。
+ * - 同时覆盖首条点位与「添加检测点位」克隆出的 batchNo[]/result[]。
+ */
+export function ensurePesticideAssayOptions(formEl) {
+    if (!formEl || formEl.id !== 'pesticideTestForm') return
+    formEl.querySelectorAll('select[name="batchNo"], select[name="batchNo[]"]').forEach((select) => {
+        replaceEmptyOptions(select, PESTICIDE_BATCH_DEFAULTS)
+        appendMissingOption(select, PESTICIDE_SULFUR_DIOXIDE_LABEL)
+    })
+    formEl.querySelectorAll('select[name="result"], select[name="result[]"]').forEach((select) => {
+        replaceEmptyOptions(select, PESTICIDE_RESULT_DEFAULTS, { placeholder: true })
+    })
+}
 
 // 把 customization 应用到字段定义对象（{ [字段名]: { label, required, hidden, ... } }）
 export function applyCustomizationToFields(fields, customization = {}) {
@@ -288,6 +358,9 @@ export function applySchoolCustomizationToForm(formEl, customization) {
     const moduleCode = FORM_MODULE_MAP[formEl.id]
     const order = moduleCode ? parseFieldOrder(customization)[moduleCode] : null
     if (Array.isArray(order) && order.length) reorderFormCells(formEl, order)
+
+    // 7) 果蔬农残必需选项兜底：防止旧配置或显式空数组让项目/结果下拉变成“无选项”。
+    ensurePesticideAssayOptions(formEl)
 }
 
 /**

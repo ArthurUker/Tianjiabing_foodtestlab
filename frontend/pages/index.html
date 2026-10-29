@@ -348,6 +348,10 @@
                 <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="frequency-settings" data-admin-only>
                     <i class="fas fa-chart-line mr-3 w-5"></i>检测频率与日历
                 </button>
+                <!-- 通用打印资料：不注册 MENU_ITEMS，避免已有学校的旧菜单配置隐藏此入口。 -->
+                <button class="nav-btn w-full text-left px-4 py-2 rounded hover:bg-blue-700 flex items-center" data-target="colloidal-board-downloads" data-admin-only>
+                    <i class="fas fa-qrcode mr-3 w-5"></i>定位卡下载
+                </button>
             </nav>
             
             <!-- 用户菜单 (顶部右侧) -->
@@ -486,7 +490,7 @@
                                     <option value="水胺硫磷-胶体金检测卡">水胺硫磷-胶体金检测卡</option>
                                     <option value="噻虫嗪-胶体金检测卡">噻虫嗪-胶体金检测卡</option>
                                     <option value="通用显色试纸">通用显色试纸</option>
-                                    <option value="二氧化硫显色试剂">二氧化硫显色试剂</option>
+                                    <option value="二氧化硫快速检测试剂盒">二氧化硫快速检测试剂盒</option>
                                 </select>
                             </div>
                             <div>
@@ -740,6 +744,91 @@
                 <!-- FrequencyModule.js initFrequencySettings() 直接渲染到这里 -->
             </div>
 
+            <!-- 11.7 胶体金定位卡：通用静态资料，学校管理角色可直接下载打印 -->
+            <div id="colloidal-board-downloads" class="content-section hidden">
+                <div class="glass p-6 max-w-6xl">
+                    <div class="mb-6 border-b pb-4">
+                        <h2 class="text-2xl font-bold text-gray-800">胶体金定位卡下载</h2>
+                        <p class="text-sm text-gray-600 mt-2">选择 A4 或 A5 规格，下载后即可自行打印。两种规格无需在识别页面切换算法设置。</p>
+                    </div>
+
+                    <div class="bg-blue-50 border border-blue-200 text-blue-800 rounded-lg p-4 mb-6 text-sm leading-6">
+                        <p><i class="fas fa-circle-info mr-2"></i>定位卡用于胶体金照片识别的“定位板模式”，不是检测卡，也不替代产品说明书。</p>
+                        <p class="mt-1">中央虚线是算法搜索区，不是卡壳裁切模板；请勿缩放、拉伸或裁剪真实检测卡。</p>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <article class="border border-gray-200 rounded-lg bg-white p-5 shadow-sm">
+                            <div class="flex items-start justify-between gap-3 mb-4">
+                                <div>
+                                    <h3 class="text-xl font-semibold text-gray-800">A4 定位卡</h3>
+                                    <p class="text-sm text-gray-500 mt-1">210 × 297 mm · 外圈与内圈共 8 个定位码</p>
+                                </div>
+                                <span class="px-2 py-1 rounded bg-gray-100 text-gray-600 text-xs whitespace-nowrap">V0.1</span>
+                            </div>
+                            <a href="/vendor/colloidal/boards/CG-A4-DEMO-V0.1.pdf" target="_blank" rel="noopener" class="block border rounded-lg bg-gray-50 p-3 hover:border-blue-400 transition" aria-label="打开 A4 定位卡预览">
+                                <img src="/vendor/colloidal/boards/CG-A4-DEMO-V0.1.svg" alt="A4 胶体金定位卡预览" class="w-full h-80 object-contain" loading="lazy">
+                            </a>
+                            <div class="flex flex-wrap gap-2 mt-4">
+                                <a href="/vendor/colloidal/boards/CG-A4-DEMO-V0.1.pdf" download="胶体金定位卡-A4-V0.1.pdf" class="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition">
+                                    <i class="fas fa-download mr-2"></i>下载 PDF
+                                </a>
+                                <a href="/vendor/colloidal/boards/CG-A4-DEMO-V0.1.pdf" target="_blank" rel="noopener" class="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 transition">
+                                    <i class="fas fa-print mr-2"></i>打开并打印
+                                </a>
+                                <a href="/vendor/colloidal/boards/CG-A4-DEMO-V0.1.svg" download="胶体金定位卡-A4-V0.1.svg" class="inline-flex items-center justify-center px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition">
+                                    <i class="fas fa-vector-square mr-2"></i>SVG 矢量文件
+                                </a>
+                            </div>
+                        </article>
+
+                        <article class="border border-gray-200 rounded-lg bg-white p-5 shadow-sm">
+                            <div class="flex items-start justify-between gap-3 mb-4">
+                                <div>
+                                    <h3 class="text-xl font-semibold text-gray-800">A5 单检定位卡</h3>
+                                    <p class="text-sm text-gray-500 mt-1">148 × 210 mm · 内圈 4 个定位码</p>
+                                </div>
+                                <span class="px-2 py-1 rounded bg-amber-100 text-amber-700 text-xs whitespace-nowrap">试用版 V0.1</span>
+                            </div>
+                            <a href="/vendor/colloidal/boards/CG-A5-INNER-V0.1.pdf" target="_blank" rel="noopener" class="block border rounded-lg bg-gray-50 p-3 hover:border-blue-400 transition" aria-label="打开 A5 定位卡预览">
+                                <img src="/vendor/colloidal/boards/CG-A5-INNER-V0.1.svg" alt="A5 胶体金定位卡预览" class="w-full h-80 object-contain" loading="lazy">
+                            </a>
+                            <div class="flex flex-wrap gap-2 mt-4">
+                                <a href="/vendor/colloidal/boards/CG-A5-INNER-V0.1.pdf" download="胶体金定位卡-A5-V0.1.pdf" class="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition">
+                                    <i class="fas fa-download mr-2"></i>下载 PDF
+                                </a>
+                                <a href="/vendor/colloidal/boards/CG-A5-INNER-V0.1.pdf" target="_blank" rel="noopener" class="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 transition">
+                                    <i class="fas fa-print mr-2"></i>打开并打印
+                                </a>
+                                <a href="/vendor/colloidal/boards/CG-A5-INNER-V0.1.svg" download="胶体金定位卡-A5-V0.1.svg" class="inline-flex items-center justify-center px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition">
+                                    <i class="fas fa-vector-square mr-2"></i>SVG 矢量文件
+                                </a>
+                            </div>
+                        </article>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mt-6">
+                        <section class="rounded-lg border border-gray-200 bg-gray-50 p-5">
+                            <h3 class="font-semibold text-gray-800 mb-3"><i class="fas fa-print mr-2 text-blue-600"></i>打印设置</h3>
+                            <ol class="list-decimal pl-5 space-y-2 text-sm text-gray-600 leading-6">
+                                <li>纸张规格与文件一致，选择“实际大小”或“100%”，关闭“适应纸张”和自动缩放。</li>
+                                <li>不要镜像、裁切或拉伸；建议使用黑白激光打印机，保持定位码清晰。</li>
+                                <li>打印后用毫米尺核对页面上的 50 mm 标尺；尺寸不符时重新检查打印设置。</li>
+                                <li>保持纸面平整、干净，不要遮挡、涂写或折叠定位码和中央卡位。</li>
+                            </ol>
+                        </section>
+                        <section class="rounded-lg border border-amber-200 bg-amber-50 p-5">
+                            <h3 class="font-semibold text-amber-800 mb-3"><i class="fas fa-camera mr-2"></i>拍摄与使用提示</h3>
+                            <ul class="list-disc pl-5 space-y-2 text-sm text-amber-800 leading-6">
+                                <li>检测卡项目名称朝上、加样孔朝下，放入中央虚线区域。</li>
+                                <li>建议使用手机后置摄像头，照片长边至少 3000px，完整拍入卡位和至少 3 个清晰定位码。</li>
+                                <li>首次使用请先试拍并核对识别窗口；电脑 1080p 摄像头建议使用单卡近照或固定机位。</li>
+                            </ul>
+                        </section>
+                    </div>
+                </div>
+            </div>
+
             <!-- 12. ✨ 访客中心 (仅访客登录后显示) -->
             <div id="guest-dashboard" class="content-section hidden">
                 <!-- GuestDashboard.js 会把界面渲染到这里 -->
@@ -829,7 +918,7 @@
     </script>
 
     <!-- 模块入口 -->
-    <script type="module" src="/js/main.js?t=1786548597056"></script>
+    <script type="module" src="/js/main.js?t=1793240335182"></script>
 
 </body>
 </html>

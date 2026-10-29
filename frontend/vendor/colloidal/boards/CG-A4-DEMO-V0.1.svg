@@ -1,0 +1,260 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="210mm" height="297mm" viewBox="0 0 210 297">
+<rect width="210" height="297" fill="white"/>
+<text x="105" y="52" text-anchor="middle" font-family="PingFang SC,Noto Sans CJK SC,sans-serif" font-size="5" fill="#173d35">A4 胶体金定位卡</text>
+<text x="105" y="60" text-anchor="middle" font-family="PingFang SC,Noto Sans CJK SC,sans-serif" font-size="2.8" fill="#334155">CG-A4-DEMO / V0.1 / 210 x 297 mm / 实际大小100%</text>
+<text x="105" y="74" text-anchor="middle" font-family="PingFang SC,Noto Sans CJK SC,sans-serif" font-size="3" fill="#334155">项目名称朝上，加样孔朝下；检测卡放入中央虚线区域</text>
+<rect x="12" y="12" width="26" height="26" fill="white" stroke="none" stroke-width=".2"/>
+<rect x="15.0" y="15.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="18.333333333333332" y="15.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="21.666666666666668" y="15.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="25.0" y="15.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="28.333333333333336" y="15.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="31.666666666666668" y="15.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="15.0" y="18.333333333333332" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="21.666666666666668" y="18.333333333333332" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="31.666666666666668" y="18.333333333333332" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="15.0" y="21.666666666666668" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="18.333333333333332" y="21.666666666666668" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="25.0" y="21.666666666666668" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="31.666666666666668" y="21.666666666666668" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="15.0" y="25.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="18.333333333333332" y="25.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="21.666666666666668" y="25.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="31.666666666666668" y="25.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="15.0" y="28.333333333333336" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="18.333333333333332" y="28.333333333333336" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="21.666666666666668" y="28.333333333333336" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="28.333333333333336" y="28.333333333333336" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="31.666666666666668" y="28.333333333333336" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="15.0" y="31.666666666666668" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="18.333333333333332" y="31.666666666666668" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="21.666666666666668" y="31.666666666666668" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="25.0" y="31.666666666666668" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="28.333333333333336" y="31.666666666666668" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="31.666666666666668" y="31.666666666666668" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<text x="25.0" y="41" text-anchor="middle" font-family="PingFang SC,Noto Sans CJK SC,sans-serif" font-size="2.4" fill="#334155">ID 0</text>
+<rect x="172" y="12" width="26" height="26" fill="white" stroke="none" stroke-width=".2"/>
+<rect x="175.0" y="15.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="178.33333333333334" y="15.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="181.66666666666666" y="15.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="185.0" y="15.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="188.33333333333334" y="15.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="191.66666666666666" y="15.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="175.0" y="18.333333333333332" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="178.33333333333334" y="18.333333333333332" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="181.66666666666666" y="18.333333333333332" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="185.0" y="18.333333333333332" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="188.33333333333334" y="18.333333333333332" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="191.66666666666666" y="18.333333333333332" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="175.0" y="21.666666666666668" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="191.66666666666666" y="21.666666666666668" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="175.0" y="25.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="181.66666666666666" y="25.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="185.0" y="25.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="191.66666666666666" y="25.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="175.0" y="28.333333333333336" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="181.66666666666666" y="28.333333333333336" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="188.33333333333334" y="28.333333333333336" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="191.66666666666666" y="28.333333333333336" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="175.0" y="31.666666666666668" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="178.33333333333334" y="31.666666666666668" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="181.66666666666666" y="31.666666666666668" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="185.0" y="31.666666666666668" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="188.33333333333334" y="31.666666666666668" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="191.66666666666666" y="31.666666666666668" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<text x="185.0" y="41" text-anchor="middle" font-family="PingFang SC,Noto Sans CJK SC,sans-serif" font-size="2.4" fill="#334155">ID 1</text>
+<rect x="172" y="259" width="26" height="26" fill="white" stroke="none" stroke-width=".2"/>
+<rect x="175.0" y="262.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="178.33333333333334" y="262.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="181.66666666666666" y="262.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="185.0" y="262.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="188.33333333333334" y="262.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="191.66666666666666" y="262.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="175.0" y="265.3333333333333" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="178.33333333333334" y="265.3333333333333" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="181.66666666666666" y="265.3333333333333" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="191.66666666666666" y="265.3333333333333" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="175.0" y="268.6666666666667" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="178.33333333333334" y="268.6666666666667" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="181.66666666666666" y="268.6666666666667" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="191.66666666666666" y="268.6666666666667" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="175.0" y="272.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="178.33333333333334" y="272.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="181.66666666666666" y="272.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="188.33333333333334" y="272.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="191.66666666666666" y="272.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="175.0" y="275.3333333333333" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="185.0" y="275.3333333333333" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="191.66666666666666" y="275.3333333333333" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="175.0" y="278.6666666666667" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="178.33333333333334" y="278.6666666666667" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="181.66666666666666" y="278.6666666666667" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="185.0" y="278.6666666666667" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="188.33333333333334" y="278.6666666666667" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="191.66666666666666" y="278.6666666666667" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<text x="185.0" y="288" text-anchor="middle" font-family="PingFang SC,Noto Sans CJK SC,sans-serif" font-size="2.4" fill="#334155">ID 2</text>
+<rect x="12" y="259" width="26" height="26" fill="white" stroke="none" stroke-width=".2"/>
+<rect x="15.0" y="262.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="18.333333333333332" y="262.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="21.666666666666668" y="262.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="25.0" y="262.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="28.333333333333336" y="262.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="31.666666666666668" y="262.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="15.0" y="265.3333333333333" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="21.666666666666668" y="265.3333333333333" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="25.0" y="265.3333333333333" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="31.666666666666668" y="265.3333333333333" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="15.0" y="268.6666666666667" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="21.666666666666668" y="268.6666666666667" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="25.0" y="268.6666666666667" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="31.666666666666668" y="268.6666666666667" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="15.0" y="272.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="18.333333333333332" y="272.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="25.0" y="272.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="28.333333333333336" y="272.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="31.666666666666668" y="272.0" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="15.0" y="275.3333333333333" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="18.333333333333332" y="275.3333333333333" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="28.333333333333336" y="275.3333333333333" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="31.666666666666668" y="275.3333333333333" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="15.0" y="278.6666666666667" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="18.333333333333332" y="278.6666666666667" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="21.666666666666668" y="278.6666666666667" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="25.0" y="278.6666666666667" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="28.333333333333336" y="278.6666666666667" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="31.666666666666668" y="278.6666666666667" width="3.3333333333333335" height="3.3333333333333335" fill="black" stroke="none" stroke-width=".2"/>
+<text x="25.0" y="288" text-anchor="middle" font-family="PingFang SC,Noto Sans CJK SC,sans-serif" font-size="2.4" fill="#334155">ID 3</text>
+<rect x="54" y="89" width="21" height="21" fill="white" stroke="none" stroke-width=".2"/>
+<rect x="57.0" y="92.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="59.5" y="92.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="62.0" y="92.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="64.5" y="92.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="67.0" y="92.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="69.5" y="92.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="57.0" y="94.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="69.5" y="94.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="57.0" y="97.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="62.0" y="97.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="64.5" y="97.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="69.5" y="97.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="57.0" y="99.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="62.0" y="99.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="64.5" y="99.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="69.5" y="99.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="57.0" y="102.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="59.5" y="102.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="62.0" y="102.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="64.5" y="102.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="69.5" y="102.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="57.0" y="104.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="59.5" y="104.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="62.0" y="104.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="64.5" y="104.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="67.0" y="104.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="69.5" y="104.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<text x="64.5" y="113" text-anchor="middle" font-family="PingFang SC,Noto Sans CJK SC,sans-serif" font-size="2.4" fill="#334155">ID 10</text>
+<rect x="135" y="89" width="21" height="21" fill="white" stroke="none" stroke-width=".2"/>
+<rect x="138.0" y="92.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="140.5" y="92.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="143.0" y="92.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="145.5" y="92.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="148.0" y="92.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="150.5" y="92.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="138.0" y="94.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="140.5" y="94.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="143.0" y="94.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="145.5" y="94.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="150.5" y="94.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="138.0" y="97.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="140.5" y="97.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="143.0" y="97.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="145.5" y="97.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="150.5" y="97.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="138.0" y="99.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="143.0" y="99.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="148.0" y="99.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="150.5" y="99.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="138.0" y="102.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="140.5" y="102.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="150.5" y="102.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="138.0" y="104.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="140.5" y="104.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="143.0" y="104.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="145.5" y="104.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="148.0" y="104.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="150.5" y="104.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<text x="145.5" y="113" text-anchor="middle" font-family="PingFang SC,Noto Sans CJK SC,sans-serif" font-size="2.4" fill="#334155">ID 11</text>
+<rect x="135" y="192" width="21" height="21" fill="white" stroke="none" stroke-width=".2"/>
+<rect x="138.0" y="195.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="140.5" y="195.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="143.0" y="195.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="145.5" y="195.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="148.0" y="195.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="150.5" y="195.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="138.0" y="197.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="140.5" y="197.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="143.0" y="197.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="145.5" y="197.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="148.0" y="197.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="150.5" y="197.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="138.0" y="200.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="148.0" y="200.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="150.5" y="200.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="138.0" y="202.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="143.0" y="202.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="150.5" y="202.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="138.0" y="205.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="140.5" y="205.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="150.5" y="205.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="138.0" y="207.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="140.5" y="207.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="143.0" y="207.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="145.5" y="207.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="148.0" y="207.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="150.5" y="207.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<text x="145.5" y="216" text-anchor="middle" font-family="PingFang SC,Noto Sans CJK SC,sans-serif" font-size="2.4" fill="#334155">ID 12</text>
+<rect x="54" y="192" width="21" height="21" fill="white" stroke="none" stroke-width=".2"/>
+<rect x="57.0" y="195.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="59.5" y="195.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="62.0" y="195.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="64.5" y="195.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="67.0" y="195.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="69.5" y="195.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="57.0" y="197.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="59.5" y="197.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="62.0" y="197.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="67.0" y="197.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="69.5" y="197.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="57.0" y="200.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="62.0" y="200.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="67.0" y="200.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="69.5" y="200.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="57.0" y="202.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="59.5" y="202.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="62.0" y="202.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="64.5" y="202.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="67.0" y="202.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="69.5" y="202.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="57.0" y="205.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="69.5" y="205.0" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="57.0" y="207.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="59.5" y="207.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="62.0" y="207.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="64.5" y="207.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="67.0" y="207.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<rect x="69.5" y="207.5" width="2.5" height="2.5" fill="black" stroke="none" stroke-width=".2"/>
+<text x="64.5" y="216" text-anchor="middle" font-family="PingFang SC,Noto Sans CJK SC,sans-serif" font-size="2.4" fill="#334155">ID 13</text>
+<rect x="90" y="110" width="30" height="80" fill="none" stroke="#64748b" stroke-width=".2" stroke-dasharray="1.5 1"/>
+<text x="105" y="224" text-anchor="middle" font-family="PingFang SC,Noto Sans CJK SC,sans-serif" font-size="2.8" fill="#334155">中央虚线为算法搜索区 30 x 80 mm，不是卡壳裁切线</text>
+<path d="M80 234 H130" fill="none" stroke="black" stroke-width=".25"/>
+<path d="M80 232 V236" fill="none" stroke="black" stroke-width=".25"/>
+<path d="M90 232 V236" fill="none" stroke="black" stroke-width=".25"/>
+<path d="M100 232 V236" fill="none" stroke="black" stroke-width=".25"/>
+<path d="M110 232 V236" fill="none" stroke="black" stroke-width=".25"/>
+<path d="M120 232 V236" fill="none" stroke="black" stroke-width=".25"/>
+<path d="M130 232 V236" fill="none" stroke="black" stroke-width=".25"/>
+<text x="105" y="242" text-anchor="middle" font-family="PingFang SC,Noto Sans CJK SC,sans-serif" font-size="2.7" fill="#334155">打印后用尺核对：上方横线应为 50 mm</text>
+<text x="105" y="249" text-anchor="middle" font-family="PingFang SC,Noto Sans CJK SC,sans-serif" font-size="2.6" fill="#334155">A4纸 / 100% / 关闭适应纸张 / 不镜像打印</text>
+<text x="105" y="256" text-anchor="middle" font-family="PingFang SC,Noto Sans CJK SC,sans-serif" font-size="2.5" fill="#334155">拍摄时保留完整卡位及至少三个清晰定位码，优先拍入全部标记</text>
+<text x="105" y="291" text-anchor="middle" font-family="PingFang SC,Noto Sans CJK SC,sans-serif" font-size="2.4" fill="#92400e">仅用于照片几何定位；实体卡适配与判读须按系统提示核验</text>
+</svg>

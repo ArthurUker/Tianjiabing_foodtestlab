@@ -2,6 +2,7 @@ import { StorageService } from '../core/Storage.js';  // ✅ 添加导入
 import { UINotification } from '../utils/UINotification.js';
 import { isRecordQualifiedByCustomFields } from '../utils/schoolCustomization.js';
 import { getLocalDateStr } from '../utils/dateUtil.js';
+import { normalizeAssayLabel } from '../utils/assayLabels.js';
 // TD-TenantIsolation：认证态 key 已按学校命名空间隔离，读取需拼 schoolCode 前缀
 import { extractSchoolCode } from '../utils/schoolCode.js';
 // BS-12: 敏感自定义字段（姓名/手机等）导出前脱敏
@@ -1135,7 +1136,7 @@ export class ExportService {
                 record.testDate || '-', 
                 record.canteen || '-', 
                 record.vegetableType || '-', 
-                record.batchNo || '-', 
+                normalizeAssayLabel(record.batchNo) || '-', 
                 record.result || '-', 
                 record.inspector || '-'
             ],
@@ -1151,7 +1152,7 @@ export class ExportService {
                 record.testDate || '-', 
                 record.canteen || '-', 
                 record.meatType || '-', 
-                record.batchNo || record.testItem || '-', 
+                normalizeAssayLabel(record.batchNo) || record.testItem || '-', 
                 record.result || '-', 
                 record.inspector || '-'
             ],

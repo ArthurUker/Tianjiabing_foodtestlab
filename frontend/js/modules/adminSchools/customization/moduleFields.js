@@ -41,7 +41,7 @@ export const MODULE_FIELDS = {
         { name: 'vegetableType', label: '蔬菜品种', builtin: true, type: 'text', section: 'points' },
         // P2-定制修复：batchNo 由 text 改为 select（与录入端静态下拉一致），
         // 使界面定制中「检测项目」出现选项增删入口，避免"新增检测项目无显示/无可删除项目"。
-        { name: 'batchNo', label: '检测项目', builtin: true, type: 'select', section: 'points', options: ['克百威-胶体金检测卡', '水胺硫磷-胶体金检测卡', '噻虫嗪-胶体金检测卡', '通用显色试纸', '二氧化硫显色试剂'] },
+        { name: 'batchNo', label: '检测项目', builtin: true, type: 'select', section: 'points', options: ['克百威-胶体金检测卡', '水胺硫磷-胶体金检测卡', '噻虫嗪-胶体金检测卡', '通用显色试纸', '二氧化硫快速检测试剂盒'] },
         { name: 'result', label: '结果', builtin: true, type: 'select', section: 'points', options: ['合格', '不合格'] },
     ],
     oil: [
