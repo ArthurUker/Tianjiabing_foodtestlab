@@ -142,3 +142,8 @@ __pycache__/
 
 # 压测产物（日志/报告，运行时证据，不入库）
 backend/stress-artifacts/
+
+# 生产环境暂存的"已写好但未应用"迁移目录。
+# ⚠️ 绝不能入库：一旦随代码进入 backend/prisma/migrations，租户入口门禁会按工作树判定
+# MIGRATIONS_PENDING 并对全站租户返回 503（2026-10-14 生产事件即由此触发）。
+.pending-migrations/
