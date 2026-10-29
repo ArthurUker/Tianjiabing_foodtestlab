@@ -242,6 +242,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             } else {
                 customization = fetched || {};
             }
+            // 玻璃效果（超管「界面定制 → 玻璃效果」）：透明度/模糊按校生效
+            if (window.SchoolThemes) {
+                window.SchoolThemes.applyGlass(document, window.SchoolThemes.resolveGlass(customization));
+            }
             applyCustomizationToAllForms(customization);
             applySchoolCustomizationToTitles(customization);
             // 主页顶部标题/校徽按校动态显示（README 品牌中立化要求）
@@ -261,6 +265,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             const syncCode = extractSchoolCode();
             if (syncCode) {
                 onSchoolConfigChanged(syncCode, async (cfg) => {
+                    if (window.SchoolThemes) {
+                        window.SchoolThemes.applyGlass(document, window.SchoolThemes.resolveGlass(cfg));
+                    }
                     applyVisibleTypesToNav(cfg);
                     applyVisibleMenuItemsToNav(cfg);
                     applyCustomizationToAllForms(cfg);

@@ -107,9 +107,11 @@ input[type="datetime-local"]::-webkit-date-and-time-value {
         min-height: 46px;
     }
 
+    /* 抽屉打开时锁背景滚动。这里只保留 overflow（会传播到视口），不再对 body 设
+       touch-action:none——那会把触摸手势整体交给浏览器拒绝处理，iOS 上连抽屉自身
+       都拖不动。背景防滚由遮罩层 .sb-overlay 的 touch-action:none 承担。 */
     body.sb-lock {
         overflow: hidden;
-        touch-action: none;
     }
 
     /* ---------- 主容器与卡片 ---------- */

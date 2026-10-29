@@ -176,6 +176,11 @@
                 top: 0;
                 left: 0;
                 bottom: 0;
+                /* 抽屉高度必须显式给定：只靠 top/bottom 拉伸时，内容比视口高会让盒子
+                   按内容高度（如 980px）撑开，scrollHeight 恒等于 clientHeight，
+                   overflow-y 形同失效——手机端菜单下半截被裁在屏外且无法下滑。 */
+                height: 100vh;
+                height: 100dvh;                /* 支持的浏览器取可视区高度，避免被地址栏遮挡 */
                 width: 260px;
                 max-width: 85vw;
                 max-height: none;
@@ -184,6 +189,9 @@
                 transform: translateX(-105%);
                 transition: transform .25s ease;
                 overflow-y: auto;
+                -webkit-overflow-scrolling: touch;  /* iOS 惯性滚动 */
+                overscroll-behavior: contain;       /* 滚到两端不把滚动链传给背景页面 */
+                touch-action: pan-y;                /* 显式允许纵向拖动滚动 */
                 box-shadow: 2px 0 12px rgba(0,0,0,.25);
             }
             .sidebar-menu.sb-open { transform: translateX(0); }
@@ -195,6 +203,7 @@
                 opacity: 0;
                 pointer-events: none;
                 transition: opacity .2s ease;
+                touch-action: none;             /* 遮罩上的手势不滚动背景页面 */
             }
             .sb-overlay.sb-show { opacity: 1; pointer-events: auto; }
             #sbToggle { display: inline-flex !important; }
@@ -903,6 +912,9 @@
             // 预设主题：通过 CSS 变量整体换肤（壁纸 + 玻璃着色 + 强调色），保留玻璃质感
             const theme = window.SchoolThemes && window.SchoolThemes.resolveTheme(cfg);
             if (theme) window.SchoolThemes.applyTheme(document, theme);
+            // 玻璃效果（超管「界面定制 → 玻璃效果」按校设置）：须在 applyTheme 之后覆盖深色玻璃 alpha
+            const glass = window.SchoolThemes && window.SchoolThemes.resolveGlass(cfg);
+            if (glass) window.SchoolThemes.applyGlass(document, glass);
             if (cfg.logoUrl) {
               const icon = document.querySelector('nav.glass-dark .fa-shield-alt');
               if (icon) {

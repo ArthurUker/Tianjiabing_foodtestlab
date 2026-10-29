@@ -22,6 +22,9 @@
   /* 深色玻璃（导航/侧栏）着色 */
   --glass-dark-bg: rgba(20, 28, 48, 0.42);
   --glass-dark-solid: rgb(20, 28, 48);
+  /* 玻璃质感（超管「界面定制 → 玻璃效果」按校覆盖：浅色面板底色 / 模糊强度） */
+  --glass-light-bg: rgba(255, 255, 255, 0.56);
+  --glass-blur: 14px;
   /* 强调色（按钮/激活态） */
   --accent: #1a73e8;
   --accent-strong: #1d4ed8;
@@ -60,11 +63,11 @@ body::before {
 @layer components {
   .glass {
     position: relative;
-    background: rgba(255, 255, 255, 0.56);
+    background: var(--glass-light-bg, rgba(255, 255, 255, 0.56));
     border: 1px solid rgba(255, 255, 255, 0.78);
     border-radius: 1.7rem;
-    -webkit-backdrop-filter: blur(14px) saturate(180%);
-    backdrop-filter: url(#lg-refraction) blur(14px) saturate(180%);
+    -webkit-backdrop-filter: blur(var(--glass-blur, 14px)) saturate(180%);
+    backdrop-filter: url(#lg-refraction) blur(var(--glass-blur, 14px)) saturate(180%);
     box-shadow:
       0 16px 46px rgba(40, 60, 100, 0.20),
       inset 0 2px 0 rgba(255, 255, 255, 0.95),
@@ -78,8 +81,8 @@ body::before {
     background: var(--glass-dark-bg, rgba(20, 28, 48, 0.42));
     border: 1px solid rgba(255, 255, 255, 0.18);
     border-radius: 1.7rem;
-    -webkit-backdrop-filter: blur(14px) saturate(160%);
-    backdrop-filter: url(#lg-refraction) blur(14px) saturate(160%);
+    -webkit-backdrop-filter: blur(var(--glass-blur, 14px)) saturate(160%);
+    backdrop-filter: url(#lg-refraction) blur(var(--glass-blur, 14px)) saturate(160%);
     box-shadow:
       0 16px 46px rgba(10, 20, 40, 0.30),
       inset 0 2px 0 rgba(255, 255, 255, 0.18),

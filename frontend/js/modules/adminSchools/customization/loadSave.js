@@ -6,7 +6,7 @@ import { MODULE_FIELDS, TABLE_MANAGED_FIELDS, orderFields } from './moduleFields
 import { showNotice } from '../ui.js';
 import { adminFetch } from '../context.js';
 import { renderPreview, getActiveTheme } from '../preview.js';
-import { applyAdminTheme, highlightThemePreset } from '../adminTheme.js';
+import { applyAdminTheme, highlightThemePreset, syncGlassControls } from '../adminTheme.js';
 import { renderFieldModuleTabs, renderFieldList } from './fieldList.js';
 import { setSchoolCustomization } from '/js/utils/schoolCustomization.js';
 import { MENU_ITEMS, MODULE_REGISTRY } from '/js/modules/registry.js';
@@ -103,6 +103,10 @@ export async function loadCustomization() {
                 document.getElementById('bf_themeColorPicker').value = savedTheme.accent;
             }
             highlightThemePreset();
+
+            // 回显玻璃效果覆盖（空对象 = 跟随主题默认）
+            state.glass = window.SchoolThemes.resolveGlass({ theme_config: c.theme_config }) || {};
+            syncGlassControls();
 
             // XR-04：拿到完整 theme_config 后，用与师生端一致的 resolveTheme 精确化管理端主题
             applyAdminTheme({
@@ -271,6 +275,12 @@ document.getElementById('saveCustomBtn').addEventListener('click', async () => {
         });
         delete fieldOptionsPayload.cascade;
         const themeConfig = { custom_fields: state.customFields, field_options: fieldOptionsPayload, section_titles: state.sectionTitles, field_order: state.fieldOrder, theme: themePayload, logo_style: state.logoStyle || undefined };
+        // 玻璃效果覆盖：只有超管显式调过才落库（缺省 = 跟随主题预设，避免给所有学校写冗余配置）
+        const glassPayload = {};
+        ['navAlpha', 'panelAlpha', 'blur'].forEach(k => {
+            if (typeof state.glass?.[k] === 'number') glassPayload[k] = state.glass[k];
+        });
+        if (Object.keys(glassPayload).length) themeConfig.glass = glassPayload;
         // RK-LS：保留「登录样式」模块已保存的 login（避免界面定制整写 theme_config 时把它清空）
         const preservedLogin = parseJSON(state.currentCustomization?.theme_config)?.login;
         if (preservedLogin) themeConfig.login = preservedLogin;

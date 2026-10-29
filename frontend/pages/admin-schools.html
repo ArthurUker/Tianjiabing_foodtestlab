@@ -449,6 +449,43 @@
                     </div>
                 </div>
 
+                <!-- 玻璃效果（透明度 / 模糊强度，与预设主题正交，可单独微调） -->
+                <div class="mb-4 p-4 border border-gray-200 rounded-lg bg-gray-50">
+                    <div class="flex items-center justify-between mb-1">
+                        <h3 class="font-medium text-gray-700"><i class="fas fa-layer-group mr-1 text-cyan-600"></i>玻璃效果</h3>
+                        <button type="button" id="glassResetBtn" class="text-xs text-blue-600 hover:text-blue-800 transition">
+                            <i class="fas fa-rotate-left mr-1"></i>恢复主题默认
+                        </button>
+                    </div>
+                    <p class="text-xs text-gray-400 mb-3">单独调整顶部导航/侧边菜单的玻璃不透明度、卡片面板的玻璃不透明度与毛玻璃模糊强度；与「预设主题」互不覆盖，下方预览实时联动（点击「保存定制」生效）</p>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-3">
+                        <label class="block">
+                            <span class="flex items-center justify-between text-sm text-gray-600 mb-1">
+                                <span>导航/菜单玻璃</span>
+                                <span id="glassNavAlphaVal" class="text-xs text-blue-600 font-mono">42%</span>
+                            </span>
+                            <input id="glassNavAlpha" type="range" min="0" max="100" step="1" value="42" class="w-full accent-cyan-600">
+                            <span class="block text-xs text-gray-400 mt-1">越低越透明，0 为完全透明</span>
+                        </label>
+                        <label class="block">
+                            <span class="flex items-center justify-between text-sm text-gray-600 mb-1">
+                                <span>卡片面板玻璃</span>
+                                <span id="glassPanelAlphaVal" class="text-xs text-blue-600 font-mono">56%</span>
+                            </span>
+                            <input id="glassPanelAlpha" type="range" min="0" max="100" step="1" value="56" class="w-full accent-cyan-600">
+                            <span class="block text-xs text-gray-400 mt-1">看板/表格卡片的不透明度</span>
+                        </label>
+                        <label class="block">
+                            <span class="flex items-center justify-between text-sm text-gray-600 mb-1">
+                                <span>毛玻璃模糊</span>
+                                <span id="glassBlurVal" class="text-xs text-blue-600 font-mono">14px</span>
+                            </span>
+                            <input id="glassBlur" type="range" min="0" max="30" step="1" value="14" class="w-full accent-cyan-600">
+                            <span class="block text-xs text-gray-400 mt-1">0 = 不模糊（仅保留折射光感）</span>
+                        </label>
+                    </div>
+                </div>
+
                 <!-- 编辑区：整宽多栏 -->
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     <!-- 侧边菜单可见项（菜单栏定制） -->

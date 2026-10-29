@@ -261,6 +261,62 @@
     root.style.setProperty('--accent-strong', theme.accentStrong || shade(theme.accent || '#1a73e8', -14));
   }
 
+  /** 玻璃参数默认值（与 css/tailwind.input.css 的 :root 变量保持一致） */
+  var GLASS_DEFAULTS = { navAlpha: 42, panelAlpha: 56, blur: 14 };
+
+  /**
+   * 从学校配置解析玻璃参数（theme_config.glass）。
+   * cfg 既可以是 { customization } 包装（公开 config 端点），也可以直接是 customization 对象。
+   * 返回 null 表示该校未调整过，全部跟随主题/默认值。
+   */
+  function resolveGlass(cfg) {
+    if (!cfg) return null;
+    try {
+      var cust = cfg.customization || cfg;
+      var tc = cust.theme_config;
+      if (typeof tc === 'string') tc = JSON.parse(tc);
+      var glass = tc && tc.glass;
+      if (glass == null || typeof glass !== 'object') return null;
+      var out = {};
+      if (typeof glass.navAlpha === 'number') out.navAlpha = glass.navAlpha;
+      if (typeof glass.panelAlpha === 'number') out.panelAlpha = glass.panelAlpha;
+      if (typeof glass.blur === 'number') out.blur = glass.blur;
+      return Object.keys(out).length ? out : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /** 把 rgba/rgb 字符串里的 alpha 换成指定值（保留原色） */
+  function withAlpha(color, alpha) {
+    var m = /rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/.exec(color || '');
+    if (!m) return null;
+    return 'rgba(' + m[1] + ', ' + m[2] + ', ' + m[3] + ', ' + alpha + ')';
+  }
+
+  /**
+   * 把玻璃参数写入目标 document 的 :root 变量。
+   * ⚠️ 必须在 applyTheme 之后调用——深色玻璃底色由 applyTheme 写入 --glass-dark-solid，
+   * 本函数只替换其 alpha；glass 为空时清除本函数添加的变量，交由 applyTheme 的基线接管。
+   */
+  function applyGlass(doc, glass) {
+    var root = (doc || document).documentElement;
+    root.style.removeProperty('--glass-light-bg');
+    root.style.removeProperty('--glass-blur');
+    if (glass == null) return;
+    if (typeof glass.panelAlpha === 'number') {
+      root.style.setProperty('--glass-light-bg', 'rgba(255, 255, 255, ' + (glass.panelAlpha / 100) + ')');
+    }
+    if (typeof glass.blur === 'number') {
+      root.style.setProperty('--glass-blur', glass.blur + 'px');
+    }
+    if (typeof glass.navAlpha === 'number') {
+      var solid = root.style.getPropertyValue('--glass-dark-solid') || 'rgb(20, 28, 48)';
+      var next = withAlpha(solid, glass.navAlpha / 100);
+      root.style.setProperty('--glass-dark-bg', next || 'rgba(20, 28, 48, ' + (glass.navAlpha / 100) + ')');
+    }
+  }
+
   /** 生成预设卡片缩略壁纸的 CSS background 值（与 body::before 同构） */
   function swatchBackground(theme) {
     var a = theme.aurora, w = theme.wash || theme.aurora;
@@ -273,9 +329,12 @@
 
   global.SchoolThemes = {
     PRESETS: PRESETS,
+    GLASS_DEFAULTS: GLASS_DEFAULTS,
     getPreset: getPreset,
     resolveTheme: resolveTheme,
     applyTheme: applyTheme,
+    resolveGlass: resolveGlass,
+    applyGlass: applyGlass,
     themeFromAccent: themeFromAccent,
     swatchBackground: swatchBackground,
     hexToRgba: hexToRgba,

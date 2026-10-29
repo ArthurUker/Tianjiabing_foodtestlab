@@ -21,6 +21,7 @@ export const state = {
     customDirty: false,    // 界面定制是否有未保存修改
     logoStyle: null,       // 校徽排版配置（theme_config.logo_style），由编辑器写回
     logoStyleDirty: false, // 校徽排版是否有未保存修改（随「基本信息」保存）
+    glass: {},             // 玻璃效果覆盖（theme_config.glass）：{ navAlpha, panelAlpha, blur }，空对象 = 跟随主题默认
 };
 
 export function markDirty() {

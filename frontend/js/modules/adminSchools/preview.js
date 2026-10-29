@@ -186,8 +186,11 @@ export function applyPreviewConfig() {
     // 2. 主题：与 index/login 同一实现（themePresets.js applyTheme 覆盖 CSS 变量）
     const theme = getActiveTheme();
     window.SchoolThemes.applyTheme(doc, theme);
+    // 玻璃效果：必须紧跟 applyTheme（深色玻璃底色由主题写入，玻璃只替换其透明度）
+    window.SchoolThemes.applyGlass(doc, state.glass || null);
     // XR-04：管理后台自身同步呈现该校主题（联动编辑中的主题选择）
     window.SchoolThemes.applyTheme(document, theme);
+    window.SchoolThemes.applyGlass(document, state.glass || null);
 
     // 3. 核心：直接调用师生端同一套 apply 函数（iframe 模块实例，作用于 iframe 文档）
     if (previewApi) {
