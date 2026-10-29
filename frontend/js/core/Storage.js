@@ -22,6 +22,9 @@ const DEFAULT_CONFIG = {
     queueBatchDelayMs: 400,
     minRetryDelayMs: 1000,
     maxRetryDelayMs: 30000,
+    // 本地缓存只是展示加速层。配额不足时只持久化最近子集，完整本次结果保留在内存。
+    cacheWriteBudgetBytes: 320 * 1024,
+    cacheEmergencyBudgetBytes: 48 * 1024,
     // 仅保留基名；实际键在构造时按 tenant+subject 作用域化（AUD-001）
     globalBackoffKey: 'app_sync_backoff_until',
     // AUD-022：409 后只允许"字段级三路合并无冲突"的自动重基，且每条任务最多 1 次预算
@@ -65,6 +68,10 @@ export class StorageService {
         this.queueBatchDelayMs = config.queueBatchDelayMs || DEFAULT_CONFIG.queueBatchDelayMs;
         this.minRetryDelayMs = config.minRetryDelayMs || DEFAULT_CONFIG.minRetryDelayMs;
         this.maxRetryDelayMs = config.maxRetryDelayMs || DEFAULT_CONFIG.maxRetryDelayMs;
+        this.cacheWriteBudgetBytes = Number(config.cacheWriteBudgetBytes) > 0
+            ? Number(config.cacheWriteBudgetBytes) : DEFAULT_CONFIG.cacheWriteBudgetBytes;
+        this.cacheEmergencyBudgetBytes = Number(config.cacheEmergencyBudgetBytes) > 0
+            ? Number(config.cacheEmergencyBudgetBytes) : DEFAULT_CONFIG.cacheEmergencyBudgetBytes;
         this.globalBackoffKey = config.globalBackoffKey || DEFAULT_CONFIG.globalBackoffKey;
         // AUD-022：409 后"字段级三路合并无冲突"才允许自动重基，且每条任务限 1 次预算
         this.autoRebaseBudget = Number.isInteger(config.autoRebaseBudget) ? config.autoRebaseBudget : DEFAULT_CONFIG.autoRebaseBudget;
@@ -104,6 +111,11 @@ export class StorageService {
         this._tombstonesLoaded = false;
         this._tempIdMap = new Map();            // temp id → server id（编辑转 update 的映射来源）
         this._tempIdMapLoaded = false;
+        // 配额降级：仅在 localStorage 无法完整落盘时启用，避免服务端数据被本地缓存容量限制。
+        this._cacheMemory = null;               // 本次会话完整缓存（可能大于已持久化子集）
+        this._pendingRequestsMemory = null;     // 队列落盘失败时的内存队列，保证在线提交不中断
+        this._cacheQuotaWarned = false;
+        this._queueQuotaWarned = false;
 
         this._legacyMigration = quarantineLegacySyncKeys({ scope: this.syncScope });
         if (this._legacyMigration.ran && (this._legacyMigration.discarded || []).length) {
@@ -159,6 +171,55 @@ export class StorageService {
     async getAllFresh() {
         await this._syncFromApi(true);
         return this._getLocalCacheData();
+    }
+
+    /** 只读当前本地缓存，不触发后台同步；供服务端分页列表读取当前页记录。 */
+    getCached() {
+        return this._getLocalCacheData();
+    }
+
+    /**
+     * 服务端分页读取。列表页每次只取当前页，total 为服务端同筛选条件的 count(*)。
+     * 这里不覆盖整个缓存；调用方只把当前页记录合并到内存/最近缓存。
+     */
+    async fetchPage({ limit = 25, offset = 0, canteen = null, sort = 'desc' } = {}) {
+        if (!this._canSyncWithServer()) throw new Error('未登录或登录已过期，无法读取服务端数据');
+        const safeLimit = Math.max(1, Math.min(Number(limit) || 25, 2000));
+        const safeOffset = Math.max(0, Number(offset) || 0);
+        const params = new URLSearchParams({ limit: String(safeLimit), offset: String(safeOffset) });
+        if (canteen) params.set('canteen', String(canteen));
+        params.set('sort', String(sort).toLowerCase() === 'asc' ? 'asc' : 'desc');
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        try {
+            const res = await fetch(`${this.apiEndpoint}?${params}`, {
+                headers: this._getHeaders(),
+                signal: controller.signal,
+            });
+            if (!res.ok) {
+                const error = new Error(`读取分页失败（HTTP ${res.status}）`);
+                error.status = res.status;
+                throw error;
+            }
+            const response = await res.json();
+            const serverRows = Array.isArray(response) ? response : (response.data || []);
+            const meta = (!Array.isArray(response) && response && typeof response === 'object') ? response : {};
+            const totalValue = Number(meta.total);
+            const records = serverRows.map((row) => {
+                const content = (row.data && typeof row.data === 'object') ? row.data : row;
+                return { ...content, id: row.id, _status: 'synced', _syncState: SYNC_STATES.SYNCED };
+            });
+            return {
+                records,
+                total: Number.isFinite(totalValue) ? totalValue : records.length,
+                hasMore: typeof meta.hasMore === 'boolean' ? meta.hasMore : Boolean(meta.total),
+                nextCursor: meta.nextCursor || null,
+                pagination: meta.pagination || 'offset',
+            };
+        } finally {
+            clearTimeout(timeoutId);
+        }
     }
 
     save(data) {
@@ -951,9 +1012,148 @@ export class StorageService {
         auditService.log('delete', this.tableName, null, `删除记录 #${recordId}`).catch(() => {});
     }
 
+    _isQuotaError(error) {
+        const name = error && error.name;
+        const code = error && error.code;
+        return name === 'QuotaExceededError' || name === 'NS_ERROR_DOM_QUOTA_REACHED' || code === 22 || code === 1014;
+    }
+
+    _trySetLocalStorage(key, value) {
+        try {
+            localStorage.setItem(key, value);
+            return 'ok';
+        } catch (error) {
+            return this._isQuotaError(error) ? 'quota' : 'error';
+        }
+    }
+
+    _removeLocalStorageItem(key) {
+        try { localStorage.removeItem(key); } catch { /* 无法移除时继续尝试其它降级路径 */ }
+    }
+
+    /** 配额不足时可安全删除的只有可重建缓存，绝不碰 pending/ 队列、认证或定制配置。 */
+    _evictReclaimableCacheKeys() {
+        let removed = 0;
+        let bytes = 0;
+        try {
+            const keys = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (!key || key === this.localCacheKey) continue;
+                if (key.startsWith('cache_v2__')
+                    || key.startsWith('fingerprint_index_v2__')
+                    || key.startsWith('legacy_quarantine_v1__cache_')) {
+                    keys.push(key);
+                }
+            }
+            for (const key of keys) {
+                const raw = localStorage.getItem(key);
+                bytes += raw ? raw.length : 0;
+                this._removeLocalStorageItem(key);
+                removed++;
+            }
+        } catch { /* 枚举失败不阻塞主流程 */ }
+        return { removed, bytes };
+    }
+
+    _isLocallyDirtyRecord(row) {
+        if (!row || typeof row !== 'object') return false;
+        return this._isTempId(row.id)
+            || row._status === 'pending'
+            || row._status === 'updating'
+            || this._isDirtySyncState(row._syncState);
+    }
+
+    /** 优先保留未上传记录，再保留调用方顺序中最新的已同步记录，直到预算上限。 */
+    _compactCacheRowsForQuota(rows, budgetBytes) {
+        const dirty = [];
+        const synced = [];
+        for (const row of rows) {
+            if (this._isLocallyDirtyRecord(row)) dirty.push(row);
+            else synced.push(row);
+        }
+        const selected = dirty.slice();
+        let size = JSON.stringify({ data: selected }).length;
+        for (const row of synced) {
+            let rowSize = 0;
+            try { rowSize = JSON.stringify(row).length + 1; } catch { continue; }
+            if (size + rowSize > budgetBytes) break;
+            selected.push(row);
+            size += rowSize;
+        }
+        return selected;
+    }
+
+    _warnCacheQuota(message) {
+        if (this._cacheQuotaWarned) return;
+        this._cacheQuotaWarned = true;
+        console.warn(`[Storage:${this.tableName}] localStorage 配额不足：${message}。服务端数据不受影响。`);
+    }
+
+    /**
+     * 缓存写入的唯一兜底入口：完整写入 → 释放旧副本 → 清理其它可重建缓存 → 精简写入。
+     * 即使最终无法落盘，也保留完整内存副本，连同 full_sync 事件把服务端数据交给页面渲染。
+     */
+    _writeCacheRows(rows) {
+        const data = Array.isArray(rows) ? rows : [];
+        const payload = (list) => JSON.stringify({ data: list });
+        let result = this._trySetLocalStorage(this.localCacheKey, payload(data));
+        if (result === 'ok') {
+            this._cacheMemory = null;
+            return 'full';
+        }
+        if (result !== 'quota') {
+            this._cacheMemory = data.slice();
+            this._warnCacheQuota('浏览器拒绝写入本地缓存，已改用当前页面内存');
+            return 'memory';
+        }
+
+        // 旧值本身也占配额：先删当前表旧缓存，再尝试完整写入。
+        this._removeLocalStorageItem(this.localCacheKey);
+        result = this._trySetLocalStorage(this.localCacheKey, payload(data));
+        if (result === 'ok') {
+            this._cacheMemory = null;
+            return 'full';
+        }
+
+        let compact = this._compactCacheRowsForQuota(data, this.cacheWriteBudgetBytes);
+        if (compact.length < data.length) {
+            result = this._trySetLocalStorage(this.localCacheKey, payload(compact));
+            if (result === 'ok') {
+                this._cacheMemory = data.slice();
+                this._warnCacheQuota(`已仅持久化最近 ${compact.length}/${data.length} 条，本次页面仍显示完整数据`);
+                return 'compact';
+            }
+        }
+
+        const reclaimed = this._evictReclaimableCacheKeys();
+        if (reclaimed.removed > 0) {
+            result = this._trySetLocalStorage(this.localCacheKey, payload(compact));
+            if (result === 'ok') {
+                this._cacheMemory = data.slice();
+                this._warnCacheQuota(`已清理 ${reclaimed.removed} 个旧缓存窗口并持久化最近 ${compact.length}/${data.length} 条`);
+                return 'compact';
+            }
+        }
+
+        const emergency = this._compactCacheRowsForQuota(data, this.cacheEmergencyBudgetBytes);
+        if (emergency.length < compact.length) {
+            result = this._trySetLocalStorage(this.localCacheKey, payload(emergency));
+            if (result === 'ok') {
+                this._cacheMemory = data.slice();
+                this._warnCacheQuota(`空间极紧，已仅持久化最近 ${emergency.length}/${data.length} 条，本次页面仍显示完整数据`);
+                return 'compact';
+            }
+        }
+
+        this._cacheMemory = data.slice();
+        this._warnCacheQuota(`无法持久化缓存，本次 ${data.length} 条数据仅保留在当前页面内存中，刷新后将从服务器重新拉取`);
+        return 'memory';
+    }
+
     _initializeLocalCache() {
         if (!localStorage.getItem(this.localCacheKey)) {
-            localStorage.setItem(this.localCacheKey, JSON.stringify({ data: [] }));
+            this._writeCacheRows([]);
         }
         if (!localStorage.getItem(this.pendingRequestsKey)) {
             // 队列为版本化快照（AUD-021）：{ schemaVersion, items[] }
@@ -1005,6 +1205,10 @@ export class StorageService {
     }
 
     _getLocalCacheData() {
+        // 配额降级后 localStorage 只含子集；本次会话继续使用完整内存副本，避免列表突然变短。
+        if (Array.isArray(this._cacheMemory)) {
+            return this._cacheMemory.map((r) => this._normalizeRecord(r));
+        }
         try {
             const raw = localStorage.getItem(this.localCacheKey);
             if (!raw) return [];
@@ -1030,7 +1234,7 @@ export class StorageService {
         // AUD-021：墓碑（已删除 id）在两条路径上都不得被写回 —— 删除后不复活
         const incoming = (rows || []).filter(r => !this._isTombstoned(r && r.id));
         if (opts.forceServer === true) {
-            localStorage.setItem(this.localCacheKey, JSON.stringify({ data: incoming.slice() }));
+            this._writeCacheRows(incoming.slice());
             return;
         }
         const localRows = this._getLocalCacheData();
@@ -1049,7 +1253,7 @@ export class StorageService {
                 if (!seen.has(id)) merged.push(p);
             }
         }
-        localStorage.setItem(this.localCacheKey, JSON.stringify({ data: merged }));
+        this._writeCacheRows(merged);
     }
 
     _addToLocalCache(record) {
@@ -1127,6 +1331,7 @@ export class StorageService {
     }
 
     _getPendingRequests() {
+        if (Array.isArray(this._pendingRequestsMemory)) return this._pendingRequestsMemory.slice();
         try {
             const raw = localStorage.getItem(this.pendingRequestsKey);
             const snap = normalizeQueueSnapshot(raw);
@@ -1144,7 +1349,35 @@ export class StorageService {
     }
 
     _setPendingRequests(list) {
-        localStorage.setItem(this.pendingRequestsKey, serializeQueueSnapshot(list));
+        const items = Array.isArray(list) ? list : [];
+        const payload = serializeQueueSnapshot(items);
+        let result = this._trySetLocalStorage(this.pendingRequestsKey, payload);
+        if (result === 'ok') {
+            this._pendingRequestsMemory = null;
+            return;
+        }
+        if (result === 'quota') {
+            // 队列比可重建的缓存更重要：先清缓存，再重试保存待上传任务。
+            this._evictReclaimableCacheKeys();
+            result = this._trySetLocalStorage(this.pendingRequestsKey, payload);
+            if (result === 'ok') {
+                this._pendingRequestsMemory = null;
+                return;
+            }
+            const cached = this._getLocalCacheData();
+            this._removeLocalStorageItem(this.localCacheKey);
+            if (cached.length) this._cacheMemory = cached;
+            result = this._trySetLocalStorage(this.pendingRequestsKey, payload);
+            if (result === 'ok') {
+                this._pendingRequestsMemory = null;
+                return;
+            }
+        }
+        this._pendingRequestsMemory = items.slice();
+        if (!this._queueQuotaWarned) {
+            this._queueQuotaWarned = true;
+            console.warn(`[Storage:${this.tableName}] localStorage 配额不足：待上传队列暂存在当前页面内存。请保持页面打开并联网完成保存。`);
+        }
     }
 
     _recordQueueMigration(reason, raw) {
@@ -1423,7 +1656,8 @@ export class StorageService {
         const target = Date.now() + Math.max(0, delayMs || this.minRetryDelayMs);
         const current = this._getGlobalBackoffUntil();
         if (target > current) {
-            localStorage.setItem(this.globalBackoffKey, String(target));
+            const result = this._trySetLocalStorage(this.globalBackoffKey, String(target));
+            if (result === 'quota') this._warnCacheQuota('同步退避时间暂存于内存');
         }
     }
 

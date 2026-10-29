@@ -80,6 +80,16 @@ let currentPage = 1;
 let recordsPerPage = 10;
 let sortOrder = 'desc';
 let selectedCanteenFilter = 'all'; // ✅ 新增：食堂筛选状态
+// 服务端分页状态：列表只保留当前页，total 来自服务端同筛选条件 count(*)。
+let serverPageRows = [];
+let serverPageTotal = 0;
+let serverPageSeq = 0;
+
+function findPathogenRecord(recordId) {
+    return serverPageRows.find(row => String(row.id) === String(recordId))
+        || storage.getCached().find(row => String(row.id) === String(recordId))
+        || null;
+}
 
 // TD-EventLeak: 重新初始化时注销旧监听，避免累加
 let _pathogenAbortCtrl = null;
@@ -733,7 +743,7 @@ async function handleDeleteRecord(recordId) {
     if (!confirmed) return;
 
     try {
-        const record = storage.getAll().find(r => String(r.id) === String(recordId));
+        const record = findPathogenRecord(recordId);
         const success = storage.delete(recordId);
         if (success) {
             // 记录审计日志
@@ -756,8 +766,7 @@ async function handleDeleteRecord(recordId) {
 }
 
 function handleEditRecord(recordId, currentUser) {
-    const records = storage.getAll();
-    const record = records.find(r => String(r.id) === String(recordId));
+    const record = findPathogenRecord(recordId);
     
     if (!record) {
         UINotification.error('❌ 未找到该记录');
@@ -1254,8 +1263,7 @@ function showTestDetailModal(testData) {
 }
 
 function showDetailModal(recordId) {
-    const records = storage.getAll();
-    const record = records.find(r => String(r.id) === String(recordId));
+    const record = findPathogenRecord(recordId);
     if (!record) return;
     
     const modal = document.createElement('div');
@@ -1572,9 +1580,47 @@ function showDetailModal(recordId) {
     });
 }
 
-// ✅ 修改：renderTable 函数增加食堂筛选逻辑
+// 列表每次只从服务端取当前页，避免把数千条记录塞进浏览器缓存。
+async function loadServerPage() {
+    const seq = ++serverPageSeq;
+    try {
+        const page = await storage.fetchPage({
+            limit: recordsPerPage,
+            offset: (currentPage - 1) * recordsPerPage,
+            canteen: selectedCanteenFilter === 'all' ? null : selectedCanteenFilter,
+            sort: sortOrder,
+        });
+        if (seq !== serverPageSeq) return;
+        const totalPages = Math.max(1, Math.ceil(page.total / recordsPerPage));
+        if (currentPage > totalPages) {
+            currentPage = totalPages;
+            return loadServerPage();
+        }
+        serverPageRows = page.records;
+        serverPageTotal = page.total;
+        if (serverPageRows.length) storage.mergeServerRecords(serverPageRows);
+        renderCurrentPage();
+    } catch (error) {
+        if (seq !== serverPageSeq) return;
+        serverPageRows = [];
+        serverPageTotal = 0;
+        const tbody = document.getElementById('pathogenRecords');
+        if (tbody) {
+            tbody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-red-600">列表加载失败：${escapeHtml(error.message || '请稍后重试')}</td></tr>`;
+        }
+        const info = document.getElementById('pathogen-paginationInfo');
+        if (info) info.textContent = '列表加载失败';
+    }
+}
+
 function renderTable() {
-    const allRecords = storage.getAll();
+    const tbody = document.getElementById('pathogenRecords');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="8" class="text-center py-6 text-gray-500">正在从服务器加载…</td></tr>';
+    void loadServerPage();
+}
+
+function renderCurrentPage() {
     const tbody = document.getElementById('pathogenRecords');
     if (!tbody) return;
 
@@ -1643,30 +1689,17 @@ function renderTable() {
         }
     }
 
-    // ✅ 新增：食堂筛选逻辑
-    let filteredRecords = allRecords;
-    if (selectedCanteenFilter !== 'all') {
-        filteredRecords = allRecords.filter(record => record.canteen === selectedCanteenFilter);
-    }
-
-    // 2. 排序逻辑
-    const sortedRecords = [...filteredRecords].sort((a, b) => {
-        const dateA = new Date(a.testDate || '1970-01-01');
-        const dateB = new Date(b.testDate || '1970-01-01');
-        return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
-    });
-
-    // 3. 分页计算
-    const totalRecords = sortedRecords.length;
+    // 2. 当前页数据与总数均来自服务端；本地只保留当前页用于详情/编辑。
+    const totalRecords = serverPageTotal;
     const totalPages = Math.max(1, Math.ceil(totalRecords / recordsPerPage));
     currentPage = Math.max(1, Math.min(currentPage, totalPages));
-    
+
     const startIndex = (currentPage - 1) * recordsPerPage;
-    const currentRecords = sortedRecords.slice(startIndex, startIndex + recordsPerPage);
+    const currentRecords = serverPageRows;
 
-    updatePagination(startIndex, Math.min(startIndex + recordsPerPage, totalRecords), totalRecords, totalPages);
+    updatePagination(startIndex, Math.min(startIndex + currentRecords.length, totalRecords), totalRecords, totalPages);
 
-    // 4. 渲染表格内容
+    // 3. 渲染表格内容
     if (currentRecords.length === 0) {
         tbody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-gray-500">暂无数据，请导入检测报告</td></tr>`;
         return;
@@ -1771,10 +1804,7 @@ function setupPaginationListeners() {
                 renderTable();
             }
             if (e.target.closest('#pathogen-nextPageBtn')) {
-                const records = storage.getAll();
-                // ✅ 修改：考虑筛选后的总页数
-                const filteredRecords = selectedCanteenFilter === 'all' ? records : records.filter(r => r.canteen === selectedCanteenFilter);
-                const totalPages = Math.ceil(filteredRecords.length / recordsPerPage);
+                const totalPages = Math.max(1, Math.ceil(serverPageTotal / recordsPerPage));
                 if (currentPage < totalPages) {
                     currentPage++;
                     renderTable();
@@ -1812,7 +1842,7 @@ function setupPaginationListeners() {
             
             if (sortText) sortText.textContent = sortOrder === 'desc' ? '最新' : '最早';
             if (sortIcon) sortIcon.className = sortOrder === 'desc' ? 'fas fa-sort-amount-down mr-1' : 'fas fa-sort-amount-up mr-1';
-            
+            currentPage = 1;
             renderTable();
         });
         sortBtn.dataset.listenerAttached = 'true';
@@ -1824,10 +1854,7 @@ function setupPaginationListeners() {
             const input = document.getElementById('pathogen-pageJumpInput');
             if (input) {
                 const pageNum = parseInt(input.value);
-                const records = storage.getAll();
-                // ✅ 修改：考虑筛选后的总页数
-                const filteredRecords = selectedCanteenFilter === 'all' ? records : records.filter(r => r.canteen === selectedCanteenFilter);
-                const totalPages = Math.ceil(filteredRecords.length / recordsPerPage);
+                const totalPages = Math.max(1, Math.ceil(serverPageTotal / recordsPerPage));
                 if (pageNum >= 1 && pageNum <= totalPages) {
                     currentPage = pageNum;
                     renderTable();
