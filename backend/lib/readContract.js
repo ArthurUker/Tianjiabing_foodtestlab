@@ -14,6 +14,25 @@
 
 export const DEFAULT_PAGE_LIMIT = 100
 export const MAX_PAGE_LIMIT = 2000
+export const MAX_CANTEEN_FILTER_LENGTH = 100
+
+/**
+ * 解析旧版记录列表的附加过滤参数。
+ * 仅白名单化 canteen 文本与 asc/desc 排序，不接受任意字段/排序表达式。
+ */
+export function parseRecordListFilters(query = {}) {
+  const canteen = typeof query.canteen === 'string' ? query.canteen.trim() : ''
+  if (canteen.length > MAX_CANTEEN_FILTER_LENGTH) {
+    return {
+      ok: false,
+      status: 400,
+      code: 'INVALID_CANTEEN_FILTER',
+      error: `canteen 过滤值过长（最多 ${MAX_CANTEEN_FILTER_LENGTH} 个字符）`,
+    }
+  }
+  const sort = String(query.sort || 'desc').toLowerCase() === 'asc' ? 'asc' : 'desc'
+  return { ok: true, canteen: canteen || null, sort }
+}
 
 function toInt(value) {
   if (value === undefined || value === null || value === '') return null

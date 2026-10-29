@@ -4,7 +4,7 @@ import express from 'express'
 import fs from 'node:fs'
 import { normalizeRecordType, buildRecordPayload, buildRecordWriteData, normalizeWriteJson, resolveWritableStatus, validateRecordPayload, writeRecordAuditLog, getLatestRecheckPassed, buildDeterministicRecordCode, RECORD_ROUTE_TYPES } from '../lib/recordNormalize.js'
 // P3-W5-RECORD-T01（AUD-020 / RC-07）：完整读取契约（分页元数据 / keyset 游标 / 超限显式拒绝）
-import { parsePageQuery, cursorWhere, mergeWhere, pageMeta } from '../lib/readContract.js'
+import { parsePageQuery, cursorWhere, mergeWhere, pageMeta, parseRecordListFilters } from '../lib/readContract.js'
 // P3-W5-RECORD-T01（AUD-020 / RC-07）：权威导出作业（服务端快照 + 流式私有产物 + 原子发布）
 import { createExportJob, getExportJob, runExportJob, requestCancel, isDownloadable, cleanupExpiredJobs, publicExportJobView, exportJobArtifactPath, EXPORT_JOB_STATES } from '../lib/exportJobs.js'
 // P3-W5-RECORD-T01（AUD-002 / RC-01）：幂等作用域（tenant/subject）—— 与中间件同一实现
@@ -458,33 +458,57 @@ export function createRecordRoutes({ authenticateUser, requireEditorOrAbove, req
             if (!page.ok) {
                 return res.status(page.status).json({ error: page.error, code: page.code, ...(page.extra || {}) })
             }
+            const listFilters = parseRecordListFilters(req.query)
+            if (!listFilters.ok) {
+                return res.status(listFilters.status).json({ error: listFilters.error, code: listFilters.code })
+            }
+            if (page.cursor && listFilters.sort === 'asc') {
+                return res.status(400).json({
+                    error: '升序列表暂不支持 cursor，请使用 offset 分页',
+                    code: 'CURSOR_SORT_UNSUPPORTED',
+                })
+            }
+
             const where = { test_type: testType }
             if (status) where.status = status
+            // 食堂存放在 sample_info JSON 权威位置；筛选条件同时用于列表与 total 计数。
+            if (listFilters.canteen) {
+                where.sample_info = { path: ['canteen'], equals: listFilters.canteen }
+            }
             const effectiveWhere = mergeWhere(where, page.cursor ? cursorWhere(page.cursor) : null)
+            const orderDirection = listFilters.sort
 
             const records = await req.db.testRecord.findMany({
                 where: effectiveWhere,
                 ...(page.cursor ? {} : { skip: page.offset }),
                 take: page.limit,
                 // 稳定顺序（keyset 游标前提）
-                orderBy: [{ created_at: 'desc' }, { id: 'desc' }]
+                orderBy: [{ created_at: orderDirection }, { id: orderDirection }]
             })
 
             const total = await req.db.testRecord.count({ where })
 
             // DS3-M6: guest 读取记录列表时对 PII 字段脱敏（检测结果类字段保持可见）
             const payloads = records.map(buildRecordPayload)
+            const meta = pageMeta({
+                rows: records,
+                total,
+                limit: page.limit,
+                offset: page.offset,
+                cursorUsed: !!page.cursor,
+                filters: {
+                    test_type: testType,
+                    status: status || null,
+                    canteen: listFilters.canteen,
+                    sort: orderDirection,
+                },
+            })
+            // nextCursor 的编码语义固定为 created_at desc；升序 offset 分页不返回误导性游标。
+            if (orderDirection === 'asc') meta.nextCursor = null
             res.json({
                 success: true,
                 data: req.user?.role === 'guest' ? payloads.map(p => maskGuestSensitiveFields(p)) : payloads,
-                ...pageMeta({
-                    rows: records,
-                    total,
-                    limit: page.limit,
-                    offset: page.offset,
-                    cursorUsed: !!page.cursor,
-                    filters: { test_type: testType, status: status || null },
-                }),
+                ...meta,
             })
         } catch (error) {
             console.error('❌ Error fetching legacy records:', error)
