@@ -23,6 +23,8 @@ test('判读用词归一：未检出/阴性/- → 阴性；阳性/+/(+) → 阳�
   assert.equal(normalizeJudgement('+'), '阳性')
   assert.equal(normalizeJudgement('(+)'), '阳性')
   assert.equal(normalizeJudgement(true), '阳性')
+  // 弱阳性保留原判读（不压平成阳性），但风险仍按阳性计入
+  assert.equal(normalizeJudgement('弱阳性'), '弱阳性')
 })
 
 test('内参识别：内参/内标/内控/IC 都算内参', () => {
@@ -40,6 +42,7 @@ test('风险分档（唯一实现）：<20 高 / <30 中 / <35 低 / ≥35 极�
   assert.equal(calcRisk([mk('ORF1ab', '阳性', '25.3')]).riskLevel, '中风险')
   assert.equal(calcRisk([mk('ORF1ab', '阳性', '31.0')]).riskLevel, '低风险')
   assert.equal(calcRisk([mk('ORF1ab', '阳性', '36.4')]).riskLevel, '极低风险')
+  assert.equal(calcRisk([mk('ORF1ab', '弱阳性', '36.4')]).riskLevel, '极低风险', '弱阳性应按阳性计入风险')
   // 多阳性取最小 Ct
   const r = calcRisk([mk('A', '阳性', '31.0'), mk('B', '阳性', '22.1')])
   assert.equal(r.riskLevel, '中风险')

@@ -22,14 +22,21 @@ export function normalizeJudgement(v) {
   if (v === false) return '阴性'
   const s = String(v ?? '').trim()
   if (!s || s === '-' || s === '—') return '阴性'
+  // ⚠️ 「弱阳性」保留原词：这是实验室真实判读，压成"阳性"会丢语义（风险计算仍按阳性处理，见 isPositiveJudgement）
+  if (/弱阳性|弱阳|weak/i.test(s)) return '弱阳性'
   if (/阳性|positive|^\+$|^\(\+\)$|^＋$|^强阳/i.test(s)) return '阳性'
   return '阴性'
+}
+
+/** 是否按"阳性"计入风险（阳性 / 弱阳性 都算阳性）。 */
+export function isPositiveJudgement(v) {
+  return /阳性/.test(normalizeJudgement(v))
 }
 
 /** 从检测项里取「有效阳性」（排除内参；按 Ct 升序，Ct 越小越严重）。 */
 export function extractPositives(allTestItems = []) {
   return (Array.isArray(allTestItems) ? allTestItems : [])
-    .filter((it) => it && normalizeJudgement(it.result) === '阳性' && !(it.isInternalControl || INTERNAL_CONTROL_RE.test(String(it.pathogen || ''))))
+    .filter((it) => it && isPositiveJudgement(it.result) && !(it.isInternalControl || INTERNAL_CONTROL_RE.test(String(it.pathogen || ''))))
     .map((it) => {
       const ctRaw = it.ctRaw ?? it.ct ?? '-'
       const ct = parseFloat(it.ct ?? it.ctRaw)
@@ -68,7 +75,7 @@ export function calcRisk(allTestItems = []) {
   const critical = positives.find((p) => p.ct === minCt) || positives[0]
   return {
     positiveItemsDisplay: positives.map((p) => `${p.pathogen}(Ct:${p.ctRaw})`).join(', '),
-    positiveDetails: positives.map((p) => ({ pathogen: p.pathogen, ct: p.ct, ctRaw: p.ctRaw })),
+    positiveDetails: positives.map((p) => ({ pathogen: p.pathogen, ct: p.ct, ctRaw: p.ctRaw, ...(p.channel ? { channel: p.channel } : {}) })),
     riskLevel,
     riskReason: `${critical.pathogen}，Ct=${critical.ctRaw}。${interpretation}`,
     interpretation,
@@ -83,12 +90,17 @@ export function calcRisk(allTestItems = []) {
  * · 阳性项 / 风险 按同一规则重算（无检测项时不动）
  */
 export function normalizePathogenResult(rd = {}) {
-  const items = Array.isArray(rd.allTestItems) ? rd.allTestItems : []
-  if (!items.length) return rd
-  const normalized = items.map((it) => {
+  const rawItems = Array.isArray(rd.allTestItems) ? rd.allTestItems : []
+  if (!rawItems.length) return rd
+  // 跳过未使用通道（历史设备记录里的 "病原体=-" 占位项）——原始 parms 仍在 rawDetection 中
+  const items = rawItems.filter((it) => {
+    const name = String(it?.pathogen ?? '').trim()
+    return name && name !== '-' && name !== '—'
+  })
+  const normalized = items.map((it, idx) => {
     const name = it?.pathogen ?? ''
     const isIc = it?.isInternalControl === true || INTERNAL_CONTROL_RE.test(String(name))
-    return { ...it, result: normalizeJudgement(it?.result), ...(isIc ? { isInternalControl: true } : {}) }
+    return { ...it, no: idx + 1, result: normalizeJudgement(it?.result), ...(isIc ? { isInternalControl: true } : {}) }
   })
   const risk = calcRisk(normalized)
   const icItems = normalized.filter((x) => x.isInternalControl)
