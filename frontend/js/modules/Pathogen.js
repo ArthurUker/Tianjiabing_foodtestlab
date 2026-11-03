@@ -1266,13 +1266,15 @@ function showTestDetailModal(testData) {
 /**
  * 荧光扩增曲线（2026-11-03）
  *
- * 画法参考同服务器 rdpms 项目的 chipAnalysis（**仅只读参考，未改动其代码**）：
- *   ① 去尖刺 despike：MAD 过滤，|x − median| > 3·MAD 的点替换为 median
- *   ② 基线：取前 baselineCycles(12) 个循环求均值 baseMean 与标准差 σ
- *   ③ ΔF = 原始荧光 − baseMean（去基线）
- *   ④ 阈值线：baseMean + k·σ（k=10），画成水平虚线 —— 检测员可直观看出"离阈值多远"
- *   ⑤ 判读仍以**设备软件**为准（本图只做可视化，不自行改判）
- * 数据来源：设备原始报文 OptimizationDataLists（每通道 45 个循环点，超过 64 点会截断）。
+ * 只展示**最终优化后的曲线**（不做原始/优化多模式对比）。
+ * 优化链路参考同服务器 rdpms 项目 chipAnalysis/judge.ts（**仅只读参考，未改动其代码**）：
+ *   ① despike 去尖刺：MAD 过滤，|x − median| > 3·MAD 的点置为 median
+ *   ② 基线：前 baselineCycles(12) 个循环求 baseMean 与 σ
+ *   ③ ΔF = 荧光 − baseMean（去基线）
+ *   ④ 阈值：baseMean + k·σ（k=10）→ 水平虚线
+ *   ⑤ 阈值穿越（firstCrossing，线性插值）→ 本图自算 Ct，与设备 Ct 并列显示便于复核
+ *   ⑥ smooth 5 点滑动平均 → 曲线平滑（rdpms monotone 视觉平滑的数值化版本）
+ * 判读结论仍以**设备软件**为准，本图用于复核与追溯。
  */
 function buildFluorescenceHtml(record) {
     const raw = record && (record.rawDetection || record.raw_detection);
@@ -1304,35 +1306,52 @@ function buildFluorescenceHtml(record) {
         }
         return out;
     };
+    /** 5 点滑动平均（数值平滑，同 rdpms smooth） */
+    const smooth = (a, w = 5) => a.map((_, i) => {
+        const from = Math.max(0, i - Math.floor(w / 2));
+        const to = Math.min(a.length, i + Math.floor(w / 2) + 1);
+        return mean(a.slice(from, to));
+    });
+    /** 阈值首次穿越（线性插值，同 rdpms firstCrossing） */
+    const firstCrossing = (arr, thr) => {
+        for (let i = 0; i < arr.length; i += 1) {
+            if (arr[i] > thr) {
+                if (i === 0) return 1;
+                const span = arr[i] - arr[i - 1];
+                return span === 0 ? i + 1 : i + (thr - arr[i - 1]) / span;
+            }
+        }
+        return null;
+    };
 
-    const W = 200;
-    const H = 74;
-    const PL = 26;   // 左侧留白（阈值标注）
-    const PB = 12;   // 底部留白（循环轴）
-    const PW = W - PL - 4;
-    const PH = H - PB - 6;
+    const W = 210;
+    const H = 84;
+    const PL = 30;   // 左侧留白（阈值/ΔF 标注）
+    const PB = 14;   // 底部留白（循环轴）
+    const PW = W - PL - 6;
+    const PH = H - PB - 8;
 
     const charts = keys.map((k) => {
-        const raw0 = odl[k].map((v) => Number(v) || 0);
-        const arr = despike(raw0);
+        const rawArr = odl[k].map((v) => Number(v) || 0);
+        const arr = despike(rawArr);
         const baseN = Math.min(12, Math.max(3, Math.floor(arr.length / 3)));
         const baseMean = mean(arr.slice(0, baseN));
         const sigma = Math.max(sd(arr.slice(0, baseN)), 1e-9);
-        const threshold = 10 * sigma;                       // baseMean + k·σ（基线已减掉）
-        const df = arr.map((v) => v - baseMean);
+        const threshold = 10 * sigma;                     // 基线已减掉 → 阈值即 10σ
+        const df = smooth(arr.map((v) => v - baseMean));  // 去基线 + 平滑
+        const myCt = firstCrossing(df, threshold);       // 本图自算 Ct（循环号）
         const minY = Math.min(0, ...df);
-        const maxY = Math.max(threshold * 1.15, ...df);
+        const maxY = Math.max(threshold * 1.2, ...df);
         const spanY = Math.max(1e-6, maxY - minY);
         const X = (i) => PL + (i / Math.max(1, arr.length - 1)) * PW;
         const Y = (v) => 6 + PH - ((v - minY) / spanY) * PH;
-        const ptsOf = (arr2) => arr2.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
-        const dfPts = ptsOf(df);
-        const rawPts = ptsOf(raw0.map((v) => v - baseMean));   // 原始荧光也按同一基线平移，便于对照
+        const pts = df.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
         const thrY = Y(threshold);
+        const zeroY = Y(0);
         const ctRaw = cts[k];
-        const ct = ctRaw !== undefined && ctRaw !== null && ctRaw !== '-' ? parseFloat(ctRaw) : null;
-        const hasCt = Number.isFinite(ct) && ct > 0 && ct < arr.length;
-        const ctX = hasCt ? X(ct - 1) : null;
+        const devCt = ctRaw !== undefined && ctRaw !== null && ctRaw !== '-' ? parseFloat(ctRaw) : null;
+        const hasDevCt = Number.isFinite(devCt) && devCt > 0 && devCt < arr.length;
+        const ctX = hasDevCt ? X(devCt - 1) : null;
         const pos = results[k] === true;
         const color = pos ? '#dc2626' : '#2563eb';
         const target = parms[k] && parms[k] !== '-' ? parms[k] : '（未使用通道）';
@@ -1342,20 +1361,21 @@ function buildFluorescenceHtml(record) {
                 <span class="font-mono text-gray-600">${escapeHtml(k)}</span>
                 <span class="truncate ${pos ? 'text-red-700 font-medium' : 'text-gray-600'}">${escapeHtml(target)}</span>
             </div>
-            <svg viewBox="0 0 ${W} ${H}" class="w-full" style="height:74px">
-                <rect x="${PL}" y="4" width="${PW}" height="${PH}" fill="none" stroke="#e5e7eb" stroke-width="1"></rect>
-                <polyline fill="none" stroke="#cbd5e1" stroke-width="1" points="${rawPts}"></polyline>
+            <svg viewBox="0 0 ${W} ${H}" class="w-full" style="height:84px">
+                <rect x="${PL}" y="5" width="${PW}" height="${PH}" fill="none" stroke="#e5e7eb" stroke-width="1"></rect>
                 <line x1="${PL}" y1="${thrY.toFixed(1)}" x2="${(PL + PW).toFixed(1)}" y2="${thrY.toFixed(1)}" stroke="#f59e0b" stroke-width="1" stroke-dasharray="4 3"></line>
-                <line x1="${PL}" y1="${Y(0).toFixed(1)}" x2="${(PL + PW).toFixed(1)}" y2="${Y(0).toFixed(1)}" stroke="#e5e7eb" stroke-width="1"></line>
-                <polyline fill="none" stroke="${color}" stroke-width="${pos ? 2 : 1.4}" stroke-linejoin="round" points="${dfPts}"></polyline>
-                ${hasCt ? `<line x1="${ctX.toFixed(1)}" y1="4" x2="${ctX.toFixed(1)}" y2="${(6 + PH).toFixed(1)}" stroke="#7c3aed" stroke-width="1" stroke-dasharray="3 2"></line>` : ''}
-                <text x="2" y="${thrY.toFixed(1)}" font-size="7" fill="#b45309">阈值</text>
-                <text x="${PL}" y="${H - 2}" font-size="7" fill="#9ca3af">1</text>
-                <text x="${(PL + PW - 8).toFixed(1)}" y="${H - 2}" font-size="7" fill="#9ca3af">${arr.length}</text>
-                <text x="${(PL + PW - 14).toFixed(1)}" y="${(6 + PH).toFixed(1)}" font-size="7" fill="#9ca3af">循环</text>
+                <line x1="${PL}" y1="${zeroY.toFixed(1)}" x2="${(PL + PW).toFixed(1)}" y2="${zeroY.toFixed(1)}" stroke="#eef2f7" stroke-width="1"></line>
+                <polyline fill="none" stroke="${color}" stroke-width="${pos ? 2 : 1.4}" stroke-linejoin="round" stroke-linecap="round" points="${pts}"></polyline>
+                ${hasDevCt ? `<line x1="${ctX.toFixed(1)}" y1="5" x2="${ctX.toFixed(1)}" y2="${(6 + PH).toFixed(1)}" stroke="#7c3aed" stroke-width="1" stroke-dasharray="3 2"></line>` : ''}
+                <text x="1" y="${thrY.toFixed(1)}" font-size="7" fill="#b45309">阈值</text>
+                <text x="6" y="${(thrY + 7).toFixed(1)}" font-size="7" fill="#b45309">${threshold.toFixed(0)}</text>
+                <text x="6" y="${(zeroY + 3).toFixed(1)}" font-size="7" fill="#9ca3af">0</text>
+                <text x="${PL}" y="${H - 3}" font-size="7" fill="#9ca3af">1</text>
+                <text x="${(PL + PW - 10).toFixed(1)}" y="${H - 3}" font-size="7" fill="#9ca3af">${arr.length}</text>
+                <text x="${(PL + PW - 18).toFixed(1)}" y="${(6 + PH).toFixed(1)}" font-size="7" fill="#9ca3af">循环</text>
             </svg>
             <div class="text-xs mt-1 ${pos ? 'text-red-700' : 'text-gray-600'}">
-                ${pos ? '阳性' : '阴性'} ｜ Ct ${hasCt ? ct : '—'} ｜ 末值ΔF ${endDf.toFixed(0)} ｜ σ ${sigma.toFixed(1)}
+                ${pos ? '阳性' : '阴性'} ｜ 设备 Ct ${hasDevCt ? devCt : '—'} ｜ 本图过阈 ≈ 第 ${myCt != null ? myCt.toFixed(1) : '—'} 循环 ｜ 末值 ΔF ${endDf.toFixed(0)}
             </div>
         </div>`;
     }).join('');
@@ -1363,14 +1383,16 @@ function buildFluorescenceHtml(record) {
     const cycles = Math.max(...keys.map((k) => odl[k].length));
     return `<details class="mt-4 border border-gray-200 rounded-lg">
         <summary class="px-3 py-2 cursor-pointer text-sm font-bold text-gray-800 select-none">
-            📈 荧光扩增曲线（${keys.length} 个通道 × ${cycles} 个循环）
+            📈 荧光扩增曲线（优化后 · ${keys.length} 个通道 × ${cycles} 个循环）
             <span class="text-xs font-normal text-gray-500 ml-2">点击展开</span>
         </summary>
         <div class="p-3">
             <div class="text-xs text-gray-600 mb-2 leading-relaxed">
-                <span class="font-medium">图例：</span>彩线 = ΔF（原始荧光减基线均值）｜灰线 = 原始荧光（同一基线平移，便于对照）｜
-                <span class="text-amber-600">橙色虚线</span> = 阈值（基线 + 10σ）｜<span class="text-purple-600">紫色虚线</span> = 设备判定的 Ct。
-                判读以<b>设备软件</b>为准，本图仅供复核${raw.fluorescenceTruncated ? '；<span class="text-red-600">⚠ 该记录曲线入库时已被截断</span>' : ''}。
+                曲线为<b>优化后</b>的 ΔF（去尖刺 → 减基线 → 平滑）。
+                <span class="text-amber-600">橙色虚线</span> = 阈值（基线 + 10σ）｜
+                <span class="text-purple-600">紫色虚线</span> = 设备判定的 Ct｜
+                <span class="text-red-600">红线</span> = 阳性通道，<span class="text-blue-600">蓝线</span> = 阴性通道。
+                判读结论以设备软件为准，本图供复核${raw.fluorescenceTruncated ? '；<span class="text-red-600">⚠ 该记录曲线入库时已被截断</span>' : ''}。
             </div>
             <div class="grid grid-cols-2 lg:grid-cols-4 gap-2">${charts}</div>
         </div>
