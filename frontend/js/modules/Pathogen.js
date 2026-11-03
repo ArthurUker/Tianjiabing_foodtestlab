@@ -1255,11 +1255,71 @@ function showTestDetailModal(testData) {
                     完整检测数据（共 ${testData.allTestItems ? testData.allTestItems.length : 0} 项）
                 </h4>
                 ${testItemsHtml}
+                ${buildFluorescenceHtml(testData)}
             </div>
         </div>
     `);
 
     document.body.appendChild(modal);
+}
+
+/**
+ * 荧光扩增曲线（2026-11-03）
+ * 数据来源：设备原始报文的 OptimizationDataLists（每通道 45 个循环点，入库保留，
+ *         超过 64 点会截断并置 fluorescenceTruncated=true）。
+ * 画法：ΔF = 各点 − 前 5 个循环的最小值（去基线），按通道归一化后画成折线；
+ *      阳性通道红色加粗，阴性灰色；不引入外部图表库，纯 SVG。
+ */
+function buildFluorescenceHtml(record) {
+    const raw = record && (record.rawDetection || record.raw_detection);
+    const odl = raw && raw.optimizationDataLists;
+    if (!odl || typeof odl !== 'object') return '';
+    const parms = raw.parms || {};
+    const results = raw.resultList || {};
+    const cts = raw.ctList || {};
+    const keys = Object.keys(odl).filter((k) => Array.isArray(odl[k]) && odl[k].length >= 5);
+    if (!keys.length) return '';
+    const W = 200;
+    const H = 70;
+    const charts = keys.map((k) => {
+        const arr = odl[k].map((v) => Number(v) || 0);
+        const base = Math.min(...arr.slice(0, 5));
+        const df = arr.map((v) => v - base);
+        const max = Math.max(1, ...df.map((v) => Math.abs(v)));
+        const pts = df.map((v, i) => {
+            const x = (i / Math.max(1, arr.length - 1)) * W;
+            const y = H - 3 - (v / max) * (H - 8);
+            return `${x.toFixed(1)},${Math.max(1, Math.min(H - 1, y)).toFixed(1)}`;
+        }).join(' ');
+        const pos = results[k] === true;
+        const color = pos ? '#dc2626' : '#94a3b8';
+        const target = parms[k] && parms[k] !== '-' ? parms[k] : '（未使用通道）';
+        const ct = cts[k] && cts[k] !== '-' ? cts[k] : '—';
+        return `<div class="border rounded p-2 ${pos ? 'border-red-200 bg-red-50' : 'border-gray-200 bg-white'}">
+            <div class="flex items-center justify-between text-xs mb-1 gap-1">
+                <span class="font-mono text-gray-600">${escapeHtml(k)}</span>
+                <span class="truncate ${pos ? 'text-red-700 font-medium' : 'text-gray-500'}">${escapeHtml(target)}</span>
+            </div>
+            <svg viewBox="0 0 ${W} ${H}" class="w-full" style="height:70px" preserveAspectRatio="none">
+                <polyline fill="none" stroke="${color}" stroke-width="${pos ? 2 : 1.1}" points="${pts}" stroke-linejoin="round"></polyline>
+            </svg>
+            <div class="text-xs mt-1 ${pos ? 'text-red-700' : 'text-gray-500'}">${pos ? '阳性' : '阴性'} ｜ Ct ${escapeHtml(String(ct))}</div>
+        </div>`;
+    }).join('');
+    const cycles = Math.max(...keys.map((k) => odl[k].length));
+    return `<details class="mt-4 border border-gray-200 rounded-lg">
+        <summary class="px-3 py-2 cursor-pointer text-sm font-bold text-gray-800 select-none">
+            📈 荧光扩增曲线（${keys.length} 个通道 × ${cycles} 个循环）
+            <span class="text-xs font-normal text-gray-500 ml-2">点击展开</span>
+        </summary>
+        <div class="p-3">
+            <div class="text-xs text-gray-500 mb-2 leading-relaxed">
+                纵轴为 ΔF（各通道减去前 5 个循环的最小值，便于观察扩增趋势），横轴为循环序号。
+                判读以设备软件为准${raw.fluorescenceTruncated ? '；<span class="text-red-600">⚠ 该记录曲线入库时已被截断</span>' : ''}。
+            </div>
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-2">${charts}</div>
+        </div>
+    </details>`;
 }
 
 function showDetailModal(recordId) {
@@ -1310,6 +1370,7 @@ function showDetailModal(recordId) {
                             allTestItems: record.allTestItems,
                             riskLevel: record.riskLevel,
                             riskReason: record.riskReason,
+                            rawDetection: record.rawDetection || null,
                             isPassed: record.riskLevel === '无风险'
                         }).replace(/'/g, "&#39;")}'>
                     <i class="fas fa-eye mr-1"></i> 查看完整数据
@@ -1384,6 +1445,7 @@ function showDetailModal(recordId) {
                                     allTestItems: rep.allTestItems,
                                     riskLevel: rep.riskLevel,
                                     riskReason: rep.riskReason,
+                                    rawDetection: rep.rawDetection || null,
                                     isPassed: rep.isPassed,
                                     importTime: rep.importTime,
                                     importUser: rep.importUser,
