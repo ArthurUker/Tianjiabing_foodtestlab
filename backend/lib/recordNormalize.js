@@ -1,4 +1,5 @@
 // ===== 检测记录归一化 / 哈希 / 载荷构建（从 server.js 抽取，P1-5 拆路由 Step 1）=====
+import { normalizePathogenResult } from './pathogenRisk.js'
 import crypto from 'crypto'
 import { sanitizeObjectKeys, safeParseJson } from './sanitize.js'
 import { writeTenantAuditLog } from './auditLog.js'
@@ -351,6 +352,11 @@ function buildRecordWriteData(tableName, payload = {}, opts = {}) {
         testType: tableName,
     })
     if (!norm.ok) return norm
+    // 病原体：写入前统一「判读用词 + 内参标记 + 阳性项/风险」到设备口径（2026-11-03）
+    //   —— 手动导入与设备上报两条链路共用同一规则，避免同一张芯片两条记录"看起来不一致"
+    if (tableName === 'pathogen' && norm.resultData && typeof norm.resultData === 'object') {
+        norm.resultData = normalizePathogenResult(norm.resultData)
+    }
     return {
         ok: true,
         data: {

@@ -12,6 +12,12 @@
 // ⚠️ 本文件不接触数据库、不做租户路由；所有 IO 由 routes/pathogenDeviceRoutes.js 负责。
 
 import crypto from 'node:crypto'
+// 内参识别 / 风险分级 / 样本类型分类 —— 统一实现（2026-11-03，设备口径为准）
+import {
+  INTERNAL_CONTROL_RE as SHARED_INTERNAL_CONTROL_RE,
+  calcRisk,
+  classifySampleType,
+} from './pathogenRisk.js'
 
 export const DEVICE_KEY_PREFIX = 'pdv_'
 
@@ -60,7 +66,8 @@ const MAX_CHIP_LEN = 64
 const MAX_PARMS_ENTRIES = 64
 const MAX_FLUORESCENCE_POINTS = 64 // result_data 快照截断保留的点数（防 JSON 膨胀）
 const CHANNEL_RE = /^(FAM|HEX|ROX|CY5)-[1-8]$/i
-const INTERNAL_CONTROL_RE = /内标|内参|内控|internal\s*control|(^|[^a-z])ic([^a-z]|$)/i
+// 内参/风险算法统一到 lib/pathogenRisk.js（2026-11-03，设备口径为唯一实现）
+const INTERNAL_CONTROL_RE = SHARED_INTERNAL_CONTROL_RE
 
 /** 'YYYY-MM-DD HH:mm:ss' / 'YYYY-MM-DDTHH:mm:ss' / 带时区 ISO → Date；失败返回 null。 */
 export function parseDetectionDateTime(value) {
@@ -236,46 +243,25 @@ export function isPositiveResultText(result) {
  * 由点位集合计算阳性项与风险等级。内参/内标不计阳性（与手动导入口径一致）。
  * @returns {{ positiveDetails: Array, positiveItemsDisplay: string, riskLevel: string, riskReason: string, minCt: number|null }}
  */
-export function calculateDeviceRisk(points) {
-  const positives = points
-    .filter((p) => p.positive && !INTERNAL_CONTROL_RE.test(p.name))
-    .map((p) => {
-      const ct = parseFloat(p.ctRaw)
-      return { pathogen: p.name, channel: p.key, ct: Number.isFinite(ct) ? ct : 999, ctRaw: p.ctRaw }
-    })
-
-  if (positives.length === 0) {
-    return {
-      positiveDetails: [],
-      positiveItemsDisplay: '无',
-      riskLevel: '无风险',
-      riskReason: '所有检测项均为阴性',
-      minCt: null,
-    }
+/**
+ * 设备侧风险评估（兼容旧调用）：**委托** lib/pathogenRisk.js 的唯一实现，
+ * 避免与手动链路各持一份阈值/文案（2026-11-03 统一为设备口径）。
+ */
+export function calculateDeviceRisk(points = []) {
+  const items = (Array.isArray(points) ? points : []).map((p) => ({
+    pathogen: p.name,
+    channel: p.key,
+    result: p.positive ? '阳性' : '阴性',
+    ctRaw: p.ctRaw,
+  }))
+  const r = calcRisk(items)
+  return {
+    positiveDetails: r.positiveDetails,
+    positiveItemsDisplay: r.positiveItemsDisplay,
+    riskLevel: r.riskLevel,
+    riskReason: r.riskReason,
+    minCt: r.minCt,
   }
-
-  const minCt = Math.min(...positives.map((p) => p.ct))
-  let riskLevel
-  let interpretation
-  if (minCt < 20) {
-    riskLevel = '高风险'
-    interpretation = '病原体载量高，提示可能存在活性感染源，需立即处置'
-  } else if (minCt < 30) {
-    riskLevel = '中风险'
-    interpretation = '检出中等载量病原体核酸，建议加强清洁消毒'
-  } else if (minCt < 35) {
-    riskLevel = '低风险'
-    interpretation = '检出低载量病原体核酸，可能为环境残留，建议常规消毒'
-  } else {
-    riskLevel = '极低风险'
-    interpretation = '仅检出微量核酸片段，通常为环境残留或非活性核酸，无需特殊处置（参考：Kitajima et al., 2012）'
-  }
-
-  const positiveItemsDisplay = positives.map((p) => `${p.pathogen}(Ct:${p.ctRaw})`).join(', ')
-  const critical = positives.find((p) => p.ct === minCt) || positives[0]
-  const riskReason = `${critical.pathogen}，Ct=${critical.ctRaw}。${interpretation}`
-
-  return { positiveDetails: positives, positiveItemsDisplay, riskLevel, riskReason, minCt }
 }
 
 // ───────────────────────── 食堂识别 ─────────────────────────
@@ -368,7 +354,11 @@ export function buildPathogenRecordPayload({ payload, deviceNo, canteens, defaul
   }
 
   const risk = calculateDeviceRisk(payload.points)
-  const allTestItems = payload.points.map((p, i) => ({
+  // ⚠️ 2026-11-03：**跳过未使用通道**（Parms 为 '-' 或空）——它们不是真实靶标，
+  //   旧实现会生成 16 条 "病原体=-/阴性" 的占位项，导致设备记录 24 项 vs 手动 8 项"看起来不一致"。
+  //   原始 parms/ctList/resultList 仍完整保存在 rawDetection 中，不丢信息。
+  const usedPoints = payload.points.filter((p) => p.name && p.name !== '-' && p.name !== '—')
+  const allTestItems = usedPoints.map((p, i) => ({
     no: i + 1,
     pathogen: p.name,
     channel: p.key,
@@ -390,7 +380,7 @@ export function buildPathogenRecordPayload({ payload, deviceNo, canteens, defaul
       inspector: payload.peopleStr,
       // ── 业务字段（result_data）──
       sampleId: payload.detectionNumber,
-      sampleType: payload.sampleStr.includes('水') ? '水样' : '食品/环境样本',
+      sampleType: classifySampleType(payload.sampleStr),
       sampleInfo: payload.sampleStr,
       positiveItems: risk.positiveItemsDisplay,
       positiveDetails: risk.positiveDetails,
