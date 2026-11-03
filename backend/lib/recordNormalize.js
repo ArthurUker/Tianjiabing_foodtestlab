@@ -1,5 +1,5 @@
 // ===== 检测记录归一化 / 哈希 / 载荷构建（从 server.js 抽取，P1-5 拆路由 Step 1）=====
-import { normalizePathogenResult } from './pathogenRisk.js'
+import { normalizePathogenResult, classifySampleType } from './pathogenRisk.js'
 import crypto from 'crypto'
 import { sanitizeObjectKeys, safeParseJson } from './sanitize.js'
 import { writeTenantAuditLog } from './auditLog.js'
@@ -356,6 +356,9 @@ function buildRecordWriteData(tableName, payload = {}, opts = {}) {
     //   —— 手动导入与设备上报两条链路共用同一规则，避免同一张芯片两条记录"看起来不一致"
     if (tableName === 'pathogen' && norm.resultData && typeof norm.resultData === 'object') {
         norm.resultData = normalizePathogenResult(norm.resultData)
+        // 样本类型由**样本描述**统一推导（手动导入与设备上报同源，不再各写一套）
+        const desc = String(norm.resultData.sampleInfo || '').trim()
+        if (desc) norm.resultData.sampleType = classifySampleType(desc)
     }
     return {
         ok: true,

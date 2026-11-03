@@ -68,14 +68,25 @@ test('结果归一：判读词统一 + 内参标记 + 阳性项/风险重算 + �
   assert.equal(out.internalControlStatus, '内参: 阴性', '内参状态统一为「内参: 阴性/阳性」')
 })
 
-test('样本类型分类：按关键词而非只认"水"字', () => {
-  assert.equal(classifySampleType('洗碗机水样'), '水样')
-  assert.equal(classifySampleType('一食堂 水样'), '水样')
-  assert.equal(classifySampleType('二食堂 餐盘涂抹样'), '餐具/工用具涂抹样')
-  assert.equal(classifySampleType('饭菜样本'), '食品样本')
-  assert.equal(classifySampleType('操作台面涂抹'), '环境涂抹样')
-  assert.equal(classifySampleType('手部涂抹样'), '手部涂抹样')
+test('样本类型分类（5 类口径）：洗碗机水样 / 食品样本 / 餐具·工用具涂抹样 / 环境样本 / 其他样本', () => {
+  // 洗碗机优先（"洗碗机旁下水道"也要归洗碗机水样）
+  assert.equal(classifySampleType('第二食堂洗碗机内水样'), '洗碗机水样')
+  assert.equal(classifySampleType('一食堂洗碗机的水'), '洗碗机水样')
+  assert.equal(classifySampleType('第一、二、三食堂洗碗机旁下水道'), '洗碗机水样')
+  // 餐具·工用具
+  assert.equal(classifySampleType('二食堂 餐盘涂抹样'), '餐具·工用具涂抹样')
+  assert.equal(classifySampleType('第二食堂砧板采样'), '餐具·工用具涂抹样')
+  // 食品
+  assert.equal(classifySampleType('三食堂饭菜'), '食品样本')
+  assert.equal(classifySampleType('第二食堂15元套餐饭菜'), '食品样本')
+  assert.equal(classifySampleType('第三食堂卤菜档样本'), '食品样本')
+  // 环境
+  assert.equal(classifySampleType('一食堂环境'), '环境样本')
+  assert.equal(classifySampleType('操作台面涂抹'), '环境样本')
+  assert.equal(classifySampleType('一食堂洗碗间下水道'), '环境样本')
+  // 兜底
   assert.equal(classifySampleType('随便写的'), '其他样本')
+  assert.equal(classifySampleType(''), '其他样本')
 })
 
 test('设备报文：未使用通道（Parms = "-"）不生成检测项，但原始报文仍完整保留', () => {
@@ -100,7 +111,7 @@ test('设备报文：未使用通道（Parms = "-"）不生成检测项，但原
   assert.equal(built.ok, true, JSON.stringify(built))
   assert.equal(built.data.allTestItems.length, 3, '5 个通道中 2 个是占位（"-"），应只保留 3 项')
   assert.deepEqual(built.data.allTestItems.map((x) => x.pathogen), ['内参', '诺如', '沙门氏菌'])
-  assert.equal(built.data.sampleType, '水样', '样本类型按关键词分类')
+  assert.equal(built.data.sampleType, '洗碗机水样', '样本类型按样本描述分类')
   // 原始报文快照不丢通道
   assert.equal(Object.keys(built.data.rawDetection.parms).length, 5)
 })
