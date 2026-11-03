@@ -27,7 +27,7 @@
 
 import express from 'express'
 import { createHash } from 'node:crypto'
-import { archiveDevicePayload, readArchivedPayload } from '../lib/devicePayloadArchive.js'
+import { archiveDevicePayload, readArchivedPayload, listArchivedPayloads } from '../lib/devicePayloadArchive.js'
 import { writeSystemLog, writeAdminOpsLog } from '../lib/auditLog.js'
 import { writeAggregatedLog } from '../lib/logThrottle.js'
 import { writeRecordAuditLog, buildRecordWriteData } from '../lib/recordNormalize.js'
@@ -989,6 +989,39 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
 export function createAdminPathogenDeviceRoutes({ prisma, authenticateUser, requirePlatformSuperAdmin, tenantClientFactory }) {
   const router = express.Router()
   router.use(authenticateUser, requirePlatformSuperAdmin)
+
+  // ── 原始上报报文（2026-11-03，方案 B 归档）：**仅超管可见**，供对账/复盘 ──
+  //   列表：GET /payloads?days=7&school=&device=&chip=&status=&code=&limit=
+  //   正文：GET /payloads/content?path=<归档绝对路径>
+  router.get('/payloads', async (req, res) => {
+    try {
+      const data = await listArchivedPayloads({
+        days: req.query.days,
+        school: req.query.school,
+        device: req.query.device,
+        chip: req.query.chip,
+        status: req.query.status,
+        code: req.query.code,
+        limit: req.query.limit,
+      })
+      res.json({ success: true, data })
+    } catch (e) {
+      console.error(`${TAG} 归档列表查询失败:`, e)
+      res.status(500).json({ success: false, error: '查询失败' })
+    }
+  })
+
+  router.get('/payloads/content', async (req, res) => {
+    const file = String(req.query.path || '')
+    if (!file) return badRequest(res, '缺少 path 参数')
+    try {
+      const text = await readArchivedPayload(file)
+      res.json({ success: true, data: { path: file, payload: JSON.parse(text) } })
+    } catch (e) {
+      // 路径越界 / 文件不存在 / 内容损坏 统一 404，避免泄露目录结构
+      res.status(404).json({ success: false, error: '报文不存在或不可读' })
+    }
+  })
 
   /** 新增/修改共用的字段归一（返回 { ok, data } 或 { ok:false, message }）。 */
   async function normalizeDeviceInput(body, { schoolCodeFixed = null } = {}) {

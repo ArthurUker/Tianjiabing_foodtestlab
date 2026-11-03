@@ -66,6 +66,20 @@ export async function archiveDevicePayload(opts = {}) {
     const gz = await gzip(Buffer.from(raw, 'utf8'), { level: 6 })
     await fs.mkdir(dir, { recursive: true, mode: 0o700 })
     await fs.writeFile(full, gz, { mode: 0o600 })
+    // 追加当日索引（一行一条），超管列表据此检索；失败不影响归档
+    const entry = {
+      path: full,
+      name,
+      at: at.toISOString(),
+      school_code: opts.schoolCode || null,
+      device_no: opts.deviceNo || null,
+      chip_number: opts.chipNumber || null,
+      status: opts.status ?? null,
+      code: opts.code || null,
+      bytes,
+      gz_bytes: gz.length,
+    }
+    await fs.appendFile(path.join(dir, 'index.jsonl'), JSON.stringify(entry) + '\n', { mode: 0o600 }).catch(() => {})
     return {
       ok: true,
       path: full,
@@ -117,4 +131,82 @@ export async function pruneArchivedPayloads({ days = RETENTION_DAYS, dryRun = fa
     removed += 1
   }
   return { scanned, removed, keepDays: Number(days), dryRun }
+}
+
+/**
+ * 列出最近 N 天的归档报文（读取每日 index.jsonl，按时间倒序）。
+ * @param {{days?:number, school?:string, chip?:string, status?:string, code?:string, limit?:number}} q
+ */
+export async function listArchivedPayloads(q = {}) {
+  const days = Math.max(1, Math.min(Number(q.days) || 7, Math.max(1, RETENTION_DAYS)))
+  const limit = Math.max(1, Math.min(Number(q.limit) || 200, 500))
+  const root = path.resolve(PAYLOAD_DIR)
+  const wanted = []
+  const today = new Date()
+  for (let i = 0; i < days; i += 1) {
+    const d = new Date(today.getTime() - i * 86400000)
+    wanted.push(path.join(root, dayDir(d)))
+  }
+  const out = []
+  const indexed = new Set()
+  for (const dir of wanted) {
+    let text = ''
+    try {
+      text = await fs.readFile(path.join(dir, 'index.jsonl'), 'utf8')
+    } catch {
+      text = ''
+    }
+    // 兜底：索引功能上线前归档的文件，按文件名 + mtime 还原元数据（保证列表不丢历史）
+    try {
+      const files = (await fs.readdir(dir)).filter((f) => f.endsWith('.json.gz'))
+      for (const f of files) {
+        const full = path.join(dir, f)
+        indexed.add(full)
+        // 形如 <chip>_<ISO>_<status>_<code>.json.gz
+        const m = /^(.*)_(\d{4}-\d{2}-\d{2}T[^_]+)_([^_]+)_(.+)\.json\.gz$/.exec(f)
+        const st = await fs.stat(full).catch(() => null)
+        if (!st) continue
+        out.push({
+          path: full,
+          name: f,
+          at: st.mtime.toISOString(),
+          school_code: null,
+          device_no: null,
+          chip_number: m ? m[1] : null,
+          status: m ? Number(m[3]) : null,
+          code: m ? m[4] : null,
+          bytes: st.size,
+          gz_bytes: st.size,
+          derived: true,
+        })
+      }
+    } catch {
+      /* 目录不存在 */
+    }
+    for (const line of text.split('\n')) {
+      const t = line.trim()
+      if (!t) continue
+      let e
+      try {
+        e = JSON.parse(t)
+      } catch {
+        continue
+      }
+      if (q.school && String(e.school_code || '').toLowerCase() !== String(q.school).toLowerCase()) continue
+      if (q.chip && !String(e.chip_number || '').toLowerCase().includes(String(q.chip).toLowerCase())) continue
+      if (q.device && !String(e.device_no || '').toLowerCase().includes(String(q.device).toLowerCase())) continue
+      if (q.status && String(e.status ?? '') !== String(q.status)) continue
+      if (q.code && !String(e.code || '').toLowerCase().includes(String(q.code).toLowerCase())) continue
+      out.push(e)
+    }
+  }
+  // 去重：同一 path 只保留一条（索引条目优先，derived 条目靠后）
+  const seen = new Map()
+  for (const e of out) {
+    const key = e.path
+    if (!seen.has(key) || !e.derived) seen.set(key, e)
+  }
+  const merged = [...seen.values()]
+  merged.sort((a, b) => String(b.at).localeCompare(String(a.at)))
+  return { items: merged.slice(0, limit), total: merged.length, scannedDays: days }
 }

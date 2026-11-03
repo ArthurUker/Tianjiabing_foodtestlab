@@ -196,9 +196,19 @@
                 <!-- 病原体设备（2026-10-14，VirusHunter2.0B 对接）：按学校维护「设备编号 → 学校」映射，
                      设备凭此处签发的密钥（X-API-Key）调 POST /api/open/pathogen-device/upload 自动上报，
                      按设备编号归属学校租户（上传接口不暴露任何租户信息）。配置变更全部写审计。 -->
-                <button class="admin-sidebar__item" data-view="pathogendevices" data-desc="按学校配置病原体检测设备编号：设备凭签发密钥自动上传检测结果，按设备编号归属对应学校租户。" type="button">
+                <!-- 2026-11-03：改为二级菜单（设备管理 / 原始上报报文），后者仅超管可见，用于对账复盘 -->
+                <button class="admin-sidebar__item has-subnav" data-view="pathogendevices" data-desc="病原体检测仪（VirusHunter2.0B）对接：设备编号绑定、密钥签发，以及原始上报报文的查看与下载。" type="button">
                     <i class="fas fa-microscope"></i><span class="admin-sidebar__item-label">病原体设备</span>
+                    <i class="fas fa-chevron-right admin-sidebar__chevron"></i>
                 </button>
+                <div class="admin-sidebar__subnav" data-subnav="pathogendevices">
+                    <button class="admin-sidebar__subitem active" data-subview="devices" data-desc="按学校配置设备编号与密钥，维护绑定台账（换机/结束绑定/跨校流转）。" type="button">
+                        <i class="fas fa-plug"></i><span class="admin-sidebar__subitem-label">设备管理</span>
+                    </button>
+                    <button class="admin-sidebar__subitem" data-subview="payloads" data-desc="查看设备上报的原始 JSON 报文（成功与失败都留证），用于与厂商对账、复盘被拒原因。" type="button">
+                        <i class="fas fa-file-code"></i><span class="admin-sidebar__subitem-label">原始上报报文</span>
+                    </button>
+                </div>
                 <!-- 测试报告：二级菜单（测试任务 / 问题反馈 / 问题总览）。
                      TR-Rewrite：原生视图模块，废弃 iframe + test-report.html + docs 产物。
                      三视图对齐检测业务模型：任务=计划内执行、反馈=计划外上报、总览=记录列表。 -->
@@ -1068,6 +1078,8 @@
         import { initFriendlyLinksView } from '/js/modules/adminSchools/views/friendlyLinksView.js';
         // 「病原体设备」视图（2026-10-14 VirusHunter2.0B 对接：设备编号 → 学校映射 + 密钥签发）
         import { initPathogenDeviceView } from '/js/modules/adminSchools/views/pathogenDeviceView.js';
+        // 病原体设备 · 二级菜单「原始上报报文」（2026-11-03，方案 B 归档，仅超管可见）
+        import { initPathogenPayloadView } from '/js/modules/adminSchools/views/payloadArchiveView.js';
         // 「测试报告」三视图（TR-Rewrite：测试任务 / 问题反馈 / 问题总览）
         import { initTasksView } from '/js/modules/adminSchools/views/testReports/tasksView.js';
         import { initIssuesView } from '/js/modules/adminSchools/views/testReports/issuesView.js';
@@ -1166,6 +1178,8 @@
         initFriendlyLinksView({ API_BASE, authHeaders, notify: showNotice });
         // 病原体设备视图（设备编号→学校映射 + 密钥签发，super_admin 专属）
         initPathogenDeviceView({ API_BASE, authHeaders, notify: showNotice });
+        // 原始上报报文面板（依赖设备视图已渲染的 DOM，故紧随其后初始化）
+        initPathogenPayloadView({ API_BASE, authHeaders, notify: showNotice });
         initKpiPoller();
         // 学校管理：详情视图先建（导出 openDetail / switchSchoolsSubview / renderCanteenInputs / updateBadgeStyleHint），
         // 再注入定制加载的详情回调与弹层的列表刷新回调，最后装配列表视图（openDetail / switchSchoolsSubview 注入）。
