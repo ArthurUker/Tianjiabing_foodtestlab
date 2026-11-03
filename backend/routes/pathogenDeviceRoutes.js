@@ -1004,7 +1004,35 @@ export function createAdminPathogenDeviceRoutes({ prisma, authenticateUser, requ
         code: req.query.code,
         limit: req.query.limit,
       })
-      res.json({ success: true, data })
+      // 补学校名称（前端按学校分类展示，代码对人不可读）
+      const codes = [...new Set(data.items.map((i) => i.school_code).filter(Boolean))]
+      let nameMap = {}
+      if (codes.length) {
+        const schools = await prisma.school
+          .findMany({ where: { code: { in: codes } }, select: { code: true, name: true } })
+          .catch(() => [])
+        nameMap = Object.fromEntries(schools.map((s) => [s.code, s.name]))
+      }
+      const items = data.items.map((i) => ({ ...i, school_name: nameMap[i.school_code] || null }))
+      // 概览统计（按条目，不受学校/状态前端筛选影响）
+      const bySchoolMap = {}
+      for (const i of items) {
+        const key = i.school_code || '__unknown__'
+        if (!bySchoolMap[key]) {
+          bySchoolMap[key] = { code: i.school_code || null, name: nameMap[i.school_code] || '未识别（历史文件）', count: 0, failed: 0 }
+        }
+        bySchoolMap[key].count += 1
+        if (Number(i.status) >= 400) bySchoolMap[key].failed += 1
+      }
+      const stats = {
+        total: items.length,
+        success: items.filter((i) => Number(i.status) === 200).length,
+        failed: items.filter((i) => Number(i.status) >= 400).length,
+        bytes: items.reduce((a, i) => a + (Number(i.bytes) || 0), 0),
+        gzBytes: items.reduce((a, i) => a + (Number(i.gz_bytes) || 0), 0),
+        bySchool: Object.values(bySchoolMap).sort((a, b) => b.count - a.count),
+      }
+      res.json({ success: true, data: { ...data, items, stats } })
     } catch (e) {
       console.error(`${TAG} 归档列表查询失败:`, e)
       res.status(500).json({ success: false, error: '查询失败' })
