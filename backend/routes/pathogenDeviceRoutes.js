@@ -27,6 +27,7 @@
 
 import express from 'express'
 import { createHash } from 'node:crypto'
+import { archiveDevicePayload, readArchivedPayload } from '../lib/devicePayloadArchive.js'
 import { writeSystemLog, writeAdminOpsLog } from '../lib/auditLog.js'
 import { writeAggregatedLog } from '../lib/logThrottle.js'
 import { writeRecordAuditLog, buildRecordWriteData } from '../lib/recordNormalize.js'
@@ -132,6 +133,21 @@ const OPS_ACTION = {
 function reply(res, status, code, message, data = null) {
   // 供访问日志读取「本次请求的结论码」（res.locals 是 Express 内置）
   res.locals.pdOutcome = code
+  // 失败报文留证（2026-11-03）：厂商说"我传了"、系统说"没收到/被拒"时靠它对齐原始报文。
+  // 异步归档、绝不阻塞响应；归档失败只告警，不影响返回。
+  if (status >= 400) {
+    const raw = res.locals.__pdRaw
+    if (raw && raw.payload) {
+      archiveDevicePayload({ ...raw, status, code }).then((r) => {
+        if (r.ok) {
+          res.locals.pdRawArchive = r.path
+          console.log(`[PathogenDevice] 失败报文已归档 status=${status} code=${code} chip=${raw.chipNumber || '-'} bytes=${r.bytes} gz=${r.gzBytes} path=${r.path}`)
+        } else if (r.reason === 'too_large') {
+          console.warn(`${TAG} 报文过大未归档: ${r.bytes}B > ${r.limit}B`)
+        }
+      }).catch(() => {})
+    }
+  }
   return res.status(status).json({ code, message, data })
 }
 
@@ -346,6 +362,14 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
   router.post('/upload', async (req, res) => {
     const ip = normalizeIp(req.ip || req.connection?.remoteAddress)
     const path = req.originalUrl || req.url
+
+    // 原始报文留证（异步归档用；chipNumber/deviceNo 在处理过程中补齐）
+    res.locals.__pdRaw = {
+      payload: req.body,
+      ip,
+      deviceNo: typeof req.body?.DeviceNo === 'string' ? req.body.DeviceNo.slice(0, 64) : null,
+      chipNumber: typeof req.body?.ChipNumber === 'string' ? req.body.ChipNumber.slice(0, 64) : null,
+    }
 
     // ── 访问日志（2026-10-22）──
     // 每次调用都留一行（stdout → journald），**不受拒绝日志 60s 节流影响**，用来回答
@@ -646,6 +670,16 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
       let roundNo = 0
       let lastRound = null
       const MAX_CAS_ATTEMPTS = 5
+      // 本轮原始报文也归档（重试循环外只写一次，避免重复落盘）
+      const recheckArchive = await archiveDevicePayload({
+        payload: req.body, // 原始报文（对账用）
+        schoolCode: device.school_code,
+        deviceNo: device.device_no,
+        chipNumber: payload.chipNumber,
+        status: 200,
+        code: 'RECHECK',
+        ip,
+      })
       for (let attempt = 1; ; attempt += 1) {
         // ⚠️ 并发重试时本芯片可能**已被另一个请求写入**（新建记录或并入轮次）：
         //    必须重新判一次芯片，否则会把同一张芯片重复并入成多个轮次（2026-10-28 压测实测到 3~5 次重复）。
@@ -678,6 +712,16 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
           uploadedAt: Date.now(),
           parentInspector: current.sample_info?.inspector || null,
         })
+        // 本轮原始报文归档路径（2026-11-03）
+        if (recheckArchive.ok) {
+          round.rawPayloadArchive = {
+            path: recheckArchive.path,
+            bytes: recheckArchive.bytes,
+            gzBytes: recheckArchive.gzBytes,
+            sha256: recheckArchive.sha256,
+            at: recheckArchive.at,
+          }
+        }
         // 初检结论留档：合并会把父记录摘要覆盖为最新轮次，若不留档则「第 1 轮当时的结论」不可追溯
         // （2026-10-28 复核发现：10-22 的阴性结论被 10-26 的阳性覆盖后，顶部摘要再也看不到）
         const initialSummary = current.result_data?.initialSummary || {
@@ -831,6 +875,17 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
       })
     }
 
+    // 原始报文归档（2026-11-03，方案 B）：gzip 落盘 + 记录里只存路径/大小/哈希，便于与厂商对账
+    const payloadArchive = await archiveDevicePayload({
+      payload: req.body, // 原始报文（对账用），不是归一化后的 payload
+      schoolCode: device.school_code,
+      deviceNo: device.device_no,
+      chipNumber: payload.chipNumber,
+      status: 200,
+      code: 'OK',
+      ip,
+    })
+
     let record
     try {
       record = await db.testRecord.create({
@@ -843,7 +898,13 @@ export function createPathogenDeviceUploadRoutes({ prisma, tenantClientFactory }
           case_key: caseKeyForBuilt,
           ...writeData.data,
           // 复核标记覆盖写入（数据照常入库，仅标记待人工确认）
-          result_data: { ...(writeData.data.result_data || {}), reviewFlags: writeFlags.slice(0, 20) },
+          result_data: {
+            ...(writeData.data.result_data || {}),
+            reviewFlags: writeFlags.slice(0, 20),
+            rawPayloadArchive: payloadArchive.ok
+              ? { path: payloadArchive.path, bytes: payloadArchive.bytes, gzBytes: payloadArchive.gzBytes, sha256: payloadArchive.sha256, at: payloadArchive.at }
+              : { ok: false, reason: payloadArchive.reason || 'unknown' },
+          },
         },
       })
     } catch (e) {
@@ -1126,6 +1187,49 @@ export function createAdminPathogenDeviceRoutes({ prisma, authenticateUser, requ
     } catch (e) {
       console.error(`${TAG} 变更设备编号失败:`, e)
       res.status(500).json({ success: false, error: '变更失败' })
+    }
+  })
+
+  // ── 调取设备原始报文（2026-11-03，方案 B 归档：gzip 落盘，库里只存路径） ──
+  //   用途：与厂商对账「你到底传了什么」、复盘被拒报文。
+  //   ?round=N 可查看某个复测轮次当次的报文（不传则取父记录第 1 轮）。
+  router.get('/:id/raw-payload', async (req, res) => {
+    try {
+      // 说明：检测记录在 tenant 库，本端点按 record_id + school_code 定位
+      const recordId = req.query.record_id
+      if (!recordId) return badRequest(res, '需要提供 record_id（检测记录 id）')
+      const schoolCode = String(req.query.school_code || '').trim()
+      if (!/^[a-z0-9_]{1,32}$/.test(schoolCode)) return badRequest(res, '需要提供合法的 school_code')
+      const db = createTenantClient(prisma, schoolCode)
+      const rec = await db.testRecord.findUnique({ where: { id: String(recordId) } })
+      if (!rec) return res.status(404).json({ success: false, error: '检测记录不存在' })
+      const rd = rec.result_data || {}
+      const roundNo = req.query.round ? Number(req.query.round) : null
+      let archive = null
+      let source = 'parent'
+      if (roundNo && Array.isArray(rd.recheckReports)) {
+        const round = rd.recheckReports.find((x) => Number(x?.roundNo) === roundNo)
+        archive = round?.rawPayloadArchive || null
+        source = `round:${roundNo}`
+      } else {
+        archive = rd.rawPayloadArchive || null
+      }
+      if (!archive?.path) {
+        return res.status(404).json({ success: false, error: '该记录没有归档报文（可能是在归档功能上线前上传的）', data: { source } })
+      }
+      const text = await readArchivedPayload(archive.path)
+      res.json({
+        success: true,
+        data: {
+          source,
+          record_code: rec.record_code,
+          archive: { bytes: archive.bytes, gzBytes: archive.gzBytes, sha256: archive.sha256, at: archive.at },
+          payload: JSON.parse(text),
+        },
+      })
+    } catch (e) {
+      console.error(`${TAG} 调取原始报文失败:`, e)
+      res.status(500).json({ success: false, error: '调取失败' })
     }
   })
 
