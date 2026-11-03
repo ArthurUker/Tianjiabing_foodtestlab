@@ -1606,7 +1606,7 @@ async function loadServerPage() {
         serverPageTotal = 0;
         const tbody = document.getElementById('pathogenRecords');
         if (tbody) {
-            tbody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-red-600">列表加载失败：${escapeHtml(error.message || '请稍后重试')}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="7" class="text-center py-6 text-red-600">列表加载失败：${escapeHtml(error.message || '请稍后重试')}</td></tr>`;
         }
         const info = document.getElementById('pathogen-paginationInfo');
         if (info) info.textContent = '列表加载失败';
@@ -1616,7 +1616,7 @@ async function loadServerPage() {
 function renderTable() {
     const tbody = document.getElementById('pathogenRecords');
     if (!tbody) return;
-    tbody.innerHTML = '<tr><td colspan="8" class="text-center py-6 text-gray-500">正在从服务器加载…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center py-6 text-gray-500">正在从服务器加载…</td></tr>';
     void loadServerPage();
 }
 
@@ -1701,7 +1701,7 @@ function renderCurrentPage() {
 
     // 3. 渲染表格内容
     if (currentRecords.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-gray-500">暂无数据，请导入检测报告</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" class="text-center py-6 text-gray-500">暂无数据，请导入检测报告</td></tr>`;
         return;
     }
 
@@ -1755,8 +1755,7 @@ function renderCurrentPage() {
 
         return `
             <tr class="border-b hover:bg-gray-50">
-                <td class="px-4 py-3 text-center">${escapeHtml(item.testDate)}</td>
-                <td class="px-4 py-3 font-medium">${escapeHtml(item.sampleId)}${sourceBadge}${reviewBadge}</td>
+                <td class="px-4 py-3 text-center">${escapeHtml(item.testDate)}${sourceBadge}${reviewBadge}</td>
                 <td class="px-4 py-3 text-center">${escapeHtml(item.canteen)}</td>
                 <td class="px-4 py-3 text-center">${escapeHtml(item.sampleType)}</td>
                 <td class="px-4 py-3 ${positiveClass} cursor-pointer hover:underline result-value" data-id="${escapeHtml(item.id)}" title="点击查看详情">
