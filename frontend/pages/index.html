@@ -699,6 +699,97 @@
                         <p>已接入检测设备（VirusHunter2.0B）自动采集的学校，设备检测结果将自动进入下方列表（来源标记为「设备」），无需手动操作。</p>
                         <p id="pathogenManualTip" class="mt-1">同时支持手动导入 Word 文档(.docx)格式的病原体检测数据报告。</p>
                     </div>
+                    <!-- ═══ 芯片检测操作说明（2026-11-03，依据《食源性病原体检测芯片说明书 08-18》）═══
+                         用原生 <details> 实现折叠，无额外 JS；默认展开一次，之后用户可收起。 -->
+                    <details id="pathogenSop" class="mb-6 border border-blue-200 rounded-lg bg-blue-50" open>
+                        <summary class="px-4 py-3 cursor-pointer text-sm font-semibold text-blue-800 select-none">
+                            📖 芯片检测操作说明（样本准备 · 加样上机 · 结果判读 · 样本类型）
+                            <span class="text-xs font-normal text-blue-600 ml-2">点击可收起</span>
+                        </summary>
+                        <div class="px-4 pb-4 grid grid-cols-1 lg:grid-cols-2 gap-4 text-sm">
+                            <!-- ① 样本准备 -->
+                            <div class="bg-white border border-gray-200 rounded p-3">
+                                <div class="font-semibold text-gray-800 mb-2">① 样本准备（按样本形态）</div>
+                                <ul class="list-disc pl-5 space-y-1 text-gray-700 text-xs leading-relaxed">
+                                    <li><b>固态</b>（生食原料／熟食成品）：均质成粉末或糊状 → 研磨管加 1 mL 处理液震荡 3 min → 按 1:2 加入 15 mL 离心管 → 震荡 3 min → 4000 rpm 离心 5 min → 取上清<b>再离心 5 min</b> → 上清备用</li>
+                                    <li><b>液态</b>（洗碗机用水／饮用水）：0.22 μm 滤膜抽滤 0.5–1 L（视浊度）→ 滤膜剪碎入研磨管 → 加 1 mL 前处理液研磨 → 4000 rpm 5 min → 上清</li>
+                                    <li><b>环境／表面</b>（餐具表面、下水道）：无菌拭子反复涂抹 → 拭子头折断入研磨管 → 加 1 mL 前处理液研磨 → 4000 rpm 5 min → 上清</li>
+                                    <li><b>水体</b>（环境水／自来水）：0.22 μm 抽滤 → 滤膜剪碎 → 1 mL 前处理液 3000 rpm 3 min → 4000 rpm 5 min → 取 200 μL 上清</li>
+                                    <li><b>牡蛎</b>（消化腺 1–2 g）：研磨袋加 1 mL 前处理液 3000 rpm 2 min → 拍打均质 1 min → 再取 1 mL 前处理液 3000 rpm 2 min → 取 800 μL ＋ 匀浆 200 μL 混合 → 3000 rpm 1 min → 12000 rpm 2 min → 取 200 μL 上清（勿吸沉淀）</li>
+                                </ul>
+                            </div>
+                            <!-- ② 加样 -->
+                            <div class="bg-white border border-gray-200 rounded p-3">
+                                <div class="font-semibold text-gray-800 mb-2">② 芯片加样</div>
+                                <ol class="list-decimal pl-5 space-y-1 text-gray-700 text-xs leading-relaxed">
+                                    <li>芯片从 2–8 ℃ 取出，<b>室温放置 ≥15 min</b> 再开袋</li>
+                                    <li>撕掉加样盖旁<b>透气口的黄色封口膜</b>，打开芯片盖</li>
+                                    <li>加入 <b>200 μL</b> 研磨上清（<b>勿吸底部沉淀</b>；有漂浮沉淀请再次离心）</li>
+                                    <li>稍用力<b>水平晃动约 40 次</b></li>
+                                    <li>芯片一次性使用，<b>严禁重复使用</b>；跌落/变形请联系厂家判断</li>
+                                </ol>
+                                <div class="mt-2 text-xs text-red-600">⚠ 全程使用一次性吸头，避免交叉污染</div>
+                            </div>
+                            <!-- ③ 上机 -->
+                            <div class="bg-white border border-gray-200 rounded p-3">
+                                <div class="font-semibold text-gray-800 mb-2">③ 上机检测</div>
+                                <ol class="list-decimal pl-5 space-y-1 text-gray-700 text-xs leading-relaxed">
+                                    <li>打开 2.0B 检测仪与配套软件</li>
+                                    <li>插入芯片，等软件显示「芯片已插入」</li>
+                                    <li>检测项目选「<b>食源性 25/19/8 项</b>」</li>
+                                    <li>填写 <b>样本信息</b>、<b>芯片编号</b>、检验员，点开始</li>
+                                    <li>检测完成后<b>结果会自动上传到本系统</b>，无需手工录入</li>
+                                </ol>
+                                <div class="mt-2 text-xs text-amber-700">
+                                    ⚠ 三个易错点：芯片编号必须填（用于判重）／检测时间填<b>实际时间</b>（决定归属学校与是否算复测）／样本信息写清「食堂 + 样本物」
+                                </div>
+                            </div>
+                            <!-- ④ 判读 -->
+                            <div class="bg-white border border-gray-200 rounded p-3">
+                                <div class="font-semibold text-gray-800 mb-2">④ 结果判读</div>
+                                <ul class="list-disc pl-5 space-y-1 text-gray-700 text-xs leading-relaxed">
+                                    <li>位点从左到右编号 1–8，对应靶标以软件所选芯片为准</li>
+                                    <li><b>阳性</b>：S 型扩增曲线且 <b>Ct &lt; 35</b></li>
+                                    <li><b>弱阳性</b>：<b>35 ≤ Ct ≤ 40</b> → <b>应复测一张芯片</b></li>
+                                    <li><b>阴性</b>：无 S 型扩增曲线</li>
+                                    <li><b>异常</b>：非 S 型特异曲线（按 F1 看原始曲线）→ 该位点结果无效，应剔除</li>
+                                    <li><b>内参</b>未检出 → 提示提取或加样异常，建议复测</li>
+                                </ul>
+                            </div>
+                            <!-- ⑤ 样本类型 -->
+                            <div class="bg-white border border-gray-200 rounded p-3 lg:col-span-2">
+                                <div class="font-semibold text-gray-800 mb-2">⑤ 样本类型（系统统一 5 类，自动识别）</div>
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-xs border border-gray-200">
+                                        <thead class="bg-gray-50 text-gray-600">
+                                            <tr><th class="text-left px-2 py-1 border border-gray-200">系统类型</th><th class="text-left px-2 py-1 border border-gray-200">对应说明书样本</th><th class="text-left px-2 py-1 border border-gray-200">识别关键词（写在“样本信息”里）</th></tr>
+                                        </thead>
+                                        <tbody class="text-gray-700">
+                                            <tr><td class="px-2 py-1 border border-gray-200"><b>洗碗机水样</b></td><td class="px-2 py-1 border border-gray-200">洗碗机用水</td><td class="px-2 py-1 border border-gray-200">含「洗碗机」</td></tr>
+                                            <tr><td class="px-2 py-1 border border-gray-200"><b>食品样本</b></td><td class="px-2 py-1 border border-gray-200">生食原料、熟食成品</td><td class="px-2 py-1 border border-gray-200">饭菜／套餐／卤菜／食品／留样／熟食／原料…</td></tr>
+                                            <tr><td class="px-2 py-1 border border-gray-200"><b>餐具·工用具涂抹样</b></td><td class="px-2 py-1 border border-gray-200">就餐餐具表面</td><td class="px-2 py-1 border border-gray-200">餐盘／碗／筷／勺／砧板／案板／刀具／工用具…</td></tr>
+                                            <tr><td class="px-2 py-1 border border-gray-200"><b>环境样本</b></td><td class="px-2 py-1 border border-gray-200">后厨下水道等环境</td><td class="px-2 py-1 border border-gray-200">下水道／地漏／台面／操作台／冰箱／地面／环境…</td></tr>
+                                            <tr><td class="px-2 py-1 border border-gray-200"><b>其他样本</b></td><td class="px-2 py-1 border border-gray-200">其他</td><td class="px-2 py-1 border border-gray-200">未匹配到上述关键词时兜底</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div class="mt-2 text-xs text-gray-600">
+                                    类型由<b>样本信息文本</b>自动判定（手动导入与设备上报同一套规则）。<b>写清楚</b>样本信息即可，例如：
+                                    「第一食堂洗碗机内水样」「二食堂砧板采样」「三食堂饭菜」「一食堂操作台面涂抹」。
+                                </div>
+                            </div>
+                            <!-- ⑥ 实验后 -->
+                            <div class="bg-white border border-gray-200 rounded p-3 lg:col-span-2">
+                                <div class="font-semibold text-gray-800 mb-2">⑥ 实验后处理</div>
+                                <ul class="list-disc pl-5 space-y-1 text-gray-700 text-xs leading-relaxed">
+                                    <li>废芯片装密封袋，按<b>医疗废弃物</b>处理，请勿开盖或破坏结构</li>
+                                    <li>工作台与移液器用 <b>10% 次氯酸或 75% 酒精</b>擦拭，再用紫外灯照射 15 min</li>
+                                    <li>试剂盒组分须在效期内使用；不使用配套前处理液可能影响检测性能</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </details>
+
                     <div id="pathogenImportRow" class="flex gap-4 items-end mb-6 border p-4 rounded bg-gray-50">
                         <div class="flex-1">
                             <label class="block text-sm mb-1">选择文件 (.docx)</label>
