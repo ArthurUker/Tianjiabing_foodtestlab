@@ -701,10 +701,20 @@
                     </div>
                     <!-- ═══ 芯片检测操作说明（2026-11-03，依据《食源性病原体检测芯片说明书 08-18》）═══
                          用原生 <details> 实现折叠，无额外 JS；默认展开一次，之后用户可收起。 -->
-                    <details id="pathogenSop" class="mb-6 border border-blue-200 rounded-lg bg-blue-50" open>
-                        <summary class="px-4 py-3 cursor-pointer text-sm font-semibold text-blue-800 select-none">
-                            📖 芯片检测操作说明（样本准备 · 加样上机 · 结果判读 · 样本类型）
-                            <span class="text-xs font-normal text-blue-600 ml-2">点击可收起</span>
+                    <!-- 默认折叠：折叠态显示"速览"（关键三步 + 判读 + 样本类型），展开后显示完整六节 -->
+                    <details id="pathogenSop" class="mb-6 border border-blue-200 rounded-lg bg-blue-50">
+                        <summary class="px-4 py-3 cursor-pointer select-none">
+                            <div class="flex items-center flex-wrap gap-2">
+                                <span class="text-sm font-semibold text-blue-800">📖 芯片检测操作说明</span>
+                                <span class="text-xs text-blue-600">点击展开详细步骤（样本准备 · 加样上机 · 结果判读 · 样本类型）</span>
+                            </div>
+                            <div class="mt-2 text-xs text-blue-900 leading-relaxed">
+                                <span class="font-medium">① 操作：</span>芯片室温放置 ≥15 min → 加 200 μL 上清（勿吸沉淀）→ 水平晃动约 40 次 → 上机选「食源性 25/19/8 项」→ 结果自动上传本系统
+                                <span class="mx-1 text-blue-300">|</span>
+                                <span class="font-medium">② 判读：</span>Ct < 35 阳性 ／ 35–40 弱阳性需复测 ／ 无 S 型曲线 阴性
+                                <span class="mx-1 text-blue-300">|</span>
+                                <span class="font-medium">③ 样本类型：</span>按「样本信息」自动识别 5 类（洗碗机水样／食品样本／餐具·工用具涂抹样／环境样本／其他）
+                            </div>
                         </summary>
                         <div class="px-4 pb-4 grid grid-cols-1 lg:grid-cols-2 gap-4 text-sm">
                             <!-- ① 样本准备 -->
