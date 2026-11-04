@@ -1292,20 +1292,18 @@ function buildFluorescenceHtml(record) {
         const m = mean(a);
         return Math.sqrt(a.reduce((s, v) => s + (v - m) ** 2, 0) / (a.length - 1));
     };
-    /** 去尖刺（MAD 过滤，同 rdpms despike） */
-    const despike = (a) => {
-        const out = a.slice();
-        const sorted = a.slice().sort((x, y) => x - y);
-        const med = sorted[Math.floor(sorted.length / 2)];
-        const devs = a.map((v) => Math.abs(v - med)).sort((x, y) => x - y);
+    /**
+     * 去尖刺（MAD 过滤）—— **必须用滑动窗口**（2026-11-04 修复）：
+     * 用全局中位数会把"整段 S 型上升"当成离群点抹平（实测 CY5-6 真实扩增末值 ΔF 2109 被压成 -17），
+     * 导致曲线被误判为"无扩增"。改用 7 点滑动窗口，只抹孤立尖刺。
+     */
+    const despike = (a, w = 7) => a.map((v, i) => {
+        const win = a.slice(Math.max(0, i - Math.floor(w / 2)), Math.min(a.length, i + Math.floor(w / 2) + 1)).slice().sort((x, y) => x - y);
+        const med = win[Math.floor(win.length / 2)];
+        const devs = win.map((x) => Math.abs(x - med)).sort((x, y) => x - y);
         const mad = devs[Math.floor(devs.length / 2)] || 0;
-        if (mad > 0) {
-            for (let i = 0; i < out.length; i += 1) {
-                if (Math.abs(out[i] - med) > 3 * mad) out[i] = med;
-            }
-        }
-        return out;
-    };
+        return (mad > 0 && Math.abs(v - med) > 3 * mad) ? med : v;
+    });
     /** 5 点滑动平均（数值平滑，同 rdpms smooth） */
     const smooth = (a, w = 5) => a.map((_, i) => {
         const from = Math.max(0, i - Math.floor(w / 2));
@@ -1376,6 +1374,7 @@ function buildFluorescenceHtml(record) {
             </svg>
             <div class="text-xs mt-1 ${pos ? 'text-red-700' : 'text-gray-600'}">
                 ${pos ? '阳性' : '阴性'} ｜ 设备 Ct ${hasDevCt ? devCt : '—'} ｜ 本图过阈 ≈ 第 ${myCt != null ? myCt.toFixed(1) : '—'} 循环 ｜ 末值 ΔF ${endDf.toFixed(0)}
+                ${!hasDevCt && myCt != null ? '<div class="text-amber-700 mt-0.5">⚠ 设备未上传 Ct，但荧光曲线显示扩增，请人工复核</div>' : ''}
             </div>
         </div>`;
     }).join('');
