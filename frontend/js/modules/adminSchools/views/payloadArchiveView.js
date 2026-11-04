@@ -1,20 +1,16 @@
-// ====== 病原体设备 · 原始上报报文（2026-11-03 归档 / 2026-11-04 查看器重做）======
+// ====== 病原体设备 · 原始上报报文（2026-11-03，方案 B 归档）======
 // 二级菜单「病原体设备 → 原始上报报文」：设备上报的原始 JSON 文件管理。
-//
-// 列表：概览四卡 + 左「按学校分类」+ 状态页签 + 天数/芯片/设备筛选。
-// **查看器（本次重做）**——原来只把整包 JSON 塞进 <pre>，点位/荧光一屏数字，定位字段只能靠肉眼翻：
-//   ① 顶部结论条：成功/失败码、上报时间、学校、设备、芯片、体积；
-//   ② 三个页签：
-//      基本信息 —— 12 个关键字段的键值表 + 结果摘要（阳性点位、层级）；
-//      点位与荧光 —— 每个点位一行：通道/项目/判定/Ct/荧光点数 + 迷你曲线，可展开看原始数组；
-//      原始 JSON —— 语法着色 + 关键字搜索（可只显示匹配行）+ 自动换行 + 复制/下载；
-//   ③ 键盘 Esc 关闭、点遮罩关闭、复制路径。
+// 设计目标（2026-11-03 第二轮）：
+//   · 一眼看清：总量/成功/失败/占用空间 四张卡片
+//   · **按学校分类**：左侧学校列表带条数（失败数标红），点击即筛选；显示学校名称而非代码
+//   · 按状态分类：全部 / 成功 / 失败 三个标签页
+//   · 定位单个文件：芯片号模糊搜索 + 最近 N 天
 // ⚠️ 仅超管可见（接口 requirePlatformSuperAdmin）。
 
 let ctx = null;
 let mounted = false;
 let loadedOnce = false;
-let state = { school: '', status: '', days: '7', chip: '', device: '', data: null, items: [], rows: [] };
+let state = { school: '', status: '', days: '7', chip: '', device: '', data: null, items: [], view: null };
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[c]));
 const api = (p) => `${ctx.API_BASE || ''}${p}`;
@@ -22,7 +18,7 @@ const api = (p) => `${ctx.API_BASE || ''}${p}`;
 function fmtTime(v) {
     if (!v) return '—';
     const d = new Date(v);
-    if (Number.isNaN(d.getTime())) return String(v);
+    if (Number.isNaN(d.getTime())) return esc(v);
     const p = (n) => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
@@ -32,31 +28,10 @@ function fmtSize(n) {
     if (v < 1024 * 1024) return `${(v / 1024).toFixed(1)} KB`;
     return `${(v / 1024 / 1024).toFixed(2)} MB`;
 }
-/** JSON 语法着色（在原始文本上分词后再逐段转义，避免二次转义破坏引号）。 */
-function highlightJson(raw) {
-    const re = /("(?:\\.|[^"\\])*")(\s*:)?|\b(true|false|null)\b|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g;
-    let out = '';
-    let last = 0;
-    let m;
-    while ((m = re.exec(raw))) {
-        out += esc(raw.slice(last, m.index));
-        if (m[1]) {
-            out += m[2]
-                ? `<span style="color:#7dd3fc">${esc(m[1])}</span>${esc(m[2])}`
-                : `<span style="color:#86efac">${esc(m[1])}</span>`;
-        } else if (m[3]) {
-            out += `<span style="color:#f0abfc">${esc(m[3])}</span>`;
-        } else if (m[4]) {
-            out += `<span style="color:#fcd34d">${esc(m[4])}</span>`;
-        }
-        last = re.lastIndex;
-    }
-    out += esc(raw.slice(last));
-    return out;
-}
 
 const PANEL_HTML = `
 <div class="space-y-4">
+  <!-- 概览卡片 -->
   <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
     <div class="border border-gray-200 rounded-lg p-3">
       <div class="text-xs text-gray-500">归档报文</div>
@@ -81,6 +56,7 @@ const PANEL_HTML = `
   </div>
 
   <div class="flex flex-col lg:flex-row gap-4">
+    <!-- 左：按学校分类 -->
     <aside class="flex-shrink-0 w-full" style="max-width:16rem">
       <div class="border border-gray-200 rounded-lg overflow-hidden">
         <div class="px-3 py-2 bg-gray-50 text-xs font-medium text-gray-600 flex items-center justify-between">
@@ -94,6 +70,7 @@ const PANEL_HTML = `
       </p>
     </aside>
 
+    <!-- 右：筛选 + 列表 -->
     <div class="flex-1 min-w-0">
       <div class="flex flex-wrap items-center gap-2 mb-3">
         <div class="inline-flex rounded-lg border border-gray-200 overflow-hidden" id="pdPlTabs">
@@ -137,7 +114,6 @@ const PANEL_HTML = `
   </div>
 </div>`;
 
-/* ─────────── 列表 ─────────── */
 function renderSchools(stats) {
     const host = document.getElementById('pdPlSchools');
     const cnt = document.getElementById('pdPlSchoolCount');
@@ -196,6 +172,7 @@ async function loadList() {
         if (!res.ok || !json.success) throw new Error(json.error || `HTTP ${res.status}`);
 
         let items = json.data?.items || [];
+        // 前端做「学校 / 状态」二次过滤（保持一次请求拿到全量统计）
         if (state.school) items = items.filter((x) => String(x.school_code || '') === String(state.school));
         if (state.status === '200') items = items.filter((x) => Number(x.status) === 200);
         if (state.status === 'fail') items = items.filter((x) => Number(x.status) >= 400);
@@ -210,24 +187,24 @@ async function loadList() {
             rows.innerHTML = '<tr><td colspan="7" class="px-3 py-8 text-center text-gray-400">该条件下没有归档报文</td></tr>';
             return;
         }
-        rows.innerHTML = items.map((x, i) => {
+        rows.innerHTML = items.map((x) => {
             const ok = Number(x.status) === 200;
             const badge = ok
-                ? '<span class="px-1.5 py-0.5 rounded bg-green-100 text-green-700 text-xs">成功 200</span>'
+                ? `<span class="px-1.5 py-0.5 rounded bg-green-100 text-green-700 text-xs">成功 200</span>`
                 : `<span class="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-xs">${esc(x.status)} ${esc(x.code || '')}</span>`;
             const schoolCell = x.school_name
                 ? `<div class="text-gray-800">${esc(x.school_name)}</div><div class="text-xs text-gray-400 font-mono">${esc(x.school_code)}</div>`
-                : '<span class="text-gray-400 text-xs">未识别（历史文件）</span>';
-            return `<tr class="border-t border-gray-100 ${ok ? 'hover:bg-gray-50' : 'bg-red-50 hover:bg-red-100'}">
-                <td class="px-3 py-2 whitespace-nowrap" title="${esc(fmtTime(x.at))}">${fmtTime(x.at)}</td>
+                : `<span class="text-gray-400 text-xs">未识别（历史文件）</span>`;
+            return `<tr class="border-t border-gray-100 hover:bg-gray-50">
+                <td class="px-3 py-2 whitespace-nowrap">${fmtTime(x.at)}</td>
                 <td class="px-3 py-2">${schoolCell}</td>
                 <td class="px-3 py-2 font-mono text-xs">${esc(x.device_no || '—')}</td>
                 <td class="px-3 py-2 font-mono text-xs">${esc(x.chip_number || '—')}</td>
                 <td class="px-3 py-2">${badge}</td>
                 <td class="px-3 py-2 text-right whitespace-nowrap">${fmtSize(x.bytes)}<span class="text-gray-400 text-xs"> / ${fmtSize(x.gz_bytes)}</span></td>
                 <td class="px-3 py-2 text-right whitespace-nowrap">
-                    <button type="button" class="px-2 py-1 text-xs bg-blue-50 text-blue-700 rounded hover:bg-blue-100" data-pl-idx="${i}"><i class="fas fa-eye mr-1"></i>查看</button>
-                    <button type="button" class="px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded hover:bg-gray-200 ml-1" data-pl-copy="${esc(x.path)}" title="复制服务器路径"><i class="fas fa-copy"></i></button>
+                    <button type="button" class="text-blue-600 hover:underline text-xs" data-pl-view="${esc(x.path)}">查看</button>
+                    <button type="button" class="text-gray-600 hover:underline text-xs ml-2" data-pl-copy="${esc(x.path)}">复制路径</button>
                 </td>
             </tr>`;
         }).join('');
@@ -236,7 +213,7 @@ async function loadList() {
     }
 }
 
-/* ─────────── 查看器 ─────────── */
+/* ─────────── 查看器（2026-11-04 重做：结构化 + 点位荧光 + 可搜索 JSON）─────────── */
 const BASIC_FIELDS = [
     ['DeviceNo', '设备编号'],
     ['DetectionDateTime', '检测开始时间'],
@@ -250,6 +227,29 @@ const BASIC_FIELDS = [
     ['FileName', '原始文件名'],
 ];
 
+/** JSON 语法着色（在原始文本上分词后再逐段转义，避免二次转义破坏引号）。 */
+function highlightJson(raw) {
+    const re = /("(?:\\.|[^"\\])*")(\s*:)?|\b(true|false|null)\b|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g;
+    let out = '';
+    let last = 0;
+    let m;
+    while ((m = re.exec(raw))) {
+        out += esc(raw.slice(last, m.index));
+        if (m[1]) {
+            out += m[2]
+                ? `<span style="color:#7dd3fc">${esc(m[1])}</span>${esc(m[2])}`
+                : `<span style="color:#86efac">${esc(m[1])}</span>`;
+        } else if (m[3]) {
+            out += `<span style="color:#f0abfc">${esc(m[3])}</span>`;
+        } else if (m[4]) {
+            out += `<span style="color:#fcd34d">${esc(m[4])}</span>`;
+        }
+        last = re.lastIndex;
+    }
+    out += esc(raw.slice(last));
+    return out;
+}
+
 function ensureModal() {
     let modal = document.getElementById('pdPlModal');
     if (modal) return modal;
@@ -258,7 +258,7 @@ function ensureModal() {
     modal.className = 'hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4';
     modal.innerHTML = `
       <div class="bg-white rounded-lg shadow-2xl w-full max-w-6xl flex flex-col" style="max-height:92vh">
-        <div class="px-5 py-3 border-b flex items-start justify-between gap-3">
+        <div class="px-5 py-4 border-b flex items-start justify-between gap-3">
           <div class="min-w-0">
             <h3 class="font-bold text-gray-800 flex items-center gap-2">
               <i class="fas fa-file-code text-blue-600"></i>原始上报报文
@@ -275,7 +275,6 @@ function ensureModal() {
           <button type="button" data-pl-tab="basic" class="px-3 py-2 text-sm border-b-2">基本信息</button>
           <button type="button" data-pl-tab="points" class="px-3 py-2 text-sm border-b-2">点位与荧光</button>
           <button type="button" data-pl-tab="raw" class="px-3 py-2 text-sm border-b-2">原始 JSON</button>
-          <span class="ml-auto text-xs text-gray-400" id="pdPlTabHint"></span>
         </div>
 
         <div id="pdPlPaneBasic" class="p-5 overflow-auto flex-1 min-h-0"></div>
@@ -287,8 +286,8 @@ function ensureModal() {
             <label class="inline-flex items-center gap-1 text-xs text-gray-600"><input id="pdPlJsonWrap" type="checkbox" class="rounded border-gray-300" checked> 自动换行</label>
             <span class="text-xs text-gray-400" id="pdPlJsonStat"></span>
             <span class="ml-auto flex items-center gap-2">
-              <button type="button" data-pl-copyjson class="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200"><i class="fas fa-copy mr-1"></i>复制</button>
-              <button type="button" data-pl-download class="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"><i class="fas fa-download mr-1"></i>下载 JSON</button>
+              <button type="button" data-pl-copyjson class="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200"><i class="fas fa-copy mr-1"></i>复制</button>
+              <button type="button" data-pl-download class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"><i class="fas fa-download mr-1"></i>下载 JSON</button>
             </span>
           </div>
           <div class="flex-1 min-h-0 overflow-auto bg-gray-900 p-3">
@@ -302,7 +301,6 @@ function ensureModal() {
         if (e.target === modal || e.target.closest('[data-pl-close]')) return closeModal();
         const tab = e.target.closest('[data-pl-tab]');
         if (tab) return switchTab(tab.getAttribute('data-pl-tab'));
-        // 荧光数组展开（弹层挂在 body 上，事件不会冒泡到面板容器）
         const fl = e.target.closest('[data-pl-fl]');
         if (fl) {
             const box = document.getElementById(`pdPlFl${fl.getAttribute('data-pl-fl')}`);
@@ -364,7 +362,7 @@ function renderMeta(row, payload) {
         ['文件路径', row?.path || '—'],
     ];
     host.innerHTML = cols.map(([k, v], i) => `
-        <div class="${i === cols.length - 1 ? 'lg:col-span-2 col-span-2' : ''}">
+        <div class="${i === cols.length - 1 ? 'col-span-2' : ''}">
           <span class="text-gray-400">${esc(k)}：</span>
           <span class="${k === '文件路径' ? 'font-mono break-all' : 'text-gray-800'}">${esc(v)}</span>
         </div>`).join('');
@@ -384,18 +382,19 @@ function renderBasic(payload) {
             <td class="px-3 py-2 text-gray-400 text-xs whitespace-nowrap w-40">${esc(key)}</td>
         </tr>`;
     }).join('');
+    const fluoCount = payload?.OptimizationDataLists && typeof payload.OptimizationDataLists === 'object'
+        ? Object.keys(payload.OptimizationDataLists).length : 0;
     host.innerHTML = `
       <div class="flex flex-wrap items-center gap-2 mb-3">
         <span class="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-700">点位数 ${Object.keys(parms).length}</span>
         <span class="px-2 py-0.5 rounded-full text-xs ${positives.length ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}">阳性点位 ${positives.length}</span>
         ${positives.length ? `<span class="text-xs text-red-600">${esc(positives.join('、'))}</span>` : ''}
-        ${payload?.OptimizationDataLists && typeof payload.OptimizationDataLists === 'object'
-            ? `<span class="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-700">荧光通道 ${Object.keys(payload.OptimizationDataLists).length}</span>` : ''}
+        <span class="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-700">荧光通道 ${fluoCount}</span>
       </div>
       <table class="w-full text-sm border border-gray-200 rounded">
         <tbody>${rows}</tbody>
       </table>
-      <p class="text-xs text-gray-400 mt-2">字段名（右列）与设备上报协议一致，便于对照厂商文档核对。</p>`;
+      <p class="text-xs text-gray-400 mt-2">右列是报文字段名，可与厂商文档逐项对照。</p>`;
 }
 
 function sparkline(arr) {
@@ -440,7 +439,7 @@ function renderPoints(payload) {
             </td>
         </tr>
         <tr id="pdPlFl${i}" class="hidden"><td colspan="6" class="px-3 pb-3">
-            <pre class="bg-gray-50 border border-gray-200 rounded p-2 text-[11px] overflow-auto max-h-48">${esc(JSON.stringify(arr))}</pre>
+            <pre class="bg-gray-50 border border-gray-200 rounded p-2 text-xs overflow-auto max-h-48">${esc(JSON.stringify(arr))}</pre>
         </td></tr>`;
     }).join('');
     host.innerHTML = `
@@ -472,20 +471,17 @@ function renderRaw() {
 
     if (!kw) {
         pre.innerHTML = highlightJson(raw);
-        if (stat) stat.textContent = `${raw.split('\n').length} 行 / ${fmtSize(new Blob([raw]).size)}`;
+        if (stat) stat.textContent = `${raw.split('\n').length} 行 / ${raw.length} 字符`;
         return;
     }
     const lines = raw.split('\n');
-    const hits = lines
-        .map((line, i) => ({ line, i }))
-        .filter((x) => x.line.toLowerCase().includes(kw));
+    const hits = lines.map((line, i) => ({ line, i })).filter((x) => x.line.toLowerCase().includes(kw));
     if (stat) stat.textContent = `匹配 ${hits.length} 行`;
     if (!hits.length) {
         pre.innerHTML = `<span style="color:#9ca3af">没有匹配「${esc(kw)}」的内容</span>`;
         return;
     }
     if (!onlyMatch) {
-        // 整篇着色 + 在命中行前加标记（不破坏 JSON 结构）
         pre.innerHTML = highlightJson(raw);
         return;
     }
@@ -512,15 +508,15 @@ function openViewer(row, payload) {
     modal.classList.remove('hidden');
 }
 
-async function viewPayload(row) {
-    if (!row) return;
+async function viewPayload(path) {
     try {
-        const res = await fetch(api(`/api/admin/pathogen-devices/payloads/content?path=${encodeURIComponent(row.path)}`), { headers: ctx.authHeaders() });
+        const res = await fetch(api(`/api/admin/pathogen-devices/payloads/content?path=${encodeURIComponent(path)}`), { headers: ctx.authHeaders() });
         const text = await res.text();
         let json = null;
         try { json = JSON.parse(text); } catch { /* 同上 */ }
         if (!json) throw new Error('接口返回非 JSON');
         if (!res.ok || !json.success) throw new Error(json.error || `HTTP ${res.status}`);
+        const row = (state.items || []).find((x) => x.path === path) || null;
         openViewer(row, json.data.payload);
     } catch (e) {
         ctx.notify(`读取报文失败：${e.message}`, 'error');
@@ -552,7 +548,7 @@ async function copyJson() {
     }
 }
 
-/* ─────────── 面板切换 ─────────── */
+
 function setSubview(name) {
     const devices = document.getElementById('pdSubDevices');
     const payloads = document.getElementById('pdSubPayloads');
@@ -588,18 +584,12 @@ export function initPathogenPayloadView(options) {
         host.appendChild(payloads);
 
         payloads.addEventListener('click', (e) => {
-            const view = e.target.closest('[data-pl-idx]');
-            if (view) return void viewPayload(state.items[Number(view.getAttribute('data-pl-idx'))]);
+            const view = e.target.closest('[data-pl-view]');
+            if (view) return void viewPayload(view.getAttribute('data-pl-view'));
             const copy = e.target.closest('[data-pl-copy]');
             if (copy) {
                 navigator.clipboard?.writeText(copy.getAttribute('data-pl-copy'));
                 return void ctx.notify('路径已复制', 'success');
-            }
-            const fl = e.target.closest('[data-pl-fl]');
-            if (fl) {
-                const box = document.getElementById(`pdPlFl${fl.getAttribute('data-pl-fl')}`);
-                if (box) box.classList.toggle('hidden');
-                return;
             }
             const school = e.target.closest('[data-school]');
             if (school) {
@@ -638,6 +628,7 @@ export function initPathogenPayloadView(options) {
         });
     }
 
+    // 一级菜单切入本视图后，把侧边栏二级项高亮与当前面板对齐
     const parentItem = document.querySelector('.admin-sidebar__item[data-view="pathogendevices"]');
     if (parentItem) {
         parentItem.addEventListener('click', () => {
@@ -648,6 +639,7 @@ export function initPathogenPayloadView(options) {
         });
     }
 
+    // 二级菜单点击：切面板（若一级未激活，先走正常视图切换）
     document.querySelectorAll('[data-subnav="pathogendevices"] .admin-sidebar__subitem[data-subview]').forEach((sub) => {
         sub.addEventListener('click', () => {
             const parent = document.querySelector('.admin-sidebar__item[data-view="pathogendevices"]');
@@ -656,6 +648,3 @@ export function initPathogenPayloadView(options) {
         });
     });
 }
-
-/** 测试用：暴露纯函数（着色/渲染），不参与运行时导出。 */
-export const __test__ = { highlightJson, sparkline };

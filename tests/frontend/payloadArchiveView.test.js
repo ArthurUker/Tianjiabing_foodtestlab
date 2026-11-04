@@ -80,15 +80,15 @@ describe('原始上报报文 · 列表', () => {
         const html = document.getElementById('pdPlRows').innerHTML;
         expect(html).toContain('成功 200');
         expect(html).toContain('422 CANTEEN_UNRESOLVED');
-        expect(html).toContain('bg-red-50');           // 失败行整行淡红
-        expect(html).toContain('data-pl-idx="1"');
+        expect(html).toContain('data-pl-view=');        // 保持既有「链接式」操作列
+        expect(html).toContain('复制路径');
     });
 });
 
 describe('原始上报报文 · 查看器', () => {
     test('三页签：基本信息 / 点位与荧光 / 原始 JSON，且 JSON 有语法着色', async () => {
         await mount();
-        document.querySelector('[data-pl-idx="0"]').click();
+        document.querySelector('[data-pl-view]').click();
         await flush();
 
         const modal = document.getElementById('pdPlModal');
@@ -144,7 +144,7 @@ describe('原始上报报文 · 查看器', () => {
 
     test('点击遮罩 / Esc 均可关闭', async () => {
         await mount();
-        document.querySelector('[data-pl-idx="1"]').click();
+        document.querySelectorAll('[data-pl-view]')[1].click();
         await flush();
         const modal = document.getElementById('pdPlModal');
         expect(modal.classList.contains('hidden')).toBe(false);
@@ -154,7 +154,7 @@ describe('原始上报报文 · 查看器', () => {
         expect(modal.classList.contains('hidden')).toBe(true);
 
         // 再打开 → 点关闭按钮
-        document.querySelector('[data-pl-idx="1"]').click();
+        document.querySelectorAll('[data-pl-view]')[1].click();
         await flush();
         expect(modal.classList.contains('hidden')).toBe(false);
         modal.querySelector('[data-pl-close]').click();
