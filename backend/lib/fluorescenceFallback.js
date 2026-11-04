@@ -161,7 +161,7 @@ const INTERNAL_CONTROL_RE = /内标|内参|内控|internal\s*control|(^|[^a-z])i
  * @param {Record<string, number[]>} args.optimizationDataLists 通道 → 荧光序列
  * @param {Record<string, string>} args.parms 通道 → 靶标名
  * @param {string} [args.algorithm]
- * @returns {{channels: Array, positives: Array, internalControl: object|null, internalControlFailed: boolean, hasAmplification: boolean}}
+ * @returns {{channels: Array, positives: Array, internalControl: object|null, hasAmplification: boolean}}
  */
 export function analyzeFluorescence({ optimizationDataLists = {}, parms = {}, algorithm = 'threshold-v1' } = {}) {
   const channels = []
@@ -185,8 +185,10 @@ export function analyzeFluorescence({ optimizationDataLists = {}, parms = {}, al
     channels,
     positives,
     internalControl: ic,
-    // 内参未扩增 = 本次检测质控失败（说明书：内参基因作为提取/加样质控）
-    internalControlFailed: ic ? !ic.positive : false,
+    // 内参信息仅作展示（2026-11-04 按现场口径修正）：
+    //   本系统检测的多为**环境样本**（洗碗机水样、台面涂抹等），不要求内参必须扩增，
+    //   内参未检出**不构成"质控失败"、不建议复测**；此处只如实返回内参通道的判读结果。
+    // 注：设备对"未产出 Cq"的孔位统一输出 "-"，本身不区分"未检出"与"数据无效"。
     hasAmplification: positives.length > 0 || channels.some((c) => c.positive),
     algorithm,
     params: FALLBACK_PARAMS,

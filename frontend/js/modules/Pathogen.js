@@ -1597,8 +1597,6 @@ function showDetailModal(recordId) {
       chip_duplicate: { box: 'bg-red-50 border-red-300', text: 'text-red-800', icon: 'fa-exclamation-triangle text-red-600', label: '芯片编号重复待复核' },
       // 2026-11-04：设备未上传 Ct 时由荧光曲线兜底推算（口径见 lib/fluorescenceFallback.js）
       ct_fallback_computed: { box: 'bg-amber-50 border-amber-300', text: 'text-amber-800', icon: 'fa-calculator text-amber-600', label: 'Ct 由荧光曲线推算（待复核）' },
-      // 内参未扩增 = 提取/加样质控失败，本次结果不可作为阴性使用
-      internal_control_failed: { box: 'bg-orange-50 border-amber-300', text: 'text-orange-800', icon: 'fa-exclamation-circle text-orange-600', label: '内参未检出（质控失败）' },
     }
     const reviewFlags = Array.isArray(record.reviewFlags) ? record.reviewFlags : []
     const reviewBanner = reviewFlags.length ? `

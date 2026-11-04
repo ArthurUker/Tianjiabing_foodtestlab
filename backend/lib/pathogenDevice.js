@@ -381,7 +381,6 @@ export function buildPathogenRecordPayload({ payload, deviceNo, canteens, defaul
     fallbackAnalysis = {
       algorithm: analysis.algorithm,
       computedAt: new Date().toISOString(),
-      internalControlFailed: analysis.internalControlFailed,
       internalControl: analysis.internalControl
         ? { target: analysis.internalControl.target, ct: analysis.internalControl.ct, positive: analysis.internalControl.positive, deltaF: Number((analysis.internalControl.deltaF || 0).toFixed(1)) }
         : null,
@@ -410,17 +409,6 @@ export function buildPathogenRecordPayload({ payload, deviceNo, canteens, defaul
         positives: pos.map((c) => ({ target: c.target, channel: c.channel, ct: Number((c.ct || 0).toFixed(2)) })),
         title: `设备未上传 Ct，已按荧光曲线推算（${pos.length} 个通道检出扩增）`,
         hint: `本次上报报文 CTList 全为 "-"，系统按荧光曲线用 threshold-v1 兜底推算：${pos.map((c) => `${c.target} Ct≈${(c.ct || 0).toFixed(1)}`).join('，')}。这些 Ct 为**系统推算值**（ctSource=fallback），请与设备软件报告核对后确认；若设备报告无对应结果，请厂商排查为何上传报文未带 Ct。`,
-      })
-    }
-    if (analysis.internalControlFailed) {
-      reviewFlags.push({
-        type: 'internal_control_failed',
-        at: new Date().toISOString(),
-        device_no: deviceNo,
-        chip_number: payload.chipNumber,
-        internal_control: { target: analysis.internalControl?.target || null, deltaF: Number((analysis.internalControl?.deltaF || 0).toFixed(1)) },
-        title: '内参未检出 → 本次检测质控失败，建议复测',
-        hint: `内参通道曲线未出现过阈扩增（阈值 = 基线 + 10σ），按说明书内参是提取/加样质控：本次结果**不可作为阴性结论使用**，建议复测。${pos.length ? `另：兜底算法在 ${pos.length} 个靶标通道检出扩增（${pos.map((c) => c.target).join('、')}），需与设备软件报告逐项核对。` : ''}`,
       })
     }
   }

@@ -69,7 +69,7 @@ test('Hampel 去毛刺不破坏整段 S 上升（2026-11-04 回归：全局中�
   assert.ok(Math.abs(fixed[10] - spiked[10]) > 1, '孤立尖刺应被替换')
 })
 
-test('整芯片判读：内参未扩增 → 标记质控失败；靶标扩增 → 计入阳性', () => {
+test('整芯片判读：内参未扩增不再判「质控失败」（环境样本不要求内参）；靶标扩增仍计入阳性', () => {
   const r = analyzeFluorescence({
     optimizationDataLists: {
       'FAM-1': curve({}),                        // 内参：平线（未扩增）
@@ -80,7 +80,8 @@ test('整芯片判读：内参未扩增 → 标记质控失败；靶标扩增 �
     parms: { 'FAM-1': '内参', 'CY5-6': '大肠埃希氏菌', 'FAM-3': '札如', 'FAM-7': '-' },
   })
   assert.equal(r.channels.length, 3, '未使用通道（靶标 "-"）应被跳过')
-  assert.equal(r.internalControlFailed, true, '内参未扩增应标记质控失败')
+  // 2026-11-04 口径：环境样本不要求内参扩增 → 不得据此判质控失败（字段已移除）
+  assert.equal(r.internalControlFailed, undefined, '不应再输出质控失败判定')
   assert.equal(r.positives.length, 1)
   assert.equal(r.positives[0].target, '大肠埃希氏菌')
   assert.ok(r.positives[0].ct != null)
@@ -94,7 +95,7 @@ test('整芯片判读：内参正常 + 靶标扩增 → 质控通过', () => {
     },
     parms: { 'FAM-1': '内参', 'FAM-2': '轮状' },
   })
-  assert.equal(r.internalControlFailed, false)
+  assert.ok(r.internalControl && r.internalControl.positive, '内参扩增应如实返回判读结果')
   assert.equal(r.positives.length, 1)
   assert.equal(r.positives[0].target, '轮状')
 })
@@ -123,7 +124,7 @@ function buildRaw({ chip = 'CHIP-FB-001', ctAllEmpty = true } = {}) {
     ChipNumber: chip,
     Parms: { 'FAM-1': '内参', 'FAM-2': '轮状', 'CY5-6': '大肠埃希氏菌', 'ROX-8': '-' },
     OptimizationDataLists: {
-      'FAM-1': curve({}),                        // 内参：平线 → 质控失败
+      'FAM-1': curve({}),                        // 内参：平线（环境样本允许，不判失败）
       'FAM-2': curve({}),                        // 阴性
       'CY5-6': curve({ riseStart: 30, factor: 1.5 }), // 有扩增
       'ROX-8': curve({}),                        // 未使用通道
@@ -150,7 +151,7 @@ test('集成：CT 全空 + 曲线有扩增 → 兜底算出 Ct 并判阳，打�
   // 两条复核标记
   const types = d.reviewFlags.map((f) => f.type)
   assert.ok(types.includes('ct_fallback_computed'), '应标记"设备未上传 Ct，已兜底推算"')
-  assert.ok(types.includes('internal_control_failed'), '内参未扩增应标记质控失败')
+  assert.equal(types.includes('internal_control_failed'), false, '内参未扩增不得再产生质控失败标记')
   const fbFlag = d.reviewFlags.find((f) => f.type === 'ct_fallback_computed')
   assert.match(fbFlag.hint, /系统推算值/)
   assert.ok(d.fallbackAnalysis && d.fallbackAnalysis.algorithm === 'threshold-v1')
