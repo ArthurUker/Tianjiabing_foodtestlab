@@ -74,8 +74,9 @@ describe('原始上报报文 · 列表', () => {
         expect(document.getElementById('pdPlStatTotal').textContent).toBe('2');
         expect(document.getElementById('pdPlStatOk').textContent).toBe('1');
         expect(document.getElementById('pdPlStatFail').textContent).toBe('1');
-        expect(document.getElementById('pdPlSchools').innerHTML).toContain('珠海市田家炳中学');
-        expect(document.getElementById('pdPlSchools').innerHTML).toContain('其中失败 1');
+        const opts = Array.from(document.getElementById('pdPlSchool').options).map((o) => o.textContent).join(' | ');
+        expect(opts).toContain('珠海市田家炳中学');
+        expect(opts).toContain('失败 1');
 
         const html = document.getElementById('pdPlRows').innerHTML;
         expect(html).toContain('成功 200');

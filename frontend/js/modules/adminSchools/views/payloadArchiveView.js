@@ -30,109 +30,85 @@ function fmtSize(n) {
 }
 
 const PANEL_HTML = `
-<div class="space-y-4">
-  <!-- 概览卡片 -->
+<div class="space-y-3">
   <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-    <div class="border border-gray-200 rounded-lg p-3">
+    <div class="bg-white border border-gray-200 rounded-lg p-3">
       <div class="text-xs text-gray-500">归档报文</div>
       <div class="text-2xl font-bold text-gray-800" id="pdPlStatTotal">—</div>
       <div class="text-xs text-gray-400">最近 <span id="pdPlStatDays">7</span> 天</div>
     </div>
-    <div class="border border-green-200 bg-green-50 rounded-lg p-3">
+    <div class="bg-white border border-gray-200 rounded-lg p-3">
       <div class="text-xs text-green-700">上传成功</div>
       <div class="text-2xl font-bold text-green-700" id="pdPlStatOk">—</div>
-      <div class="text-xs text-green-600">HTTP 200（含复测并入）</div>
+      <div class="text-xs text-gray-400">HTTP 200（含复测并入）</div>
     </div>
-    <div class="border border-red-200 bg-red-50 rounded-lg p-3">
+    <div class="bg-white border border-gray-200 rounded-lg p-3">
       <div class="text-xs text-red-700">被拒 / 失败</div>
       <div class="text-2xl font-bold text-red-700" id="pdPlStatFail">—</div>
-      <div class="text-xs text-red-600">用于排查"设备说传了"</div>
+      <div class="text-xs text-gray-400">用于排查"设备说传了"</div>
     </div>
-    <div class="border border-gray-200 rounded-lg p-3">
+    <div class="bg-white border border-gray-200 rounded-lg p-3">
       <div class="text-xs text-gray-500">占用空间</div>
       <div class="text-2xl font-bold text-gray-800" id="pdPlStatSize">—</div>
       <div class="text-xs text-gray-400">压缩后 <span id="pdPlStatGz">—</span></div>
     </div>
   </div>
 
-  <div class="flex flex-col lg:flex-row gap-4">
-    <!-- 左：按学校分类 -->
-    <aside class="flex-shrink-0 w-full" style="max-width:16rem">
-      <div class="border border-gray-200 rounded-lg overflow-hidden">
-        <div class="px-3 py-2 bg-gray-50 text-xs font-medium text-gray-600 flex items-center justify-between">
-          <span><i class="fas fa-school mr-1"></i>按学校分类</span>
-          <span class="text-gray-400" id="pdPlSchoolCount"></span>
-        </div>
-        <div id="pdPlSchools" class="overflow-auto divide-y divide-gray-100" style="max-height:420px"></div>
-      </div>
-      <p class="text-xs text-gray-400 mt-2 leading-relaxed">
-        索引上线前的历史文件没有学校信息，会归到「未识别」。
-      </p>
-    </aside>
-
-    <!-- 右：筛选 + 列表 -->
-    <div class="flex-1 min-w-0">
-      <div class="flex flex-wrap items-center gap-2 mb-3">
-        <div class="inline-flex rounded-lg border border-gray-200 overflow-hidden" id="pdPlTabs">
-          <button type="button" data-st="" class="px-3 py-1.5 text-sm bg-blue-600 text-white">全部</button>
-          <button type="button" data-st="200" class="px-3 py-1.5 text-sm bg-white text-gray-600 border-l border-gray-200">成功</button>
-          <button type="button" data-st="fail" class="px-3 py-1.5 text-sm bg-white text-gray-600 border-l border-gray-200">失败</button>
-        </div>
-        <select id="pdPlDays" class="border border-gray-300 rounded px-2 py-1.5 text-sm">
-          <option value="1">最近 1 天</option>
-          <option value="7" selected>最近 7 天</option>
-          <option value="30">最近 30 天</option>
-          <option value="90">最近 90 天</option>
-        </select>
-        <input id="pdPlChip" type="text" placeholder="芯片编号（模糊）" class="border border-gray-300 rounded px-2 py-1.5 text-sm w-40" autocomplete="off">
-        <input id="pdPlDevice" type="text" placeholder="设备编号" class="border border-gray-300 rounded px-2 py-1.5 text-sm w-36" autocomplete="off">
-        <button id="pdPlSearch" type="button" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">查询</button>
-        <button id="pdPlReset" type="button" class="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200">重置</button>
-      </div>
-
-      <div class="overflow-x-auto border border-gray-200 rounded-lg">
-        <table class="w-full text-sm">
-          <thead class="bg-gray-50 text-gray-600">
-            <tr>
-              <th class="text-left px-3 py-2 font-medium">上报时间</th>
-              <th class="text-left px-3 py-2 font-medium">归属学校</th>
-              <th class="text-left px-3 py-2 font-medium">设备编号</th>
-              <th class="text-left px-3 py-2 font-medium">芯片编号</th>
-              <th class="text-left px-3 py-2 font-medium">结果</th>
-              <th class="text-right px-3 py-2 font-medium">大小</th>
-              <th class="text-right px-3 py-2 font-medium">操作</th>
-            </tr>
-          </thead>
-          <tbody id="pdPlRows"><tr><td colspan="7" class="px-3 py-8 text-center text-gray-400">加载中…</td></tr></tbody>
-        </table>
-      </div>
-      <p class="text-xs text-gray-400 mt-2">
-        每条上报（含被拒）都会把原始 JSON 压缩存档，库内只存路径；文件保留期由
-        <code class="bg-gray-100 px-1 rounded">DEVICE_PAYLOAD_RETENTION_DAYS</code>（默认 90 天）控制。
-      </p>
+  <div class="bg-white rounded-lg border border-gray-200 px-3 py-2.5 flex flex-wrap items-center gap-2">
+    <label for="pdPlSchool" class="text-sm text-gray-600">学校</label>
+    <select id="pdPlSchool" class="border border-gray-300 rounded px-3 py-1.5 text-sm" style="min-width:200px"></select>
+    <div class="inline-flex rounded-lg border border-gray-200 overflow-hidden" id="pdPlTabs">
+      <button type="button" data-st="" class="px-3 py-1.5 text-sm bg-blue-600 text-white">全部</button>
+      <button type="button" data-st="200" class="px-3 py-1.5 text-sm bg-white text-gray-600 border-l border-gray-200">成功</button>
+      <button type="button" data-st="fail" class="px-3 py-1.5 text-sm bg-white text-gray-600 border-l border-gray-200">失败</button>
     </div>
+    <select id="pdPlDays" class="border border-gray-300 rounded px-2 py-1.5 text-sm">
+      <option value="1">最近 1 天</option>
+      <option value="7" selected>最近 7 天</option>
+      <option value="30">最近 30 天</option>
+      <option value="90">最近 90 天</option>
+    </select>
+    <input id="pdPlChip" type="text" placeholder="芯片编号（模糊）" class="border border-gray-300 rounded px-3 py-1.5 text-sm w-44" autocomplete="off">
+    <input id="pdPlDevice" type="text" placeholder="设备编号" class="border border-gray-300 rounded px-3 py-1.5 text-sm w-40" autocomplete="off">
+    <button id="pdPlSearch" type="button" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">查询</button>
+    <button id="pdPlReset" type="button" class="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200">重置</button>
+    <span id="pdPlCount" class="ml-auto text-xs text-gray-500"></span>
   </div>
+
+  <div class="bg-white rounded-lg border border-gray-200 overflow-x-auto">
+    <table class="w-full text-sm" style="min-width:1120px">
+      <thead class="bg-gray-50 text-gray-600">
+        <tr>
+          <th class="px-4 py-3 text-left font-medium whitespace-nowrap">上报时间</th>
+          <th class="px-4 py-3 text-left font-medium whitespace-nowrap">归属学校</th>
+          <th class="px-4 py-3 text-left font-medium whitespace-nowrap">设备编号</th>
+          <th class="px-4 py-3 text-left font-medium whitespace-nowrap">芯片编号</th>
+          <th class="px-4 py-3 text-left font-medium whitespace-nowrap">结果</th>
+          <th class="px-4 py-3 text-right font-medium whitespace-nowrap">大小（原始 / 压缩）</th>
+          <th class="px-4 py-3 text-center font-medium whitespace-nowrap">操作</th>
+        </tr>
+      </thead>
+      <tbody id="pdPlRows"><tr><td colspan="7" class="px-4 py-8 text-center text-gray-400">加载中…</td></tr></tbody>
+    </table>
+  </div>
+  <p class="text-xs text-gray-400">
+    每条上报（含被拒）都会把原始 JSON 压缩存档，库内只存路径；文件保留期由
+    <code class="bg-gray-100 px-1 rounded">DEVICE_PAYLOAD_RETENTION_DAYS</code>（默认 90 天）控制。
+  </p>
 </div>`;
 
-function renderSchools(stats) {
-    const host = document.getElementById('pdPlSchools');
-    const cnt = document.getElementById('pdPlSchoolCount');
-    if (!host) return;
+function renderSchoolOptions(stats) {
+    const sel = document.getElementById('pdPlSchool');
+    if (!sel) return;
     const list = stats?.bySchool || [];
-    if (cnt) cnt.textContent = `${list.length} 个`;
-    const rows = [{ code: '', name: '全部学校', count: stats?.total || 0, failed: stats?.failed || 0 }]
-        .concat(list.map((s) => ({ code: s.code || '', name: s.name, count: s.count, failed: s.failed })));
-    host.innerHTML = rows.map((s) => {
-        const active = String(state.school || '') === String(s.code || '');
-        return `<button type="button" data-school="${esc(s.code)}"
-            class="w-full text-left px-3 py-2 hover:bg-blue-50 ${active ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'}">
-            <div class="flex items-center justify-between gap-2">
-              <span class="truncate">${esc(s.name)}</span>
-              <span class="text-xs ${active ? 'text-blue-600' : 'text-gray-400'}">${s.count}</span>
-            </div>
-            ${s.failed ? `<div class="text-xs text-red-500 mt-0.5">其中失败 ${s.failed}</div>` : ''}
-        </button>`;
-    }).join('');
+    const opts = [`<option value="">全部学校（${stats?.total || 0}${stats?.failed ? `，失败 ${stats.failed}` : ''}）</option>`]
+        .concat(list.map((x) => {
+            const name = x.code ? `${x.name}（${x.code}）` : x.name;
+            const tail = `${x.count}${x.failed ? `，失败 ${x.failed}` : ''}`;
+            return `<option value="${esc(x.code || '')}">${esc(name)} · ${tail}</option>`;
+        }));
+    sel.innerHTML = opts.join('');
+    sel.value = state.school || '';
 }
 
 function renderStats(stats) {
@@ -180,31 +156,34 @@ async function loadList() {
         state.data = json.data;
         state.items = items;
         renderStats(json.data?.stats);
-        renderSchools(json.data?.stats);
+        renderSchoolOptions(json.data?.stats);
         renderTabs();
 
         if (!items.length) {
             rows.innerHTML = '<tr><td colspan="7" class="px-3 py-8 text-center text-gray-400">该条件下没有归档报文</td></tr>';
             return;
         }
+        const countEl = document.getElementById('pdPlCount');
+        if (countEl) countEl.textContent = `显示 ${items.length} / 共 ${json.data?.items?.length ?? items.length} 条`;
+
         rows.innerHTML = items.map((x) => {
             const ok = Number(x.status) === 200;
             const badge = ok
-                ? `<span class="px-1.5 py-0.5 rounded bg-green-100 text-green-700 text-xs">成功 200</span>`
-                : `<span class="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-xs">${esc(x.status)} ${esc(x.code || '')}</span>`;
+                ? '<span class="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">成功 200</span>'
+                : `<span class="px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700">${esc(x.status)}${x.code ? ` ${esc(x.code)}` : ''}</span>`;
             const schoolCell = x.school_name
-                ? `<div class="text-gray-800">${esc(x.school_name)}</div><div class="text-xs text-gray-400 font-mono">${esc(x.school_code)}</div>`
-                : `<span class="text-gray-400 text-xs">未识别（历史文件）</span>`;
+                ? `<span class="text-gray-800">${esc(x.school_name)}</span> <span class="text-gray-400 text-xs">（${esc(x.school_code || '—')}）</span>`
+                : '<span class="text-gray-400">未识别（历史文件）</span>';
             return `<tr class="border-t border-gray-100 hover:bg-gray-50">
-                <td class="px-3 py-2 whitespace-nowrap">${fmtTime(x.at)}</td>
-                <td class="px-3 py-2">${schoolCell}</td>
-                <td class="px-3 py-2 font-mono text-xs">${esc(x.device_no || '—')}</td>
-                <td class="px-3 py-2 font-mono text-xs">${esc(x.chip_number || '—')}</td>
-                <td class="px-3 py-2">${badge}</td>
-                <td class="px-3 py-2 text-right whitespace-nowrap">${fmtSize(x.bytes)}<span class="text-gray-400 text-xs"> / ${fmtSize(x.gz_bytes)}</span></td>
-                <td class="px-3 py-2 text-right whitespace-nowrap">
-                    <button type="button" class="text-blue-600 hover:underline text-xs" data-pl-view="${esc(x.path)}">查看</button>
-                    <button type="button" class="text-gray-600 hover:underline text-xs ml-2" data-pl-copy="${esc(x.path)}">复制路径</button>
+                <td class="px-4 py-3 text-gray-700 whitespace-nowrap">${fmtTime(x.at)}</td>
+                <td class="px-4 py-3 whitespace-nowrap">${schoolCell}</td>
+                <td class="px-4 py-3 font-mono text-xs whitespace-nowrap">${esc(x.device_no || '—')}</td>
+                <td class="px-4 py-3 font-mono text-xs whitespace-nowrap">${esc(x.chip_number || '—')}</td>
+                <td class="px-4 py-3 whitespace-nowrap">${badge}</td>
+                <td class="px-4 py-3 text-right whitespace-nowrap">${fmtSize(x.bytes)} <span class="text-gray-400 text-xs">/ ${fmtSize(x.gz_bytes)}</span></td>
+                <td class="px-4 py-3 text-center whitespace-nowrap">
+                    <button type="button" class="px-2.5 py-1.5 text-xs bg-blue-50 text-blue-700 rounded hover:bg-blue-100" data-pl-view="${esc(x.path)}"><i class="fas fa-eye mr-1"></i>查看</button>
+                    <button type="button" class="px-2.5 py-1.5 text-xs bg-gray-100 text-gray-600 rounded hover:bg-gray-200 ml-1" data-pl-copy="${esc(x.path)}"><i class="fas fa-copy mr-1"></i>复制路径</button>
                 </td>
             </tr>`;
         }).join('');
@@ -591,12 +570,7 @@ export function initPathogenPayloadView(options) {
                 navigator.clipboard?.writeText(copy.getAttribute('data-pl-copy'));
                 return void ctx.notify('路径已复制', 'success');
             }
-            const school = e.target.closest('[data-school]');
-            if (school) {
-                state.school = school.getAttribute('data-school') || '';
-                loadList();
-                return;
-            }
+
             const tab = e.target.closest('#pdPlTabs button');
             if (tab) {
                 state.status = tab.getAttribute('data-st') || '';
@@ -608,6 +582,7 @@ export function initPathogenPayloadView(options) {
             if (e.target.closest('#pdPlReset')) {
                 Object.assign(state, { school: '', status: '', days: '7', chip: '', device: '' });
                 const d = document.getElementById('pdPlDays'); if (d) d.value = '7';
+                const sc = document.getElementById('pdPlSchool'); if (sc) sc.value = '';
                 const c = document.getElementById('pdPlChip'); if (c) c.value = '';
                 const dv = document.getElementById('pdPlDevice'); if (dv) dv.value = '';
                 return void loadList();
@@ -616,6 +591,10 @@ export function initPathogenPayloadView(options) {
         payloads.addEventListener('change', (e) => {
             if (e.target.id === 'pdPlDays') {
                 state.days = e.target.value;
+                loadList();
+            }
+            if (e.target.id === 'pdPlSchool') {
+                state.school = e.target.value;
                 loadList();
             }
         });
