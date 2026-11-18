@@ -8,6 +8,45 @@ import { extractSchoolCode } from '../utils/schoolCode.js';
 // BS-12: 敏感自定义字段（姓名/手机等）导出前脱敏
 import { maskSensitive, getSensitiveMarkedCustomFields } from '../utils/fieldMasking.js';
 
+function loadPdfScript(src, isReady) {
+    if (isReady()) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = src;
+        script.onload = () => {
+            if (isReady()) {
+                resolve();
+            } else {
+                script.remove();
+                reject(new Error('PDF 组件初始化失败，请重试'));
+            }
+        };
+        script.onerror = () => {
+            script.remove();
+            reject(new Error('PDF 组件加载失败，请检查网络后重试'));
+        };
+        document.head.append(script);
+    });
+}
+
+let pdfLibraries;
+function loadPdfLibraries() {
+    if (!pdfLibraries) {
+        pdfLibraries = Promise.allSettled([
+            loadPdfScript('/vendor/js/html2canvas.min.js', () => typeof window.html2canvas === 'function'),
+            loadPdfScript('/vendor/js/jspdf.umd.min.js', () => typeof window.jspdf?.jsPDF === 'function'),
+        ]).then(results => {
+            const failed = results.find(result => result.status === 'rejected');
+            if (failed) {
+                pdfLibraries = undefined;
+                throw failed.reason;
+            }
+            return { capture: window.html2canvas, jsPDF: window.jspdf.jsPDF };
+        });
+    }
+    return pdfLibraries;
+}
+
 export class ExportService {
     constructor() {
         console.log('🔧 ExportService 初始化');
@@ -1171,13 +1210,8 @@ export class ExportService {
     }
 
     async exportToPDF() {
-        if (typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined') {
-            UINotification.warning('⚠️ PDF库正在加载中，请稍后再试');
-            return;
-        }
-
         const preview = document.getElementById('reportPreview');
-        const content = preview.querySelector('#pdfContent');
+        const content = preview?.querySelector('#pdfContent');
         
         if (!content) {
             UINotification.warning('⚠️ 请先点击"预览报告"生成报告内容');
@@ -1197,7 +1231,7 @@ export class ExportService {
         document.body.appendChild(loadingDiv);
 
         try {
-            const { jsPDF } = window.jspdf;
+            const { capture, jsPDF } = await loadPdfLibraries();
             const pdf = new jsPDF('p', 'mm', 'a4');
             
             const pageWidth = 210;
@@ -1231,7 +1265,7 @@ export class ExportService {
                 
                 await new Promise(resolve => setTimeout(resolve, 50));
                 
-                const canvas = await html2canvas(tempContainer, {
+                const canvas = await capture(tempContainer, {
                     scale: 3,
                     useCORS: true,
                     allowTaint: true,
@@ -1335,11 +1369,6 @@ export class ExportService {
     }
 
     static async generatePDF(elementId, filename) {
-        if (typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined') {
-            alert('PDF库加载中，请稍后再试...');
-            return;
-        }
-
         const element = document.getElementById(elementId);
         if (!element) {
             alert('未找到要导出的内容');
@@ -1347,16 +1376,16 @@ export class ExportService {
         }
 
         try {
+            const { capture, jsPDF } = await loadPdfLibraries();
             // 液态玻璃兜底：捕获前强制白底
             element.classList.add('pdf-capture-mode');
-            const canvas = await html2canvas(element, {
+            const canvas = await capture(element, {
                 scale: 2,
                 useCORS: true,
                 logging: false,
                 backgroundColor: '#ffffff'
             });
 
-            const { jsPDF } = window.jspdf;
             const pdf = new jsPDF('p', 'mm', 'a4');
             
             const imgWidth = 210;
@@ -1369,7 +1398,7 @@ export class ExportService {
             alert('✅ PDF导出成功！');
         } catch (error) {
             console.error('PDF导出失败:', error);
-            alert('❌ PDF导出失败');
+            alert('❌ PDF导出失败：' + error.message);
         } finally {
             element.classList.remove('pdf-capture-mode');
         }
