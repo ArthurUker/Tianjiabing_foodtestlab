@@ -2,13 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
-import { PROJECTS, PIPELINE, compactResult, normalizeContext, photoType } from '../../lib/colloidalReader.js';
+import { PROJECTS, PIPELINE, CORE_PATCH, compactResult, normalizeContext, photoType } from '../../lib/colloidalReader.js';
 import { normalizeWriteJson } from '../../lib/recordNormalize.js';
 import { buildTenantProjection } from '../../lib/tenantProvisioner.js';
 import { newEntryId } from '../../../frontend/js/colloidal/contract.js';
 
 const project = PROJECTS.find(p => p.id === 'lead');
-const result = (c = 10, t = 20) => ({ status: 'ok', version: PIPELINE, channels: [{ id: 'lead', status: 'ok', c, t, c_present: true }] });
+const result = (c = 10, t = 20) => ({ status: 'ok', version: PIPELINE, channels: [{ id: 'lead', status: 'ok', c, t, c_present: true, t_present: t > 0 }] });
 for (const seconds of [300, 480]) test(`IFU inclusive boundary ${seconds}s and equality`, () => {
     const value = compactResult(result(10, 10), project, seconds);
     assert.equal(value.eligible, true); assert.equal(value.channels[0].final_result, 'negative');
@@ -39,7 +39,7 @@ test('server derives IFU result instead of accepting claimed negative', () => {
 });
 test('triplex verifies channel IDs/order and preserves all channels', () => {
     const p = PROJECTS.at(-1);
-    const input = { status: 'ok', version: PIPELINE, final_result: null, channels: p.channels.map((c, i) => ({ id: c.id, status: 'ok', c: 10, t: i === 2 ? 0 : 20, c_present: true })) };
+    const input = { status: 'ok', version: PIPELINE, final_result: null, channels: p.channels.map((c, i) => ({ id: c.id, status: 'ok', c: 10, t: i === 2 ? 0 : 20, c_present: true, t_present: i !== 2 })) };
     assert.deepEqual(compactResult(input, p, 360).channels.map(c => c.final_result), ['negative', 'negative', 'positive']);
     input.channels.reverse(); assert.throws(() => compactResult(input, p, 360), /通道/);
 });
@@ -80,10 +80,13 @@ test('context and original magic validation', () => {
     assert.deepEqual(photoType(Buffer.from('ffd8ff001122', 'hex')), { ext: 'jpg', mime: 'image/jpeg' });
     assert.throws(() => photoType(Buffer.from('<script>bad</script>')), /格式|照片/);
 });
-test('packaged core is exactly the selected commit with no benchmark code', () => {
+test('packaged core records the pinned base and verified local patches without benchmark code', () => {
     const bundle = JSON.parse(fs.readFileSync('frontend/vendor/colloidal/core.json'));
     assert.equal(bundle.commit, 'a0e9d274f5df2bc1ec85f4b6df04f4f81b4c98da');
     assert.equal(Object.keys(bundle.files).length, 8);
+    assert.equal(bundle.patch.id, CORE_PATCH);
+    assert.ok(bundle.patches.some(p => p.id === 'card1'));
+    assert.ok(bundle.files['lab/reader_config.py'].includes(`CORE_PATCH = "${CORE_PATCH}"`));
     for (const [name, source] of Object.entries(bundle.files)) {
         assert.equal(crypto.createHash('sha256').update(source).digest('hex'), bundle.hashes[name]);
         assert.ok(!/engines|store|reader_api|benchmark/.test(name));
@@ -104,4 +107,36 @@ test('HTTP-compatible UUID fallback remains a valid unpredictable v4 identity', 
         assert.equal(new Set(ids).size, 20);
         assert.ok(ids.every(id => /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id)));
     } finally { if (descriptor) Object.defineProperty(globalThis, 'crypto', descriptor); else delete globalThis.crypto; }
+});
+
+test('unobservable band retains measured C but cannot become a formal interpretation', () => {
+    const triplex = PROJECTS.find(p => p.id === 'lean_meat_triplex');
+    const channels = triplex.channels.map(c => ({ id: c.id, status: 'ok', c: 30, t: 20, c_present: true, t_present: true }));
+    channels[1] = { id: triplex.channels[1].id, status: 'quality_failed', c: 42, t: 2,
+        c_present: true, t_present: null, error: '弱色带无法确认' };
+    const result = compactResult({ status: 'partial', version: PIPELINE, channels }, triplex, 360);
+    assert.equal(result.eligible, false);
+    assert.equal(result.channels[1].c, 42);
+    assert.equal(result.channels[1].c_present, true);
+    assert.equal('t_present' in result.channels[1], false);
+    assert.equal(result.channels[1].final_result, null);
+    assert.equal(result.channels[1].decision_quality, 'unobservable');
+});
+
+test('visual geometry and full patch identity survive compact receipts', () => {
+    const value = compactResult({ ...result(), core_patch: CORE_PATCH, crop_variant: 'membrane_relative', preprocess: 'card_crop' }, project, 360);
+    assert.equal(value.core_patch, CORE_PATCH);
+    assert.equal(value.crop_variant, 'membrane_relative');
+});
+
+test('experimental learned geometry retains measurements without approving a result', () => {
+    const input = { status: 'partial', version: PIPELINE, preprocess: 'card_crop', crop_variant: 'learned_membrane',
+        channels: [{ id: 'lead', status: 'quality_failed', decision_quality: 'unvalidated_model',
+            c: 40, t: 30, c_present: true, t_present: true, error: '模型待验收' }] };
+    const value = compactResult(input, project, null, { assumeWithinTime: true });
+    assert.equal(value.eligible, false);
+    assert.equal(value.crop_variant, 'learned_membrane');
+    assert.equal(value.channels[0].c, 40);
+    assert.equal(value.channels[0].rule_status, 'model_unvalidated');
+    assert.equal(value.channels[0].final_result, null);
 });

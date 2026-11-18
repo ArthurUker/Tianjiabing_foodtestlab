@@ -22,3 +22,13 @@ test('algorithm diagnostics preserve compact geometry and numeric thresholds, wi
     assert.equal(algorithmProcessEvents(Array(1000).fill(input)).length, 160);
     assert.equal(algorithmProcessEvents(undefined)[0].stage, 'algorithm_log_unavailable');
 });
+
+
+test('card-relative geometry keeps bounded evidence for review', () => {
+    const [event] = algorithmProcessEvents([{ at: new Date().toISOString(), stage: 'card_geometry', state: 'ok',
+        details: { locator: 'card-relative-boundary-v1', card_size_mm: [40, 70], corner_cut_mm: [1.5, 1.5, 1.5, 1.5],
+            window_boundary_support: [[1, 1, 1, 1]], identity_check: 'not_performed', path: '/private/file' } }]);
+    assert.equal(event.details.locator, 'card-relative-boundary-v1');
+    assert.deepEqual(event.details.card_size_mm, [40, 70]);
+    assert.equal('path' in event.details, false);
+});

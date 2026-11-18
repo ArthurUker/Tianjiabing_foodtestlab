@@ -13,7 +13,7 @@ const session = { id: randomUUID(), planId: 'minutes_5_6_7', startedAt: '2026-10
 const rows = (p = project) => [300, 360, 420].map((elapsed, i) => ({
     id: randomUUID(), sample_index: i + 1, time_source: 'scheduled_camera', elapsed_seconds: elapsed,
     captured_at: new Date(Date.parse(session.startedAt) + elapsed * 1000), completed_at: new Date(), photo_state: 'present',
-    result: compactResult({ status: 'ok', version: PIPELINE, channels: p.channels.map(c => ({ id: c.id, status: 'ok', c: 10, t: 20, c_present: true })) }, p, elapsed),
+    result: compactResult({ status: 'ok', version: PIPELINE, channels: p.channels.map(c => ({ id: c.id, status: 'ok', c: 10, t: 20, c_present: true, t_present: true })) }, p, elapsed),
 }));
 test('three valid original samples adopt the last result only after the session ends', () => {
     const attempts = rows();

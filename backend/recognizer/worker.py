@@ -24,7 +24,9 @@ def handle(job):
         emit({'id': job.get('id'), 'pong': True})
         return
     raw = open(job['path'], 'rb').read()
-    out = recognize_original(raw, job['projectId'], 'null', job.get('mode') or 'auto')
+    # debug_id 仅用于本地测试的调试图命名（优先用识别尝试 ID）；未设置 COLLOIDAL_DEBUG_DIR 时不产生文件。
+    out = recognize_original(raw, job['projectId'], 'null', job.get('mode') or 'auto',
+                             debug_id=job.get('debugId') or job.get('id'))
     emit({'id': job.get('id'), 'result': json.loads(out)})
 
 

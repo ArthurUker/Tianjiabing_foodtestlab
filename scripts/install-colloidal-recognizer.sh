@@ -40,20 +40,7 @@ fetch pillow 11.3.0 cp310
 fetch opencv-python-headless 4.11.0.86 abi3
 
 echo "==> 展开固定提交的识别核心"
-"$PY" - "$ROOT" "$TARGET" <<'PY'
-import json, pathlib, sys
-root, target = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
-bundle = json.loads((root / "frontend/vendor/colloidal/core.json").read_text())
-for name, source in bundle["files"].items():
-    path = target / "core" / name
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(source)
-print(f"    core commit {bundle['commit']} ({len(bundle['files'])} files)")
-PY
-
-cp "$ROOT/backend/recognizer/worker.py" "$TARGET/worker.py"
-cp "$ROOT/backend/recognizer/server_entry.py" "$TARGET/core/server_entry.py"
-cp "$ROOT/backend/recognizer/process_log.py" "$TARGET/core/process_log.py"
+"$PY" "$ROOT/scripts/sync-colloidal-runtime.py" --target "$TARGET"
 
 if id foodsentinel >/dev/null 2>&1; then
   chown -R foodsentinel:foodsentinel "$TARGET"

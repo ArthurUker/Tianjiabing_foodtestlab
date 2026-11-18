@@ -1,8 +1,9 @@
 // Business mapping only. Geometry and IFU implementation come from the frozen core.
 export const CORE_COMMIT = 'a0e9d274f5df2bc1ec85f4b6df04f4f81b4c98da';
 export const PIPELINE = 'project-marker-quality-20261018-v5';
-// 识别核心本地补丁标识（几何判据 geom1）；未打补丁的核心回执不含该字段。
-export const CORE_PATCH = 'geom1';
+// 识别核心本地补丁标识：geom1（几何判据自适应）+ triplex1（三联按 T 线是否显色判读）
+// + signal1（识别区背景与相对增益）+ tol1（单检“一样深”的测量噪声容差）。
+export const CORE_PATCH = 'geom1+triplex1+signal1+tol1+win2+exp1+card1+visual1';
 const single = (id, name, module, label = `${name}-胶体金检测卡`) => ({ id, name, module, label, channels: [{ id, name, label }] });
 export const PROJECTS = [
     single('carbofuran', '克百威', 'pesticide'),
@@ -12,7 +13,9 @@ export const PROJECTS = [
     single('florfenicol', '氟苯尼考', 'leanMeat'),
     single('lead', '铅', 'leanMeat', '铅-重金属检测（GB 2762 鱼虾类≤0.5mg/kg）'),
     single('cadmium', '镉', 'leanMeat', '镉-重金属检测（GB 2762 鱼虾类≤0.1mg/kg）'),
+    // ruleMethod: 单检按说明书比较 C/T 深浅（compare）；三联只判 T 线是否显色（presence）。
     { id: 'lean_meat_triplex', name: '瘦肉精三联', module: 'leanMeat', label: '瘦肉精三联-胶体金检测卡',
+        ruleMethod: 'presence',
         channels: ['盐酸克伦特罗', '莱克多巴胺', '沙丁胺醇'].map((name, i) => ({
             id: ['clenbuterol', 'ractopamine', 'salbutamol'][i], name, label: `${name}-胶体金检测卡`,
         })) },

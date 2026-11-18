@@ -834,7 +834,7 @@ export class GenericTestModule {
             || container.querySelector('input[name="colorLevel[]"]')?.closest('div');
 
         if (qualityLabel) qualityLabel.textContent = '食用油品质等级 *';
-        if (qualityWrap) qualityWrap.classList.add('col-span-3');
+        if (qualityWrap) qualityWrap.style.gridColumn = '1 / -1';
 
         const acidWrap = document.createElement('div');
         acidWrap.className = 'acid-field-group';
@@ -945,9 +945,9 @@ export class GenericTestModule {
 
                     if (this.moduleName === 'leanMeat') {
                         filterHTML = `
-                            <div class="flex items-center">
-                                <label class="text-sm text-gray-600 mr-2">品种:</label>
-                                <div class="flex flex-wrap gap-2 bg-gray-50 border border-gray-300 rounded px-3 py-2">
+                            <div class="flex items-center min-w-0">
+                                <label class="text-sm text-gray-600 mr-2 shrink-0 whitespace-nowrap">品种:</label>
+                                <div class="flex flex-wrap gap-2 bg-gray-50 border border-gray-300 rounded px-3 py-2 min-w-0">
                                     <label class="flex items-center text-sm cursor-pointer hover:bg-gray-100 px-2 py-1 rounded"><input type="checkbox" name="${this.moduleName}_meatTypeFilter" value="猪肉" class="mr-1">猪肉</label>
                                     <label class="flex items-center text-sm cursor-pointer hover:bg-gray-100 px-2 py-1 rounded"><input type="checkbox" name="${this.moduleName}_meatTypeFilter" value="牛肉" class="mr-1">牛肉</label>
                                     <label class="flex items-center text-sm cursor-pointer hover:bg-gray-100 px-2 py-1 rounded"><input type="checkbox" name="${this.moduleName}_meatTypeFilter" value="羊肉" class="mr-1">羊肉</label>
@@ -956,8 +956,8 @@ export class GenericTestModule {
                                     <label class="flex items-center text-sm cursor-pointer hover:bg-gray-100 px-2 py-1 rounded"><input type="checkbox" name="${this.moduleName}_meatTypeFilter" value="禽蛋" class="mr-1">禽蛋</label>
                                 </div>
                             </div>
-                            <div class="flex items-center">
-                                <label class="text-sm text-gray-600 mr-2">食堂:</label>
+                            <div class="flex items-center min-w-0">
+                                <label class="text-sm text-gray-600 mr-2 shrink-0 whitespace-nowrap">食堂:</label>
                                 <!-- TD-CanteenFromConfig: option 不再硬编码；由 renderGenericCanteenFilter() 从学校配置动态生成 -->
                                 <select id="${this.moduleName}_canteenFilter" class="border border-gray-300 rounded px-3 py-1 text-sm" data-source="configurable">
                                     <option value="all">全部</option>
@@ -966,8 +966,8 @@ export class GenericTestModule {
                         `;
                     } else {
                         filterHTML = `
-                            <div class="flex items-center">
-                                <label class="text-sm text-gray-600 mr-2">食堂:</label>
+                            <div class="flex items-center min-w-0">
+                                <label class="text-sm text-gray-600 mr-2 shrink-0 whitespace-nowrap">食堂:</label>
                                 <!-- TD-CanteenFromConfig: 同上 -->
                                 <select id="${this.moduleName}_canteenFilter" class="border border-gray-300 rounded px-3 py-1 text-sm" data-source="configurable">
                                     <option value="all">全部</option>
@@ -1056,7 +1056,9 @@ export class GenericTestModule {
         }
 
         const remarkField = document.createElement('div');
-        remarkField.className = 'col-span-3 remark-field';
+        // 不能用 col-span-3：移动端网格是 grid-cols-1，span 3 会创建两条隐式轨道，
+        // 把单列压成 0px，其余字段退化成逐字竖排。跨满由 .remark-field 的 grid-column 负责。
+        remarkField.className = 'remark-field';
         remarkField.innerHTML = `
             <label class="block text-sm font-medium text-gray-700 mb-1">${remarkLabel}</label>
             <textarea name="remark" rows="3" class="w-full border border-gray-300 p-2 rounded-md shadow-sm"

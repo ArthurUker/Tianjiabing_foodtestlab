@@ -15,6 +15,8 @@ const bundle = JSON.parse(await fs.readFile('frontend/vendor/colloidal/core.json
 const home = await fs.mkdtemp(path.join(os.tmpdir(), 'colloidal-server-regression-'));
 let recognizer;
 const observed = [];
+const changedMeasurements = [];
+const allowGeometryChanges = process.argv.includes('--allow-geometry-measurement-change');
 try {
     for (const [name, source] of Object.entries(bundle.files)) {
         assert.equal(crypto.createHash('sha256').update(source).digest('hex'), bundle.hashes[name]);
@@ -23,6 +25,8 @@ try {
     }
     await fs.copyFile('backend/recognizer/server_entry.py', path.join(home, 'core/server_entry.py'));
     await fs.copyFile('backend/recognizer/process_log.py', path.join(home, 'core/process_log.py'));
+    await fs.copyFile('backend/recognizer/card_geometry.py', path.join(home, 'core/card_geometry.py'));
+    await fs.copyFile('backend/recognizer/membrane_geometry.py', path.join(home, 'core/membrane_geometry.py'));
     await fs.copyFile('backend/recognizer/worker.py', path.join(home, 'worker.py'));
     process.env.COLLOIDAL_RECOGNIZER_HOME = home;
     process.env.COLLOIDAL_RECOGNIZER_PYTHON = path.resolve(arg('--python'));
@@ -43,10 +47,17 @@ try {
         assert.deepEqual(raw.channels.map(c => [c.id, c.status, c.image_result]), reference.channels.map(c => [c.id, c.status, c.image_result]), reference.name);
         assert.deepEqual(result.channels.map(c => c.final_result), reference.channels.map(c => c.final_result), reference.name);
         reference.channels.forEach((channel, i) => {
-            for (const key of ['c', 't']) if (channel[key] !== null) assert.ok(Math.abs(channel[key] - raw.channels[i][key]) < 0.000001, `${reference.name} ${key}`);
+            for (const key of ['c', 't']) if (channel[key] !== null) {
+                const delta = Math.abs(channel[key] - raw.channels[i][key]);
+                if (delta >= 0.000001) {
+                    assert.ok(allowGeometryChanges && raw.crop_variant === 'membrane_relative', `${reference.name} ${key}`);
+                    changedMeasurements.push({ name: reference.name, channel: channel.id, key,
+                        previous: channel[key], observed: raw.channels[i][key], delta });
+                }
+            }
         });
     }
-    console.log(JSON.stringify({ cases: observed.length, equivalent: true, pipeline: bundle.pipeline, patch: bundle.patch, fixtureKind: 'synthetic', physicalCardAccuracy: 'not_measured' }));
+    console.log(JSON.stringify({ cases: observed.length, equivalent: changedMeasurements.length === 0, interpretationEquivalent: true, changedMeasurements, pipeline: bundle.pipeline, patch: bundle.patch, fixtureKind: 'synthetic', physicalCardAccuracy: 'not_measured' }));
 } finally {
     recognizer?.shutdown();
     await fs.writeFile(path.join(fixtures, 'server-verification.json'), JSON.stringify({ fixtureKind: 'synthetic', physicalCardAcceptance: false, cases: observed }, null, 2));

@@ -55,13 +55,21 @@
     gap: .5rem .9rem;
 }
 
+/* 标题独占一行：否则窄屏下会被挤到最后一个下拉的下方。 */
+.colloidal-channel-controls > .colloidal-hint { flex-basis: 100%; }
+
 .colloidal-channel-controls label {
     display: flex;
     flex-direction: column;
     gap: .25rem;
+    flex: 1 1 96px;
+    min-width: 96px;
     font-size: .8rem;
     color: #334155;
 }
+
+.colloidal-channel-controls label select { width: 100%; }
+.colloidal-channel-controls .colloidal-action { flex: 0 0 auto; }
 
 .colloidal-channel-controls select {
     border: 1px solid #94a3b8;
@@ -142,6 +150,24 @@
     border-radius: 16px;
     background: #fff;
     box-shadow: 0 20px 50px rgba(15, 23, 42, .35);
+}
+
+.colloidal-cam-devices {
+    display: flex;
+    justify-content: center;
+}
+
+.colloidal-cam-device {
+    width: 100%;
+    max-width: 420px;
+    min-height: 38px;
+    padding: .35rem .6rem;
+    font: inherit;
+    font-size: .85rem;
+    color: #0f172a;
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 9px;
 }
 
 .colloidal-cam-video {

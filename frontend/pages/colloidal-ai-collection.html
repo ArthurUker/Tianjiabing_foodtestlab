@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>检测卡实拍采集</title>
+<link rel="stylesheet" href="./css/colloidal-collection.css">
+<main>
+  <header><span class="eyebrow">本地训练数据采集</span><h1>检测卡实拍</h1><p>换背景、换角度拍摄。原图先保存，再运行 AI 定位。</p></header>
+  <section class="status" aria-live="polite"><strong id="connection">正在连接本地测试环境…</strong><p id="counts">正在读取保存记录</p><p id="notice"></p></section>
+  <section class="card">
+    <label for="physical-card">当前实体卡编号 <small>同一张卡换背景时沿用；换卡时修改</small></label>
+    <input id="physical-card" placeholder="例如：三联卡 A、单联卡 B" maxlength="100" autocomplete="off">
+    <label for="background">当前背景</label>
+    <select id="background"><option>白纸</option><option>木纹桌面</option><option>深色桌面</option><option>花纹或布面</option><option>手持</option><option>其他背景</option><option>未注明</option></select>
+    <p class="batch">本轮拍摄 <span id="batch"></span> <button id="new-batch" type="button" class="text-button">开始新一轮</button></p>
+    <div class="actions"><button id="camera" type="button" disabled>打开手机相机</button><button id="upload" type="button" class="secondary" disabled>选择已有照片</button></div>
+    <input id="camera-file" class="file-input" type="file" accept="image/*" capture="environment">
+    <input id="upload-file" class="file-input" type="file" accept="image/*" multiple>
+    <p class="hint">拍完确认“使用照片”，出现“原图已保存”后即可继续拍下一张。网络中断时，照片会保留在本手机待上传队列中。</p>
+  </section>
+  <section id="latest" class="card" hidden><h2>最近一张</h2><p id="latest-status"></p><canvas id="preview"></canvas><p class="hint">蓝：卡片候选　青：膜窗候选。AI 仍是实验模型，结果进入待审核队列，不作为检测结论。</p></section>
+  <section class="card"><h2>本次采集记录</h2><button id="retry" type="button" class="secondary">刷新 / 重试待上传</button><div id="history"></div></section>
+  <footer>新照片不会自动充当正确答案。识别失败和不确定的原图也保留，用于后续审核、标注和训练。这里不生成阴阳性或合格判定。</footer>
+</main>
+<script type="module" src="./js/colloidal/TrainingCollection.js"></script>
+</html>

@@ -13,6 +13,8 @@ const PHOTO_UPLOAD = '__photo_upload__';
 const PHOTO_CAMERA = '__photo_camera__';
 const MANUAL_TRIPLEX = '__manual_triplex__';
 const PHOTO_OPTIONS = [[PHOTO_UPLOAD, '上传照片识别'], [PHOTO_CAMERA, '拍照识别']];
+// 记住上次选择的摄像头（外置/内置），下次打开拍照直接沿用。
+const CAMERA_STORE = 'colloidal.cameraDeviceId';
 const RESULT_VALUES = ['合格', '不合格'];
 const messages = { negative: '阴性（合格）', positive: '阳性（不合格）', invalid: '检测无效' };
 const biological = { negative: '阴性', positive: '阳性', invalid: '无效' };
@@ -23,6 +25,10 @@ const statusNames = { ok: '图像识别完成', partial: '部分通道未完成'
 const CONTEXT_LABELS = { testDate: '检测日期', canteen: '食堂', inspector: '检测员', vegetableType: '蔬菜品种', meatType: '肉类' };
 
 function channelDescription(c) {
+    if (c.decision_quality === 'unvalidated_model') {
+        const value = n => typeof n === 'number' ? n.toFixed(1) : '—';
+        return `已定位，C ${value(c.c)} / T ${value(c.t)}（试验测量）`;
+    }
     if (c.status !== 'ok') return '无法判读';
     if (c.rule_status === 'outside_time') return `超出判读时限（图像候选：${biological[c.image_result] || '未知'}）`;
     if (!c.final_result) return `${biological[c.image_result] || '未知'}图像候选（时间未核实）`;
@@ -38,6 +44,31 @@ const el = (tag, text = '', attrs = {}) => {
     for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
     return node;
 };
+
+// 设备标识：每台设备的浏览器生成一次并本地保存，用于在监控端区分是哪台手机在测。
+// iOS 的 Safari 不提供机型号，只能给出 iPhone／iPad；Android 可从 UA 取到型号。
+const DEVICE_KEY = 'colloidal_device_v1';
+let deviceCache = null;
+function deviceInfo() {
+    if (deviceCache) return deviceCache;
+    const ua = navigator.userAgent || '';
+    let deviceId = '';
+    try {
+        deviceId = localStorage.getItem(DEVICE_KEY) || '';
+        if (!deviceId) {
+            deviceId = globalThis.crypto?.randomUUID?.() || `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+            localStorage.setItem(DEVICE_KEY, deviceId);
+        }
+    } catch (_) {
+        deviceId = `s${Math.random().toString(36).slice(2, 12)}`;
+    }
+    const android = /Android\s+[\d.]+;\s*([^;)]+)/.exec(ua);
+    const model = android ? android[1].trim()
+        : /iPhone/.test(ua) ? 'iPhone'
+            : /iPad/.test(ua) ? 'iPad' : '';
+    deviceCache = { userAgent: ua, deviceId, platform: navigator.userAgentData?.platform || navigator.platform || '', model };
+    return deviceCache;
+}
 let browserBusy = false;
 
 // 识别模块未配置的项目（如二氧化硫快速检测试剂盒）必须保留人工判读入口。
@@ -64,7 +95,10 @@ export class PhotoEntry {
         }
         this.resultField = this.resultSelect.closest('div') || this.resultSelect.parentElement;
         this.buildControls();
-        this.buildTimedSampling();
+        // 自动采样（第5/6/7分钟三次相机抓帧）暂时停用：现场改为单张拍照／上传识别。
+        // TimedSampling 模块与后端 sampling 接口保留（历史记录仍可查看），恢复时重新调用 buildTimedSampling()。
+        this.timed = null;
+        this.timedResults = new Map();
         this.buildProcessLog();
         this.projectChangeHandler = () => this.update();
         this.projectSelect.addEventListener('change', this.projectChangeHandler);
@@ -119,7 +153,8 @@ export class PhotoEntry {
         this.resultField?.append(inline);
 
         // 三联：一次实体卡对应三条记录，通道选择与拍照触发都留在原表单区域内。
-        this.channelRow = el('div', '', { class: 'colloidal-channels col-span-3', 'data-colloidal-inline': '' });
+        // 跨满由 .colloidal-channels 的 grid-column 负责；span 3 会在移动端单列网格里造出 0 宽列。
+        this.channelRow = el('div', '', { class: 'colloidal-channels', 'data-colloidal-inline': '' });
         this.channelSelects = new Map();
         this.channelRow.hidden = true;
         this.point.append(this.channelRow);
@@ -272,12 +307,38 @@ export class PhotoEntry {
         }
     }
 
+    savedCameraId() {
+        try { return localStorage.getItem(CAMERA_STORE) || ''; } catch { return ''; }
+    }
+
+    cameraConstraints(deviceId = '') {
+        const video = deviceId
+            ? { deviceId: { exact: deviceId }, width: { ideal: 3840 }, height: { ideal: 2160 } }
+            : { facingMode: { ideal: 'environment' }, width: { ideal: 3840 }, height: { ideal: 2160 } };
+        return { video, audio: false };
+    }
+
+    async openCameraStream(deviceId = '') {
+        try {
+            return await navigator.mediaDevices.getUserMedia(this.cameraConstraints(deviceId));
+        } catch (error) {
+            // 记住的设备被拔掉或被占用时退回默认摄像头，不阻塞拍照。
+            if (deviceId && ['OverconstrainedError', 'NotFoundError', 'NotReadableError'].includes(error.name)) {
+                return navigator.mediaDevices.getUserMedia(this.cameraConstraints(''));
+            }
+            throw error;
+        }
+    }
+
     // 桌面端摄像头拍照：预览 → 快门 → canvas 转 JPEG → 走与上传相同的识别流程。
     // 无摄像头或权限被拒时自动退回文件选择，不阻塞录入。
     async openWebcam() {
         if (this.camOverlay) return;
         const overlay = el('div', '', { class: 'colloidal-cam', role: 'dialog', 'aria-modal': 'true', 'aria-label': '摄像头拍照' });
         const panel = el('div', '', { class: 'colloidal-cam-panel' });
+        const deviceBar = el('div', '', { class: 'colloidal-cam-devices', hidden: 'hidden' });
+        const deviceSelect = el('select', '', { class: 'colloidal-cam-device', 'aria-label': '选择摄像头' });
+        deviceBar.append(deviceSelect);
         const video = el('video', '', { class: 'colloidal-cam-video', playsinline: '', autoplay: '' });
         this.camView = new CameraView(video);
         video.muted = true;
@@ -286,7 +347,7 @@ export class PhotoEntry {
         const cancel = el('button', '取消', { type: 'button', class: 'colloidal-cam-cancel' });
         const shutter = el('button', '拍照', { type: 'button', class: 'colloidal-cam-shutter' });
         actions.append(cancel, shutter);
-        panel.append(this.camView.root, hint, actions);
+        panel.append(deviceBar, this.camView.root, hint, actions);
         overlay.append(panel);
         document.body.append(overlay);
         this.camOverlay = overlay;
@@ -298,18 +359,51 @@ export class PhotoEntry {
         cancel.addEventListener('click', close);
         overlay.addEventListener('click', event => { if (event.target === overlay) close(); });
 
+        const remember = value => { try { if (value) localStorage.setItem(CAMERA_STORE, value); } catch { /* 隐私模式忽略 */ } };
+        const attach = async (stream, preferred = '') => {
+            if (this.camOverlay !== overlay) { stream.getTracks().forEach(track => track.stop()); return ''; }
+            if (this.camStream && this.camStream !== stream) {
+                for (const track of this.camStream.getTracks()) { try { track.stop(); } catch { /* ignore */ } }
+            }
+            this.camStream = stream;
+            video.srcObject = stream;
+            await video.play().catch(() => {});
+            if (this.camOverlay !== overlay) return '';
+            this.camView?.update();
+            const settings = stream.getVideoTracks?.()[0]?.getSettings?.() || {};
+            const camW = settings.width || video.videoWidth || 0;
+            const camH = settings.height || video.videoHeight || 0;
+            if (camW && camH) hint.textContent = `当前摄像头 ${camW}×${camH}。拍整张定位板请改用手机；用电脑请把检测卡拍满画面。`;
+            const active = settings.deviceId || preferred || '';
+            this.captureEvents.push(cameraEvent('camera_ready', { width: camW, height: camH, device_id: active }));
+            remember(active);
+            return active;
+        };
+        // 授权后才有设备名称；只在存在多个视频输入时显示下拉，手机端单摄像头时不出现。
+        const listDevices = async activeId => {
+            let devices = [];
+            try { devices = (await navigator.mediaDevices.enumerateDevices()).filter(item => item.kind === 'videoinput'); } catch { /* 不支持枚举时保持隐藏 */ }
+            if (devices.length < 2) { deviceBar.hidden = true; return; }
+            const total = new Map();
+            for (const device of devices) total.set(device.label, (total.get(device.label) || 0) + 1);
+            deviceSelect.replaceChildren(...devices.map((device, index) => {
+                const base = device.label || `摄像头 ${index + 1}`;
+                // 两个同名 UVC 只差 ID，追加序号便于区分。
+                const name = (total.get(device.label) || 0) > 1 ? `${base} #${index + 1}` : base;
+                return el('option', name, { value: device.deviceId });
+            }));
+            const wanted = activeId || this.savedCameraId();
+            if (wanted && devices.some(device => device.deviceId === wanted)) deviceSelect.value = wanted;
+            else if (devices[0]) deviceSelect.value = devices[0].deviceId;
+            deviceBar.hidden = false;
+        };
+
         try {
             // 尽量要摄像头支持的最高分辨率：定位板模式需要 ≥6 px/mm，1080p 拍整张 A4 只有约 3.6 px/mm。
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: { ideal: 'environment' }, width: { ideal: 3840 }, height: { ideal: 2160 } }, audio: false,
-            });
-            if (this.camOverlay !== overlay) { stream.getTracks().forEach(track => track.stop()); return; }
-            this.camStream = stream;
-            video.srcObject = this.camStream;
-            await video.play().catch(() => {});
-            if (this.camOverlay !== overlay) return;
-            this.camView?.update();
-            this.captureEvents.push(cameraEvent('camera_ready', { width: video.videoWidth, height: video.videoHeight }));
+            const preferred = this.savedCameraId();
+            const stream = await this.openCameraStream(preferred);
+            const active = await attach(stream, preferred);
+            await listDevices(active);
         } catch (error) {
             if (this.camOverlay !== overlay) return;
             this.closeWebcam();
@@ -320,13 +414,19 @@ export class PhotoEntry {
             return;
         }
 
-        const track = this.camStream?.getVideoTracks?.()[0];
-        const settings = track?.getSettings?.() || {};
-        const camW = settings.width || video.videoWidth || 0;
-        const camH = settings.height || video.videoHeight || 0;
-        if (camW && camH) {
-            hint.textContent = `当前摄像头 ${camW}×${camH}。拍整张定位板请改用手机；用电脑请把检测卡拍满画面。`;
-        }
+        deviceSelect.addEventListener('change', async () => {
+            const wanted = deviceSelect.value;
+            if (!wanted) return;
+            deviceSelect.disabled = true;
+            try {
+                const stream = await this.openCameraStream(wanted);
+                const active = await attach(stream, wanted);
+                remember(active);
+                await listDevices(active);
+            } catch {
+                hint.textContent = '切换摄像头失败，继续使用当前画面。';
+            } finally { deviceSelect.disabled = false; }
+        });
 
         shutter.addEventListener('click', () => {
             if (video.readyState < 2 || !video.videoWidth || !video.videoHeight) { hint.textContent = '相机画面尚未就绪，请稍候再拍。'; return; }
@@ -500,13 +600,24 @@ export class PhotoEntry {
         try {
             await this.ensureEntry();
             attemptId = newEntryId();
+            // 独立局域网训练环境：先留存照片，不改变原有页面或正式判读。
+            // 后续业务尝试即使失败/达到重拍上限，研发原图仍可保留。
+            if (extractSchoolCode() === 'reader-local-1022' && ['55539', '55543'].includes(location.port)) {
+                try {
+                    await this.api(`/training/captures/${attemptId}`, { method: 'POST',
+                        headers: { 'Content-Type': 'application/octet-stream', 'X-Capture-Metadata': encodeURIComponent(JSON.stringify({
+                            source: this.source, filename: file.name, capturedAt: new Date().toISOString(),
+                            sessionId: this.entry.id, entryId: this.entry.id, projectId: this.project.id,
+                        })) }, body: file });
+                } catch { /* 常规照片上传仍独立执行；服务端也有原图归档钩子。 */ }
+            }
             // 现场已确认拍摄处于说明书判读时限内，不再采集/推算加样时距。
             await this.api(`/entries/${this.entry.id}/attempts`, { method: 'POST', body: JSON.stringify({
                 id: attemptId, inputMode: 'auto', source: this.source, elapsedSeconds: null, timeSource: 'within_window', filename: file.name, clientEvents: this.captureEvents }) });
             this.processPanel.hidden = false; this.loadProcessLog();
             await this.api(`/attempts/${attemptId}/photo`, { method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' }, body: file });
             // 识别在服务端队列中执行；这里只等回执（通常 1–3 秒）。
-            const saved = await this.api(`/attempts/${attemptId}/recognize`, { method: 'POST', body: JSON.stringify({ client: { userAgent: navigator.userAgent } }) });
+            const saved = await this.api(`/attempts/${attemptId}/recognize`, { method: 'POST', body: JSON.stringify({ client: deviceInfo() }) });
             if (signature !== this.signature()) { this.say('项目或样本已改变，原识别尝试已保留，请重新识别。'); this.invalidateResult(); return; }
             this.result = saved.result; this.attemptId = attemptId; this.resultSignature = signature;
             this.showResult();
@@ -540,7 +651,10 @@ export class PhotoEntry {
             this.say([lines.join('；'), '识别完成，结果已填入检测结果，可直接保存；如需修改请手工改选。'].join(' '));
         } else {
             this.resultSelect.value = this.optionsMode === 'triplex' ? MANUAL_TRIPLEX : '';
-            this.say([lines.join('；'), this.lowResNote, r.error, '未获得可用的自动结果，请直接手工选择合格／不合格；本次照片与识别过程已保留。'].filter(Boolean).join(' '));
+            const note = r.crop_variant === 'learned_membrane'
+                ? '当前为无定位板AI训练验证，仅显示试验测量，未自动填入合格性；本次照片与识别过程已保留。'
+                : '未获得可用的自动结果，请直接手工选择合格／不合格；本次照片与识别过程已保留。';
+            this.say([lines.join('；'), this.lowResNote, r.error, note].filter(Boolean).join(' '));
         }
     }
 

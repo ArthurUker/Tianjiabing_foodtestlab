@@ -63,21 +63,57 @@ export function compactResult(input, project, elapsed, { assumeWithinTime = fals
     const withinTime = assumeWithinTime || (elapsed !== null && elapsed >= 300 && elapsed <= 480);
     const channels = raw.map((item, i) => {
         if (item.id !== project.channels[i].id) throw fail(400, 'CHANNEL_MISMATCH', '识别通道顺序不一致');
-        if (item.status !== 'ok') return { id: item.id, status: 'quality_failed', error: text(item.error, 240), image_result: null, final_result: null, rule_status: 'unmeasurable' };
+        if (item.status !== 'ok') {
+            // Retain measured evidence without converting an unobservable
+            // saturated band into absence or an eligible business result.
+            const observed = {};
+            for (const key of ['c', 't', 'background_level', 'c_gain_ratio', 't_gain_ratio'])
+                if (typeof item[key] === 'number' && Number.isFinite(item[key]) && item[key] >= 0) observed[key] = item[key];
+            for (const key of ['c_present', 't_present'])
+                if (typeof item[key] === 'boolean') observed[key] = item[key];
+            const unvalidated = item.decision_quality === 'unvalidated_model';
+            return { id: item.id, status: 'quality_failed', error: text(item.error, 240), ...observed,
+                decision_quality: unvalidated ? 'unvalidated_model' : 'unobservable', image_result: null, final_result: null,
+                rule_status: unvalidated ? 'model_unvalidated' : 'unmeasurable' };
+        }
         if (![item.c, item.t].every(v => typeof v === 'number' && Number.isFinite(v) && v >= 0) || typeof item.c_present !== 'boolean')
             throw fail(400, 'INVALID_MEASUREMENT', 'C/T测量数据无效');
-        const image = !item.c_present ? 'invalid' : item.t >= item.c ? 'negative' : 'positive';
+        // 判读方式按说明书区分：
+        // · 单检（瑞森穗科）：T 比 C 浅或不显色为阳性 → 比较两条线深浅。
+        // · 三联（万联 WLKS0105）：T 线显色即阴性、不显色即阳性 → 只看 T 线是否存在。
+        const presence = project.ruleMethod === 'presence';
+        if (presence && typeof item.t_present !== 'boolean') throw fail(400, 'INVALID_MEASUREMENT', 'T线显色判定缺失');
+        // 单检的“一样深”容差由核心按测量噪声给出（2σ 或 3% 取大），
+        // 没有该字段的旧回执按 0 处理，保持原严格比较。
+        const tolerance = typeof item.tolerance === 'number' && Number.isFinite(item.tolerance) && item.tolerance >= 0 ? item.tolerance : 0;
+        const image = !item.c_present ? 'invalid'
+            : presence ? (item.t_present ? 'negative' : 'positive')
+            : item.t >= item.c - tolerance ? 'negative' : 'positive';
         return { id: item.id, status: 'ok', c: item.c, t: item.t, c_present: item.c_present,
+            ...(typeof item.t_present === 'boolean' ? { t_present: item.t_present } : {}),
+            ...(typeof item.background_level === 'number' ? { background_level: item.background_level } : {}),
+            ...(typeof item.c_gain_ratio === 'number' ? { c_gain_ratio: item.c_gain_ratio } : {}),
+            ...(typeof item.t_gain_ratio === 'number' ? { t_gain_ratio: item.t_gain_ratio } : {}),
+            ...(tolerance > 0 ? { tolerance } : {}),
             image_result: image, final_result: withinTime ? image : elapsed === null ? null : 'invalid',
             rule_status: assumeWithinTime ? 'within_time_assumed' : elapsed === null ? 'time_unverified' : withinTime ? 'within_time' : 'outside_time' };
     });
     if (status === 'ok' && channels.some(c => c.status !== 'ok')) throw fail(400, 'INVALID_RESULT', '完成状态与通道状态不一致');
-    return { status, error: text(input.error, 240), version: PIPELINE, core_commit: CORE_COMMIT,
+    const preprocess = ['card_crop', 'triplex_board_crop'].includes(input.preprocess) ? input.preprocess : null;
+    const cropVariant = ['raw', 'clahe', 'card_relative', 'membrane_relative', 'learned_membrane'].includes(input.crop_variant) ? input.crop_variant : null;
+    return { ...(preprocess ? { preprocess } : {}), ...(cropVariant ? { crop_variant: cropVariant } : {}),
+        status, error: text(input.error, 240), version: PIPELINE, core_commit: CORE_COMMIT,
         computed_at: 'browser', elapsed_ms: typeof input.elapsed_ms === 'number' && Number.isFinite(input.elapsed_ms) ? Math.max(0, input.elapsed_ms) : null,
         time_basis: assumeWithinTime ? 'within_window_confirmed' : elapsed === null ? 'unknown' : 'measured',
-        client: { userAgent: text(input.client?.userAgent, 300) },
+        client: {
+            userAgent: text(input.client?.userAgent, 300),
+            // 设备标识只用于本地测试区分手机；仅接受受限字符，避免写入任意内容。
+            deviceId: /^[A-Za-z0-9-]{8,64}$/.test(input.client?.deviceId || '') ? input.client.deviceId : '',
+            platform: text(input.client?.platform, 40),
+            model: text(input.client?.model, 40),
+        },
         runtime: text(input.runtime, 80), decoder: text(input.decoder, 80),
-        core_patch: text(input.core_patch ?? CORE_PATCH, 20),
+        core_patch: text(input.core_patch ?? CORE_PATCH, 96),
         channels, eligible: status === 'ok' && withinTime && channels.length === project.channels.length && channels.every(c => resultText(c.final_result)) };
 }
 

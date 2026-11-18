@@ -32,14 +32,14 @@ export class ColloidalRecognizer {
         return { concurrency: this.concurrency, depth: this.depth(), pending: this.active, ...this.stats };
     }
 
-    enqueue({ photoPath, projectId, mode = 'auto', onEvent = async () => {} }) {
+    enqueue({ photoPath, projectId, mode = 'auto', onEvent = async () => {}, debugId = null }) {
         if (this.depth() >= this.maxQueue) {
             const error = new Error('识别排队已满，请稍后重试');
             error.status = 503; error.code = 'RECOGNIZER_BUSY';
             return Promise.reject(error);
         }
         return new Promise((resolve, reject) => {
-            this.queue.push({ id: randomUUID(), photoPath, projectId, mode, resolve, reject, onEvent, enqueuedAt: Date.now(), tries: 0 });
+            this.queue.push({ id: randomUUID(), debugId, photoPath, projectId, mode, resolve, reject, onEvent, enqueuedAt: Date.now(), tries: 0 });
             this.stats.queued += 1;
             this._pump();
         });
@@ -57,7 +57,8 @@ export class ColloidalRecognizer {
         const startedAt = Date.now();
         try {
             await job.onEvent('algorithm_dispatched', 'started', { wait_ms: startedAt - job.enqueuedAt, retry: job.tries });
-            const message = await this._send({ id: job.id, path: job.photoPath, projectId: job.projectId, mode: job.mode });
+            // debugId 只用于本地测试调试图命名（= attempt.id），生产不设置调试图目录。
+            const message = await this._send({ id: job.id, debugId: job.debugId, path: job.photoPath, projectId: job.projectId, mode: job.mode });
             if (message.error) throw Object.assign(new Error(message.error), { code: 'RECOGNIZER_ERROR' });
             if (!message.result) throw Object.assign(new Error('识别未返回结果'), { code: 'RECOGNIZER_EMPTY' });
             this.stats.done += 1;

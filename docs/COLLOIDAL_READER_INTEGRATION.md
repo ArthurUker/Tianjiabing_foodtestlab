@@ -14,12 +14,21 @@
 是从该提交生成的版本化发布包，含八个必要 Python 模块及原许可证、逐文件 SHA256。
 不含实验台页面、SQLite、真实照片、七项对照适配器、上游模型或权重。
 
-原仓库继续作为算法源码来源。不要直接编辑发布包，也不要修改阈值、定位规则或 C/T 数学后仍声称沿用原版本。
-重新生成发布包：
+当前发布包明确记录本地补丁：`geom1+triplex1+signal1+tol1+win2+exp1+card1+visual1`。
+2026-11-10 的实际膜窗、二维色带和不可确定状态详见 [视觉特征优化与复放](COLLOIDAL_VISUAL_FEATURE_OPTIMIZATION_20261110.md)。
+`card1`（2026-11-05）增加完整卡壳与膜窗边界约束、三联高亮背景的受限 presence 判读、
+原图坐标映射及重试日志修复；详见 [同图重放审查与结果](COLLOIDAL_ALGORITHM_OPTIMIZATION_20261105.md)。
+八个核心模块通过 `hashes` 校验，五个服务端适配文件通过 `adapter_hashes` 校验，
+部署时必须同时匹配，不能仅凭相同版本号认定运行内容一致。
+
+向已有 Python 依赖的运行目录同步已验证发布包（不重启服务）：
 
 ```sh
-node scripts/prepare-colloidal-reader.mjs --source /path/to/colloidal-gold-reader-lab --core-only
+python3 scripts/sync-colloidal-runtime.py --target /path/to/recognizer
 ```
+
+`prepare-colloidal-reader.mjs --source ... --core-only` 仅用于重建原始上游基线，
+会覆盖本地补丁和元数据，不能用作当前补丁版本的日常更新命令。
 
 本次未修改识别源仓库、原实验库、模型或历史结果。
 
@@ -50,7 +59,7 @@ node scripts/prepare-colloidal-reader.mjs --source /path/to/colloidal-gold-reade
 - RANSAC 阈值：`max(0.8mm, 2px)`（按检测到的标记像素密度换算）
 - 残差：只统计内点，门限 `max(0.8mm, 3px)`
 - 内点比例：`60%`（下限 12 点），允许缺 1 个角标（≥3 个即可解单应）
-- 回执与 `attempt.result` 增加 `core_patch: "geom1"`，`core.json` 增加 `patch` 字段
+- 回执与 `attempt.result` 增加 `core_patch`（当前 `geom1+triplex1+signal1+tol1+win2+exp1+card1`），`core.json` 增加 `patch`/`patches` 字段
 
 **分辨率下限**：窗口定位仍需要真实像素。卡位在照片中至少约 **150 px 宽**（≈5 px/mm），
 即板要占画面 1/3 以上；1920×1080 摄像头翻拍屏幕/纸张的定位板照片通常不满足，会停在
@@ -62,7 +71,10 @@ node scripts/prepare-colloidal-reader.mjs --source /path/to/colloidal-gold-reade
 - 支持 v5 的七种单检及瘦肉精三联。通用试纸、二氧化硫及三个瘦肉精单检选项不冒充已有三联配置。
 - 肉蛋模块增加三联选项，学校现有选项保持；不批量改写学校数据库中的定制配置。
 - 现场确认拍照处于说明书判读时限内，不再采集/推算加样时距（尝试记 `time_source=within_window`，服务端按判读时限内处理）。
-- C 有效时 T<C 阳性→不合格，T>=C 阴性→合格；C 缺失及各类识别失败不产生自动合格性结果。
+- **判读方式按厂家说明书区分（2026-11-05，核心补丁 triplex1）**：
+  - 单检（瑞森穗科 RS 系列：克百威／水胺硫磷／噻虫嗪／恩诺沙星／氟苯尼考／铅／镉）：比较 C/T 深浅——`T < C` 阳性→不合格，`T >= C` 阴性→合格。
+  - 三联（万联生物 WLKS0105，瘦肉精三联）：只看 T 线是否显色——T 线与 C 线同时显红为阴性→合格；T 线不显红色为阳性→不合格。不得套用单检的深浅比较。
+  - 两者 C 线缺失均为无效；各类识别失败不产生自动合格性结果。
 - 自动成功后正常保存，不要求逐张人工复核；不要求填写参考答案，不自动训练客户结果。
 - 三联整块隐藏“检测结果”字段，通道区内直接提供 3 个通道下拉与 `拍照识别` / `上传照片识别` 按钮；一张照片识别后自动填满三个通道，也可手工逐项录入。
 - 表单按明确的检测点位属性收集数据，不会将照片组件内部布局当作额外检测点位。

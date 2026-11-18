@@ -136,8 +136,6 @@
     
     <!-- 脚本库 (defer 延迟加载)，已本地化到 /vendor/js，避免国内服务器访问国外 CDN 被重置 ERR_CONNECTION_RESET -->
     <script src="/vendor/js/chart.min.js" defer crossorigin="anonymous"></script>
-    <script src="/vendor/js/html2canvas.min.js" defer crossorigin="anonymous"></script>
-    <script src="/vendor/js/jspdf.umd.min.js" defer crossorigin="anonymous"></script>
     <!-- P0-quickAccess: FOUC 防护——head 同步注入极简 CSS，防访客模式首次渲染闪现管理菜单 -->
     <script>
         (function () {
@@ -866,10 +864,34 @@
 
                     <div class="bg-blue-50 border border-blue-200 text-blue-800 rounded-lg p-4 mb-6 text-sm leading-6">
                         <p><i class="fas fa-circle-info mr-2"></i>定位卡用于胶体金照片识别的“定位板模式”，不是检测卡，也不替代产品说明书。</p>
-                        <p class="mt-1">中央虚线是算法搜索区，不是卡壳裁切模板；请勿缩放、拉伸或裁剪真实检测卡。</p>
+                        <p class="mt-1">双卡位卡的虚线框是卡片摆放位置（单检 20×70 mm、三联 40×70 mm）；请勿缩放、拉伸或裁剪真实检测卡。</p>
                     </div>
 
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <article class="border border-blue-300 rounded-lg bg-white p-5 shadow-sm">
+                            <div class="flex items-start justify-between gap-3 mb-4">
+                                <div>
+                                    <h3 class="text-xl font-semibold text-gray-800">A4 双卡位定位卡</h3>
+                                    <p class="text-sm text-gray-500 mt-1">210 × 297 mm · 单检 20×70 mm / 三联 40×70 mm</p>
+                                </div>
+                                <span class="px-2 py-1 rounded bg-blue-100 text-blue-700 text-xs whitespace-nowrap">推荐 V0.1</span>
+                            </div>
+                            <a href="vendor/colloidal/boards/CG-A4-DUAL-V0.1.pdf" target="_blank" rel="noopener" class="block border rounded-lg bg-gray-50 p-3 hover:border-blue-400 transition" aria-label="打开 A4 双卡位定位卡预览">
+                                <img src="vendor/colloidal/boards/CG-A4-DUAL-V0.1.svg" alt="A4 双卡位定位卡预览" class="w-full h-80 object-contain" loading="lazy">
+                            </a>
+                            <div class="flex flex-wrap gap-2 mt-4">
+                                <a href="vendor/colloidal/boards/CG-A4-DUAL-V0.1.pdf" download="胶体金定位卡-A4双卡位-V0.1.pdf" class="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition">
+                                    <i class="fas fa-download mr-2"></i>下载 PDF
+                                </a>
+                                <a href="vendor/colloidal/boards/CG-A4-DUAL-V0.1.pdf" target="_blank" rel="noopener" class="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 transition">
+                                    <i class="fas fa-print mr-2"></i>打开并打印
+                                </a>
+                                <a href="vendor/colloidal/boards/CG-A4-DUAL-V0.1.svg" download="胶体金定位卡-A4双卡位-V0.1.svg" class="inline-flex items-center justify-center px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition">
+                                    <i class="fas fa-vector-square mr-2"></i>SVG 矢量文件
+                                </a>
+                            </div>
+                        </article>
+
                         <article class="border border-gray-200 rounded-lg bg-white p-5 shadow-sm">
                             <div class="flex items-start justify-between gap-3 mb-4">
                                 <div>
@@ -878,17 +900,17 @@
                                 </div>
                                 <span class="px-2 py-1 rounded bg-gray-100 text-gray-600 text-xs whitespace-nowrap">V0.1</span>
                             </div>
-                            <a href="/vendor/colloidal/boards/CG-A4-DEMO-V0.1.pdf" target="_blank" rel="noopener" class="block border rounded-lg bg-gray-50 p-3 hover:border-blue-400 transition" aria-label="打开 A4 定位卡预览">
-                                <img src="/vendor/colloidal/boards/CG-A4-DEMO-V0.1.svg" alt="A4 胶体金定位卡预览" class="w-full h-80 object-contain" loading="lazy">
+                            <a href="vendor/colloidal/boards/CG-A4-DEMO-V0.1.pdf" target="_blank" rel="noopener" class="block border rounded-lg bg-gray-50 p-3 hover:border-blue-400 transition" aria-label="打开 A4 定位卡预览">
+                                <img src="vendor/colloidal/boards/CG-A4-DEMO-V0.1.svg" alt="A4 胶体金定位卡预览" class="w-full h-80 object-contain" loading="lazy">
                             </a>
                             <div class="flex flex-wrap gap-2 mt-4">
-                                <a href="/vendor/colloidal/boards/CG-A4-DEMO-V0.1.pdf" download="胶体金定位卡-A4-V0.1.pdf" class="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition">
+                                <a href="vendor/colloidal/boards/CG-A4-DEMO-V0.1.pdf" download="胶体金定位卡-A4-V0.1.pdf" class="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition">
                                     <i class="fas fa-download mr-2"></i>下载 PDF
                                 </a>
-                                <a href="/vendor/colloidal/boards/CG-A4-DEMO-V0.1.pdf" target="_blank" rel="noopener" class="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 transition">
+                                <a href="vendor/colloidal/boards/CG-A4-DEMO-V0.1.pdf" target="_blank" rel="noopener" class="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 transition">
                                     <i class="fas fa-print mr-2"></i>打开并打印
                                 </a>
-                                <a href="/vendor/colloidal/boards/CG-A4-DEMO-V0.1.svg" download="胶体金定位卡-A4-V0.1.svg" class="inline-flex items-center justify-center px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition">
+                                <a href="vendor/colloidal/boards/CG-A4-DEMO-V0.1.svg" download="胶体金定位卡-A4-V0.1.svg" class="inline-flex items-center justify-center px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition">
                                     <i class="fas fa-vector-square mr-2"></i>SVG 矢量文件
                                 </a>
                             </div>
@@ -902,17 +924,17 @@
                                 </div>
                                 <span class="px-2 py-1 rounded bg-amber-100 text-amber-700 text-xs whitespace-nowrap">试用版 V0.1</span>
                             </div>
-                            <a href="/vendor/colloidal/boards/CG-A5-INNER-V0.1.pdf" target="_blank" rel="noopener" class="block border rounded-lg bg-gray-50 p-3 hover:border-blue-400 transition" aria-label="打开 A5 定位卡预览">
-                                <img src="/vendor/colloidal/boards/CG-A5-INNER-V0.1.svg" alt="A5 胶体金定位卡预览" class="w-full h-80 object-contain" loading="lazy">
+                            <a href="vendor/colloidal/boards/CG-A5-INNER-V0.1.pdf" target="_blank" rel="noopener" class="block border rounded-lg bg-gray-50 p-3 hover:border-blue-400 transition" aria-label="打开 A5 定位卡预览">
+                                <img src="vendor/colloidal/boards/CG-A5-INNER-V0.1.svg" alt="A5 胶体金定位卡预览" class="w-full h-80 object-contain" loading="lazy">
                             </a>
                             <div class="flex flex-wrap gap-2 mt-4">
-                                <a href="/vendor/colloidal/boards/CG-A5-INNER-V0.1.pdf" download="胶体金定位卡-A5-V0.1.pdf" class="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition">
+                                <a href="vendor/colloidal/boards/CG-A5-INNER-V0.1.pdf" download="胶体金定位卡-A5-V0.1.pdf" class="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition">
                                     <i class="fas fa-download mr-2"></i>下载 PDF
                                 </a>
-                                <a href="/vendor/colloidal/boards/CG-A5-INNER-V0.1.pdf" target="_blank" rel="noopener" class="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 transition">
+                                <a href="vendor/colloidal/boards/CG-A5-INNER-V0.1.pdf" target="_blank" rel="noopener" class="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 transition">
                                     <i class="fas fa-print mr-2"></i>打开并打印
                                 </a>
-                                <a href="/vendor/colloidal/boards/CG-A5-INNER-V0.1.svg" download="胶体金定位卡-A5-V0.1.svg" class="inline-flex items-center justify-center px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition">
+                                <a href="vendor/colloidal/boards/CG-A5-INNER-V0.1.svg" download="胶体金定位卡-A5-V0.1.svg" class="inline-flex items-center justify-center px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition">
                                     <i class="fas fa-vector-square mr-2"></i>SVG 矢量文件
                                 </a>
                             </div>

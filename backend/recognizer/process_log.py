@@ -123,6 +123,7 @@ class ProcessLog:
 
     def located(self, args, kwargs, result, duration):
         windows, _, meta = result
+        self.channel = 0
         self.channel_maps = []
         details = dict(duration_ms=duration, input_kind=meta.get("input_kind"),
             window_shapes=meta.get("window_shapes"), marker_refinement=meta.get("marker_refinement"),
@@ -155,7 +156,10 @@ class ProcessLog:
             matrix, ix, iy, w, _ = self.channel_maps[index]
             for label, position in zip(["C", "T"], result.get("indices", [])):
                 lines.append(dict(label=label, points=self.source_points([[ix, iy+position], [w-ix-1, iy+position]], matrix)))
-        values = {k: result.get(k) for k in ["c", "t", "c_present", "threshold", "noise", "positions", "indices", "method", "acquisition_quality", "fit_evaluations", "transverse_rows"]}
+        values = {k: result.get(k) for k in ["c", "t", "c_present", "t_present", "threshold", "noise",
+            "background_level", "c_gain", "t_gain", "c_gain_ratio", "t_gain_ratio",
+            "c_raw_peak", "t_raw_peak", "noise_ratio", "positions", "indices", "method",
+            "acquisition_quality", "decision_quality", "decision_reason", "band_support", "c_region", "t_region", "fit_evaluations", "transverse_rows"]}
         self.add("measurement", "ok" if result.get("c_present") else "warning", duration_ms=duration,
             channel_id=self.project["channels"][min(index, len(self.project["channels"])-1)]["id"],
             measurement_lines_source=lines, **values)

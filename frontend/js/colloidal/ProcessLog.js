@@ -8,6 +8,8 @@ const names = {
     decode: '原图解码与EXIF方向处理', core_started: '开始运行固定v5算法', board_geometry: '定位板／完整单卡几何定位',
     window_candidates: '搜索观察窗口边缘候选', outline_search: '尝试胶囊形窗口轮廓补救', window_selection: '选定观察窗口',
     localization: '窗口提取与坐标映射', measurement: '局部C/T显色测量', core_finished: '算法计算结束', verdict: '时间规则与最终可用性判定',
+    card_crop: '按定位卡裁出所选卡位后按近照识别',
+    triplex_board_crop: '三联卡：按定位板裁出卡位周边后按单卡近照识别',
     image_classification: '按C/T规则生成图像候选', optical_audit: 'RGB敏感性诊断旁路', learning_shadow: '学习模型诊断旁路（不参与主判读）',
     algorithm_log_unavailable: '该次识别未提供内部日志（旧版识别适配器）',
 };
@@ -22,6 +24,7 @@ const fields = { at: '时间', duration_ms: '本步骤耗时ms', elapsed_ms: '�
     time_basis: '时间依据', time_source: '时间来源', elapsed_seconds: '拍照时距加样秒数', captured_at: '实际拍照时间',
     width: '原始宽度', height: '原始高度', decoded_width: '解码后宽度', decoded_height: '解码后高度',
     previewRotation: '预览旋转角度', previewMirrorX: '预览左右镜像', previewMirrorY: '预览上下翻转',
+    crop_mm: '裁切范围mm', crop_size: '裁切像素', status: '识别状态',
 };
 export const cameraEvent = (stage, details = {}) => ({ at: new Date().toISOString(), stage, details });
 const node = (tag, text = '') => { const n = document.createElement(tag); n.textContent = text; return n; };

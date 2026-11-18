@@ -9,6 +9,8 @@ import { colloidalRecognizer } from '../lib/colloidalRecognizer.js';
 import { startSampling, finishSampling, lockSamplingEntry, samplingCaptureData, sameSamplingContext } from '../lib/colloidalSampling.js';
 import { SAMPLING_PLANS, samplingSummary } from '../../frontend/js/colloidal/sampling.js';
 import { processEvent, clientProcessEvents, appendProcessEvents, algorithmProcessEvents } from '../lib/colloidalProcessLog.js';
+import { createColloidalTrainingRoutes, captureIdentity } from './colloidalTrainingRoutes.js';
+import { trainingArchive } from '../lib/colloidalTrainingArchive.js';
 
 export const photoRoot = () => path.resolve(process.env.COLLOIDAL_PHOTO_DIR || path.join(path.dirname(fileURLToPath(import.meta.url)), '../uploads/colloidal-originals'));
 const safe = fn => async (req, res, next) => { try { await fn(req, res); } catch (e) { if (e.status) res.status(e.status).json({ error: e.message, code: e.code }); else next(e); } };
@@ -25,10 +27,20 @@ const attemptOwner = async (req, id) => {
     const entry = await owner(req, attempt.entry_id);
     return { attempt, entry };
 };
+const archiveTrainingPhoto = async (req, attempt, entry, bytes, kind) => {
+    const archive = trainingArchive();
+    if (!archive) return;
+    await archive.save({ identity: captureIdentity(req), id: attempt.id, bytes, mime: kind.mime, ext: kind.ext,
+        metadata: { source: `business_${attempt.source}`, filename: attempt.photo_name,
+            projectId: entry.project_id, entryId: entry.id,
+            capturedAt: attempt.captured_at || attempt.created_at } });
+};
 
 export function createColloidalRoutes({ authenticateUser, requireEditorOrAbove, requireGuestReadOnly, authorizeRoles, storageRoot = photoRoot, recognizer = colloidalRecognizer }) {
     const router = express.Router();
     router.use(authenticateUser);
+    const collectionRoutes = createColloidalTrainingRoutes({ requireEditorOrAbove });
+    if (collectionRoutes) router.use('/training', collectionRoutes);
     const sendOriginal = async (res, attempt) => {
         if (!attempt || attempt.photo_state === 'absent') throw fail(404, 'NOT_FOUND', '没有原照片');
         if (attempt.photo_state !== 'present') throw fail(410, 'PHOTO_EXPIRED', '原照片已按留存策略清理');
@@ -100,7 +112,8 @@ export function createColloidalRoutes({ authenticateUser, requireEditorOrAbove, 
             return { attempt: previous, reused: true };
         }
         if (entry.sampling && await tx.colloidalAttempt.findFirst({ where: { entry_id: entry.id, sample_index: capture.sample_index } })) throw fail(409, 'SAMPLE_EXISTS', '该采样时点已登记，不能重复拍照替代');
-        if (await tx.colloidalAttempt.count({ where: { entry_id: entry.id } }) >= 30) throw fail(429, 'TOO_MANY_ATTEMPTS', '该检测的重拍次数过多，请重新建立检测');
+        // 每个检测点位允许的照片次数：200 次，兼顾现场批量采集与防滥用（原为 30）。
+        if (await tx.colloidalAttempt.count({ where: { entry_id: entry.id } }) >= 200) throw fail(429, 'TOO_MANY_ATTEMPTS', '该检测的重拍次数过多，请重新建立检测');
         return { attempt: await tx.colloidalAttempt.create({ data: { ...data, process_log: [
             ...clientProcessEvents(body.clientEvents), processEvent('attempt_registered', 'ok', {
                 project_id: entry.project_id, source: body.source, time_source: timeSource, elapsed_seconds: elapsed,
@@ -124,6 +137,7 @@ export function createColloidalRoutes({ authenticateUser, requireEditorOrAbove, 
         if (attempt.photo_sha256) {
             if (attempt.photo_sha256 !== hash) throw fail(409, 'PHOTO_CONFLICT', '该识别尝试已经绑定其他照片');
             if (attempt.photo_state !== 'present') throw fail(410, 'PHOTO_EXPIRED', '原照片已清理');
+            await archiveTrainingPhoto(req, attempt, entry, bytes, kind);
             return res.json({ sha256: hash });
         }
         if (entry.status !== 'open' || attempt.status !== 'uploading') throw fail(409, 'ATTEMPT_CLOSED', '识别尝试已结束');
@@ -146,6 +160,7 @@ export function createColloidalRoutes({ authenticateUser, requireEditorOrAbove, 
             bytes: bytes.length, mime: kind.mime, sha256: hash, persistence_ms: Date.now() - uploadStarted,
             note: '请求体接收完成后计存储耗时；不等于网络上传耗时',
         })]);
+        await archiveTrainingPhoto(req, attempt, entry, bytes, kind);
         res.json({ sha256: hash });
     }));
     const persistResult = async (db, attempt, entry, body, fromServer = false) => {
@@ -186,6 +201,7 @@ export function createColloidalRoutes({ authenticateUser, requireEditorOrAbove, 
                 photoPath: path.join(storageRoot(), attempt.photo_key),
                 projectId: entry.project_id,
                 mode: 'auto',
+                debugId: attempt.id,
                 onEvent: async (stage, state, details) => appendProcessEvents(req.db, attempt.id, [processEvent(stage, state, details)]),
             });
         } catch (error) {
@@ -194,6 +210,9 @@ export function createColloidalRoutes({ authenticateUser, requireEditorOrAbove, 
             throw fail(503, error.code || 'RECOGNIZER_DOWN', `识别服务暂时不可用：${error.message}`);
         }
         await appendProcessEvents(req.db, attempt.id, algorithmProcessEvents(recognized.process_log));
+        // 设备标识由浏览器上报（userAgent / deviceId / platform / model），随识别回执归档；
+        // compactResult 会逐字段校验长度与字符集。
+        if (req.body?.client) recognized.client = req.body.client;
         const result = await persistResult(req.db, attempt, entry, recognized, true);
         res.json({ result, processLog: (await req.db.colloidalAttempt.findUnique({ where: { id: attempt.id } })).process_log, queue: recognizer().status() });
     }));

@@ -23,7 +23,7 @@ let browser;
 // Camera/UI workflow tests use deterministic recognizer receipts; optical
 // equivalence is a separate Python-core check, not a claim about these frames.
 let recognitionOverride = null;
-const rawResult = projectId => ({ status: 'ok', version: PIPELINE, channels: PROJECTS.find(p => p.id === projectId).channels.map(c => ({ id: c.id, status: 'ok', c: 10, t: 20, c_present: true })) });
+const rawResult = projectId => ({ status: 'ok', version: PIPELINE, channels: PROJECTS.find(p => p.id === projectId).channels.map(c => ({ id: c.id, status: 'ok', c: 10, t: 20, c_present: true, t_present: true })) });
 const context = { testDate: '2026-10-19', canteen: '一食堂', inspector: '测试员', meatType: '鱼、虾', vegetableType: '白菜', remark: '', customFields: { sampleNo: 'S-1' } };
 const png = Buffer.from('89504e470d0a1a0a112233445566', 'hex');
 const id = () => randomUUID();
@@ -41,7 +41,7 @@ async function attempt(entryId, { project = 'lead', elapsed = 360, report, uploa
     const attemptId = id();
     assert.equal((await request(`/entries/${entryId}/attempts`, { id: attemptId, inputMode: 'closeup', source: 'upload', elapsedSeconds: elapsed, timeSource: 'operator_reported', filename: '客户原图.png' })).status, 201);
     if (upload) assert.equal((await request(`/attempts/${attemptId}/photo`, png, { method: 'PUT', binary: true })).status, 200);
-    const result = report || { status: 'ok', version: PIPELINE, channels: [{ id: project, status: 'ok', c: 10, t: 20, c_present: true }] };
+    const result = report || { status: 'ok', version: PIPELINE, channels: [{ id: project, status: 'ok', c: 10, t: 20, c_present: true, t_present: true }] };
     assert.equal((await request(`/attempts/${attemptId}/result`, result, { method: 'PUT' })).status, 200);
     return attemptId;
 }
@@ -182,7 +182,7 @@ check('unknown-time candidate cannot finalize automatically; failed/abandoned at
 });
 check('triplex all-or-nothing and concurrent submits create exactly three linked records', async () => {
     const e = await entry('lean_meat_triplex');
-    const a = await attempt(e, { report: { status: 'ok', version: PIPELINE, channels: ['clenbuterol', 'ractopamine', 'salbutamol'].map((id, i) => ({ id, status: 'ok', c: 10, t: i === 2 ? 0 : 20, c_present: true })) } });
+    const a = await attempt(e, { report: { status: 'ok', version: PIPELINE, channels: ['clenbuterol', 'ractopamine', 'salbutamol'].map((id, i) => ({ id, status: 'ok', c: 10, t: i === 2 ? 0 : 20, c_present: true, t_present: i !== 2 })) } });
     const responses = await Promise.all(Array.from({ length: 3 }, () => request(`/entries/${e}/finalize`, { mode: 'auto', attemptId: a })));
     assert.ok(responses.every(r => r.status === 200), JSON.stringify(responses));
     assert.equal(new Set(responses.flatMap(r => r.data.records.map(v => v.id))).size, 3);
