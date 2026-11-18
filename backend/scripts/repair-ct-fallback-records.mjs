@@ -76,8 +76,10 @@ let touched = 0
 for (const { code } of schools) {
   const schema = schemaNameOf(code)
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT id, record_code, sample_info, result_data FROM "${schema}"."TestRecord" WHERE result_data::text LIKE '%ct_fallback_computed%'
-       OR result_data::text LIKE '%"ctSource":"fallback"%'`,
+    `SELECT id, record_code, sample_info, result_data FROM "${schema}"."TestRecord"
+       WHERE result_data::text LIKE '%ct_fallback_computed%'
+          OR result_data::text LIKE '%"ctSource":"fallback"%'
+          OR result_data ? 'fallbackAnalysis'`,
   ).catch(() => [])
   if (!rows.length) continue
   const db = createTenantClient(prisma, code)
