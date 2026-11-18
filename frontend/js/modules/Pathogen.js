@@ -1595,8 +1595,6 @@ function showDetailModal(recordId) {
       canteen_not_in_list: { box: 'bg-amber-50 border-amber-300', text: 'text-amber-800', icon: 'fa-map-marker-alt text-amber-600', label: '食堂信息待复核' },
       chip_number_conflict: { box: 'bg-red-50 border-red-300', text: 'text-red-800', icon: 'fa-exclamation-triangle text-red-600', label: '芯片编号冲突待复核' },
       chip_duplicate: { box: 'bg-red-50 border-red-300', text: 'text-red-800', icon: 'fa-exclamation-triangle text-red-600', label: '芯片编号重复待复核' },
-      // 2026-11-04：设备未上传 Ct 时由荧光曲线兜底推算（口径见 lib/fluorescenceFallback.js）
-      ct_fallback_computed: { box: 'bg-amber-50 border-amber-300', text: 'text-amber-800', icon: 'fa-calculator text-amber-600', label: 'Ct 由荧光曲线推算（待复核）' },
     }
     const reviewFlags = Array.isArray(record.reviewFlags) ? record.reviewFlags : []
     const reviewBanner = reviewFlags.length ? `

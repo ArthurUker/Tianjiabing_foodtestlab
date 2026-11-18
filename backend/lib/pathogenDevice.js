@@ -13,7 +13,6 @@
 
 import crypto from 'node:crypto'
 // 内参识别 / 风险分级 / 样本类型分类 —— 统一实现（2026-11-03，设备口径为准）
-import { analyzeFluorescence } from './fluorescenceFallback.js'
 import {
   INTERNAL_CONTROL_RE as SHARED_INTERNAL_CONTROL_RE,
   calcRisk,
@@ -354,70 +353,11 @@ export function buildPathogenRecordPayload({ payload, deviceNo, canteens, defaul
     })
   }
 
-  // ───────── 兜底判读（2026-11-04）─────────
-  // 设备报文 CTList **全为空** 时，用上传的荧光曲线（OptimizationDataLists）按与 rdpms
-  // chipAnalysis/judge.ts **同口径**的算法（threshold-v1）推算 Ct，避免"设备没传 Ct → 整条
-  // 记录判全阴 → 阳性漏报"（现场 2026-11-03 / 11-04 实测：设备报告有 Ct 33.63，报文却是 "-"）。
-  // ⚠️ 推算结果必须显式标注来源（ctSource='fallback'）并打人工复核标记，不得冒充设备原始数据。
-  let effectivePoints = payload.points
-  let fallbackAnalysis = null
-  const hasAnyCt = payload.points.some((p) => p.ctRaw && String(p.ctRaw).trim() !== '-' && Number.isFinite(parseFloat(p.ctRaw)))
-  const hasCurve = payload.points.some((p) => Array.isArray(p.fluorescence) && p.fluorescence.length >= 8)
-  if (!hasAnyCt && hasCurve) {
-    const analysis = analyzeFluorescence({
-      optimizationDataLists: Object.fromEntries(payload.points.map((p) => [p.key, p.fluorescence || []])),
-      parms: Object.fromEntries(payload.points.map((p) => [p.key, p.name])),
-    })
-    const byKey = new Map(analysis.channels.map((c) => [c.channel, c]))
-    effectivePoints = payload.points.map((p) => {
-      const hit = byKey.get(p.key)
-      if (!hit) return p
-      if (hit.positive && hit.ct != null) {
-        return { ...p, positive: true, ctRaw: hit.ct.toFixed(2), ctSource: 'fallback' }
-      }
-      return hit.ct != null ? { ...p, ctFallback: hit.ct.toFixed(2) } : p
-    })
-    const pos = analysis.positives || []
-    fallbackAnalysis = {
-      algorithm: analysis.algorithm,
-      computedAt: new Date().toISOString(),
-      internalControl: analysis.internalControl
-        ? { target: analysis.internalControl.target, ct: analysis.internalControl.ct, positive: analysis.internalControl.positive, deltaF: Number((analysis.internalControl.deltaF || 0).toFixed(1)) }
-        : null,
-      // 只保留有意义的通道（判阳 / 过阈 / 起升明显），避免 result_data 膨胀
-      channels: analysis.channels
-        .filter((c) => c.positive || c.ct != null || c.deltaF >= 3 * (c.noiseSigma || 1))
-        .map((c) => ({
-          channel: c.channel,
-          target: c.target,
-          isInternalControl: c.isInternalControl,
-          ct: c.ct == null ? null : Number(c.ct.toFixed(2)),
-          positive: c.positive,
-          confidence: c.confidence,
-          deltaF: Number((c.deltaF || 0).toFixed(1)),
-          noiseSigma: Number((c.noiseSigma || 0).toFixed(2)),
-          reasons: c.reasons,
-        })),
-    }
-    if (pos.length) {
-      reviewFlags.push({
-        type: 'ct_fallback_computed',
-        at: new Date().toISOString(),
-        device_no: deviceNo,
-        chip_number: payload.chipNumber,
-        algorithm: analysis.algorithm,
-        positives: pos.map((c) => ({ target: c.target, channel: c.channel, ct: Number((c.ct || 0).toFixed(2)) })),
-        title: `设备未上传 Ct，已按荧光曲线推算（${pos.length} 个通道检出扩增）`,
-        hint: `本次上报报文 CTList 全为 "-"，系统按荧光曲线用 threshold-v1 兜底推算：${pos.map((c) => `${c.target} Ct≈${(c.ct || 0).toFixed(1)}`).join('，')}。这些 Ct 为**系统推算值**（ctSource=fallback），请与设备软件报告核对后确认；若设备报告无对应结果，请厂商排查为何上传报文未带 Ct。`,
-      })
-    }
-  }
-
-  const risk = calculateDeviceRisk(effectivePoints)
+  const risk = calculateDeviceRisk(payload.points)
   // ⚠️ 2026-11-03：**跳过未使用通道**（Parms 为 '-' 或空）——它们不是真实靶标，
   //   旧实现会生成 16 条 "病原体=-/阴性" 的占位项，导致设备记录 24 项 vs 手动 8 项"看起来不一致"。
   //   原始 parms/ctList/resultList 仍完整保存在 rawDetection 中，不丢信息。
-  const usedPoints = effectivePoints.filter((p) => p.name && p.name !== '-' && p.name !== '—')
+  const usedPoints = payload.points.filter((p) => p.name && p.name !== '-' && p.name !== '—')
   const allTestItems = usedPoints.map((p, i) => ({
     no: i + 1,
     pathogen: p.name,
@@ -425,8 +365,6 @@ export function buildPathogenRecordPayload({ payload, deviceNo, canteens, defaul
     ct: p.ctRaw,
     result: p.positive ? '阳性' : '阴性',
     isInternalControl: INTERNAL_CONTROL_RE.test(p.name),
-    // 2026-11-04：设备未上传 Ct 时由荧光曲线推算的值，必须显式标注来源
-    ...(p.ctSource ? { ctSource: p.ctSource } : {}),
   }))
   const internalControlStatus = allTestItems
     .filter((it) => it.isInternalControl)
@@ -473,8 +411,6 @@ export function buildPathogenRecordPayload({ payload, deviceNo, canteens, defaul
       }),
       // 人工复核标记（2026-10-28）：数据**照常入库**，但需管理员确认的情况（如食堂不在名单）
       reviewFlags,
-      // 兜底判读摘要（2026-11-04）：仅当设备未上传任何 Ct 且有荧光曲线时才有值
-      ...(fallbackAnalysis ? { fallbackAnalysis } : {}),
       // 原始协议快照：点位 + 判读 + CT + 截断荧光（完整荧光由设备本地留存，接口不返还）
       rawDetection: {
         parms: Object.fromEntries(payload.points.map((p) => [p.key, p.name])),

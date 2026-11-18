@@ -622,6 +622,31 @@ test('上传：正常入库 → 写入 school-a 租户、返回 reportId、三�
   assert.equal(rec.result_data.riskLevel, '中风险')
   assert.equal(rec.result_data.allTestItems.length, 3)
 })
+test('上传：CTList 全为 "-" 时不再做荧光兜底推算（防止把基线漂移判成阳性）', async () => {
+  const { prisma, tenantClientFactory, plainKey, created } = makeUploadStubs()
+  // 复刻 2026-11-18 现场：45 个循环缓慢线性漂移（无指数段、无平台），CT 全空
+  const drift = (base, slope) => Array.from({ length: 45 }, (_, i) => base + slope * i)
+  const body = makePayload({
+    Parms: { 'FAM-1': 'ORF1ab', 'FAM-2': 'N', 'HEX-1': '内参' },
+    ResultList: { 'FAM-1': false, 'FAM-2': false, 'HEX-1': false },
+    CTList: { 'FAM-1': '-', 'FAM-2': '-', 'HEX-1': '-' },
+    OptimizationDataLists: {
+      'FAM-1': drift(14282, 97),
+      'FAM-2': drift(842, 6),
+      'HEX-1': drift(20819, -166),
+    },
+  })
+  const res = await invokeUpload({ prisma, tenantClientFactory, body, apiKey: plainKey })
+  assert.equal(res.statusCode, 200)
+  const rd = created[0].result_data
+  assert.equal(rd.positiveItems, '无', '设备判全阴时必须保持无阳性')
+  assert.equal(rd.riskLevel, '无风险')
+  assert.equal(rd.fallbackAnalysis, undefined, '兜底已移除，不得写推算摘要')
+  assert.equal((rd.reviewFlags || []).some((f) => f.type === 'ct_fallback_computed'), false)
+  assert.ok(rd.allTestItems.every((it) => it.ctSource === undefined), '不得出现推算来源标记')
+  assert.equal(rd.allTestItems.length, 3)
+})
+
 // ───────────────────────── 超管 CRUD 归一 ─────────────────────────
 
 function makeAdminStubs({ users = [{ id: 'u-1', status: 'active' }], schools = [{ code: 'school-a', status: 'active', name: 'A校' }], canteens = ['一食堂', '二食堂'], devices = [], platformKeys = [] } = {}) {
