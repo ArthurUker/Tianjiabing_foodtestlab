@@ -429,4 +429,130 @@ if (enabled) {
       await setGrant({})
     }
   })
+
+  /* ───────── 2026-11-20 全量修复回归：test_type / 分布 / 零填充 / 日期窗口 / 状态过滤 / 游标签名 ───────── */
+
+  test('F-01：/stats?test_type= 只统计该类型；未知/空串 400，已知未授权 403', async () => {
+    const r = await callStats({ school_code: TENANT_CODE, test_type: 'oil' })
+    assert.equal(r.statusCode, 200)
+    const d = r.body.data
+    assert.equal(d.test_type_filter, 'oil')
+    assert.equal(d.by_type.length, 1, 'by_type 只含请求类型')
+    assert.equal(d.by_type[0].test_type, 'oil')
+    assert.equal(d.scope_total, 4, 'oil 有效日期记录 4 条（01-15/01-25/01-31/02-01）')
+    assert.equal(d.total, d.scope_total)
+
+    const bad = await callStats({ school_code: TENANT_CODE, test_type: 'nope' })
+    assert.equal(bad.statusCode, 400)
+    assert.equal(bad.body.code, 'INVALID_TEST_TYPE')
+    const empty = await callStats({ school_code: TENANT_CODE, test_type: '' })
+    assert.equal(empty.statusCode, 400)
+    assert.equal(empty.body.code, 'INVALID_TEST_TYPE')
+
+    const g = await prisma.openApiGrant.findFirst({ where: { client_id: CLIENT_ID, school_code: TENANT_CODE } })
+    await prisma.openApiGrant.update({ where: { id: g.id }, data: { visible_types: ['tableware', 'pesticide', 'oil', 'leanMeat'] } })
+    try {
+      const deny = await callStats({ school_code: TENANT_CODE, test_type: 'pathogen' })
+      assert.equal(deny.statusCode, 403, '已知但未授权必须 403（不得静默忽略）')
+      assert.equal(deny.body.code, 'TYPE_NOT_AUTHORIZED')
+    } finally {
+      await prisma.openApiGrant.update({ where: { id: g.id }, data: { visible_types: ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'] } })
+    }
+  })
+
+  test('F-03：conclusion_distribution 与明细同源，四项之和 = scope_total；by_type 覆盖 0 条类型', async () => {
+    const r = await callStats({ school_code: TENANT_CODE })
+    const d = r.body.data
+    const c = d.conclusion_distribution
+    assert.deepEqual(Object.keys(c).sort(), ['fail', 'pass', 'unknown', 'warning'])
+    assert.equal(c.pass + c.fail + c.warning + c.unknown, d.scope_total, '分布必须可加总到分母')
+    assert.equal(c.pass, 4, '01-15 合格 / 02-01 警戒 / 01-20 餐具合格 / 01-10 病原体无风险')
+    assert.equal(c.fail, 1, '01-31 oil 不合格')
+    assert.equal(c.unknown, 1, '01-25 深绿色未识别等级 → unknown')
+    const lean = d.by_type.find((t) => t.test_type === 'leanMeat')
+    assert.ok(lean, 'by_type 必须包含 0 条记录的授权类型')
+    assert.equal(lean.scope_total, 0)
+    assert.equal(lean.pass_rate, null)
+  })
+
+  test('F-02：/test-records 支持 start/end（业务日期窗口）并回显；非法 → 400', async () => {
+    const r = await callGet('/v1/test-records', { school_code: TENANT_CODE, start: '2026-01-16', end: '2026-01-31', limit: '10' })
+    assert.equal(r.statusCode, 200)
+    assert.equal(r.body.data.count, 3, '窗口内 01-20 / 01-25 / 01-31')
+    assert.equal(r.body.data.start, '2026-01-16', '必须回显生效窗口')
+    assert.equal(r.body.data.end, '2026-01-31')
+
+    for (const [q, code] of [
+      [{ start: 'abc' }, 'INVALID_START'],
+      [{ end: '2026-13-01' }, 'INVALID_END'],
+      [{ start: '2026-02-01', end: '2026-01-01' }, 'INVALID_RANGE'],
+    ]) {
+      const bad = await callGet('/v1/test-records', { school_code: TENANT_CODE, ...q })
+      assert.equal(bad.statusCode, 400, JSON.stringify(q))
+      assert.equal(bad.body.code, code, JSON.stringify(q))
+    }
+  })
+
+  test('S-07/N-07：limit 小数向下取整、负数按 1；test_type 未知 → 400', async () => {
+    const a = await callGet('/v1/test-records', { school_code: TENANT_CODE, limit: '3.9' })
+    assert.equal(a.statusCode, 200)
+    assert.equal(a.body.data.count, 3, '小数向下取整为 3')
+    const b = await callGet('/v1/test-records', { school_code: TENANT_CODE, limit: '-5' })
+    assert.equal(b.statusCode, 200)
+    assert.equal(b.body.data.count, 1, '负数按 1 处理')
+    const c = await callGet('/v1/test-records', { school_code: TENANT_CODE, test_type: 'zzz' })
+    assert.equal(c.statusCode, 400)
+    assert.equal(c.body.code, 'INVALID_TEST_TYPE')
+  })
+
+  test('N-10：pending 记录不进入 test-records / manifest / stats', async () => {
+    const before = (await callGet('/v1/sync/manifest', { school_code: TENANT_CODE })).body.data.total
+    await tenant.testRecord.create({
+      data: {
+        record_code: 'RC-stats-pending', test_type: 'tableware', test_name: 'tableware',
+        sample_info: { testDate: '2026-01-22', canteen: '回归食堂', inspector: '测试员' },
+        result_data: { result: '合格 (<200)' }, status: 'pending', version: 1, created_by: 'u-stats-test',
+      },
+    })
+    try {
+      const records = await callGet('/v1/test-records', { school_code: TENANT_CODE, start: '2026-01-22', end: '2026-01-22', limit: '10' })
+      assert.equal(records.body.data.count, 0, 'pending 不得下发')
+      const manifest = await callGet('/v1/sync/manifest', { school_code: TENANT_CODE })
+      assert.equal(manifest.body.data.total, before, 'pending 不计入清单')
+      const stats = await callStats({ school_code: TENANT_CODE, start: '2026-01-22', end: '2026-01-22' })
+      assert.equal(stats.body.data.scope_total, 0, 'pending 不进入统计')
+    } finally {
+      await tenant.testRecord.deleteMany({ where: { record_code: 'RC-stats-pending' } })
+    }
+  })
+
+  test('S-04/F-02：游标签名与筛选绑定——篡改 → 409、换业务日期复用 → 400', async () => {
+    const prev = process.env.OPEN_API_CURSOR_SECRET
+    process.env.OPEN_API_CURSOR_SECRET = 'integration-cursor-secret'
+    try {
+      const p1 = await callGet('/v1/test-records', { school_code: TENANT_CODE, limit: '2' })
+      assert.equal(p1.statusCode, 200)
+      assert.equal(p1.body.data.has_more, true)
+      const cur = p1.body.data.next_cursor
+      assert.ok(cur.includes('.'), 'v3 游标必须带签名段')
+
+      const p2 = await callGet('/v1/test-records', { school_code: TENANT_CODE, limit: '2', cursor: cur })
+      assert.equal(p2.statusCode, 200, '同条件续页必须可用')
+
+      const [b64, sig] = cur.split('.')
+      const payload = JSON.parse(Buffer.from(b64, 'base64url').toString('utf8'))
+      payload.u = '2099-01-01T00:00:00.000Z'
+      const forged = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url') + '.' + sig
+      const bad = await callGet('/v1/test-records', { school_code: TENANT_CODE, cursor: forged })
+      assert.equal(bad.statusCode, 409, '伪造水位必须被签名拦截')
+      assert.equal(bad.body.code, 'SCOPE_CHANGED')
+
+      const mismatch = await callGet('/v1/test-records', { school_code: TENANT_CODE, limit: '2', cursor: cur, start: '2026-01-01' })
+      assert.equal(mismatch.statusCode, 400, '换业务日期后复用游标必须拒绝')
+      assert.equal(mismatch.body.code, 'CURSOR_FILTER_MISMATCH')
+    } finally {
+      if (prev === undefined) delete process.env.OPEN_API_CURSOR_SECRET
+      else process.env.OPEN_API_CURSOR_SECRET = prev
+    }
+  })
 }

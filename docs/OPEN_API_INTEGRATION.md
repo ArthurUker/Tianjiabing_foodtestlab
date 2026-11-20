@@ -1,7 +1,7 @@
 # 开放接口对接文档（第三方只读数据拉取）
 
 > 契约版本：**v1**（`contract_version: "v1"`，所有响应都会带上）
-> 最后更新：2026-09-23
+> 最后更新：**2026-11-20**（全量修复：`/stats` test_type 与 conclusion 分布、`/test-records` start/end、游标 v3 签名、status=completed 数据面等，见 §0.3）
 > 平台侧实现：`backend/routes/openApiRoutes.js`（对外）、`backend/routes/adminOpenApiRoutes.js`（超管配置）
 > 字段契约单一事实源：`backend/lib/openApiFieldSchema.js`；超管控制台「开放接口」页可在线查看字段字典与样例、并下载**接入包**
 
@@ -17,7 +17,7 @@
 
 | 项 | 变更 | 兼容性影响 |
 |---|---|---|
-| 食用油结论 | `conclusion` 改为按平台业务口径判定（`colorLevel` 仅「不合格」判不合格，其余等级视为合格；无 `colorLevel` 回退 `result`），与 `/stats` 完全一致 | 少数食用油记录的 `conclusion` 由 `unknown` 变为 `pass`；字段本身与取值枚举未变 |
+| 食用油结论 | `conclusion` 按平台业务口径判定：`colorLevel` ∈ {`合格`,`警戒`} → 合格；`不合格` → 不合格；**其它未识别非空值 → `unknown`（不计合格，不回退 `result`）**；`colorLevel` 为空才回退 `result` 文本。与 `/stats` 完全一致 | 未识别等级的记录 `conclusion` 为 `unknown`；字段本身与取值枚举未变 |
 | 增量游标 | 游标升级为 v2：额外绑定**筛选条件指纹**与**投影策略指纹** | 旧游标请求会返回 `409 SCOPE_CHANGED`，需重新对账（对接初期无影响） |
 | 清单摘要 `digest` | 组成改为「游标协议版本 + `scope_version` + `projection_fingerprint` + 各记录 `record_code@updated_at`」 | 同样的数据 digest 值会与旧版不同；语义更强（字段可见性变化也能被感知） |
 | 清单超限 | 超过单次上限时返回 `413 MANIFEST_TOO_LARGE`，**不再可能返回被截断的清单** | 之前不存在静默截断，此处仅把行为显式化 |
@@ -29,6 +29,22 @@
 - 丢弃旧的跨轮游标，保留旧本地状态作回滚点；先完整获取清单和明细，按 `record_code` 整条替换（清掉已撤回字段），再读尾部清单。只有首尾摘要一致且所有分页成功时，才一次性提交新数据、摘要和水位。失败时保留旧完成状态。参考客户端用 `syncProtocolVersion: 2` 强制旧状态完成这次重拉。
 - 历史复检可能覆盖当前检测值，旧 `initial_conclusion` 不能视为可信初检。新解析在无初检快照的复检记录中返回 `unknown`，结构化最新复检 `isPassed` 优先；`conclusion_conflict` 表示它与可识别的 `finalStatus` 矛盾。原 `pass_rate` 数值算法未改，`metric_basis` 更正为 `stored_current_result`。
 - `school_name` 是当前学校主数据；学校改名会改变投影指纹。即使记录未更新，也应重拉该校记录以刷新名称。
+
+### 2026-11-20 行为修正（v1 内，向后兼容的新增为主）
+
+| 项 | 变更 | 对客户端的影响 |
+|---|---|---|
+| `/stats` 的 `test_type` | **此前被静默忽略**（五个类型返回相同数字）；现按类型过滤，未知/空串 → `400 INVALID_TEST_TYPE`，已知未授权 → `403 TYPE_NOT_AUTHORIZED`，响应带 `test_type_filter` | 依赖"全量数字"的调用需显式去掉 `test_type`；分类型合格率可直接使用 |
+| `/stats` 结论分布 | 新增 `conclusion_distribution {pass, fail, warning, unknown}`（与明细 `conclusion` 同一判定源，四项和 = `scope_total`） | 可用它解释 `pass_rate` 差值，不需自行重算 |
+| `/stats` 的 `by_type` | **覆盖全部授权类型**（含 0 条记录的类型；`total=0`、`pass_rate=null`） | 不再需要按 `visible_types` 手工补 0 |
+| `/test-records` 日期窗口 | **此前忽略 `start`/`end`**；现按业务日期过滤（授权范围 ∩ 请求范围，闭区间），响应回显生效的 `start`/`end`；非法 → `400 INVALID_START/INVALID_END/INVALID_RANGE` | 按日期窗口增量拉取现在生效；`start=abc` 不再静默返回全量 |
+| 游标 | 升级 **v3：服务端 HMAC 签名**；篡改/剥离签名 → `409 SCOPE_CHANGED`；筛选指纹纳入 `start`/`end`/`until` | 旧游标一律 `409`，需重新对账（一次性） |
+| 数据面 | `/test-records`、`/sync/manifest`、`/stats` **只含 `status=completed`** 的记录 | pending/failed/archived 不再出现，计数口径更明确 |
+| `/sync/manifest` | 支持 `test_type` 过滤（此前被静默忽略）并回显 `test_type_filter` | 分类型清单对账可用 |
+| `/profile` | `disabled` 授权**只返回 `school_code` + `status`**（最小披露） | 不要依赖 disabled 授权的学校名称/类型 |
+| 字典 | `riskLevel` 枚举补「中风险」「高风险」；`rluValue` 单位按 `testType` 区分（atp=RLU / detergent=mg/L）；`canteens` = 学校配置 ∪ 数据实测值 | 解析请用"非「无风险」即有风险"，不要穷举枚举 |
+| 错误信封 | 401/429 等中间件错误**也带 `server_time`**（与路由层同形） | 可直接从任意错误响应取服务器时间 |
+| `limit` | 只接受整数：小数向下取整、负数按 1、上限 200、非数字/0 回退 100 | 无需改动，行为更可预期 |
 
 ---
 
@@ -59,11 +75,11 @@ Authorization: Bearer <你的 API Key>
 | GET | `/schools` | 授权学校列表 |
 | GET | `/dict?school_code=` | 字典：类型、食堂、结论枚举、**字段字典** |
 | GET | `/samples?school_code=[&test_type=]` | **合成样例**（非真实数据） |
-| GET | `/sync/manifest?school_code=[&detail=1]` | 全量清单：`total` + `digest`（`detail=1` 附明细） |
-| GET | `/test-records?school_code=&cursor=&limit=&test_type=&since=&until=` | 检测记录增量拉取 |
-| GET | `/stats?school_code=&start=&end=` | 合格率统计（含排除原因） |
+| GET | `/sync/manifest?school_code=&detail=&test_type=` | 全量清单：`total` + `digest`（`detail=1` 附明细；可选 `test_type` 过滤；只含 `completed`） |
+| GET | `/test-records?school_code=&cursor=&limit=&test_type=&start=&end=&since=&until=` | 检测记录增量拉取（`start/end` 为业务日期窗口；`since/until` 为更新时间窗；只含 `completed`） |
+| GET | `/stats?school_code=&start=&end=&test_type=` | 合格率统计（含排除原因、`conclusion_distribution` 与分类型明细） |
 
-统一响应：成功 `{ "code": 0, "data": {...} }`；失败 `{ "code": "<错误码>", "error": "<说明>" }`。
+统一响应：成功 `{ "code": 0, "data": {...} }`；失败 `{ "code": "<错误码>", "error": "<说明>", "server_time": "..." }`（统一同形，含 401/429）。
 所有时间字段为 ISO8601（`+08:00`）。所有响应均带 `contract_version`。
 
 ---
@@ -104,12 +120,13 @@ curl -s -H "X-API-Key: $KEY" "$BASE/samples?school_code=<学校>"    # ← 合�
 - `result.sampleInfo`（病原体）是**普通字符串**（样品说明，实测 5~16 字符），不是 JSON，请勿解析为对象。
 - 实测类型提醒：`result.rluValue`、`result.tpmValue`、`result.acidValue`、`result.oilTemp` 在源数据中为**字符串**，需自行转数值；`result.allTestItems[].no` 存在 number 与 string 两种形态。
 - **单位与缩放（务必按此实现）**：
+  - `result.rluValue`：**单位随 `result.testType` 变化** —— `atp` → RLU（ATP 阈值 <200 合格 / >500 不合格）；`detergent`（洗涤剂残留）→ **mg/L 浓度**（≤0.1 合格 / >0.1 不合格，取值 0~1 量级）。**禁止把 ATP 的 RLU 阈值套用到 detergent 记录**（会把不合格判成合格）；结论以 `conclusion` / `result.atpPoints[].res` 为准。
   - `result.tpmValue`：平台保存原始字符串，界面标注为 g/100g 并使用当前代码阈值；设备协议尚未核实，不能据界面标注确认物理单位或自行换算、重判历史记录。
   - `result.acidValue`：单位 `mg KOH/g`（前端展示简写 `mg/g`）；判定 <2.5 合格 / <5 警戒 / ≥5 不合格；空值出现过（实测 空 21 / 0.3 13 / 0 5）。
   - `result.oilTemp`：`℃`（实测恒为 35）。
   - `result.colorLevel`：**不是颜色**，是「综合品质等级」枚举 `合格 / 警戒 / 不合格`（由 TPM 与酸价等级取最差得出）。
 - **病原体字段语义（避免误读）**：
-  - `riskLevel` ∈ {`无风险`, `低风险`, `极低风险`}；**非「无风险」一律视为不合格/有风险**（与 `/stats` 同口径），但**这不等于确诊阳性**；
+  - `riskLevel` ∈ {`无风险`, `低风险`, `极低风险`, `中风险`, `高风险`}；**非「无风险」一律视为不合格/有风险**（与 `/stats` 同口径），但**这不等于确诊阳性**。⚠️ 解析请用"非「无风险」即有风险"的**黑名单方式，不要穷举枚举**（历史数据已出现字典未登记过的等级）；
   - `positiveDetails` 数组是否非空 = **是否检出的权威依据**（实测：非空 ⟺ `riskLevel` ≠ 无风险）；
   - `positiveItems` 为文本：有检出时为致病菌名称（可能多个），无风险时是 **1 字符占位（非空）**——不要用"是否为空"判断检出；
   - 复检结论优先取最新 `recheckReports[].isPassed`；当前 Web 也会写入 `finalStatus`，两者冲突时以结构化 `isPassed` 为准。
@@ -149,10 +166,11 @@ curl -s -H "X-API-Key: $KEY" "$BASE/samples?school_code=<学校>"    # ← 合�
 
 ### 4.1 游标规则（`next_cursor`）
 
-- 游标由服务端生成，绑定：学校 + 筛选条件（类型集合、`until`）+ 授权版本 `scope_version` + 投影策略 `projection_fingerprint` + 水位 `(updated_at, id)`。
-- **不可跨学校、不可更换 `test_type`/`until` 复用**（会返回 `400 CURSOR_FILTER_MISMATCH`）；
+- 游标由服务端生成（**v3 起为 HMAC 签名的不可伪造串**），绑定：学校 + 筛选条件（类型集合、`start`/`end` 业务日期窗口、`until`）+ 授权版本 `scope_version` + 投影策略 `projection_fingerprint` + 水位 `(updated_at, id)`。
+- **不可跨学校、不可更换 `test_type`/`start`/`end`/`until` 复用**（会返回 `400 CURSOR_FILTER_MISMATCH`）；
+- **不可篡改或剥离签名**：游标被修改 → `409 SCOPE_CHANGED`（请勿解析游标内部结构，视为不透明串）；
 - 授权或字段可见性变化 → `409 SCOPE_CHANGED`；
-- 旧协议游标 → `409 SCOPE_CHANGED`（提示重新对账）；
+- 旧协议游标（v2 及更早）→ `409 SCOPE_CHANGED`（提示重新对账）；
 - 排序键为 `(updated_at ASC, id ASC)`；`updated_at` 为毫秒精度。同一时间戳的记录靠 `id` 决胜。客户端须用清单摘要和逐条 `change_token` 复核，不得自行截断到秒。
 - `since` 参数仅用于**重叠回拉**（粗筛，边界记录可能重复），常规增量请使用 `cursor`。
 
@@ -214,10 +232,15 @@ tail 请求失败 / digest 不一致）都不得留下 records / cursor / waterm
 ### 5.2 `GET /profile`
 返回对接方、当前凭证与**每所学校的授权**（`school_code`/`school_name`/`status`/`scope_version`/`visible_types`/`include_pathogen`/`include_inspector`/`include_attachments`/`start_date`/`end_date`）。
 
+> `status` 为 `disabled` 的授权**只返回 `school_code` + `status`**（最小披露：不下发该学校的名称、类型与字段开关）；需要该校信息请先联系平台开通。
+
+
 > ⚠️ `/profile` **不返回** `projection_fingerprint`。字段可见性指纹请从 `/test-records`、`/samples`、`/sync/manifest` 的响应中读取（三处同值，与该校 grant 的 `scope_version` 一起用于判断"是否需要重投影"）。
 
 ### 5.3 `GET /dict`
 `contract_version`、`school_code`、`scope_version`、`visible_types`、`canteens`、`conclusions`、`field_schema`（见 §3.1）、`field_schema_notes`。
+
+> `canteens` = 学校配置的食堂清单 **∪ 数据中实际出现过的食堂值**（配置滞后不会造成"未知食堂"；顺序为配置值在前、其余按字典序）。
 
 ### 5.4 `GET /samples`
 `contract_version`、`samples: [{ test_type, scenario, synthetic: true, note, item }]`。
@@ -228,12 +251,16 @@ tail 请求失败 / digest 不一致）都不得留下 records / cursor / waterm
 |---|---|---|
 | `school_code` | 是 | 学校代码 |
 | `detail` | 否 | `1` 时附 `items` 全量清单，否则仅摘要 |
+| `test_type` | 否 | 只对清单该类型过滤（未知/空串 → `400 INVALID_TEST_TYPE`）；响应回显 `test_type_filter` |
+
+> 清单只含 `status=completed` 的记录；`total` 与 `digest` 均按过滤后的集合计算。
 
 ```json
 { "code": 0, "data": {
   "contract_version": "v1", "school_code": "tjb",
   "scope_version": 3, "projection_fingerprint": "9f2c…",
   "visible_types": ["tableware", "pesticide", "oil", "leanMeat"],
+  "test_type_filter": null,
   "generated_at": "2026-09-15T14:30:00+08:00",
   "detail": true, "total": 1063, "complete": true,
   "digest": "…", "digest_covers": "cursor_version+scope_version+projection_fingerprint+record_code@change_token",
@@ -246,14 +273,15 @@ tail 请求失败 / digest 不一致）都不得留下 records / cursor / waterm
 
 ### 5.6 `GET /test-records`
 
-参数：`school_code`（必填）、`cursor`、`limit`（默认 100，上限 200）、`test_type`、`since`、`until`。
+参数：`school_code`（必填）、`cursor`、`limit`（默认 100，上限 200；只接受整数，小数向下取整、负数按 1）、`test_type`、`start`/`end`（业务日期窗口，授权范围 ∩ 请求范围，闭区间）、`since`/`until`（更新时间窗；`until` 非法 → `400 INVALID_UNTIL`）。响应只含 `status=completed` 的记录。
 
 ```json
 { "code": 0, "data": {
   "contract_version": "v1", "school_code": "tjb", "school_name": "…",
   "scope_version": 3, "projection_fingerprint": "9f2c…",
   "visible_types": ["tableware", "…"], "test_type_filter": null,
-  "count": 200, "has_more": true, "next_cursor": "eyJ2Ijoy…",
+  "start": "2026-01-01", "end": "2026-01-31",
+  "count": 200, "has_more": true, "next_cursor": "eyJ2Ijoz…<签名段>",
   "items": [ {
       "record_id": "cmt…", "record_code": "RC-tableware-07c2240b…",
       "school_code": "tjb", "school_name": "…",
@@ -279,9 +307,13 @@ tail 请求失败 / digest 不一致）都不得留下 records / cursor / waterm
 
 ### 5.7 `GET /stats`
 
+参数：`school_code`（必填）、`start`/`end`（业务日期，授权范围 ∩ 请求范围）、`test_type`（可选；未知/空串 → `400 INVALID_TEST_TYPE`，已知未授权 → `403 TYPE_NOT_AUTHORIZED`；响应回显 `test_type_filter`）。只统计 `status=completed` 的记录。
+
 ```json
 { "code": 0, "data": {
   "school_code": "tjb", "start": "2026-01-01", "end": "2026-01-31",
+  "test_type_filter": null,
+  "conclusion_distribution": { "pass": 1046, "fail": 16, "warning": 0, "unknown": 0 },
   "total": 1062, "pass_count": 1046, "pass_rate": 0.9849,
   "scope_total": 1062, "included_total": 1062, "universe_total": 1063,
   "excluded_total": 0,
@@ -307,7 +339,7 @@ tail 请求失败 / digest 不一致）都不得留下 records / cursor / waterm
 |---|---|
 | 餐具洁净度 | 顶层 `result` 有文本 → 含「合格」且不含「不合格」为合格；**顶层为空时回退 `result.atpPoints[].res`**（洗涤剂残留记录只写点位结论）：任一点位「不合格」→ 不合格；所有点位「合格」→ 合格；其余 → 未判定、不计合格 |
 | 果蔬 / 肉蛋 | `result` 含「合格」且不含「不合格」 |
-| 食用油 | 优先 `colorLevel`（综合品质等级）走**显式枚举**：`合格`/`警戒` → 合格；`不合格` → 不合格；**其它未识别值不再默认合格**，而是回退 `result` 文本判定（`colorLevel` 缺失时同样回退 `result`，实测油记录 `result` 恒为空串 → `unknown`） |
+| 食用油 | 优先 `colorLevel`（综合品质等级）走**显式枚举**：`合格`/`警戒` → 合格；`不合格` → 不合格；**其它未识别非空值 → `unknown`（不计合格，不回退 `result`）**；仅当 `colorLevel` 缺失/为空时才回退 `result` 文本（实测油记录 `result` 恒为空串 → `unknown`） |
 | 病原体 | `riskLevel = 无风险` 为合格；**任何其它非空值视为不合格/有风险**。⚠️ 「有风险」≠ 确诊阳性：是否检出看 `result.positiveDetails` 是否非空 |
 
 ### 复检记录的阶段语义（病原体，2026-09-23 补充）
@@ -343,13 +375,13 @@ tail 请求失败 / digest 不一致）都不得留下 records / cursor / waterm
 - `start`/`end` 的实际生效范围 = **授权范围 ∩ 请求范围**（请求不得超过授权）；交集为空是合法请求 → `200` 且 0 条（`range.empty = true`）。
 - `metric_basis = 'stored_current_result'`：既有 `pass_rate` 数值算法未改，按当前保存的 `result`/`colorLevel`/`riskLevel` 计算。部分 Web 复检会覆盖这些字段，所以它不能保证是初检率，也不保证所有类型都等于最终结论率。独立初检与最终结论统计指标须待业务确定快照保存和兼容方案。
 
-> 对账建议（2026-09-17 澄清，避免误判）：
-> · `/test-records` 的**日期过滤只来自授权范围**（该端点不接受业务日期参数，`until` 过滤的是 `updated_at`）。
-> · 授权**带**业务日期范围时：`/test-records` 与 `/manifest` 只含范围内、日期合法的记录 ⇒ 与其条数一致的是 `stats.scope_total`。
-> · 授权**不带**业务日期范围时：`/test-records` 会返回授权类型内**全部**记录（**包含日期缺失/非法**的记录，供排查），
->   而 `stats.scope_total` 只含日期合法的记录 ⇒ 对账恒等式为 **`manifest.total = scope_total + excluded_total`**；
->   请求范围与授权范围的差异另由 `request_out_of_range_total` 解释。
-> 若仍不一致，请按上述三个桶定位，而不是简单"以某个数为准"。
+> 对账建议（**2026-11-20 更新**，避免误判）：
+> · `/test-records` 自 2026-11-20 起**支持 `start`/`end` 业务日期过滤**（授权范围 ∩ 请求范围，闭区间，响应回显 `start`/`end`）；`until` 过滤的是 `updated_at`，`since` 仅用于重叠回拉。
+> · 三个端点均只含 `status=completed` 的记录；`/test-records` 与 `/sync/manifest` 仍会包含**业务日期缺失/非法**的记录（供排查），
+>   而 `stats.scope_total` 只含日期合法的记录 ⇒ 无业务日期请求时对账恒等式为 **`manifest.total = scope_total + excluded_total`**；
+>   带 `start`/`end` 时两侧都限定在同一窗口，`manifest.total` 与 `scope_total` 可直接对齐。
+> · `conclusion_distribution` 四项之和 = `scope_total`，可直接解释 `pass_rate` 与"其余都不合格"的差异。
+> 若仍不一致，请按 `excluded` / `request_out_of_range_total` 两个桶定位，而不是简单"以某个数为准"。
 
 ---
 
@@ -360,8 +392,9 @@ tail 请求失败 / digest 不一致）都不得留下 records / cursor / waterm
 | 401 | `MISSING_KEY` / `INVALID_KEY` / `CREDENTIAL_REVOKED` / `CREDENTIAL_EXPIRED` | 未携带 / 无效 / 已吊销 / 已过期 | 检查密钥；联系平台方换发 |
 | 403 | `CLIENT_DISABLED` | 对接方被停用 | 联系平台方 |
 | 403 | `IP_DENIED` | 来源 IP 不在白名单 | 提供出口 IP |
-| 403 | `SCHOOL_NOT_AUTHORIZED` / `TYPE_NOT_AUTHORIZED` / `NO_VISIBLE_TYPE` | 学校 / 类型未授权 | 联系平台方开通 |
-| 400 | `INVALID_SCHOOL_CODE` / `INVALID_CURSOR` / `CURSOR_SCHOOL_MISMATCH` / `CURSOR_FILTER_MISMATCH` / `INVALID_SINCE` / `INVALID_UNTIL` | 参数或游标非法 | 修正参数；跨校/换条件复用游标要重拉 |
+| 403 | `SCHOOL_NOT_AUTHORIZED` / `TYPE_NOT_AUTHORIZED` / `NO_VISIBLE_TYPE` | 学校 / 类型未授权（未知学校码也归 403，不泄露学校是否存在） | 联系平台方开通；以 `/profile` 为准 |
+| 404 | `SCHOOL_NOT_FOUND` | 学校不存在或已停用（仅在授权身份校验通过后出现；罕见） | 核对 `school_code` |
+| 400 | `INVALID_SCHOOL_CODE` / `INVALID_CURSOR` / `CURSOR_SCHOOL_MISMATCH` / `CURSOR_FILTER_MISMATCH` / `INVALID_TEST_TYPE` / `INVALID_START` / `INVALID_END` / `INVALID_RANGE` / `INVALID_SINCE` / `INVALID_UNTIL` | 参数或游标非法（含 `test_type` 为空/未知、日期倒置） | 修正参数；跨校/换条件复用游标要重拉 |
 | 409 | `SCOPE_CHANGED` | 授权或字段可见性变化、游标协议过旧 | 重新对账并重拉全部明细 |
 | 413 | `MANIFEST_TOO_LARGE` | 清单超单次上限（明确拒绝，不返回截断清单） | 联系平台方改为分页清单 |
 | 429 | `RATE_LIMITED` | 触发限流 | 按 `Retry-After` 退避 |
@@ -380,6 +413,15 @@ tail 请求失败 / digest 不一致）都不得留下 records / cursor / waterm
 **Q3：如何感知删除？**
 见 §4.2。**必须在"清单完整获取成功"的前提下**才能判定源端已删除；请求失败不得解释为空清单。
 
+**Q3.1：`/stats?test_type=` 现在生效了吗？**
+是（2026-11-20 修复）。未知/空 `test_type` → `400 INVALID_TEST_TYPE`，已知但未授权 → `403 TYPE_NOT_AUTHORIZED`；响应带 `test_type_filter`，`by_type` 只含该类型。分类型合格率可直接使用，`by_type` 也会覆盖全部授权类型（含 0 条，`pass_rate=null`）。
+
+**Q3.2：`/test-records?start=&end=` 为什么以前返回全量？**
+2026-11-20 前该端点静默忽略这两个参数；现已按业务日期窗口过滤并在响应回显生效的 `start`/`end`。升级后旧游标会返回 `409 SCOPE_CHANGED`，请按 §4 重新对账一次。
+
+**Q3.3：`pass_rate` 与"不合格数"为什么对不上？**
+看 `conclusion_distribution`：`unknown` 计入分母但不算合格，`warning` 也单独计数；四项之和等于 `scope_total`。
+
 **Q4：授权范围变了怎么办？**
 `scope_version` / `projection_fingerprint` 变化 → 旧游标 `409`；重新对账并按新授权**重拉全部明细**（这样字段撤回才会生效）。范围变化只影响**被改动的那所学校**，其他学校的游标不受影响。
 
@@ -395,8 +437,10 @@ tail 请求失败 / digest 不一致）都不得留下 records / cursor / waterm
 
 - [ ] `GET /ping` 通，服务器时间与本机偏差可接受
 - [ ] `GET /profile` 的学校与类型范围与约定一致
-- [ ] `GET /dict` 能取到字段字典，字段映射已完成
-- [ ] `GET /samples` 能取到各场景样例（合格/不合格/复检）
+- [ ] `GET /dict` 能取到字段字典，字段映射已完成（`riskLevel` 按黑名单解析、`rluValue` 按 `testType` 分单位）
+- [ ] `GET /samples` 能取到各场景样例（外层 `data.samples[]` + `item`；合格/不合格/复检）
+- [ ] `GET /stats?test_type=<某授权类型>` 只返回该类型；`conclusion_distribution` 四项和等于 `scope_total`
+- [ ] `GET /test-records?start=<近7天>&end=<今天>` 只返回窗口内记录并回显 `start`/`end`；`start=abc` 返回 400
 - [ ] 全量拉取一次：条数与 `manifest.total` 一致，`record_code` 无重复
 - [ ] 增量拉取：翻页不重不漏；中断后带 `cursor` 续传；每页成功后才保存新游标
 - [ ] 未授权学校/类型被 `403` 拒绝

@@ -44,8 +44,11 @@ import {
   parseDayParam,
   maxDay,
   minDay,
+  deriveConclusion,
 } from '../lib/openApiScope.js'
 import { DEFAULT_OPEN_TYPES } from '../lib/openApiScope.js'
+// 已知检测类型全集：用于区分「未知类型（400）」与「已知但未授权（403）」
+import { RECORD_ROUTE_TYPES } from '../lib/recordNormalize.js'
 import { OPEN_API_CONTRACT_VERSION, listFieldDescriptors, buildSyntheticSamples, extractCustomFieldMeta, buildAllowedResultKeyMap, allowedKeysFingerprint } from '../lib/openApiFieldSchema.js'
 // 餐具记录级结论规则（与员工端统计、对外明细同一条规则，定义见 lib/tablewareVerdict.js）
 import { TABLEWARE_PASS_SQL } from '../lib/tablewareVerdict.js'
@@ -210,6 +213,21 @@ export function createOpenApiRoutes({ prisma }) {
     })
   }
 
+  /**
+   * 解析 test_type 查询参数（/test-records、/samples、/sync/manifest、/stats 共用）：
+   *   未传 → 不限；空串或未知类型 → 400 INVALID_TEST_TYPE；已知但未授权 → 403 TYPE_NOT_AUTHORIZED。
+   * 此前空串/未知类型被静默当作"未传"（N-07），调用方会误以为过滤已生效。
+   */
+  function resolveTestTypeFilter(req, grant, res) {
+    const raw = req.query.test_type
+    if (raw === undefined || raw === null) return { ok: true, type: null }
+    const t = String(raw).trim()
+    if (!t) { fail(res, 400, 'INVALID_TEST_TYPE', 'test_type 不能为空字符串'); return { ok: false } }
+    if (!RECORD_ROUTE_TYPES.has(t)) { fail(res, 400, 'INVALID_TEST_TYPE', `未知的检测类型 ${t}`); return { ok: false } }
+    if (!grantAllowsType(grant, t)) { fail(res, 403, 'TYPE_NOT_AUTHORIZED', `未授权的检测类型 ${t}`); return { ok: false } }
+    return { ok: true, type: t }
+  }
+
   // ─────────────── GET /v1/ping ───────────────
   router.get('/v1/ping', (req, res) => {
     ok(res, {
@@ -251,6 +269,9 @@ export function createOpenApiRoutes({ prisma }) {
           expires_at: toIsoShanghai(req.openApi.credential.expires_at),
         },
         grants: [...grants.values()].map((g) => {
+          // 最小披露（N-09）：disabled 的授权只回 code + status，
+          // 不下发学校名称/开放类型/字段开关——避免向未授权该校的对接方泄露他校信息。
+          if (g.status !== 'active') return { school_code: g.school_code, status: g.status }
           const { start, end } = grantDateRange(g)
           return {
             school_code: g.school_code,
@@ -306,12 +327,29 @@ export function createOpenApiRoutes({ prisma }) {
     try {
       const ctx = await resolveSchool(req, res, req.query.school_code)
       if (!ctx) return
-      const { grant, school } = ctx
+      const { grant, schema, school } = ctx
       // 食堂列表：优先 SchoolCustomization.canteens，回退 field_options.canteen
       const cust = await prisma.schoolCustomization.findUnique({ where: { school_code: school.code } })
-      const canteens = Array.isArray(cust?.canteens)
+      const configuredCanteens = Array.isArray(cust?.canteens)
         ? cust.canteens.map((c) => String(c))
         : (Array.isArray(cust?.field_options?.canteen) ? cust.field_options.canteen.map((c) => String(c)) : [])
+      // F-08：字典食堂清单 = 学校配置 ∪ 数据中实际出现的食堂（配置滞后不再导致"未知食堂"）。
+      // 观测查询失败不影响字典主体（降级为仅配置值）。
+      const observed = new Set()
+      try {
+        const db = createTenantClient(prisma, school.code)
+        const rows = await db.$queryRawUnsafe(
+          `SELECT DISTINCT btrim("sample_info"->>'canteen') AS canteen
+             FROM "${schema}"."TestRecord"
+            WHERE "status" = 'completed'
+              AND btrim(COALESCE("sample_info"->>'canteen','')) <> ''`,
+        )
+        for (const r of rows) observed.add(String(r.canteen))
+      } catch (e) {
+        console.error(`${TAG} dict 食堂观测失败（降级为配置值）:`, e.message)
+      }
+      const extras = [...observed].filter((c) => !configuredCanteens.includes(c)).sort()
+      const canteens = [...configuredCanteens, ...extras]
 
       // 字段字典：仅对**当前凭证据此学校已开放的类型**下发；字段定义与实际响应同源（openApiFieldSchema）
       const visibleTypes = resolveGrantTypes(grant)
@@ -381,12 +419,9 @@ export function createOpenApiRoutes({ prisma }) {
       // 字段白名单（与字典同源；2026-09-16 审阅 M2）
       const resultKeyMap = await allowedKeysForSchool(school.code, types)
 
-      let target = types
-      if (req.query.test_type) {
-        const t = String(req.query.test_type)
-        if (!grantAllowsType(grant, t)) return fail(res, 403, 'TYPE_NOT_AUTHORIZED', `未授权的检测类型 ${t}`)
-        target = [t]
-      }
+      const typeFilter = resolveTestTypeFilter(req, grant, res)
+      if (!typeFilter.ok) return
+      const target = typeFilter.type ? [typeFilter.type] : types
 
       const samples = []
       for (const t of target) {
@@ -427,24 +462,40 @@ export function createOpenApiRoutes({ prisma }) {
       if (!ctx) return
       const { grant, schema, school } = ctx
 
-      const limit = Math.min(Math.max(Number(req.query.limit) || DEFAULT_PAGE_SIZE, 1), MAX_PAGE_SIZE)
+      // limit：只接受整数（小数向下取整、负数按 1、超大截断 200、非数字回退默认值）
+      const limitRaw = Number.parseInt(String(req.query.limit ?? ''), 10)
+      const limit = Math.min(Math.max(Number.isFinite(limitRaw) ? limitRaw : DEFAULT_PAGE_SIZE, 1), MAX_PAGE_SIZE)
       const allowedTypes = resolveGrantTypes(grant)
       // 字段白名单（与字典同源；2026-09-16 审阅 M2）
       const resultKeyMap = await allowedKeysForSchool(school.code, allowedTypes)
 
-      // 类型过滤：未指定 = 全部开放类型；指定则必须命中白名单
-      let types = allowedTypes
-      if (req.query.test_type) {
-        const t = String(req.query.test_type)
-        if (!grantAllowsType(grant, t)) return fail(res, 403, 'TYPE_NOT_AUTHORIZED', `未授权的检测类型 ${t}`)
-        types = [t]
-      }
+      // 类型过滤：未指定 = 全部开放类型；空串/未知类型 → 400；已知但未授权 → 403
+      const typeFilter = resolveTestTypeFilter(req, grant, res)
+      if (!typeFilter.ok) return
+      const types = typeFilter.type ? [typeFilter.type] : allowedTypes
       if (!types.length) return fail(res, 403, 'NO_VISIBLE_TYPE', '该学校当前未开放任何检测类型')
 
-      // 请求级筛选条件指纹（学校 + 类型集合 + until）：游标与筛选条件绑定，
-      // 防止"用 A 类型的游标去拉 B 类型"这类换条件复用（那样会静默返回错误的结果集）。
-      const untilIso = req.query.until ? String(req.query.until) : null
-      const filtersFingerprint = computeFiltersFingerprint({ schoolCode: school.code, types, start: null, end: untilIso })
+      // 业务日期窗口（start/end）：与 /stats 同口径（请求范围 ∩ 授权范围，闭区间；非法 → 400）
+      const rng = effectiveDateRange(grant, req.query)
+      if (!rng.ok) return fail(res, 400, rng.code, rng.message)
+
+      // 更新时间上界（until）：ISO8601；非法 → 400（此前静默忽略）
+      let untilIso = null
+      if (req.query.until !== undefined && String(req.query.until).trim() !== '') {
+        const until = new Date(String(req.query.until))
+        if (Number.isNaN(until.getTime())) return fail(res, 400, 'INVALID_UNTIL', 'until 需为 ISO8601 时间')
+        untilIso = String(req.query.until)
+      }
+
+      // 请求级筛选条件指纹（学校 + 类型集合 + 业务日期窗口 + until）：游标与筛选条件绑定，
+      // 防止换类型/换日期窗口后复用游标静默返回错误结果集（v3 起纳入 start/end）。
+      const filtersFingerprint = computeFiltersFingerprint({
+        schoolCode: school.code,
+        types,
+        start: rng.effective.start,
+        end: rng.effective.end,
+        until: untilIso,
+      })
       // 投影/可见性策略指纹：类型白名单、病原体/检测人/附件开关、业务日期范围、
       // **投影实现修订号 + 学校自定义字段指纹**（F6：仅改投影实现也必须改变指纹）
       const projection = computeProjectionFingerprint(grant, await projectionExtra(school.code, types, school.name))
@@ -456,6 +507,10 @@ export function createOpenApiRoutes({ prisma }) {
       if (rawCursor) {
         const cur = decodeCursor(rawCursor)
         if (!cur) return fail(res, 400, 'INVALID_CURSOR', '游标格式非法')
+        // v3 起游标强制 HMAC 签名：签名缺失/不符（伪造水位或旧版游标）一律重新对账，不静默继续
+        if (cur._sigValid === false) {
+          return fail(res, 409, 'SCOPE_CHANGED', `游标签名无效或已升级（当前 v${CURRENT_CURSOR_VERSION}），同步协议已升级，请重新执行对账同步`)
+        }
         if (!cur._current) {
           return fail(res, 409, 'SCOPE_CHANGED', `游标版本过旧（当前 v${CURRENT_CURSOR_VERSION}），同步协议已升级，请重新执行对账同步`)
         }
@@ -489,16 +544,17 @@ export function createOpenApiRoutes({ prisma }) {
         const pId = params.length
         conds.push(`("updated_at" > $${pUpdated}::timestamp OR ("updated_at" = $${pUpdated}::timestamp AND "id" > $${pId}))`)
       }
-      if (req.query.until) {
-        const until = new Date(String(req.query.until))
-        if (Number.isNaN(until.getTime())) return fail(res, 400, 'INVALID_UNTIL', 'until 需为 ISO8601 时间')
-        params.push(toUtcWallClock(until))
+      if (untilIso) {
+        params.push(toUtcWallClock(new Date(untilIso)))
         conds.push(`"updated_at" <= $${params.length}::timestamp`)
       }
       params.push(types)
       conds.push(`"test_type" = ANY($${params.length}::text[])`)
+      // 开放数据面只含已完成的检测记录（pending/failed/archived 不外发；此前依赖数据巧合）
+      conds.push(`"status" = 'completed'`)
 
-      const dateCond = dateClause(grant, params)
+      // 业务日期窗口：请求范围 ∩ 授权范围（已归一的 YYYY-MM-DD 文本比较，闭区间）
+      const dateCond = dateRangeClause(rng.effective, params)
       const whereSql = (conds.length ? `WHERE ${conds.join(' AND ')}` : 'WHERE TRUE') + dateCond
 
       params.push(limit + 1)
@@ -531,7 +587,9 @@ export function createOpenApiRoutes({ prisma }) {
         scope_version: grant.scope_version,
         projection_fingerprint: projection,
         visible_types: allowedTypes,
-        test_type_filter: req.query.test_type ? String(req.query.test_type) : null,
+        test_type_filter: typeFilter.type,
+        start: rng.effective.start || null,   // 实际生效的业务日期窗口（授权 ∩ 请求）
+        end: rng.effective.end || null,
         count: page.length,
         has_more: hasMore,
         next_cursor: nextCursor,
@@ -553,15 +611,19 @@ export function createOpenApiRoutes({ prisma }) {
       const ctx = await resolveSchool(req, res, req.query.school_code)
       if (!ctx) return
       const { grant, schema, school } = ctx
-      const types = resolveGrantTypes(grant)
-      if (!types.length) return fail(res, 403, 'NO_VISIBLE_TYPE', '该学校当前未开放任何检测类型')
+      const allTypes = resolveGrantTypes(grant)
+      if (!allTypes.length) return fail(res, 403, 'NO_VISIBLE_TYPE', '该学校当前未开放任何检测类型')
+      // test_type 过滤（此前被静默忽略：客户端按类型对账会拿到全类型超集）
+      const typeFilter = resolveTestTypeFilter(req, grant, res)
+      if (!typeFilter.ok) return
+      const types = typeFilter.type ? [typeFilter.type] : allTypes
 
       const params = [types]
       const dateCond = dateClause(grant, params)
       const db = createTenantClient(prisma, school.code)
       const rows = await db.$queryRawUnsafe(
         `SELECT "record_code", "updated_at", "version" FROM "${schema}"."TestRecord"
-         WHERE "test_type" = ANY($1::text[])${dateCond}
+         WHERE "test_type" = ANY($1::text[]) AND "status" = 'completed'${dateCond}
          ORDER BY "record_code" ASC`,
         ...params,
       )
@@ -581,7 +643,8 @@ export function createOpenApiRoutes({ prisma }) {
         school_code: school.code,
         scope_version: grant.scope_version,
         projection_fingerprint: projection,
-        visible_types: types,
+        visible_types: allTypes,
+        test_type_filter: typeFilter.type,
         // 客户端应把 generated_at 与本次同步结束时刻对比：两者之间若有新变更，
         // 本轮结果可能不一致，需再跑一轮（见对接文档「同步轮次一致性」）。
         generated_at: toIsoShanghai(new Date()),
@@ -608,8 +671,12 @@ export function createOpenApiRoutes({ prisma }) {
       const ctx = await resolveSchool(req, res, req.query.school_code)
       if (!ctx) return
       const { grant, schema, school } = ctx
-      const types = resolveGrantTypes(grant)
-      if (!types.length) return fail(res, 403, 'NO_VISIBLE_TYPE', '该学校当前未开放任何检测类型')
+      const allTypes = resolveGrantTypes(grant)
+      if (!allTypes.length) return fail(res, 403, 'NO_VISIBLE_TYPE', '该学校当前未开放任何检测类型')
+      // test_type 过滤（此前该参数被**完全忽略**，五个类型返回相同数字 —— P0 契约偏差）
+      const typeFilter = resolveTestTypeFilter(req, grant, res)
+      if (!typeFilter.ok) return
+      const types = typeFilter.type ? [typeFilter.type] : allTypes
 
       // 参数校验 + 授权范围 ∩ 请求范围（2026-09-16：此前用 `substring(...) >= $N::date`，
       // 因 text→date 无隐式转换，带 start/end 必 500；且请求范围会**覆盖**而非交叠授权范围）
@@ -656,10 +723,42 @@ export function createOpenApiRoutes({ prisma }) {
                 count(*) FILTER (WHERE ${universeSql} AND NOT (${inScopeSql}))::int AS request_out_of_range,
                 count(*) FILTER (WHERE ${invalidDateSql})::int AS excluded_invalid_date
          FROM "${schema}"."TestRecord"
-         WHERE "test_type" = ANY($1::text[])
+         WHERE "test_type" = ANY($1::text[]) AND "status" = 'completed'
          GROUP BY "test_type" ORDER BY "test_type"`,
         ...params,
       )
+
+      // ── conclusion 分布（F-03）：与明细 `conclusion` 字段同源，由唯一结论判定源（normalizeConclusion）推导。
+      //    只取最小字段集，避免把巨型 recheckReports 全量拉进内存（单条压测记录曾达 1.28MB）。
+      const distRows = await db.$queryRawUnsafe(
+        `SELECT "test_type",
+                COALESCE("result_data"->>'riskLevel','') AS risk_level,
+                COALESCE("result_data"->>'result','') AS result_text,
+                COALESCE("result_data"->>'colorLevel','') AS color_level,
+                COALESCE("result_data"->>'finalStatus','') AS final_status,
+                (jsonb_typeof("result_data"->'recheckReports') = 'array' AND jsonb_array_length("result_data"->'recheckReports') > 0) AS has_report,
+                ("result_data"->'recheckReports'->0->>'isPassed') AS report_passed,
+                (jsonb_typeof("result_data"->'recheckRecords') = 'array' AND jsonb_array_length("result_data"->'recheckRecords') > 0) AS has_record,
+                ("result_data"->'recheckRecords'->0->>'isPassed') AS record_passed
+         FROM "${schema}"."TestRecord"
+         WHERE "test_type" = ANY($1::text[]) AND "status" = 'completed' AND ${inScopeSql}`,
+        ...params,
+      )
+      const asBool = (v) => (v === 'true' ? true : (v === 'false' ? false : v))
+      const conclusionDistribution = { pass: 0, fail: 0, warning: 0, unknown: 0 }
+      for (const r of distRows) {
+        const minimalResult = {
+          riskLevel: r.risk_level,
+          result: r.result_text,
+          colorLevel: r.color_level,
+          finalStatus: r.final_status,
+          recheckReports: r.has_report ? [{ isPassed: asBool(r.report_passed) }] : [],
+          recheckRecords: r.has_record ? [{ isPassed: asBool(r.record_passed) }] : [],
+        }
+        const c = deriveConclusion(r.test_type, minimalResult).final
+        if (conclusionDistribution[c] !== undefined) conclusionDistribution[c] += 1
+        else conclusionDistribution.unknown += 1
+      }
 
       const rateOf = (n, d) => (d > 0 ? Number((n / d).toFixed(4)) : null)
       const scopeTotal = rows.reduce((s, r) => s + Number(r.scope_total), 0)
@@ -670,6 +769,41 @@ export function createOpenApiRoutes({ prisma }) {
       const toExcluded = (n) => (n > 0
         ? [{ reason: 'missing_or_invalid_test_date', label: '检测日期缺失、格式非法或日历不存在（无法定位业务日期）', count: n }]
         : [])
+      const emptyTypeRow = (t) => ({
+        test_type: t,
+        total: 0,
+        pass_count: 0,
+        pass_rate: null,
+        scope_total: 0,
+        included_total: 0,
+        universe_total: 0,
+        excluded_total: 0,
+        excluded: [],
+        request_out_of_range_total: 0,
+        pass_rate_detail: { numerator: 0, denominator: 0, value: null },
+      })
+      // by_type 覆盖全部授权类型（含 0 条）：此前 0 条类型缺席，调用方无法区分"无数据"与"未开放"
+      const byType = rows.map((r) => {
+        const t = Number(r.scope_total)
+        const p = Number(r.pass_count)
+        const ex = Number(r.excluded_invalid_date)
+        const oor = Number(r.request_out_of_range)
+        return {
+          test_type: r.test_type,
+          total: t,                    // 兼容旧字段
+          pass_count: p,
+          pass_rate: rateOf(p, t),
+          scope_total: t,
+          included_total: t,
+          universe_total: t + oor + ex,
+          excluded_total: ex,
+          excluded: toExcluded(ex),
+          request_out_of_range_total: oor,
+          pass_rate_detail: { numerator: p, denominator: t, value: rateOf(p, t) },
+        }
+      })
+      for (const t of types) if (!byType.some((x) => x.test_type === t)) byType.push(emptyTypeRow(t))
+      byType.sort((a, b) => String(a.test_type).localeCompare(String(b.test_type)))
 
       ok(res, {
         contract_version: OPEN_API_CONTRACT_VERSION,
@@ -726,25 +860,11 @@ export function createOpenApiRoutes({ prisma }) {
           + '因为一旦授权限定了日期窗口，这类记录无法归属该窗口；'
           + '有有效日期、在授权范围内但超出请求范围的记录计入 request_out_of_range_total。'
           + '授权范围外的记录不计入任何字段（不暴露数量）。',
-        by_type: rows.map((r) => {
-          const t = Number(r.scope_total)
-          const p = Number(r.pass_count)
-          const ex = Number(r.excluded_invalid_date)
-          const oor = Number(r.request_out_of_range)
-          return {
-            test_type: r.test_type,
-            total: t,                    // 兼容旧字段
-            pass_count: p,
-            pass_rate: rateOf(p, t),
-            scope_total: t,
-            included_total: t,
-            universe_total: t + oor + ex,
-            excluded_total: ex,
-            excluded: toExcluded(ex),
-            request_out_of_range_total: oor,
-            pass_rate_detail: { numerator: p, denominator: t, value: rateOf(p, t) },
-          }
-        }),
+        // F-03：conclusion 分布（与明细 conclusion 同源），用于解释 pass_rate 与"其余都不合格"的差异
+        conclusion_distribution: conclusionDistribution,
+        conclusion_distribution_basis: 'final_conclusion：与明细 conclusion 字段同一判定源（含 unknown；v1 口径 unknown 计入分母）',
+        test_type_filter: typeFilter.type,
+        by_type: byType,
       })
     } catch (e) {
       console.error(`${TAG} stats 失败:`, e)

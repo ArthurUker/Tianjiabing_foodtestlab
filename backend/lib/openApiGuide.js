@@ -63,13 +63,13 @@ export function buildQuickStartLines(base) {
 
 export const GUIDE_ENDPOINTS = [
   { method: 'GET', path: '/ping', params: '—', desc: '连通性 + 服务器时间（对账本机时钟）' },
-  { method: 'GET', path: '/profile', params: '—', desc: '当前密钥的授权范围（每校 scope_version / 类型 / 日期范围 / 字段开关）；**不含** projection_fingerprint' },
+  { method: 'GET', path: '/profile', params: '—', desc: '当前密钥的授权范围（每校 scope_version / 类型 / 日期范围 / 字段开关）；**不含** projection_fingerprint；`disabled` 的授权只回 code+status（最小披露）' },
   { method: 'GET', path: '/schools', params: '—', desc: '当前密钥可访问的学校清单' },
-  { method: 'GET', path: '/dict', params: 'school_code', desc: '字段字典：类型、食堂、结论枚举、字段路径/类型/单位/必现/可空/是否下发' },
-  { method: 'GET', path: '/samples', params: 'school_code、test_type（可选）', desc: '合成样例（非真实数据，`SAMPLE-` 前缀，可在无数据时开发）' },
-  { method: 'GET', path: '/test-records', params: 'school_code、test_type（可选）、cursor、limit', desc: '检测记录（游标分页，完整对象）' },
-  { method: 'GET', path: '/sync/manifest', params: 'school_code、detail（可选）', desc: '全量清单（total + digest）；`detail=1` 附 {record_code, updated_at, change_token}' },
-  { method: 'GET', path: '/stats', params: 'school_code、start、end、test_type（可选）', desc: '合格率统计（含集合恒等式与排除原因，可对账）' },
+  { method: 'GET', path: '/dict', params: 'school_code', desc: '字段字典：类型、食堂（配置 ∪ 数据实际取值）、结论枚举、字段路径/类型/单位/必现/可空/是否下发' },
+  { method: 'GET', path: '/samples', params: 'school_code、test_type（可选）', desc: '合成样例（非真实数据，`SAMPLE-` 前缀，可在无数据时开发）；外层为 `data.samples[]`，元素为 `{test_type, scenario, synthetic, item}`' },
+  { method: 'GET', path: '/test-records', params: 'school_code、test_type（可选）、cursor、limit、start/end（业务日期，可选）、since/until（更新时间窗，可选）', desc: '检测记录（游标分页，完整对象；只含 status=completed）' },
+  { method: 'GET', path: '/sync/manifest', params: 'school_code、detail（可选）、test_type（可选）', desc: '全量清单（total + digest）；`detail=1` 附 {record_code, updated_at, change_token}；只含 status=completed' },
+  { method: 'GET', path: '/stats', params: 'school_code、start、end、test_type（可选）', desc: '合格率统计（含集合恒等式、排除原因与 conclusion 分布，可对账）' },
 ]
 
 /* ─────────────── ③ 参数与规则 ─────────────── */
@@ -77,12 +77,18 @@ export const GUIDE_ENDPOINTS = [
 export const GUIDE_PARAM_RULES = [
   '- 认证（**同一个密钥**，二选一携带方式）：`X-API-Key: <密钥>` 或 `Authorization: Bearer <密钥>`；必须 HTTPS。两者同时出现时以 `X-API-Key` 为准。',
   '- 限流：默认 **60 次/分钟**（按凭证独立计数）；超限返回 `429 RATE_LIMITED`，请按 `Retry-After` 退避并降低并发。',
-  '- 分页参数：`limit` 默认 **100**、上限 **200**；`limit` 缺失 / 非数字 / `0` 一律**回退默认值**（不报错，兼容既有调用行为）。',
+  '- 分页参数：`limit` 默认 **100**、上限 **200**；只接受整数（小数向下取整、负数按 1 处理）；缺失 / 非数字 / `0` 一律**回退默认值**（不报错，兼容既有调用行为）。',
+  '- `test_type`（`/test-records`、`/samples`、`/sync/manifest`、`/stats` 均支持）：空字符串或未知类型返回 `400 INVALID_TEST_TYPE`；已知但未授权返回 `403 TYPE_NOT_AUTHORIZED`（不再静默忽略）。',
   '- 日期参数（`start` / `end`）：接受 `YYYY-MM-DD` 或 ISO8601 日期时间（取日期部分），**两端含当天**（闭区间）；'
     + '非法日期返回 `400 INVALID_START` / `INVALID_END`，`start > end` 返回 `400 INVALID_RANGE`；'
-    + '请求范围与授权业务日期范围**求交集**（请求不能越过授权范围，交集为空是合法请求 → 200 且 0 条）。',
+    + '请求范围与授权业务日期范围**求交集**（请求不能越过授权范围，交集为空是合法请求 → 200 且 0 条）。'
+    + '`/stats` 与 `/test-records` 同口径；`/test-records` 响应会回显实际生效的 `start` / `end`。',
+  '- 更新时间窗口（`/test-records`）：`since` 为重叠回拉粗筛（建议回退 5 分钟，幂等去重）；`until` 为更新时间上界（ISO8601，非法返回 `400 INVALID_UNTIL`）；'
+    + '`since` 仅在**不带 cursor** 时生效（带 cursor 时以游标水位为准）。业务日期筛选请用 `start`/`end`，不要与更新时间参数混用。',
+  '- 游标（v3）：`next_cursor` 为**服务端签名**的不透明串（篡改或剥离签名 → `409 SCOPE_CHANGED`），并绑定「学校 + 类型集合 + 业务日期窗口 + until + scope_version + projection_fingerprint」；换任一筛选条件复用 → `400 CURSOR_FILTER_MISMATCH`。',
+  '- 数据面：`/test-records`、`/sync/manifest`、`/stats` 只统计 **status=completed** 的检测记录（pending/failed/archived 不外发）。',
   '- `projection_fingerprint`（字段可见性指纹）在 `/test-records`、`/samples`、`/sync/manifest` 响应中返回，**`/profile` 不含**该字段。',
-  '- 所有成功响应为 `{ "code": 0, "data": {...} }`；失败为 `{ "code": "<错误码>", "error": "..." }`（均带 `server_time`）。',
+  '- 所有成功响应为 `{ "code": 0, "data": {...} }`；失败为 `{ "code": "<错误码>", "error": "...", "server_time": "..." }`（统一同形，含 401/429）。',
 ]
 
 /* ─────────────── ④ 字段字典读表须知 ─────────────── */
@@ -109,14 +115,16 @@ export const GUIDE_BUSINESS_RULES = [
   '|---|---|',
   '| 餐具洁净度 | 顶层 `result` 有文本 → 含「合格」且不含「不合格」为合格；**顶层为空时回退 `result.atpPoints[].res`**（洗涤剂残留记录只写点位结论）：任一点位「不合格」→ 不合格；所有点位「合格」→ 合格；其余（警戒/无结论）→ 未判定、不计合格 |',
   '| 果蔬 / 肉蛋 | `result` 文本含「合格」且不含「不合格」→ 合格 |',
-  '| 食用油 | 先看 `result.colorLevel`（综合品质等级）：`合格` / `警戒` → 合格；`不合格` → 不合格；**其它未识别值回退 `result` 文本** |',
+  '| 食用油 | 先看 `result.colorLevel`（综合品质等级）：`合格` / `警戒` → 合格；`不合格` → 不合格；**其它未识别值 → 未判定（不计合格，不回退 `result` 文本）**；`colorLevel` 为空时才回退 `result` 文本 |',
   '| 病原体 | `result.riskLevel = 无风险` → 合格；**其它任何非空值 → 不合格/有风险**。⚠️ 「有风险」≠ 确诊阳性（是否检出看 `result.positiveDetails` 是否非空） |',
   '',
   '**统计口径（`GET /stats`）**：',
   '',
   '- 集合恒等式：`universe_total = scope_total + request_out_of_range_total + excluded_total`（授权可见全集 = 入分母 + 请求范围外 + 无法定位业务日期）。',
   '- `pass_rate = pass_count / scope_total`；**分母为 0 时返回 `null`**（不返回 0，避免被读成"全部不合格"）。',
-  '- **`unknown` 计入分母**（v1 口径）：`pass_rate` 低于 1 **不等于**其余记录都不合格，请用 `conclusion` 分布解释差值。',
+  '- **`unknown` 计入分母**（v1 口径）：`pass_rate` 低于 1 **不等于**其余记录都不合格，请用 `conclusion_distribution` 解释差值。',
+  '- `conclusion_distribution = {pass, fail, warning, unknown}`：与明细 `conclusion` 字段**同一判定源**（含复检覆盖），四项之和 = `scope_total`。',
+  '- `by_type` **覆盖全部授权类型**（含 0 条记录的类型，此时各项为 0 / `pass_rate=null`）；带 `test_type` 时只含该类型。',
   '- `metric_basis = stored_current_result`：按**当前保存的** `result`/`colorLevel`/`riskLevel` 判定；部分 Web 复检会覆盖这些字段，'
     + '因此它**不承诺等同初检指标**，也不在所有类型上等同最终结论（需独立初检/最终指标的，请与平台约定新字段方案）。',
   '- 授权业务日期范围**外**的记录不出现在任何字段中（连数量也不可推断）；日期范围 = 授权范围 ∩ 请求范围，闭区间。',
@@ -144,8 +152,8 @@ export const GUIDE_ERROR_ROWS = [
   { status: 401, code: 'MISSING_KEY / INVALID_KEY / CREDENTIAL_REVOKED / CREDENTIAL_EXPIRED', meaning: '未携带 / 无效 / 已吊销 / 已过期', action: '**不要重试**：检查密钥配置与是否已轮换；必要时联系平台换新密钥' },
   { status: 403, code: 'CLIENT_DISABLED / IP_DENIED', meaning: '对接方被停用 / 来源 IP 不在白名单', action: '**不要重试**：核对密钥归属与出口 IP；需要变更请联系平台' },
   { status: 403, code: 'SCHOOL_NOT_AUTHORIZED / TYPE_NOT_AUTHORIZED / NO_VISIBLE_TYPE', meaning: '未授权学校 / 未授权类型 / 该校当前零权限', action: '**不要重试**：以 `GET /profile` 为准核对授权范围；需要新增请联系平台' },
-  { status: 404, code: 'SCHOOL_NOT_FOUND', meaning: '学校代码不存在', action: '核对 `school_code`（用 `/schools` 列表）' },
-  { status: 400, code: 'INVALID_SCHOOL_CODE / INVALID_CURSOR / CURSOR_SCHOOL_MISMATCH / CURSOR_FILTER_MISMATCH', meaning: '学校代码非法 / 游标非法 / 换学校或换筛选条件复用游标', action: '丢弃本地游标，改从 `manifest` 重新对账后重拉' },
+  { status: 404, code: 'SCHOOL_NOT_FOUND', meaning: '学校不存在或已停用（仅在授权身份校验通过后出现；未知/未授权学校通常返回 403，不泄露学校是否存在）', action: '核对 `school_code`（用 `/schools` 列表）' },
+  { status: 400, code: 'INVALID_SCHOOL_CODE / INVALID_CURSOR / CURSOR_SCHOOL_MISMATCH / CURSOR_FILTER_MISMATCH / INVALID_TEST_TYPE', meaning: '学校代码非法 / 游标非法 / 换学校或换筛选条件复用游标 / test_type 为空或未知类型', action: '丢弃本地游标，改从 `manifest` 重新对账后重拉；类型以 `/profile` 的 `visible_types` 为准' },
   { status: 400, code: 'INVALID_START / INVALID_END / INVALID_RANGE / INVALID_SINCE / INVALID_UNTIL', meaning: '日期或时间参数非法 / 起止倒置', action: '按 `YYYY-MM-DD` 修正；`start` 不得晚于 `end`' },
   { status: 409, code: 'SCOPE_CHANGED', meaning: '授权或字段可见性变化、游标协议过旧', action: '重新对账 + **全量重拉并替换式重投影**（不要指望增量补齐被撤回的字段）' },
   { status: 413, code: 'MANIFEST_TOO_LARGE', meaning: '清单超单次上限（明确拒绝，不返回截断清单）', action: '**不得当作空清单**：停止对账并联系平台改用分页清单方案' },
@@ -208,7 +216,11 @@ export const GUIDE_FAQ = [
   },
   {
     q: '`limit=0` 或 `limit=abc` 会报错吗？',
-    a: '不会。缺失 / 非数字 / `0` 一律按默认值 **100** 处理，上限 **200**。要翻页请以响应里的 `has_more` 与 `next_cursor` 为准。',
+    a: '不会。缺失 / 非数字 / `0` 一律按默认值 **100** 处理，上限 **200**；小数向下取整、负数按 1 处理。要翻页请以响应里的 `has_more` 与 `next_cursor` 为准。',
+  },
+  {
+    q: '`/samples` 的响应外层结构是什么？',
+    a: '`data.samples[]`（不是 `items[]`），每个元素为 `{test_type, scenario, synthetic, item}`，完整记录对象在 `item` 内；`data.count` 为样例数。按 `items[]` 取样例会得到空数组。',
   },
   {
     q: '最后一页之后，下一轮增量要从哪里开始？',
@@ -236,7 +248,7 @@ export const GUIDE_FAQ = [
   },
   {
     q: '`pass_rate` 是 40%，是否表示另外 60% 不合格？',
-    a: '不是。`unknown`（未判定）记录**计入分母**；请用响应里的 `conclusion` 分布解释差值。按已判定记录计算属指标语义变更，需与平台另行约定。',
+    a: '不是。`unknown`（未判定）记录**计入分母**；请用响应里的 `conclusion_distribution`（`{pass, fail, warning, unknown}`，与明细 `conclusion` 同源）解释差值。按已判定记录计算属指标语义变更，需与平台另行约定。',
   },
 ]
 
@@ -252,6 +264,8 @@ export const GUIDE_SELF_CHECK = [
   { item: '重复请求第 2 页游标', expect: '200，且 `items` 与首次完全一致（游标幂等）' },
   { item: '`cursor=garbage` / 换 `test_type` 复用游标', expect: '`400 INVALID_CURSOR` / `400 CURSOR_FILTER_MISMATCH`' },
   { item: '各页 `projection_fingerprint` 与 `manifest` 对比', expect: '同源一致（不一致说明期间授权/字段可见性变了，需重投影）' },
+  { item: '`GET /stats?test_type=<某已授权类型>`', expect: '只返回该类型数字，且 `by_type` 只含该类型；`conclusion_distribution` 四项之和等于 `scope_total`' },
+  { item: '`GET /test-records?start=<近7天>&end=<今天>&limit=2`', expect: '只返回该业务日期窗口内记录，响应回显生效的 `start`/`end`；`start=abc` / `start>end` 返回 400' },
   { item: '`GET /stats`', expect: '`universe_total == scope_total + request_out_of_range_total + excluded_total`；分母为 0 时 `pass_rate=null`' },
   { item: '`GET /stats?start=2099-01-01&end=2099-01-02`', expect: '200 且 `scope_total=0`、`pass_rate=null`（**不得 500**）' },
   { item: '`start=abc` / `start>end`', expect: '`400 INVALID_START` / `400 INVALID_RANGE`' },

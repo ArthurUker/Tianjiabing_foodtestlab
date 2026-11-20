@@ -146,13 +146,32 @@ if (enabled) {
     assert.equal(ok.data.client_name, 'HTTP 回归对接方')
   })
 
-  test('HTTP：未授权学校 403；未授权类型 403', async () => {
+  test('HTTP：未授权学校 403；未知类型 400；已知但未授权类型 403', async () => {
     const school = await api(`/v1/stats?school_code=${OTHER_SCHOOL}`)   // 派生但未授权
     assert.equal(school.status, 403)
     assert.equal(school.code, 'SCHOOL_NOT_AUTHORIZED')
-    const type = await api(`/v1/samples?school_code=${SCHOOL}&test_type=unknown-type`)   // 已授权学校 + 未授权类型
-    assert.equal(type.status, 403)
-    assert.equal(type.code, 'TYPE_NOT_AUTHORIZED')
+
+    // 2026-11-20 全量修复（N-07）：未知类型=参数非法（400），不再与"未授权"混为 403
+    const type = await api(`/v1/samples?school_code=${SCHOOL}&test_type=unknown-type`)
+    assert.equal(type.status, 400)
+    assert.equal(type.code, 'INVALID_TEST_TYPE')
+
+    // 已知类型但授权不含 pathogen → 403 TYPE_NOT_AUTHORIZED
+    const g = await prisma.openApiGrant.findFirst({ where: { client_id: CLIENT_ID, school_code: SCHOOL } })
+    await prisma.openApiGrant.update({
+      where: { id: g.id },
+      data: { visible_types: ['tableware', 'pesticide', 'oil', 'leanMeat'] },
+    })
+    try {
+      const deny = await api(`/v1/samples?school_code=${SCHOOL}&test_type=pathogen`)
+      assert.equal(deny.status, 403)
+      assert.equal(deny.code, 'TYPE_NOT_AUTHORIZED')
+    } finally {
+      await prisma.openApiGrant.update({
+        where: { id: g.id },
+        data: { visible_types: ['tableware', 'pesticide', 'oil', 'leanMeat', 'pathogen'] },
+      })
+    }
   })
 
   /* ── 2. 契约与对账 ── */

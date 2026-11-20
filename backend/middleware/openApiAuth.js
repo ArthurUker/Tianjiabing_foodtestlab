@@ -26,10 +26,11 @@ const WINDOW_MS = 60 * 1000
 const USAGE_FLUSH_MS = 60 * 1000 // 最近使用/计数落库节流
 const LOG_WINDOW_MS = 60 * 1000  // 调用日志聚合窗口
 
-/** 拒绝响应统一结构：{ code, error }，便于第三方程序化处理。 */
+/** 拒绝响应统一结构：{ code, error, server_time }（与路由层 fail() 同形，N-08）。 */
 function deny(res, status, code, message, extraHeaders = {}) {
   for (const [k, v] of Object.entries(extraHeaders)) res.setHeader(k, v)
-  return res.status(status).json({ code, error: message })
+  const serverTime = new Date(Date.now() + 8 * 3600 * 1000).toISOString().replace(/Z$/, '+08:00')
+  return res.status(status).json({ code, error: message, server_time: serverTime })
 }
 
 /** 从响应体推断「返回条数」（只取数量，不取内容；不同接口的承载字段略有差异）。 */

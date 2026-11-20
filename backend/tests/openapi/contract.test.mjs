@@ -345,3 +345,59 @@ test('毫秒与记录版本均参与变化标识；学校改名会改变投影�
   const newName = computeProjectionFingerprint(GRANT, JSON.stringify({ keys: 'same', school_name: '新校名' }))
   assert.notEqual(oldName, newName)
 })
+
+/* ───────────── 2026-11-20 全量修复回归（S-04 / N-06 / F-04 / F-05）───────────── */
+
+test('游标 v3：HMAC 签名往返一致；篡改载荷/剥离签名/换密钥均被拒', () => {
+  const prev = process.env.OPEN_API_CURSOR_SECRET
+  process.env.OPEN_API_CURSOR_SECRET = 'unit-test-cursor-secret'
+  try {
+    const cur = encodeCursor({
+      schoolCode: 'test', scopeVersion: 3, updatedAt: '2026-11-19T00:00:00.000Z',
+      id: 'r1', filtersFingerprint: 'f', projectionFingerprint: 'p',
+    })
+    assert.ok(cur.includes('.'), 'v3 游标必须带签名段')
+    const dec = decodeCursor(cur)
+    assert.ok(dec, '合法签名游标必须可解析')
+    assert.equal(dec._sigValid, true, '签名必须通过')
+    assert.equal(dec._current, true, '版本必须是当前版本')
+    assert.equal(dec.s, 'test')
+
+    const [b64, sig] = cur.split('.')
+    const payload = JSON.parse(Buffer.from(b64, 'base64url').toString('utf8'))
+    payload.u = '2026-11-20T00:00:00.000Z'
+    const forged = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url') + '.' + sig
+    assert.equal(decodeCursor(forged)._sigValid, false, '篡改水位必须被签名拦截')
+
+    assert.equal(decodeCursor(b64)._sigValid, false, '剥离签名必须被拒（不可降级为未签名游标）')
+
+    process.env.OPEN_API_CURSOR_SECRET = 'another-secret'
+    assert.equal(decodeCursor(cur)._sigValid, false, '换密钥后旧签名必须失效')
+  } finally {
+    if (prev === undefined) delete process.env.OPEN_API_CURSOR_SECRET
+    else process.env.OPEN_API_CURSOR_SECRET = prev
+  }
+})
+
+test('筛选指纹 v3：类型/业务日期窗口/until 任一变化都失配', () => {
+  const base = { schoolCode: 'test', types: ['pathogen'], start: '2026-11-01', end: '2026-11-19', until: null }
+  const f = computeFiltersFingerprint(base)
+  assert.equal(f, computeFiltersFingerprint({ ...base }), '同一输入必须稳定')
+  assert.notEqual(f, computeFiltersFingerprint({ ...base, start: '2026-11-02' }), 'start 必须参与指纹')
+  assert.notEqual(f, computeFiltersFingerprint({ ...base, end: '2026-11-18' }), 'end 必须参与指纹')
+  assert.notEqual(f, computeFiltersFingerprint({ ...base, until: '2026-11-19T00:00:00.000Z' }), 'until 必须参与指纹')
+  assert.notEqual(f, computeFiltersFingerprint({ ...base, types: ['tableware'] }), '类型集合必须参与指纹')
+})
+
+test('字典（F-04/F-05）：riskLevel 含中/高风险，rluValue 单位区分 atp/detergent', () => {
+  const p = listFieldDescriptors('pathogen').find((f) => f.path === 'result.riskLevel')
+  for (const v of ['无风险', '低风险', '极低风险', '中风险', '高风险']) {
+    assert.ok(p.enum.includes(v), `riskLevel 枚举缺少 ${v}`)
+  }
+  assert.equal(String(p.description).includes('没有"高风险"'), false, '必须删除"没有高风险"的错误表述')
+
+  const rlu = listFieldDescriptors('tableware').find((f) => f.path === 'result.rluValue')
+  assert.match(String(rlu.unit), /mg\/L/, 'rluValue 单位必须标注 detergent=mg/L')
+  assert.match(String(rlu.description), /detergent/)
+  assert.match(String(rlu.description), /0\.1/, '必须写明洗涤剂残留阈值 0.1 mg/L')
+})

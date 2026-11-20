@@ -314,13 +314,26 @@ export function buildOpenRecord(record, grant, ctx = {}) {
 
 /* ─────────────── 增量游标 ─────────────── */
 
-// 游标版本：v2 起额外携带 filters 指纹（f）与投影策略指纹（p），用于拒绝"换筛选条件/换策略"复用游标。
-const CURSOR_VERSION = 2
+// 游标版本：v2 起携带 filters 指纹（f）与投影策略指纹（p）；v3 起**强制 HMAC 签名**（S-04 加固）。
+// v2 及更早游标一律 409 SCOPE_CHANGED（要求重新对账），不静默继续。
+const CURSOR_VERSION = 3
+
+/** 游标签名密钥：优先专用密钥，回退 JWT_SECRET（生产必配；缺失时签名校验 fail-closed）。 */
+function cursorSecret() {
+  return String(process.env.OPEN_API_CURSOR_SECRET || process.env.JWT_SECRET || '')
+}
+
+/** 计算游标签名（base64url 载荷的 HMAC-SHA256 前 22 字符）。无密钥时返回 null（不签名）。 */
+function signCursor(b64) {
+  const secret = cursorSecret()
+  if (!secret) return null
+  return crypto.createHmac('sha256', secret).update(b64).digest('base64url').slice(0, 22)
+}
 
 /**
- * 游标 = base64url(JSON)，携带：学校 + 授权版本 + **筛选条件指纹** + **投影策略指纹** + 水位(updated_at,id)。
- * 由服务端生成、服务端校验：客户端无法通过替换 school_code / test_type / 日期条件或复用旧策略游标
- * 来扩大可见范围。
+ * 游标 = base64url(JSON) + '.' + HMAC 签名，携带：学校 + 授权版本 + **筛选条件指纹** + **投影策略指纹** +
+ * 水位(updated_at,id)。由服务端生成、服务端校验：客户端无法通过替换 school_code / test_type / 日期条件、
+ * 复用旧策略游标或**伪造水位**来扩大/跳过可见范围。
  */
 export function encodeCursor({ schoolCode, scopeVersion, updatedAt, id, filtersFingerprint, projectionFingerprint }) {
   const payload = {
@@ -332,16 +345,22 @@ export function encodeCursor({ schoolCode, scopeVersion, updatedAt, id, filtersF
     u: updatedAt,
     i: id,
   }
-  return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url')
+  const b64 = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url')
+  const sig = signCursor(b64)
+  return sig ? `${b64}.${sig}` : b64
 }
 
-/** 筛选条件指纹：学校 + 类型集合 + 业务日期范围（客户端请求条件，非授权范围）。 */
-export function computeFiltersFingerprint({ schoolCode, types, start, end }) {
+/**
+ * 筛选条件指纹：学校 + 类型集合 + **业务日期范围（start/end）** + **更新时间上界（until）**。
+ * 任一条件变化都必须让旧游标失配（防止换筛选条件后静默续拉出错误结果集）。
+ */
+export function computeFiltersFingerprint({ schoolCode, types, start, end, until }) {
   const payload = JSON.stringify({
     s: String(schoolCode || ''),
     t: [...(types || [])].map(String).sort(),
     b: start || null,
     e: end || null,
+    u: until || null,
   })
   return crypto.createHash('sha256').update(payload).digest('hex').slice(0, 16)
 }
@@ -362,7 +381,7 @@ export function computeFiltersFingerprint({ schoolCode, types, start, end }) {
  * "记录行与授权都没变、但投影实现变了"时指纹与 manifest digest 都不变，
  * 已完成同步的客户端会一直认为数据未变，长期保留旧字段（例如已被撤回但本地未清除的证据字段）。
  */
-export const PROJECTION_REVISION = 'proj-r3-2026-09-23'
+export const PROJECTION_REVISION = 'proj-r4-2026-11-20'
 
 export function computeProjectionFingerprint(grant, extra = null) {
   const { start, end } = grantDateRange(grant)
@@ -385,19 +404,39 @@ const CONTRACT_VERSION_FOR_FINGERPRINT = 'v1'
 
 /**
  * 解析游标。格式非法返回 null（调用方判 400）。
- * 版本号写入 `_version` 由调用方判断：低于当前版本 = 旧协议游标（应要求重新对账，而非静默继续）。
+ * 版本号写入 `_version`；`_current` 表示是否当前协议版本；`_sigValid` 表示签名是否通过。
+ * 签名语义（fail-closed）：
+ *   · 携带签名 + 已配置密钥 → 常时比较校验，失败 `_sigValid=false`；
+ *   · 未携带签名 + 已配置密钥 → `_sigValid=false`（旧版/被剥离签名的游标一律要求重新对账）；
+ *   · 未配置密钥（仅限无环境变量的单元测试）→ 视为通过，生产环境必有 JWT_SECRET。
  */
 export function decodeCursor(cursor) {
   if (!cursor || typeof cursor !== 'string') return null
+  const raw = String(cursor)
+  const dot = raw.lastIndexOf('.')
+  const b64 = dot > 0 ? raw.slice(0, dot) : raw
+  const sig = dot > 0 ? raw.slice(dot + 1) : null
+  let obj
   try {
-    const obj = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'))
-    if (!obj || typeof obj !== 'object' || !obj.s || !obj.u || !obj.i) return null
-    obj._version = Number(obj.v) || 0
-    obj._current = obj._version === CURSOR_VERSION
-    return obj
+    obj = JSON.parse(Buffer.from(b64, 'base64url').toString('utf8'))
   } catch {
     return null
   }
+  if (!obj || typeof obj !== 'object' || !obj.s || !obj.u || !obj.i) return null
+  obj._version = Number(obj.v) || 0
+  obj._current = obj._version === CURSOR_VERSION
+  const secret = cursorSecret()
+  if (!secret) {
+    obj._sigValid = true   // 无密钥环境（单元测试）：不做签名校验
+  } else if (!sig) {
+    obj._sigValid = false
+  } else {
+    const expect = signCursor(b64)
+    const a = Buffer.from(sig)
+    const b = Buffer.from(expect || '')
+    obj._sigValid = a.length === b.length && crypto.timingSafeEqual(a, b)
+  }
+  return obj
 }
 
 export const CURRENT_CURSOR_VERSION = CURSOR_VERSION

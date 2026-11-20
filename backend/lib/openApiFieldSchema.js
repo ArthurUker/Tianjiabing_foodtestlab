@@ -93,9 +93,9 @@ const TYPE_FIELDS = {
   tableware: [
     { path: 'result.testType', label: '检测项目', type: 'string', unit: null, nullable: true, required: false, description: '如 表面清洁度 / 洗涤剂残留；历史记录中仅部分存在，取值以学校配置为准', source: 'platform' },
     { path: 'result.location', label: '检测点位', type: 'string', unit: null, nullable: true, required: false, source: 'platform' },
-    { path: 'result.rluValue', label: 'RLU 值', type: 'string', unit: 'RLU', nullable: true, required: true, description: '⚠️ 字符串类型（历史录入即文本），需自行转数值', source: 'platform' },
+    { path: 'result.rluValue', label: '读数（RLU 或 mg/L）', type: 'string', unit: 'RLU（result.testType=atp）/ mg/L 浓度（result.testType=detergent）', nullable: true, required: true, description: '⚠️ 字符串类型（历史录入即文本）。**单位随 result.testType 变化**：atp → RLU（ATP 阈值 <200 合格 / >500 不合格）；detergent（洗涤剂残留）→ **mg/L 浓度**（≤0.1 合格 / >0.1 不合格，取值 0~1 量级）。**禁止把 ATP 的 RLU 阈值套用到 detergent 记录**（会把不合格判成合格）；判断结论请以 conclusion / result.atpPoints[].res 为准', source: 'platform' },
     { path: 'result.result', label: '结果文本', type: 'string', unit: null, nullable: true, required: true, description: '如「合格 (<200)」「不合格 (>500)」。⚠️ **可能为空字符串**：洗涤剂残留（`testType=detergent`）点位只写 `result.atpPoints[].res`，此时记录级结论以点位为准（顶层为空**不等于不合格**）', source: 'platform' },
-    { path: 'result.atpPoints', label: 'ATP 点位明细', type: 'array<object>', unit: null, nullable: true, required: false, description: '**点位级结论的权威来源**（顶层 `result` 为空时按此判定记录结论：任一点位「不合格」→ 不合格；所有点位「合格」→ 合格；其余 → 未判定）', item_fields: ['loc(点位)', 'rlu(RLU 字符串)', 'res(结论文本)', 'testType(检测项目，部分记录存在)'], source: 'platform' },
+    { path: 'result.atpPoints', label: 'ATP 点位明细', type: 'array<object>', unit: null, nullable: true, required: false, description: '**点位级结论的权威来源**（顶层 `result` 为空时按此判定记录结论：任一点位「不合格」→ 不合格；所有点位「合格」→ 合格；其余 → 未判定）', item_fields: ['loc(点位)', 'rlu(读数：atp=RLU，detergent=mg/L)', 'res(结论文本)', 'testType(检测项目，部分记录存在)'], source: 'platform' },
     { path: 'result.correctiveAction', label: '整改措施', type: 'string', unit: null, nullable: true, required: true, source: 'platform' },
     { path: 'result.recheckResult', label: '复检结果备注', type: 'string', unit: null, nullable: true, required: true, source: 'platform' },
     { path: 'result.recheckRecords', label: '复检记录', type: 'array<object>', unit: null, nullable: true, required: false, description: '有复检时才出现；元素中 user（复检人姓名）不下发', item_fields: ['id(序号)', 'time(复检时间字符串)', 'isPassed(是否通过 boolean)', 'points(点位明细 array)'], source: 'platform' },
@@ -128,7 +128,7 @@ const TYPE_FIELDS = {
     RECHECK_RECORD_FIELD,
   ],
   pathogen: [
-    { path: 'result.riskLevel', label: '风险等级', type: 'enum', unit: null, nullable: true, required: true, enum: ['无风险', '低风险', '极低风险'], description: '「无风险」为合格；**其它任何非空值一律视为不合格/有风险**（与 `/stats` 同口径；实测取值仅 无风险 48 / 低风险 9 / 极低风险 9，**没有"高风险"**）。⚠️ 「有风险」**不等于确诊阳性**——是否检出看 `result.positiveDetails`', source: 'platform' },
+    { path: 'result.riskLevel', label: '风险等级', type: 'enum', unit: null, nullable: true, required: true, enum: ['无风险', '低风险', '极低风险', '中风险', '高风险'], description: '「无风险」为合格；**其它任何非空值一律视为不合格/有风险**（与 `/stats` 同口径；2026-11-17 全量实测：无风险 5829 / 中风险 9 / 低风险 2 / 高风险 1）。⚠️ **解析请用"非「无风险」即有风险"的黑名单方式，不要穷举枚举**；「有风险」**不等于确诊阳性**——是否检出看 `result.positiveDetails`', source: 'platform' },
     { path: 'result.riskReason', label: '风险原因', type: 'string', unit: null, nullable: true, required: true, description: '风险说明文本（实测长度 9~72）', source: 'platform' },
     { path: 'result.positiveItems', label: '检出项目文本', type: 'string', unit: null, nullable: true, required: true, description: '有检出时为致病菌名称（可能多个，含分隔符；实测长度 14~46）；**无风险时为 1 字符占位（非空）**。判断是否检出请用 `result.positiveDetails`', source: 'platform' },
     { path: 'result.positiveDetails', label: '检出明细', type: 'array<object>', unit: null, nullable: true, required: true, description: '**是否检出的权威依据**：非空 ⟺ riskLevel ≠ 无风险（实测 18/18）', item_fields: ['pathogen(致病菌名)', 'ct(number)', 'ctRaw(string)'], source: 'platform' },

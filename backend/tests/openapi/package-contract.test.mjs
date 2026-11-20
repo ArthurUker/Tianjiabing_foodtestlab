@@ -114,7 +114,7 @@ test('字典：TPM 写明数值口径与缩放（不得含糊），colorLevel �
 
 test('字典：病原体 riskLevel 枚举完整、positiveDetails 声明为检出依据、finalStatus 与当前写入兼容', () => {
   const p = listFieldDescriptors('pathogen')
-  assert.deepEqual(p.find((f) => f.path === 'result.riskLevel').enum, ['无风险', '低风险', '极低风险'])
+  assert.deepEqual(p.find((f) => f.path === 'result.riskLevel').enum, ['无风险', '低风险', '极低风险', '中风险', '高风险'])
   assert.match(p.find((f) => f.path === 'result.positiveDetails').description, /权威依据|非空/)
   assert.ok(listFieldDescriptors('pathogen').some((f) => f.path === 'result.finalStatus'))
 })
