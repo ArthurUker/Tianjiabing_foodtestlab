@@ -160,6 +160,8 @@ model TestRecord {
   // D-10：统计查询常按「类型 + 时间」过滤（无独立 test_date 列，日期在 result_data JSON 内，
   // 故用 created_at 组合索引兜底）
   @@index([test_type, created_at])
+  // N-05：开放接口游标分页排序键（updated_at ASC, id ASC），见迁移 20261124000000_testrecord_updated_at_id_index
+  @@index([updated_at, id])
 }
 
 // ========== 测试项目 ==========

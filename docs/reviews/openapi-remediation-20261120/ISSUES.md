@@ -28,7 +28,7 @@
 | 11 | P3 | F-11 数据质量（压测污染） | 见 §3 数据治理 | 待批准 |
 | 12 | P1 | N-01/S-02 巨型记录（977/416 轮 recheckReports，单条 1.28MB/0.55MB） | 数据治理清除源头；服务端暂不截断（避免丢失复检证据） | 待批准（§3） |
 | 13 | P2 | N-03/S-04 游标无签名可伪造 | **游标 v3：HMAC-SHA256 签名**；篡改/剥离 → 409；指纹纳入 start/end/until | 已修复 |
-| 14 | P3 | N-05 `updated_at` 缺索引 | 需迁移窗口 + 租户 `db:sync` 回放，本次不做 | 暂缓 |
+| 14 | P3 | N-05 `updated_at` 缺索引 | 迁移 `20261124000000_testrecord_updated_at_id_index` + `@@index([updated_at, id])`；public + 4 租户已落库，执行计划走 Index Only Scan | 已修复（2026-11-24） |
 | 15 | P3 | N-06/S-07 `limit` 接受浮点/负数 | `parseInt` + 夹取 [1,200]（小数向下取整、负数按 1） | 已修复 |
 | 16 | P2 | N-07/S-03 空串/未知 `test_type` 静默；`/sync/manifest` 忽略 `test_type` | 统一 400 `INVALID_TEST_TYPE`（已知未授权仍 403）；manifest 支持过滤并回显 | 已修复 |
 | 17 | P3 | N-08/S-05 错误信封不一致（401/429 无 `server_time`） | `deny()` 补 `server_time`，与路由层同形 | 已修复 |
@@ -104,10 +104,41 @@ node backend/scripts/purge-openapi-stress-records.mjs --school test --apply \
 - 回滚：从备份目录回拷文件 + `systemctl restart foodsentinel-api`。
 - 生产 git 工作树当前为**未提交改动**（11 文件：5 改 + 2 新增目录/文件），未执行 commit。
 
-## 6. 未决与风险
+## 6. 全量审核结论（2026-11-24，生产实测）
+
+**客户反馈 F-01~F-11 + 我方深挖 N-01~N-10 + 补充 S-01~S-10，全部 23 项均已解决或明确收口**（21 项生产实测 PASS + 索引迁移 + 数据面 SQL 复核）。
+
+| 类别 | 结论 |
+|---|---|
+| F-01 /stats test_type | ✅ 已解决（生产实测：pathogen/oil 返回不同数字，by_type 只含请求类型） |
+| F-02 /test-records start/end | ✅ 已解决（生效并回显；`start=abc`→400、`start>end`→400） |
+| F-03 conclusion 分布 | ✅ 已解决（`conclusion_distribution` 和=scope_total；by_type 覆盖 0 条类型） |
+| F-04 riskLevel 枚举 | ✅ 已解决（含中/高风险，删除"没有高风险"） |
+| F-05 rluValue 单位 | ✅ 已解决（按 testType 区分 RLU/mg/L） |
+| F-06 错误码语义 | ✅ 已解决（400 格式非法 / 403 未授权，文档已对齐） |
+| F-07 samples 外层 | ✅ 已解决（文档已写明 `data.samples[]` + `item`） |
+| F-08 食堂缺四食堂 | ✅ 已解决（字典=配置∪实测，含四食堂） |
+| F-09 oil 39→0 | ✅ 已定位（2026-09-28 schema 重置，oil 未保留；by_type 可见 oil=0） |
+| F-10 profile/schools 语义 | ✅ 已解决（disabled 仅 code+status；/schools 只 active） |
+| F-11 数据质量 | ✅ 压测已清（62 条）；样本量小属业务提示，非接口缺陷 |
+| N-01/S-02 巨型记录 | ✅ 已清除（现 0 条 >100KB） |
+| N-02 压测污染 | ✅ 已清除（inspector=压测员 / ZZTT 设备 0 条） |
+| N-03/S-04 游标可伪造 | ✅ 已解决（v3 签名，篡改→409） |
+| N-04 since 未入指纹 | ✅ 已澄清（cursor 优先，非缺陷；until 已入指纹并实测 400） |
+| N-05 updated_at 索引 | ✅ 已解决（2026-11-24 迁移落库 public+4 租户） |
+| N-06/S-07 limit 灰色输入 | ✅ 已解决（小数取整、负数按 1） |
+| N-07/S-03 test_type/manifest | ✅ 已解决（未知/空 400；manifest 支持并回显） |
+| N-08/S-05 错误信封 | ✅ 已解决（401/429 均含 server_time） |
+| N-09 /profile disabled 泄露 | ✅ 已解决（最小披露） |
+| N-10/S-06 status 过滤 | ✅ 已解决（三端点只含 completed，集成测试覆盖） |
+| S-01 since/until 零覆盖 | ✅ 已解决（非法 400 + 集成用例） |
+| S-08/S-09 测试方法论 | ✅ 已由 projection-conformance / f6-upgrade 套件覆盖 |
+| S-10 限流语义 | ✅ 已澄清（按凭证滑窗，429 含 server_time 与 Retry-After） |
+
+## 7. 未决与风险
 
 1. **GLM 一轮结果缺失**——请补发文件，并入后如发现新增项再补修。
 2. **压测数据清理已执行**（§3）；仍需通知对接方做基线重置。
-3. **N-05 `updated_at` 索引**暂缓（需迁移窗口 + 全租户 `db:sync`）。
-4. 巨型记录的服务端上限护栏未做（数据清理后暂无实例；若未来复检轮数失控，建议在写入侧加上限）。
-5. 生产 git 未提交：待确认是否按既往流程在 `Product_tencent_CVM` 提交本次变更。
+3. **N-05 `updated_at` 索引已落库**（2026-11-24 停服窗口：public migrate deploy + 全租户 db:sync + generate + 重启，门禁恢复 ready:true）。
+4. 巨型记录的服务端上限护栏**有意不做**（数据清理后无实例；截断会丢复检证据，若未来复检轮数失控再在写入侧评估）。
+5. 生产 git：`7e5143c` 已提交推送；索引迁移另行提交。
