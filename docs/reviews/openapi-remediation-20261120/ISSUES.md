@@ -46,7 +46,7 @@
 | `backend/lib/openApiScope.js` | 游标 v3（HMAC 签名 + 校验）、`PROJECTION_REVISION=proj-r4-2026-11-20`、指纹纳入 start/end/until |
 | `backend/routes/openApiRoutes.js` | `/stats` 类型过滤+conclusion 分布+by_type 零填充；`/test-records` start/end/until/limit/status/游标签名；`/sync/manifest` test_type+status；`/samples` 类型校验；`/dict` 食堂并集；`/profile` 最小披露 |
 | `backend/lib/openApiFieldSchema.js` | riskLevel 枚举 5 值、rluValue 单位/阈值按类型、atpPoints 说明 |
-| `backend/lib/openApiGuide.js` | 端点参数、日期/游标/状态语义、错误码、FAQ（samples 外层/limit/分布）、自检清单 |
+| `backend/lib/openApiGuide.js` | 端点参数、日期/游标/状态语义、错误码、FAQ（samples 外层/limit/分布）、自检清单；补 `test_type_filter` 与 `start`/`end` 回显说明（2026-11-24） |
 | `docs/OPEN_API_INTEGRATION.md` | 独立对接文档同步：`/stats` test_type 与 `conclusion_distribution`、`/test-records` start/end、游标 v3 签名、status=completed、profile 脱敏、riskLevel/rluValue、错误码与自检清单 |
 | `backend/middleware/openApiAuth.js` | `deny()` 统一 `server_time` |
 | `backend/scripts/purge-openapi-stress-records.mjs` | 新增：压测数据清理（默认 dry-run，含备份+事务删除） |

@@ -78,7 +78,8 @@ export const GUIDE_PARAM_RULES = [
   '- 认证（**同一个密钥**，二选一携带方式）：`X-API-Key: <密钥>` 或 `Authorization: Bearer <密钥>`；必须 HTTPS。两者同时出现时以 `X-API-Key` 为准。',
   '- 限流：默认 **60 次/分钟**（按凭证独立计数）；超限返回 `429 RATE_LIMITED`，请按 `Retry-After` 退避并降低并发。',
   '- 分页参数：`limit` 默认 **100**、上限 **200**；只接受整数（小数向下取整、负数按 1 处理）；缺失 / 非数字 / `0` 一律**回退默认值**（不报错，兼容既有调用行为）。',
-  '- `test_type`（`/test-records`、`/samples`、`/sync/manifest`、`/stats` 均支持）：空字符串或未知类型返回 `400 INVALID_TEST_TYPE`；已知但未授权返回 `403 TYPE_NOT_AUTHORIZED`（不再静默忽略）。',
+  '- `test_type`（`/test-records`、`/samples`、`/sync/manifest`、`/stats` 均支持）：空字符串或未知类型返回 `400 INVALID_TEST_TYPE`；已知但未授权返回 `403 TYPE_NOT_AUTHORIZED`（不再静默忽略）。'
+    + '响应会回显实际生效的 `test_type_filter`（未传时为 `null`），可用于核对过滤是否生效；`/test-records` 同时回显生效的 `start`/`end`。',
   '- 日期参数（`start` / `end`）：接受 `YYYY-MM-DD` 或 ISO8601 日期时间（取日期部分），**两端含当天**（闭区间）；'
     + '非法日期返回 `400 INVALID_START` / `INVALID_END`，`start > end` 返回 `400 INVALID_RANGE`；'
     + '请求范围与授权业务日期范围**求交集**（请求不能越过授权范围，交集为空是合法请求 → 200 且 0 条）。'
